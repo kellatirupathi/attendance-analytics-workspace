@@ -96,7 +96,6 @@ export default function AdminUsers() {
   return (
     <div className="flex flex-col">
       <PageHeader
-        badge="Administration"
         title="User Access"
         subtitle="Add, update, and manage access for staff members."
         right={
