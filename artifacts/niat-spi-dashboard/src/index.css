@@ -1,0 +1,238 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600;6..72,700&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --color-brand-50: #FFF3EA;
+  --color-brand-100: #FFE2CC;
+  --color-brand-200: #FFC79A;
+  --color-brand-300: #FFAA66;
+  --color-brand-400: #FF9440;
+  --color-brand-500: #FF7A1A;
+  --color-brand-600: #F25C05;
+  --color-brand-700: #D24E04;
+  --color-brand-800: #A93E05;
+  --color-brand-900: #84320A;
+
+  --font-sans: 'Inter', sans-serif;
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --animate-niat-loadbar: niat-loadbar 0.5s linear infinite;
+
+  @keyframes niat-loadbar {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+}
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 214 32% 91%;
+  --primary: 21 96% 48%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 21 96% 48%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 214 32% 91%;
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214 32% 91%;
+  --sidebar-primary: 21 96% 48%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 210 40% 96%;
+  --sidebar-accent-foreground: 222 47% 11%;
+  --sidebar-ring: 21 96% 48%;
+  --chart-1: 21 96% 48%;
+  --chart-2: 142 71% 45%;
+  --chart-3: 48 96% 53%;
+  --chart-4: 0 84% 60%;
+  --chart-5: 217 91% 60%;
+
+  --radius: 0.65rem;
+  --shadow-sm: 0px 1px 2px 0px rgba(0,0,0,0.05);
+  --shadow: 0px 1px 3px 0px rgba(0,0,0,0.1), 0px 1px 2px -1px rgba(0,0,0,0.1);
+  --shadow-md: 0px 4px 6px -1px rgba(0,0,0,0.1), 0px 2px 4px -2px rgba(0,0,0,0.1);
+}
+
+.dark {
+  --background: 222 47% 4%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 4%;
+  --card-foreground: 210 40% 98%;
+  --card-border: 217 32% 17%;
+  --primary: 21 96% 48%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 217 32% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 32% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 32% 17%;
+  --accent-foreground: 210 40% 98%;
+  --border: 217 32% 17%;
+  --input: 217 32% 17%;
+  --ring: 21 96% 48%;
+  --destructive: 0 62% 30%;
+  --destructive-foreground: 210 40% 98%;
+  --popover: 222 47% 4%;
+  --popover-foreground: 210 40% 98%;
+  --popover-border: 217 32% 17%;
+  --sidebar: 222 47% 4%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-border: 217 32% 17%;
+  --sidebar-primary: 21 96% 48%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 217 32% 17%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-ring: 21 96% 48%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-[#f5f6fa] text-foreground;
+    /* Inter tuned: contextual alternates + a touch of optical letter-spacing so
+       the body face reads crisp at small sizes across the dashboard. */
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    letter-spacing: -0.006em;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Serif display face — Newsreader carries the editorial voice already used on
+     the SPI report. Opt-in via `.font-serif` (and the shared page/section
+     headers add that class), NOT a blanket h1/h2/h3 rule — that would also
+     restyle dialog and sheet titles, which stay on the sans UI face. */
+  .font-serif {
+    font-family: var(--font-serif);
+    letter-spacing: -0.012em;
+    text-wrap: balance;
+  }
+
+  /* Numeric alignment — percentages, counts, session tallies and table figures
+     line up in columns. Applied broadly, then reinforced with `.tabular-nums`. */
+  th, td,
+  .tabular-nums,
+  [class*="tabular"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Eyebrow / kicker label treatment — opt-in class for the small uppercase
+     labels above headings. Scoped so it never fights Tailwind `tracking-*`. */
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 0.6875rem;
+    font-weight: 700;
+  }
+
+  /* Lucide icons — a slightly lighter default stroke (1.75 vs 2) reads more
+     refined at the small sizes used across the dashboard chrome and cards.
+     Central rule so every icon stays consistent without touching each import;
+     any icon that sets its own strokeWidth prop still wins via inline style. */
+  svg.lucide {
+    stroke-width: 1.75;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+  }
+}

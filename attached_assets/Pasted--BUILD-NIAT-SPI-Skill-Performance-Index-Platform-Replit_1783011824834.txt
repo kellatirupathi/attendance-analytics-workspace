@@ -1,0 +1,215 @@
+# BUILD: NIAT SPI — Skill Performance Index Platform (Replit)
+
+Build a full-stack platform that reproduces an existing Next.js app **feature-for-feature, layout-for-layout, style-for-style**, but on a new stack. Attendance/quiz/skill data is read **LIVE from Google BigQuery**. PostgreSQL stores only users, roles, campuses and scoping. **There is NO MongoDB and NO background sync job** — do not build any "fetch to DB every N minutes then read DB in the UI" pattern.
+
+## 0. Tech stack (use EXACTLY this)
+- **Monorepo:** pnpm workspaces. TypeScript 5.9. Node 24.
+- **Backend:** `artifacts/api-server` — Express 5 REST API on **port 8080**, all routes mounted under **`/api`**. Bundled to CJS with **esbuild**. Auth via **Passport** (Replit OIDC + NIAT Forms SSO) **and** bcrypt admin/staff password login. **pino** for logging.
+- **DB layer:** `lib/db` — **PostgreSQL** + **Drizzle ORM** + **drizzle-kit** (migrations) + **drizzle-zod** (schema→Zod). Drizzle schema lives in **`lib/db/src/schema/brave.ts`**.
+- **Frontend:** `artifacts/brave-dashboard` — **React + Vite**, **Tailwind CSS + shadcn/ui (Radix)**, **wouter** routing, **TanStack React Query** for fetching/caching, **Zod** for validation. Charts with **recharts**. Icons with **lucide-react**. Dates with **date-fns**.
+- In production, the Express server also serves the built Vite frontend (static) and handles `/api/*`; in dev, Vite proxies `/api` → `http://localhost:8080`.
+
+## 1. Monorepo layout
+```
+package.json                # pnpm workspaces root
+pnpm-workspace.yaml
+lib/db/
+  src/schema/brave.ts       # Drizzle schema (users, campuses, sessions)
+  src/index.ts              # db client (pg Pool + drizzle)
+  drizzle.config.ts
+  migrations/
+artifacts/api-server/
+  src/index.ts              # Express app, port 8080, mounts /api
+  src/routes/               # auth, admin, dashboard, attendance, bigquery, profile
+  src/lib/                   # bigquery, queries, auth(jwt), rbac, passport, rateLimit, cache, spiToken
+  src/seed.ts               # seeds users + campuses into Postgres
+  esbuild.config.mjs        # bundle -> CJS
+artifacts/brave-dashboard/
+  src/pages/                # wouter pages
+  src/components/
+  src/lib/
+  index.html, vite.config.ts, tailwind.config.ts
+```
+
+## 2. Environment variables / secrets (Replit Secrets)
+```
+DATABASE_URL                     # Postgres (Replit/Neon)
+JWT_SECRET                       # long random string (session + spi token + oauth state signing)
+BIGQUERY_SERVICE_ACCOUNT_JSON    # full service-account JSON, one line
+BQ_PROJECT_ID=kossip-helpers
+BQ_LOCATION=asia-south1
+GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   # optional Google OIDC
+REPLIT_OIDC_* / NIAT_FORMS_SSO_*          # Replit OIDC + NIAT Forms SSO config
+CRON_SECRET                      # optional (not used for sync; kept for any protected admin task)
+APP_URL                          # deployed URL, for OAuth redirect
+```
+**Fail fast:** on boot, if `NODE_ENV==='production'` and `JWT_SECRET` is missing or equals a dev default, throw and refuse to start.
+
+## 3. PostgreSQL schema (`lib/db/src/schema/brave.ts`, Drizzle)
+Roles enum: `superadmin, admin, hod, capability_manager, boa, instructor`.
+
+- **users**: `id (uuid pk)`, `name text`, `email text unique (lowercased)`, `passwordHash text`, `role (enum)`, `campuses text[] default '{}'`, `subjects text[] default '{}'`, `isActive boolean default true`, `createdBy text`, `lastLoginAt timestamptz`, `createdAt/updatedAt` (timestamps). Index on `role`, unique index on `email`.
+- **campuses**: `id uuid pk`, `name text unique`, `instituteId text`, `createdAt/updatedAt`.
+- **(optional) app_sessions** for token-version revocation: `userId`, `tokenVersion int` — see §7 revocation note.
+
+Generate drizzle-zod insert/select schemas for validation. Empty `campuses`/`subjects` arrays mean "unrestricted" (interpreted per role in RBAC).
+
+## 4. Migrate existing MongoDB data → Postgres (seed script)
+The old app had these collections in Mongo (`niatspi` DB): `users` (18 docs), `campus` (4 docs), plus `studentsnapshots`/`dashboardsummaries` which we **drop entirely** (that data now comes live from BigQuery).
+
+`artifacts/api-server/src/seed.ts` must insert:
+
+**Campuses** (name is the scoping key):
+```
+Nxtwave Institute of Advanced Technologies
+NIAT Chevella
+Chaitanya Deemed-to-be University
+Malla Reddy Vishwavidyapeeth
+```
+**Subjects** (constant list used in scoping UI):
+```
+Back End Development · Web  Application Development -2 · Data Structures ·
+DataBase Management System · Design and Analysis of Algorithms ·
+Probability and Statistics · CALCULUS · Logical Reasoning and Analytical Skills ·
+Advanced Communication Skills · Communicative English Foundation ·
+Communicative English Advanced · AI For Finanace
+```
+**Users** — 3 per role (18 total), all `passwordHash = bcrypt('Niat@2026', 10)`, `isActive=true`. Email pattern: `superadmin1@nxtwave.co.in`, `admin1@…`, `hod1@…`, `cm1@…`, `boa1@…`, `instructor1@…` (and 2,3 each). Give `boa*`, `cm*`, `instructor*` sample `campuses`/`subjects` scoping; superadmin/admin/hod get empty arrays (unrestricted). Make the seed idempotent (upsert by email).
+
+> If the real Mongo export is available, import those exact 18 users/4 campuses instead of samples — preserve emails, roles, campuses[], subjects[], passwordHash.
+
+## 5. BigQuery integration (LIVE — the only source for attendance/quiz data)
+Port these helpers to `artifacts/api-server/src/lib/bigquery.ts`:
+
+- **Auth:** build a signed RS256 JWT from `BIGQUERY_SERVICE_ACCOUNT_JSON` (client_email/private_key), exchange at `https://oauth2.googleapis.com/token` for an access token (scope `bigquery.readonly`), cache token in memory until ~30s before expiry.
+- **`bqQuery(sql, params?, location?)`**: POST to `bigquery/v2/projects/{BQ_PROJECT_ID}/queries` with `useLegacySql:false`, `timeoutMs:30000`, `location: BQ_LOCATION`. **Always use NAMED parameters** — never string-concat user input. Param typing: `number→INT64`, `string→STRING`, `string[]→ARRAY<STRING>` and reference via `IN UNNEST(@name)`.
+- Metadata helpers (superadmin BigQuery Explorer): `listDatasets`, `listTables(dataset)`, `getTablePreview(dataset, table, limit≤200)`. For the preview of views, **validate `dataset`/`table` against an allowlist from `listTables` or `^[A-Za-z0-9_]+$`** before interpolating into SQL (avoid identifier injection). Return generic errors to the client (don't leak `error.message`).
+- Input helpers: `validateStudentId = /^[a-zA-Z0-9_\-]{4,64}$/`, `pct(present,total)=round to 0.1`.
+
+**Tables:**
+- Attendance: `` `kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_student_session_wise_attendance_details` ``
+- **Quizzes (NEW):** `` `kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details` ``
+
+⚠️ **First introspect the quiz table** — run `SELECT * FROM <quiz table> LIMIT 5` and log the schema. Map the ACTUAL columns. Assume-and-verify these likely fields: `student_user_id`, `quiz_type` (classroom/module) or separate `classroom_*`/`module_*`, `subject_title`, `quiz_title`/`module_title`, `score`, `max_score`/`total_marks`, `status`/`is_attended`, `date`, `institute_name`, `batch_section_name`, `is_current_semester`. Adjust the queries below to the real names.
+
+**Attendance queries** (`src/lib/queries.ts`, all filter `is_current_semester = 1`, scoped via `scopeClause`):
+- `getStudentOverview(studentId)` — totals + present/absent + attendance %, recovery flag (<80%), courses-in-recovery count.
+- `getStudentSubjects(studentId)` — per subject_title present/total/%, meetsRequirement (≥80).
+- `getStudentRecentSessions(studentId)` — up to 500 rows, `date, session_title, subject_title, attendance_status, marking_method`, newest first.
+- `searchStudents(q, limit≤50, scope)` — name LIKE or exact id.
+- `getStudentsList(scope, {search,limit≤1000})` — grouped per student, ordered by attendance % asc.
+- `getCampusSummary / getSubjectSummary / getSectionSummary(scope)` — rollups (students, sections, subjects, present/total, %).
+- `getCampusList()`.
+
+**Quiz queries (NEW):**
+- `getStudentQuizzes(studentId)` → `{ classroomQuizzes: [...], moduleQuizzes: [...] }` each `{ subjectTitle, title, score, maxScore, percentage, status, date }`, plus participation summary (attempted/total, avg %). Scope-filter for staff views.
+- Add scoped campus/subject quiz rollups if the table supports it (avg score %, participation % by subject/campus) for future dashboard columns.
+
+`scopeClause(scope)`: base `is_current_semester = 1`; if `scope.campuses?.length` add `institute_name IN UNNEST(@campuses)`; if `scope.subjects?.length` add `subject_title IN UNNEST(@subjects)`.
+
+**Caching:** wrap live BigQuery reads in a small in-memory TTL cache (e.g. `overview:<id>` 5 min, dashboard `summary:<role>:<scope>` 60s) so repeated requests don't re-hit BigQuery. This is per-instance and best-effort — that's fine.
+
+## 6. RBAC (`src/lib/rbac.ts`)
+- `canManage(role)` → only `superadmin | admin`.
+- `manageableRoles(role)`: superadmin → [admin,hod,capability_manager,boa,instructor]; admin → [hod,capability_manager,boa,instructor]; others → [].
+- `scopeForSession(session)`: superadmin/admin/hod → `{}` (unrestricted); boa → `{campuses}`; capability_manager & instructor → `{campuses, subjects}`; default → `{campuses:['__none__']}`.
+- Role labels & descriptions (reuse the exact strings from the reference: Super Admin, Admin, HOD, Capability Manager, BOA, Instructor). `REQUIRED_PCT = 80`.
+
+## 7. Auth (`src/lib/auth.ts`, Passport, JWT cookie)
+- **Session:** signed **HS256 JWT** (jsonwebtoken/jose) carrying `{sub,email,name,role,campuses,subjects}`, 30-day expiry, set as httpOnly cookie `niat_session` (`secure` in prod, `sameSite:lax`, `path:/`, maxAge 30d).
+- **Password login** `POST /api/auth/login`: rate-limit 10/min/IP; lookup active user by lowercased email; `bcrypt.compare`; on success set cookie + update `lastLoginAt`; generic "Invalid email or password" on failure.
+- **OIDC/SSO (Passport):** Google OIDC and NIAT Forms SSO / Replit OIDC strategies. Policy: **only sign in emails that already exist as `isActive` users — never auto-create.** OAuth `state` = short-lived signed JWT carrying validated `next` (must start with `/`, else `/dashboard`). Verify `email_verified`.
+- `GET /api/auth/me` (session profile), `POST /api/auth/logout` (clear cookie).
+- **Revocation (improve on the original):** add `tokenVersion` to users; embed it in the JWT and re-check it (or `isActive`) in `requireSession`, so deactivating/role-changing a user invalidates live sessions instead of waiting 30 days.
+
+Express middleware `requireSession({manage?})` → 401 if no/invalid session, 403 if `manage` and not `canManage`. Guard all `/dashboard` and `/admin` **pages** client-side (redirect to `/staff-login`) AND guard every `/api` route server-side (defense in depth).
+
+## 8. API routes (Express, under `/api`) — mirror the original
+```
+POST   /api/auth/login
+POST   /api/auth/logout
+GET    /api/auth/me
+GET    /api/auth/google/start            (+ NIAT SSO / Replit OIDC start)
+GET    /api/auth/google/callback         (+ SSO callbacks)
+
+GET    /api/attendance/search                        (staff, scoped)
+GET    /api/attendance/students/:id/overview         (public via SPI token OR staff)
+GET    /api/attendance/students/:id/subjects         (   ""   )
+GET    /api/attendance/students/:id/recent           (   ""   )
+GET    /api/attendance/students/:id/quizzes    NEW   (   ""   )
+
+GET    /api/dashboard/summary            (staff, scoped, live BQ, 60s cache)
+GET    /api/dashboard/students           (staff, scoped; attach signed spiPath per student)
+
+GET    /api/admin/users        (GET list, POST create)     canManage
+PATCH/DELETE /api/admin/users/:id                          canManage (admins can't touch admins/superadmins; can't delete self)
+GET/POST     /api/admin/campuses ; PATCH/DELETE /api/admin/campuses/:id   canManage
+GET    /api/admin/meta         (roles, campuses, subjects for forms)
+
+GET    /api/bigquery/datasets | /tables | /preview        superadmin only
+
+GET/PATCH /api/profile         (self: name + password change, min 6 chars, verify current pw)
+```
+No `/api/cron/sync`. All `/api/auth/*` and `/api/admin/*` responses set `Cache-Control: no-store`.
+
+**SPI public access** (`allowSpiAccess`): rate-limit 60/min/IP; allow if a valid **SPI share token** `?t=` is present **or** the caller has a staff session; else 403. SPI token = `HMAC-SHA256(JWT_SECRET, "spi:"+studentId)` base64url, constant-time compare. `spiSharePath(id) = /spi/{id}?t={token}`. (Optionally add `exp` to the token so "expired" messaging is truthful.)
+
+## 9. Frontend (React + Vite + wouter) — pages, routes, layouts
+Routes (wouter):
+```
+/                       Landing (public marketing page)
+/staff-login            Login (password + Google/NIAT SSO buttons, 30-day session)
+/spi/:studentId         PUBLIC live SPI report (token-gated)
+/dashboard              Overview (scoped, live)
+/dashboard/students     Students list (scoped) + open SPI
+/dashboard/campuses     Campus/section/subject rollups
+/dashboard/profile      Edit profile (name + password)
+/dashboard/bigquery     BigQuery Explorer (superadmin only)
+/admin/users            Manage Users (superadmin/admin)
+/admin/campuses         Manage Campuses (superadmin/admin)
+```
+Use TanStack Query for all fetches. Dashboard layout = fixed left **Sidebar** (w-64) + scrollable main; mobile = top bar + slide-over drawer.
+
+## 10. EXACT design system (reproduce precisely)
+- App background `#f5f6fa`. Font family CSS var `--font-sans`, fallback `system-ui`. `--radius: 0.65rem`.
+- CSS variables (`:root`): `--background:0 0% 100%; --foreground:222 47% 11%; --card:0 0% 100%; --primary:21 96% 48%; --primary-foreground:210 40% 98%; --secondary/--muted:210 40% 96%; --muted-foreground:215 16% 47%; --border/--input:214 32% 91%; --ring:21 96% 48%`. Tailwind `darkMode:["class"]`.
+- **Brand orange scale** (`brand-50…900`): `#FFF3EA,#FFE2CC,#FFC79A,#FFAA66,#FF9440,#FF7A1A,#F25C05,#D24E04,#A93E05,#84320A`. Primary accents (buttons/active nav/links/rings) use `brand-600 #F25C05`, hover `brand-700`.
+- **Attendance color thresholds** (use everywhere): `pctColor = pct>=80 ? '#22c55e' : pct>=65 ? '#f59e0b' : '#ef4444'`; text variant `>=80 #16a34a / >=65 #d97706 / else #dc2626`.
+- Cards: `rounded-2xl border border-gray-200 bg-white shadow-sm` (hover `shadow-md`). Pills/badges: `rounded-full bg-brand-50 border border-brand-100 text-brand-700`. Tables: uppercase `text-[11px]` gray-400 headers on `bg-gray-50`, row hover `bg-gray-50/70`.
+- Thin scrollbars (`.scrollbar-thin`, 6px, thumb `#d1d5db`). Indeterminate loader bar keyframe `niat-loadbar` (sweep translateX -100%→250%, 0.5s linear infinite; 1.2s under `prefers-reduced-motion`).
+
+**Logo** — reproduce this SVG mark exactly (orange badge, gradient `#FF8A1E→#F25C05`, speedometer arc, three ascending white bars, upward arrow), plus wordmark `NIAT` + `<span style="color:#F25C05">SPI</span>`:
+```jsx
+// LogoMark: <svg viewBox="0 0 48 48"> rect rx=13 fill=url(grad);
+// path "M11 31a13 13 0 0 1 26 0" stroke #fff opacity .45;
+// rects x14 y27 5x7 / x21.5 y22 5x12 / x29 y16 5x18 rx2.5 #fff;
+// arrow path "M31.5 16.5l5-5m0 0h-4.2m4.2 0v4.2" stroke #fff
+```
+
+## 11. Page specs (match the reference layouts)
+- **Landing (`/`)**: sticky glass header (Logo + "Staff sign in"); hero with brand-glow blur, pill "NIAT · Skill Performance Index", big headline "A single skill score that tracks how you learn and how skill-ready you are.", two CTAs; 3 feature cards (Attendance & Eligibility / Recovery Mode / Skill Performance Index); "How you're assessed" card with 4 weighted checkpoints (Classroom Quizzes 10%, Module Quizzes 15%, Skill Assessments 25%, Final Skill Assessment 50%) + SPI formula note; "Skill levels & points" (A+ 90–100 =10 … F <50 =0) + "Eligibility to earn SPI" checklist; orange "Skill Debt" consequences card (SPI, Assessments, Placements, Internships, MINT·BRAVE·GRIT); footer.
+- **Overview (`/dashboard`)**: header "Welcome, {firstName}" + role·scope pill (+ "Data updated … ago" if applicable); 4 stat cards (Students / Campuses / **Avg Attendance ring** / Subjects <80%); insight row = horizontal recharts **BarChart** "Attendance by Subject" (lowest first, bars colored by `pctColor`) + **Subject Health donut** (Healthy≥80 green / Warning 65–79 amber / Critical<65 red) + "Needs Attention" top-5 worst with mini bars; **Campus Breakdown** table with per-row progress bar + link to campuses page.
+- **Students (`/dashboard/students`)**: searchable, scoped table (name, campus, section, present/total, attendance %); each row opens the student's SPI report via signed `spiPath`. Filter bar/drawer for campus/subject.
+- **Campuses (`/dashboard/campuses`)**: campus + section + subject rollup tables, colored bars.
+- **SPI report (`/spi/:studentId`, PUBLIC, token-gated)**: donut of overall attendance, standing/recovery banner (<80%), course-wise attendance cards + per-session drilldown modal (from `recent`). **Replace the old "Coming soon" quiz/assessment blocks with LIVE data from the quiz table:** Classroom Quizzes + Module Quizzes sections (participation %, per-quiz score/percentage, status), colored by `pctColor`. Keep Skill Assessment / Final Skill Assessment / SPI score as "Coming soon" placeholders until those feeds exist. Show "Updated … ago"/"Live data" label.
+- **Profile**: name + change password (current pw required, min 6).
+- **Admin Users**: table of users (name/email/role/scope/active/lastLogin); create/edit modal (role limited to `manageableRoles`, campus/subject multiselect, active toggle, password set); admins can't edit admins/superadmins; can't delete self. **Admin Campuses**: CRUD list.
+- **BigQuery Explorer (superadmin)**: dataset → table browser + row preview (uses `/api/bigquery/*`).
+
+## 12. Non-goals / do NOT do
+- ❌ No MongoDB, no Mongoose, no `StudentSnapshot`/`DashboardSummary` collections.
+- ❌ No cron/sync job, no "every 5 min pull BigQuery into DB then render DB". Attendance/quiz/skill data is read **live from BigQuery per request** (with the small TTL cache in §5).
+- ✅ Postgres is ONLY for users, roles, campuses, scoping/permissions.
+
+## 13. Build & run scripts
+- Root pnpm scripts: `dev` (concurrently run api-server on :8080 + Vite), `build` (drizzle migrate → esbuild api to CJS → vite build), `start` (node bundled CJS server serving API + static frontend on :8080), `db:generate` / `db:migrate` (drizzle-kit), `seed` (run seed.ts).
+- esbuild: bundle `artifacts/api-server/src/index.ts` → CJS, platform node, target node24, external native deps.
+
+## 14. Acceptance criteria
+1. Login with `superadmin1@nxtwave.co.in` / `Niat@2026` → `/dashboard` renders live BigQuery rollups scoped to role.
+2. Each of the 6 roles sees correctly scoped data (boa/cm/instructor restricted; superadmin/admin/hod unrestricted).
+3. `/spi/<id>?t=<token>` loads public report with live attendance **and** live classroom+module quiz data; bad/missing token → 403; invalid id format → 400.
+4. Admin/superadmin can CRUD users & campuses with the role guards; admins can't escalate or touch admins/superadmins.
+5. Superadmin BigQuery Explorer previews tables.
+6. No MongoDB and no sync process exist anywhere. Styling, colors, logo, layouts visually match the reference (brand-600 accents, card style, pctColor thresholds, sidebar).
+7. Deactivating a user invalidates their session promptly (token-version check).

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "NIAT SPI Platform"
+version = "1.0.0"
+id = "artifacts/brave-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22197
+
+[services.development]
+run = "pnpm --filter @workspace/niat-spi-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/niat-spi-dashboard", "run", "build" ]
+publicDir = "artifacts/niat-spi-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22197"
+BASE_PATH = "/"

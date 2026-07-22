@@ -1,0 +1,1 @@
+- [Seeding & RBAC scope quirks](seed-rbac-scope.md) — superadmin only via direct insert; empty subjects[] = campus-wide visibility; prod is seeded by one-time startup backfill (skip if any seed account exists).

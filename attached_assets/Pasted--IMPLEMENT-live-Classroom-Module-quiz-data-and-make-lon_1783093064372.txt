@@ -1,0 +1,90 @@
+# IMPLEMENT: live Classroom + Module quiz data, and make long dropdowns scrollable
+
+Two scoped changes only. Don't touch unrelated pages. Don't test/typecheck — I'll test myself.
+
+## PART A — Wire the quiz table live (BigQuery, via the existing service account)
+
+Table (same project/service account as attendance):
+```
+kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details
+```
+
+### A1. Introspect FIRST, then map (do not assume column names)
+Before writing queries, run these two probes with the existing BigQuery client and **log the output to the console**:
+```sql
+-- 1) real schema + types
+SELECT column_name, data_type
+FROM `kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.INFORMATION_SCHEMA.COLUMNS`
+WHERE table_name = 'z_niat_students_classroom_and_module_quiz_details'
+ORDER BY ordinal_position;
+
+-- 2) 5 sample rows to see real values (what distinguishes classroom vs module, score fields, status)
+SELECT * FROM `kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details` LIMIT 5;
+```
+Map the REAL columns to these logical fields (names below are guesses — replace with what the probe shows):
+- `student_user_id` (join key to attendance)
+- quiz **kind**: either a single column like `quiz_type` / `assessment_type` with values `CLASSROOM`/`MODULE`, OR separate rows/flags. Detect whichever it is.
+- `quiz_title` / `module_title` (display name)
+- `subject_title` (to group + scope)
+- `score` and `max_score` / `total_marks` (→ percentage = round(score/max*100, 1))
+- `status` / `is_attempted` / `is_completed` (→ `COMPLETED` vs `PENDING`)
+- `date` / `attempted_at` (optional, for ordering)
+- `institute_name`, `batch_section_name` (for staff scoping)
+- `is_current_semester` if present (filter = 1, like attendance)
+
+After mapping, **print the final column mapping** you chose so I can verify.
+
+### A2. Backend query + endpoint
+In the queries lib add `getStudentQuizzes(studentId)` using **named parameters** (never string-concat):
+```
+returns {
+  classroom: { avgPercentage: number, attempted: number, total: number,
+               items: [{ title, subjectTitle, score, maxScore, percentage, status, date }] },
+  module:    { avgPercentage: number, attempted: number, total: number,
+               items: [{ title, subjectTitle, score, maxScore, percentage, status, date }] }
+}
+```
+- Filter `student_user_id = @studentId` (+ `is_current_semester = 1` if the column exists).
+- Split into classroom vs module by the kind column.
+- `percentage = maxScore > 0 ? round(score/maxScore*1000)/10 : 0`; `status = completed/attempted ? 'COMPLETED' : 'PENDING'`.
+- `avgPercentage` = mean of item percentages (0 if none). `attempted` = count with a real score; `total` = item count.
+- Wrap in the same in-memory TTL cache as attendance (key `quizzes:<studentId>`, ~5 min).
+
+Route (public via SPI token OR staff session, exactly like the other attendance endpoints — reuse `allowSpiAccess` + `validateStudentId`):
+```
+GET /api/attendance/students/:studentId/quizzes   → getStudentQuizzes(studentId)
+```
+Return generic errors on failure; never leak `error.message`.
+
+### A3. SPI page rendering (replace the current Quizzes block with real data)
+On `/spi/:studentId`, fetch the quizzes endpoint (forward the `?t=` token) and render a **Quizzes** card matching the existing card style (`rounded-xl border border-gray-200 bg-white p-5 shadow-sm`, BookOpen icon heading):
+
+- Two subsections: **Classroom Quizzes** then **Module Quizzes**. Each subsection header is a row: bold label on the left + a right-aligned pill `{avgPercentage}% Avg` (`rounded-full bg-gray-100 text-gray-600 text-xs px-2.5 py-0.5`).
+- Under each, list its `items` as rows:
+  - left: quiz `title` (`text-sm font-medium text-gray-800`) + `subjectTitle` under it (`text-xs text-gray-400`)
+  - right: `{score}/{maxScore}` colored by `pctColor(percentage)` bold, and a status badge under/next to it — `COMPLETED` → `bg-green-100 text-green-700`, `PENDING` → `bg-gray-100 text-gray-500` (`text-[11px] font-semibold rounded-full px-2 py-0.5`).
+  - each row: `rounded-lg border border-gray-100 px-3 py-2.5` (or a divided list), hover `bg-gray-50`.
+- If a subsection has 0 items: muted centered line "No classroom quizzes yet." / "No module quizzes yet."
+- If BOTH are empty: keep a single "Coming soon" style note instead of an empty card.
+- Percentages/scores must use `pctColor` (≥80 green / ≥65 amber / else red) — same as the rest of the app.
+
+Keep **Practical Assessments** (Skill Assessment / Final Skill Assessment) as the existing **Coming Soon** card — only classroom + module quizzes go live now.
+
+> Staff dashboards: no new quiz columns required this pass — student SPI page only. (If the table supports it, you may later add a scoped quiz avg to dashboards, but not now.)
+
+## PART B — Make long dropdowns scrollable everywhere
+
+Any dropdown/menu/listbox that can grow long must cap its height and scroll internally — never let it run off-screen (the BigQuery **dataset** dropdown is the worst offender; it lists hundreds of datasets).
+
+Apply to EVERY popover/menu/combobox list (BigQuery dataset dropdown, BigQuery table dropdown, admin user-form Campus/Subject multiselects, any sort/role `<select>`-style custom menus, filter option lists):
+- The scroll container gets: `max-h-72 overflow-y-auto scrollbar-thin` (≈288px; use `max-h-60` for smaller menus). Keep the panel itself `rounded-xl border border-gray-200 bg-white shadow-xl`.
+- For shadcn/Radix `Select`/`DropdownMenu`/`Command` content, set `className="max-h-72 overflow-y-auto"` on the content/viewport (for `Command`, on `CommandList`).
+- Native `<select>` elements already scroll — leave them; this is only for the custom popovers.
+- BigQuery dataset & table dropdowns specifically: add a search/filter input at the top of the popover that filters the list as you type, plus the `max-h-72 overflow-y-auto` list — hundreds of datasets must be searchable, not just scrollable.
+- Ensure the popover uses `overflow` clipping so rounded corners aren't broken by the scroll area, and that it closes on click-away and on selection.
+
+## Acceptance (self-tested)
+1. Console shows the printed real quiz-table schema + the column mapping you chose.
+2. `/spi/<id>?t=<token>` shows live Classroom Quizzes and Module Quizzes with per-quiz score/max, % color, status badges, and per-section `% Avg` — no mock data.
+3. `GET /api/attendance/students/:id/quizzes` works with a valid SPI token and 403s without one.
+4. The BigQuery dataset dropdown (and every long menu) is height-capped and scrolls internally, with a type-to-filter search on the dataset/table dropdowns.

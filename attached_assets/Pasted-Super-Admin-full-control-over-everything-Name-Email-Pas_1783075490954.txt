@@ -1,0 +1,35 @@
+Super Admin — full control over everything				
+Name	Email	Password	Scope	
+Akhilendar Reddy	superadmin1@nxtwave.co.in	Niat@2026	All campuses + all data + CRUD	
+Priya Menon	superadmin2@nxtwave.co.in	Niat@2026	All campuses + all data + CRUD	
+Rahul Varma	superadmin3@nxtwave.co.in	Niat@2026	All campuses + all data + CRUD	
+Admin — manages HOD/CM/BOA/Instructors + CRUD				
+Name	Email	Password	Scope	
+Sandeep Kumar	admin1@nxtwave.co.in	Niat@2026	All campuses + CRUD	
+Divya Rao	admin2@nxtwave.co.in	Niat@2026	All campuses + CRUD	
+Imran Shaikh	admin3@nxtwave.co.in	Niat@2026	All campuses + CRUD	
+HOD — read-only, all campuses				
+Name	Email	Password	Scope	
+Dr. Lakshmi Narayan	hod1@nxtwave.co.in	Niat@2026	All campuses (view)	
+Dr. Venkatesh Iyer	hod2@nxtwave.co.in	Niat@2026	All campuses (view)	
+Dr. Anjali Gupta	hod3@nxtwave.co.in	Niat@2026	All campuses (view)	
+Capability Manager — read-only, assigned campus + subjects				
+Name	Email	Password	Campus	Subjects
+Kiran Teja	cm1@nxtwave.co.in	Niat@2026	Nxtwave Institute of Advanced Technologies	Back End Dev, Data Structures, DAA
+Meghana Reddy	cm2@nxtwave.co.in	Niat@2026	NIAT Chevella	Logical Reasoning, Advanced Communication
+Arjun Nair	cm3@nxtwave.co.in	Niat@2026	Chaitanya Deemed-to-be University	Probability & Statistics, Calculus
+BOA — read-only, one assigned campus				
+Name	Email	Password	Campus	
+Suresh Babu	boa1@nxtwave.co.in	Niat@2026	Nxtwave Institute of Advanced Technologies	
+Naveen Chandra	boa2@nxtwave.co.in	Niat@2026	NIAT Chevella	
+Pooja Sharma	boa3@nxtwave.co.in	Niat@2026	Chaitanya Deemed-to-be University	
+Instructor — read-only, own campus + subject				
+Name	Email	Password	Campus	Subject
+Ravi Teja	instructor1@nxtwave.co.in	Niat@2026	Nxtwave Institute of Advanced Technologies	Back End Development
+Sneha Patil	instructor2@nxtwave.co.in	Niat@2026	NIAT Chevella	Logical Reasoning
+Vikram Aditya	instructor3@nxtwave.co.in	Niat@2026	Chaitanya Deemed-to-be University	Probability and Statistics
+Login at /staff-login → everyone lands on the role-scoped /dashboard.				
+				
+				
+				
+				

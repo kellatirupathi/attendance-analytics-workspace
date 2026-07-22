@@ -1,0 +1,80 @@
+# FIX & COMPLETE the NIAT SPI Platform (continue on the existing project)
+
+The current build only wired TWO routes into the wouter router — `/` and `/dashboard`. Every other page returns "404 Page Not Found: Did you forget to add the page to the router?" (confirmed on /dashboard/students, /dashboard/campuses, /admin/campuses). The page components already exist — they were just never registered. Also: the DB was seeded with FAKE data and there is a mock sandbox. Fix all of the following. Do not test/typecheck/UI-check — I will test myself.
+
+## TASK 1 — Rename the frontend folder (real product, no "brave")
+Rename `artifacts/brave-dashboard` → **`artifacts/niat-spi-dashboard`**. Update every reference: `pnpm-workspace.yaml`, root and package `package.json` `name` fields, `vite.config.ts`, tsconfig paths, any `@workspace/*` imports, esbuild/build scripts, and the Express static-serve path that points to the frontend build output. Delete the **`mockup-sandbox`** folder entirely and remove any mock/sandbox credentials or fixtures — this is a real product with real data only.
+
+## TASK 2 — Register ALL routes in the wouter router (this is the main bug)
+In the frontend router (App.tsx / the top-level `<Switch>`), register every route below. Wrap all `/dashboard/*` and `/admin/*` routes in the authenticated **DashboardLayout** (sidebar + main). Keep the 404 fallback LAST.
+
+```
+<Route path="/"                     → Landing (public)
+<Route path="/staff-login"          → Login (public)
+<Route path="/spi/:studentId"       → SpiReport (public, token-gated)
+
+  {/* everything below inside DashboardLayout with the sidebar */}
+<Route path="/dashboard"            → Overview
+<Route path="/dashboard/students"   → Students
+<Route path="/dashboard/campuses"   → Campuses
+<Route path="/dashboard/profile"    → Profile
+<Route path="/dashboard/bigquery"   → BigQueryExplorer  (superadmin only)
+<Route path="/admin/users"          → AdminUsers        (superadmin/admin)
+<Route path="/admin/campuses"       → AdminCampuses     (superadmin/admin)
+<Route>                             → NotFound (404 fallback, keep last)
+```
+Requirements:
+- The **Sidebar** nav items must link to these exact paths (Overview, Students, Campuses, and the Administration group: Manage Users, Manage Campuses; profile menu: Edit Profile, BigQuery Check for superadmin, Logout).
+- `/dashboard/bigquery` must render only for `role === 'superadmin'`; `/admin/*` only for `superadmin`/`admin` — otherwise redirect to `/dashboard`.
+- Verify by visiting each URL directly (hard refresh) — none may 404. If any page component is missing or a stub, build it out fully per the original spec (Students list with search + scoped table + open-SPI link; Campuses rollup tables; Profile name+password form; AdminUsers CRUD with role guards; AdminCampuses CRUD; BigQueryExplorer dataset→table→preview).
+
+## TASK 3 — Use REAL data (migrate from MongoDB), delete the fake seed
+Remove the fake seed data (`admin@niat.edu / Admin@123`, and campuses "NIAT Hyderabad/Bangalore/Chennai/Pune/Delhi"). Instead, do a **one-time migration from the real MongoDB** into Postgres using the `MONGODB_URI` secret (already provided). Write a script `artifacts/api-server/src/migrate-from-mongo.ts`:
+
+- Connect to Mongo `niatspi` DB. Read the `users` collection (18 docs) and `campus` collection (4 docs).
+- **Users**: insert into Postgres `users` preserving `email` (lowercased), `name`, `role`, `campuses[]`, `subjects[]`, `isActive`, `createdBy`, and **the existing `passwordHash` as-is** (do NOT re-hash — the real password for all sample staff is `Niat@2026`). Upsert by email (idempotent). Set `tokenVersion = 0`.
+- **Campuses**: insert the 4 real campuses (names are the scoping key):
+  ```
+  Nxtwave Institute of Advanced Technologies
+  NIAT Chevella
+  Chaitanya Deemed-to-be University
+  Malla Reddy Vishwavidyapeeth
+  ```
+- Do NOT copy `studentsnapshots` / `dashboardsummaries` — that data now comes LIVE from BigQuery. After migration, MongoDB is no longer used at runtime; remove any runtime Mongo dependency (keep only this migration script).
+- Add pnpm script `migrate:mongo` and run it once.
+
+Real login after migration: `superadmin1@nxtwave.co.in` / `Niat@2026`.
+
+## TASK 4 — Favicon + tab title
+Add a **public favicon** using the NIAT SPI brand mark (orange rounded badge, gradient `#FF8A1E → #F25C05`, three ascending white bars + upward arrow + speedometer arc). Put `favicon.svg` (and a 32×32 `favicon.png` fallback) in the frontend `public/` folder and reference them in `index.html`:
+```html
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+<title>NIAT SPI — Skill Performance Index</title>
+```
+The favicon SVG (same as the LogoMark):
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#FF8A1E"/><stop offset="1" stop-color="#F25C05"/></linearGradient></defs>
+  <rect width="48" height="48" rx="13" fill="url(#g)"/>
+  <path d="M11 31a13 13 0 0 1 26 0" stroke="#fff" stroke-opacity=".45" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <rect x="14" y="27" width="5" height="7" rx="2.5" fill="#fff"/>
+  <rect x="21.5" y="22" width="5" height="12" rx="2.5" fill="#fff"/>
+  <rect x="29" y="16" width="5" height="18" rx="2.5" fill="#fff"/>
+  <path d="M31.5 16.5l5-5m0 0h-4.2m4.2 0v4.2" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+```
+
+## TASK 5 — Confirm the live BigQuery data is wired (no mock)
+- Attendance (dashboards, students, campuses, SPI report) reads LIVE from `kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_student_session_wise_attendance_details` (already set).
+- The SPI report's Classroom Quizzes + Module Quizzes sections read LIVE from `kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`. First run `SELECT * FROM <that table> LIMIT 5`, log the real column names, and map the quiz queries to them. No mock/placeholder data anywhere except the still-future "Skill Assessment / Final Skill Assessment / SPI score" blocks, which stay "Coming soon".
+
+## Acceptance (self-tested)
+1. Visiting `/dashboard/students`, `/dashboard/campuses`, `/dashboard/profile`, `/dashboard/bigquery`, `/admin/users`, `/admin/campuses` directly — NONE return 404; all render with the sidebar.
+2. Login works with `superadmin1@nxtwave.co.in` / `Niat@2026` (real migrated user).
+3. Campuses shown are the 4 real ones; users are the 18 real ones. No `admin@niat.edu`, no "NIAT Hyderabad/Bangalore/…".
+4. Folder is `artifacts/niat-spi-dashboard`; `mockup-sandbox` is gone; no mock credentials remain.
+5. Browser tab shows the NIAT SPI favicon + title.
+
+After you finish, tell me: the final list of working routes, the migrated user/campus counts, and the real quiz-table column names you mapped.

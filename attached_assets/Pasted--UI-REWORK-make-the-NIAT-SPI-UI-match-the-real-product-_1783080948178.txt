@@ -1,0 +1,123 @@
+# UI REWORK — make the NIAT SPI UI match the real product exactly
+
+The app works and data flows. Now fix the UI so it matches the original NIAT SPI design precisely. This is UI/layout/copy only — do not change API contracts or data logic. Do not test/typecheck; I'll test myself.
+
+## Global design tokens (must be exact — reuse everywhere)
+- App bg `#f5f6fa`. Cards: `rounded-2xl border border-gray-200 bg-white shadow-sm` (tables/panels can use `rounded-xl`). Hover cards → `shadow-md`.
+- Brand accent = `brand-600 #F25C05`, hover `brand-700`. Pills/badges: `rounded-full bg-brand-50 border border-brand-100 text-brand-700`.
+- Attendance color helpers (use for ALL % text/bars/dots):
+  ```ts
+  pctColor = (p) => p >= 80 ? '#22c55e' : p >= 65 ? '#f59e0b' : '#ef4444';
+  pctTextClass = (p) => p >= 80 ? 'text-[#16a34a]' : p >= 65 ? 'text-[#d97706]' : 'text-[#dc2626]';
+  ```
+- Section labels: `text-[11px] font-semibold uppercase tracking-widest text-gray-400`.
+- Thin scrollbars `.scrollbar-thin` (6px, thumb `#d1d5db`).
+
+---
+
+## 1. SIDEBAR — restructure completely (biggest visible problem)
+Current sidebar is wrong: flat nav ("Dashboard, Students, Campuses, Profile, Admin Users, Admin Campuses, BigQuery") + a big "Sign Out" button. Replace with the real structure:
+
+**Header (top):** LogoMark (36px) + wordmark `NIAT` + `<span class="text-[#F25C05]">SPI</span>` (font-extrabold), and a subtitle line under it: `Staff Console` (`text-[11px] text-gray-400`).
+
+**Primary nav** (labels EXACTLY these — not "Dashboard"):
+- `Overview` → `/dashboard` (LayoutDashboard icon)
+- `Students` → `/dashboard/students` (GraduationCap icon)
+- `Campuses` → `/dashboard/campuses` (Building2 icon)
+
+**Administration group** (only if user canManage = superadmin/admin): a divider label `Administration` (`text-[10px] font-semibold uppercase tracking-widest text-gray-400 px-3 pt-4 pb-1`), then:
+- `Manage Users` → `/admin/users` (UserCog icon)
+- `Manage Campuses` → `/admin/campuses` (Building2 icon)
+
+Active nav item: `bg-brand-600 text-white rounded-lg`; inactive: `text-gray-600 hover:bg-gray-100`. Each item `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium`.
+
+**Bottom = profile button + popover menu (NOT a Sign Out button):**
+- A full-width button: circular avatar (gray bg, first initial) + name (`text-sm font-semibold text-gray-800 truncate`) + role label below (`text-[11px] text-gray-400`, e.g. "Super Admin") + a ChevronRight that rotates 90° when open.
+- Clicking opens a popover **to the right** (`absolute left-full bottom-3 ml-2 w-52 rounded-xl border border-gray-200 bg-white shadow-xl py-1.5`) with a click-away overlay. Menu items:
+  - `Edit Profile` → `/dashboard/profile` (User icon)
+  - `BigQuery Check` → `/dashboard/bigquery` (Database icon) — **only if role === 'superadmin'** (this is where BigQuery lives; remove it from the primary nav)
+  - divider, then `Logout` in red (`text-red-600 hover:bg-red-50`, LogOut icon) → POST `/api/auth/logout` then redirect `/staff-login`.
+- Desktop sidebar: `hidden md:flex w-64 shrink-0 bg-white border-r border-gray-200 h-[100dvh] sticky top-0`. Mobile: top bar with logo + hamburger opening a left slide-over drawer with the same Inner content.
+
+Use role labels: superadmin→"Super Admin", admin→"Admin", hod→"HOD", capability_manager→"Capability Manager", boa→"BOA", instructor→"Instructor".
+
+---
+
+## 2. PAGE HEADER (shared) + page padding
+Every dashboard page's content is wrapped in `p-6` (or `px-6 py-6`). Add a shared `PageHeader`: `<h1 class="text-2xl font-bold text-gray-900">` + optional subtitle `text-sm text-gray-500 mt-1`, with an optional right slot, `mb-6`.
+
+---
+
+## 3. STUDENTS PAGE — add FilterBar + chips + sort + export + pagination
+Currently a plain infinite table. Rebuild to match:
+
+**Top FilterBar row** (`flex gap-2`):
+- Search input with a Search icon (left) and a spinner on the right while loading; `placeholder="Search students by name…"`; `max-w-md`; debounce 350ms.
+- `Filters` button (SlidersHorizontal icon) with a brand-600 count badge when filters active → opens a right-side **FilterDrawer**.
+- Right slot: a `Sort` `<select>` (Default / Attendance: High to Low / Low to High) + an `Export` button (Download icon) that downloads the current filtered view as CSV.
+- Below the row: **active filter chips** (`rounded-full bg-brand-50 border border-brand-100 text-brand-700` with an X to remove each).
+
+**FilterDrawer** (right slide-over, `sm:max-w-md`, slide-in animation): groups built adaptively from loaded rows:
+- `Campus` (multi-select checkboxes, shown only if >1 campus) with per-option counts
+- `Section` (multi, if >1 section) with counts
+- `Attendance` (single-select radio): Below 50% / Below 80% (Recovery) / 80% and above, each with counts.
+- Footer: `Clear all` (left), `Cancel` + `Apply filters` (brand-600) on the right. Header shows "N active".
+
+**Table** (`rounded-xl border bg-white shadow-sm`): columns `Student` (name bold + id + section muted under it), `Campus`, `Section`, `Attendance` (right-aligned, `pctTextClass` bold + `(present/total)` muted), `Report` (right-aligned "Open ↗" link in brand-600, opens `spiPath` in new tab). Header row `text-[11px] uppercase tracking-wider text-gray-400 bg-gray-50`.
+
+**Pagination bar** (below table, `flex items-center justify-between`): left = page-size select (200 / 500 / 1000 per page) + "N total"; right = "Page X of Y" + `← Prev` / `Next →` buttons (disabled at ends). Reset to page 1 when search/filters/sort/pageSize change. Fetch with `?limit=5000` and paginate client-side.
+
+Empty state row: "No students match your filters."
+
+---
+
+## 4. CAMPUSES PAGE — add view toggle + Sections/Subjects columns + filters + export
+Current page is missing columns and controls. Rebuild:
+
+- Top: FilterBar (search "Search sections…"/"Search campuses…") + a **view toggle** segmented control on the right: `By section` | `By campus` (active = `bg-brand-600 text-white`, in a `rounded-lg border p-0.5` group).
+- Panel header: title `Section Breakdown` / `Campus Breakdown` + "shown of total" count + Export button.
+- **By section** table columns: Campus, Section (bold), Students (right), Attendance % (right, `pctTextClass`).
+- **By campus** table columns: Campus (bold), **Sections** (right), **Subjects** (right), Students (right), Attendance % (right). (The current version is missing Sections + Subjects — add them; the summary API already returns `sections` and `subjects` counts.)
+- Sticky table header, `max-h-[68vh]` scroll. FilterDrawer with Campus (multi) + Attendance band (single). CSV export of the current view.
+
+---
+
+## 5. SPI REPORT PAGE (`/spi/:studentId`) — fix structure + the recovery bug
+The current page reads vague and has a bug: the STANDING badge says "Recovery Mode (129 **subjects**)" — that's the session count, not subjects. Rebuild to the real layout:
+
+**Container:** `max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6 pb-20`, page bg `#f5f6fa`. Keep the top public header (LogoMark + NIAT SPI wordmark left, `● Live data` green pill right).
+
+**Header block:** small uppercase kicker `Attendance & Eligibility`; `<h1 class="text-2xl sm:text-3xl font-bold">Your Attendance, {studentName}</h1>`; subtitle `Current semester · classes still in progress`; right-side pill `⟳ {lastUpdatedLabel}` ("Live data" when no sync timestamp).
+
+**Two-column grid (`md:grid-cols-2 gap-5`):**
+- **Left card — "Current Semester Attendance":** a **donut** (140×140, ring stroke 13, colored by `pctColor`, big `%` centered with "this semester" under it) beside a paragraph (on-track / X below-80 message) and a 3-stat row: `Present` (count), `Absent` (red count), `Required` (80%).
+- **Right card — "Your Standing":** three `StandingRow`s (CheckCircle2 green when ok / amber when not): `Recovery Mode` = Active/Not active, `SPI Eligibility` = On track/Not on track, `Courses in Recovery` = count or "None".
+
+**Fix the STANDING/recovery count:** "courses in recovery" = number of **subjects** with attendance < 80%, NOT the session total. Never render "(129 subjects)" from a session count.
+
+**Recovery banner** (only if any subject < 80%): orange card (`border-orange-200 bg-orange-50`) — "You're in Recovery Mode", count of courses below 80%, chips of each recovery subject with its %, and a "If Recovery Isn't Completed" consequences grid (SPI / Assessments / Placements / Internships / MINT·BRAVE·GRIT).
+
+**Quizzes section (live — keep, but style to match):** two subsections `Classroom Quizzes` and `Module Quizzes`, each with a right-aligned `N% Avg` pill and a list of quiz rows: title + subject (muted) on the left, `score/max` colored by `pctColor` + status badge (`PENDING`/`COMPLETED`) on the right. Card = `rounded-xl border border-gray-200 bg-white p-5 shadow-sm`, heading with a BookOpen icon.
+
+**Practical Assessments** card stays **Coming Soon** (centered activity icon + "Skill Assessments and Final Skill Assessment integration is currently in development.").
+
+**Course-wise Attendance grid:** card titled "Course-wise Attendance" with note "| marks the 80% minimum"; grid `sm:grid-cols-2 lg:grid-cols-3 gap-3` of **CourseCard** buttons: subject name + big `%` (`pctTextClass`), a progress bar with a vertical tick at 80%, `present/total sessions`, `Recovery`/`Meets 80%` label, and "Tap to view sessions →". Clicking opens a **SessionModal** (bottom-sheet on mobile, centered on desktop) listing that subject's sessions (date chip + title + Present/Absent badge), with a present/absent/total summary header. Load `/recent` lazily on first open.
+
+**No-student state:** centered card "No Student Data Found" + "Please contact admin".
+
+---
+
+## 6. LOADERS, EMPTY & ERROR STATES
+- Page-level loading uses a branded `PageLoader` (centered spinner) — not a blank white screen.
+- Tables show an inline loader row while first loading; empty states show muted centered text (never a raw "no data").
+- Error state: `rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700`.
+
+## 7. OVERVIEW (dashboard) — verify it already matches, fix only if off
+Keep: 4 stat cards (Students / Campuses / **Avg Attendance ring** / Subjects <80%), the role·scope pill, horizontal "Attendance by Subject" bar chart (bars colored by `pctColor`, lowest first), "Subject Health" donut (Healthy≥80 / Warning 65–79 / Critical<65), "Needs Attention" top-5 worst with mini bars, and the "Campus Breakdown" table with per-row progress bars + "View full campus & section breakdown ↗" footer link. If the donut currently renders all-red with no legend values, ensure buckets compute from real subject %s.
+
+## Acceptance (self-tested)
+1. Sidebar: logo + "Staff Console"; nav = Overview/Students/Campuses; "Administration" group with Manage Users/Manage Campuses; profile popover at bottom (Edit Profile, BigQuery Check for superadmin, red Logout) — no standalone "Sign Out" button, no top-level BigQuery item.
+2. Students page has search + Filters drawer + active chips + sort + CSV export + pagination (page-size select + Prev/Next + "Page X of Y").
+3. Campuses page has By section / By campus toggle; campus view shows Sections + Subjects columns; filters + export work.
+4. SPI page shows the two-column donut+standing layout, recovery banner, live quizzes, course cards with 80% tick + session modal; the recovery count reflects subjects (not sessions) — no "(129 subjects)".
+5. Colors follow pctColor everywhere; cards/pills/spacing match the tokens above.

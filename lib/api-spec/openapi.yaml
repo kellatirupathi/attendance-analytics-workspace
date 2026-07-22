@@ -1,0 +1,990 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: NIAT SPI Platform API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication
+  - name: attendance
+    description: Attendance data from BigQuery
+  - name: dashboard
+    description: Dashboard summaries
+  - name: admin
+    description: Admin user/campus management
+  - name: bigquery
+    description: BigQuery Explorer (superadmin)
+  - name: profile
+    description: User profile
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Password login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current session user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not authenticated
+
+  /attendance/search:
+    get:
+      operationId: searchStudents
+      tags: [attendance]
+      summary: Search students
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Student search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StudentSearchResult"
+
+  /attendance/students/{studentId}/overview:
+    get:
+      operationId: fetchStudentOverview
+      tags: [attendance]
+      summary: Get student attendance overview
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: t
+          in: query
+          required: false
+          description: SPI share token for public access (used when no staff session)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Student overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentOverview"
+        "403":
+          description: Forbidden
+
+  /attendance/students/{studentId}/subjects:
+    get:
+      operationId: fetchStudentSubjects
+      tags: [attendance]
+      summary: Get student subject-wise attendance
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: t
+          in: query
+          required: false
+          description: SPI share token for public access (used when no staff session)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Subject attendance list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubjectAttendance"
+
+  /attendance/students/{studentId}/recent:
+    get:
+      operationId: fetchStudentRecentSessions
+      tags: [attendance]
+      summary: Get student recent sessions
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: t
+          in: query
+          required: false
+          description: SPI share token for public access (used when no staff session)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Recent sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SessionRecord"
+
+  /attendance/students/{studentId}/quizzes:
+    get:
+      operationId: fetchStudentQuizzes
+      tags: [attendance]
+      summary: Get student quiz data
+      parameters:
+        - name: studentId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: t
+          in: query
+          required: false
+          description: SPI share token for public access (used when no staff session)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quiz data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentQuizzes"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get scoped dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/filters:
+    get:
+      operationId: getDashboardFilters
+      tags: [dashboard]
+      summary: Live campus and section filter options (role-scoped, from BigQuery)
+      parameters:
+        - name: campus
+          in: query
+          required: false
+          description: When set, sections are limited to this campus
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Filter options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardFilters"
+
+  /dashboard/students:
+    get:
+      operationId: getDashboardStudents
+      tags: [dashboard]
+      summary: Get scoped student list with SPI paths
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: campus
+          in: query
+          schema:
+            type: string
+        - name: section
+          in: query
+          schema:
+            type: string
+        - name: attendanceBand
+          in: query
+          description: "all | below50 | below80 | above80"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Student list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DashboardStudent"
+
+  /admin/users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List all users
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+    post:
+      operationId: createUser
+      tags: [admin]
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInput"
+      responses:
+        "201":
+          description: Created user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /admin/users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [admin]
+      summary: Update a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      operationId: deleteUser
+      tags: [admin]
+      summary: Delete a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/campuses:
+    get:
+      operationId: listCampuses
+      tags: [admin]
+      summary: List campuses
+      responses:
+        "200":
+          description: Campus list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Campus"
+    post:
+      operationId: createCampus
+      tags: [admin]
+      summary: Create campus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampusInput"
+      responses:
+        "201":
+          description: Created campus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campus"
+
+  /admin/campuses/{id}:
+    patch:
+      operationId: updateCampus
+      tags: [admin]
+      summary: Update campus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CampusUpdate"
+      responses:
+        "200":
+          description: Updated campus
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campus"
+    delete:
+      operationId: deleteCampus
+      tags: [admin]
+      summary: Delete campus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /admin/meta:
+    get:
+      operationId: getAdminMeta
+      tags: [admin]
+      summary: Get roles, campuses, subjects for forms
+      responses:
+        "200":
+          description: Meta data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMeta"
+
+  /bigquery/datasets:
+    get:
+      operationId: listDatasets
+      tags: [bigquery]
+      summary: List BigQuery datasets
+      responses:
+        "200":
+          description: Dataset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BqDataset"
+
+  /bigquery/tables:
+    get:
+      operationId: listTables
+      tags: [bigquery]
+      summary: List tables in a dataset
+      parameters:
+        - name: dataset
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Table list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BqTable"
+
+  /bigquery/preview:
+    get:
+      operationId: previewTable
+      tags: [bigquery]
+      summary: Preview rows from a table
+      parameters:
+        - name: dataset
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: table
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Table preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BqPreview"
+
+  /profile:
+    get:
+      operationId: getProfile
+      tags: [profile]
+      summary: Get own profile
+      responses:
+        "200":
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+    patch:
+      operationId: updateProfile
+      tags: [profile]
+      summary: Update name or password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthUser:
+      type: object
+      required: [id, name, email, role]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        campuses:
+          type: array
+          items:
+            type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        lastLoginAt:
+          type: ["string", "null"]
+
+    StudentSearchResult:
+      type: object
+      required: [studentId, studentName]
+      properties:
+        studentId:
+          type: string
+        studentName:
+          type: string
+        instituteName:
+          type: ["string", "null"]
+        sectionName:
+          type: ["string", "null"]
+        attendancePct:
+          type: ["number", "null"]
+        presentCount:
+          type: integer
+        totalCount:
+          type: integer
+
+    StudentOverview:
+      type: object
+      required: [studentId, studentName, totalSessions, presentCount, absentCount, attendancePct, inRecovery, coursesInRecovery]
+      properties:
+        studentId:
+          type: string
+        studentName:
+          type: string
+        instituteName:
+          type: ["string", "null"]
+        sectionName:
+          type: ["string", "null"]
+        totalSessions:
+          type: integer
+        presentCount:
+          type: integer
+        absentCount:
+          type: integer
+        attendancePct:
+          type: number
+        inRecovery:
+          type: boolean
+        coursesInRecovery:
+          type: integer
+
+    SubjectAttendance:
+      type: object
+      required: [subjectTitle, present, total, pct, meetsRequirement]
+      properties:
+        subjectTitle:
+          type: string
+        present:
+          type: integer
+        total:
+          type: integer
+        pct:
+          type: number
+        meetsRequirement:
+          type: boolean
+
+    SessionRecord:
+      type: object
+      required: [date, sessionTitle, subjectTitle, attendanceStatus]
+      properties:
+        date:
+          type: string
+        sessionTitle:
+          type: string
+        subjectTitle:
+          type: string
+        attendanceStatus:
+          type: string
+        markingMethod:
+          type: ["string", "null"]
+
+    QuizItem:
+      type: object
+      required: [subjectTitle, title, score, maxScore, percentage, status]
+      properties:
+        subjectTitle:
+          type: string
+        title:
+          type: string
+        score:
+          type: number
+        maxScore:
+          type: number
+        percentage:
+          type: number
+        status:
+          type: string
+        date:
+          type: ["string", "null"]
+
+    QuizSummary:
+      type: object
+      required: [attempted, total, avgPct]
+      properties:
+        attempted:
+          type: integer
+        total:
+          type: integer
+        avgPct:
+          type: number
+
+    StudentQuizzes:
+      type: object
+      required: [classroomQuizzes, moduleQuizzes, classroomSummary, moduleSummary]
+      properties:
+        classroomQuizzes:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuizItem"
+        moduleQuizzes:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuizItem"
+        classroomSummary:
+          $ref: "#/components/schemas/QuizSummary"
+        moduleSummary:
+          $ref: "#/components/schemas/QuizSummary"
+
+    SubjectSummary:
+      type: object
+      required: [subjectTitle, studentCount, presentCount, totalCount, pct]
+      properties:
+        subjectTitle:
+          type: string
+        studentCount:
+          type: integer
+        presentCount:
+          type: integer
+        totalCount:
+          type: integer
+        pct:
+          type: number
+
+    CampusSummaryItem:
+      type: object
+      required: [instituteName, studentCount, sectionCount, subjectCount, presentCount, totalCount, pct]
+      properties:
+        instituteName:
+          type: string
+        studentCount:
+          type: integer
+        sectionCount:
+          type: integer
+        subjectCount:
+          type: integer
+        presentCount:
+          type: integer
+        totalCount:
+          type: integer
+        pct:
+          type: number
+
+    SectionSummaryItem:
+      type: object
+      required: [instituteName, sectionName, studentCount, presentCount, totalCount, pct]
+      properties:
+        instituteName:
+          type: string
+        sectionName:
+          type: string
+        studentCount:
+          type: integer
+        presentCount:
+          type: integer
+        totalCount:
+          type: integer
+        pct:
+          type: number
+
+    DashboardFilters:
+      type: object
+      required: [campuses, sections, updatedAt]
+      properties:
+        campuses:
+          type: array
+          items:
+            type: string
+        sections:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    DashboardSummary:
+      type: object
+      required: [totalStudents, totalCampuses, avgAttendancePct, subjectsBelow80, subjectBreakdown, campusBreakdown, sectionBreakdown, needsAttention]
+      properties:
+        totalStudents:
+          type: integer
+        totalCampuses:
+          type: integer
+        avgAttendancePct:
+          type: number
+        subjectsBelow80:
+          type: integer
+        subjectBreakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubjectSummary"
+        campusBreakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/CampusSummaryItem"
+        sectionBreakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/SectionSummaryItem"
+        needsAttention:
+          type: array
+          items:
+            $ref: "#/components/schemas/StudentSearchResult"
+        updatedAt:
+          type: string
+
+    DashboardStudent:
+      type: object
+      required: [studentId, studentName, instituteName, sectionName, presentCount, totalCount, attendancePct, spiPath]
+      properties:
+        studentId:
+          type: string
+        studentName:
+          type: string
+        instituteName:
+          type: string
+        sectionName:
+          type: ["string", "null"]
+        presentCount:
+          type: integer
+        totalCount:
+          type: integer
+        attendancePct:
+          type: number
+        classroomAvg:
+          type: ["number", "null"]
+        moduleAvg:
+          type: ["number", "null"]
+        spiPath:
+          type: string
+
+    User:
+      type: object
+      required: [id, name, email, role, isActive, campuses, subjects, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        campuses:
+          type: array
+          items:
+            type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        createdBy:
+          type: ["string", "null"]
+        lastLoginAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    UserInput:
+      type: object
+      required: [name, email, role, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        password:
+          type: string
+        campuses:
+          type: array
+          items:
+            type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+
+    UserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        password:
+          type: string
+        campuses:
+          type: array
+          items:
+            type: string
+        subjects:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+
+    Campus:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        instituteId:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CampusInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        instituteId:
+          type: string
+
+    CampusUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        instituteId:
+          type: string
+
+    AdminMeta:
+      type: object
+      required: [roles, campuses, subjects]
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoleMeta"
+        campuses:
+          type: array
+          items:
+            type: string
+        subjects:
+          type: array
+          items:
+            type: string
+
+    RoleMeta:
+      type: object
+      required: [value, label, description]
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+
+    BqDataset:
+      type: object
+      required: [datasetId]
+      properties:
+        datasetId:
+          type: string
+
+    BqTable:
+      type: object
+      required: [tableId, kind]
+      properties:
+        tableId:
+          type: string
+        kind:
+          type: string
+
+    BqPreview:
+      type: object
+      required: [columns, rows]
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: object
+
+    ProfileUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        currentPassword:
+          type: string
+        newPassword:
+          type: string

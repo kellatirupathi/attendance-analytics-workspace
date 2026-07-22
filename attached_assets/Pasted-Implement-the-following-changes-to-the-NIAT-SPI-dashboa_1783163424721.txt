@@ -1,0 +1,53 @@
+Implement the following changes to the NIAT SPI dashboard. Work through them one at a time and verify each with typecheck before moving on.
+
+=== 1. SIDEBAR PROFILE MENU (DashboardLayout) ===
+The profile button at the bottom of the left sidebar currently opens its dropdown ABOVE it, inside the sidebar. Change it so the menu opens to the RIGHT of the sidebar (side="right"), appearing outside the sidebar as a floating popover next to the profile button — not stacked above it inside the sidebar. Keep the same items (Edit Profile, BigQuery Check, Logout).
+
+=== 2. STUDENTS PAGE — single-row toolbar + horizontal scroll + column widths ===
+- Put the search input, All campuses, All sections, All attendance, Default (sort), and Export ALL in ONE horizontal row aligned with the page heading area (same row layout). No second row.
+- The table must support smooth horizontal scrolling (overflow-x-auto) with no layout breaking.
+- Keep Student NAME and Student ID as SEPARATE columns (name column and a separate ID column), not stacked in one cell.
+- Long text in any cell must truncate with an ellipsis (…) using truncate + a title tooltip, so columns keep clean widths.
+- Columns should size sensibly like a spreadsheet — set min-widths on each column (e.g. Name 200px, ID 220px, Campus 220px, Section 200px, Attendance/Classroom Quiz/Module Quiz right-aligned ~120px, Report ~90px) so widths stay stable while scrolling.
+- Keep the existing Classroom Quiz and Module Quiz columns.
+
+=== 3. CAMPUSES PAGE — match Students toolbar + Filters drawer ===
+- Same single-row toolbar treatment: search input + By section/By campus toggle + Filters button + Export all in ONE row in the heading area.
+- Move the "All campuses" and "All attendance" dropdowns OUT of the toolbar and INTO a right-side full-height slide-over Filters panel (Sheet, side="right"). Inside the panel: the campus and attendance filter dropdowns, and at the bottom a button row — "Cancel" on the LEFT, then "Clear filters", then "Apply filters" (primary/orange). Filters only take effect when Apply is clicked.
+- When any filter is applied, show a "Clear filters" text link in RED at the top of the table area (above the table). Clicking it clears all filters.
+- Keep the existing pagination bar.
+
+=== 4. STUDENTS PAGE — same Filters drawer pattern ===
+Apply the same right-side Filters slide-over pattern to Students too (campus/section/attendance filters inside the drawer with Cancel / Clear filters / Apply filters buttons, and the red "Clear filters" link at top when active). Keep search, sort (Default), and Export inline in the top row; move only the filter dropdowns into the drawer.
+
+=== 5. MANAGE USERS — full CRUD with roles & permissions ===
+Replace the placeholder Create/Edit dialogs with real working forms using the existing useCreateUser / useUpdateUser mutations and useGetAdminMeta (which returns roles, campuses, subjects).
+
+Roles and their permissions (already defined in the backend rbac.ts — use them):
+- superadmin (Super Admin): full control over everything — all campuses, all data, full CRUD including BigQuery explorer.
+- admin (Admin): manages HOD/Capability Manager/BOA/Instructors + CRUD; all campuses.
+- hod (HOD): read-only, all campuses.
+- capability_manager (Capability Manager): read-only, scoped to assigned campuses + subjects.
+- boa (BOA): read-only, scoped to one assigned campus.
+- instructor (Instructor): read-only, scoped to own campus + subject.
+
+Create/Edit form fields:
+- Name (text), Email (text), Password (text — required on create, optional on edit), Role (select — only roles the current user is allowed to assign, from meta.roles), Active (switch).
+- Campus multi-select (from meta.campuses) — shown only when the selected role is capability_manager, boa, or instructor.
+- Subject multi-select (from meta.subjects) — shown only when the selected role is capability_manager or instructor.
+- On submit: call the mutation, show a success toast, invalidate the users list query, close the dialog. Show validation errors inline.
+Keep the existing Edit (pencil) and Delete (trash) row actions working with these forms.
+
+The following staff accounts should be creatable through this form (password Niat@2026 for all):
+- Super Admin: Akhilendar Reddy (superadmin1@nxtwave.co.in), Priya Menon (superadmin2@nxtwave.co.in), Rahul Varma (superadmin3@nxtwave.co.in)
+- Admin: Sandeep Kumar (admin1@), Divya Rao (admin2@), Imran Shaikh (admin3@)
+- HOD: Dr. Lakshmi Narayan (hod1@), Dr. Venkatesh Iyer (hod2@), Dr. Anjali Gupta (hod3@)
+- Capability Manager: Kiran Teja (cm1@ → Nxtwave Institute of Advanced Technologies), Meghana Reddy (cm2@ → NIAT Chevella), Arjun Nair (cm3@ → Chaitanya Deemed-to-be University)
+- BOA: Suresh Babu (boa1@ → Nxtwave Institute of Advanced Technologies), Naveen Chandra (boa2@ → NIAT Chevella), Pooja Sharma (boa3@ → Chaitanya Deemed-to-be University)
+- Instructor: Ravi Teja (instructor1@ → Nxtwave Institute of Advanced Technologies), Sneha Patil (instructor2@ → NIAT Chevella), Vikram Aditya (instructor3@ → Chaitanya Deemed-to-be University)
+(all emails @nxtwave.co.in)
+
+Everyone logs in at /staff-login and lands on the role-scoped /dashboard.
+
+=== VERIFY ===
+Run `pnpm run typecheck` and fix any errors. Do not change unrelated files.
