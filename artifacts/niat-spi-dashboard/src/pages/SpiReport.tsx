@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useParams } from "wouter";
 import {
   useFetchStudentOverview,
@@ -30,13 +30,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar } from "@/components/ui/calendar";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
 import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
   Calendar as CalendarIcon,
+  ChevronLeft,
   ChevronRight,
   BookOpen,
   ClipboardList,
@@ -45,11 +45,23 @@ import {
   Star,
   CalendarPlus,
   Plus,
-  Trash2,
   Pencil,
   X,
 } from "lucide-react";
-import { format } from "date-fns";
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  addMonths,
+  subMonths,
+  isSameMonth,
+  isSameDay,
+  isAfter,
+  startOfDay,
+} from "date-fns";
 
 const REQUIRED_PCT = 80;
 
@@ -783,46 +795,66 @@ export default function SpiReport() {
 
       {/* ============ Request Attendance modal ============ */}
       <Dialog open={reqOpen} onOpenChange={setReqOpen}>
-        <DialogContent className="max-h-[92vh] gap-0 overflow-hidden p-0 sm:max-w-[580px]">
-          <DialogHeader className="space-y-0 border-b border-slate-200 px-6 pb-4 pt-6 text-left">
-            <div className="pr-8">
+        <DialogContent className="flex max-h-[90vh] w-[calc(100%-1.5rem)] max-w-[520px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
+          <DialogHeader className="shrink-0 space-y-0 border-b border-slate-200 px-5 pb-4 pt-5 text-left">
+            <div className="pr-7">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-600">
                 Attendance correction
               </p>
-              <DialogTitle className="mt-1 text-xl font-semibold text-slate-900">
+              <DialogTitle className="mt-1 text-lg font-semibold text-slate-900">
                 Request attendance update
               </DialogTitle>
-              <DialogDescription className="mt-1.5 text-sm leading-relaxed text-slate-600">
-                Select each date you were marked absent by mistake and add a
-                short reason. Your campus team will review every entry.
+              <DialogDescription className="mt-1 text-sm text-slate-600">
+                Pick absent dates, add a reason if needed, then submit for
+                campus review.
               </DialogDescription>
               {overview?.studentName && (
-                <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                  <span className="font-medium text-slate-900">
-                    {overview.studentName}
-                  </span>
-                  <span className="text-slate-400">·</span>
-                  <span className="text-slate-500">
-                    {validRows.length} date
-                    {validRows.length === 1 ? "" : "s"} added
-                  </span>
-                </div>
+                <p className="mt-2.5 text-sm font-medium text-slate-800">
+                  {overview.studentName}
+                </p>
               )}
             </div>
           </DialogHeader>
 
-          <div className="max-h-[calc(92vh-14rem)] space-y-5 overflow-y-auto px-6 py-5">
-            {/* Saved entries */}
-            {(() => {
-              const saved = reqRows
-                .map((row, idx) => ({ row, idx }))
-                .filter(({ row, idx }) => idx !== activeIndex && row.date);
-              if (saved.length === 0) return null;
-              return (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    Saved entries ({saved.length})
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            {/* Dates added — Add button top-right */}
+            <div className="mb-4">
+              <div className="mb-2 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Dates added
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {validRows.length === 0
+                      ? "No dates yet — select one below"
+                      : `${validRows.length} date${validRows.length === 1 ? "" : "s"} ready`}
                   </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={addReqRow}
+                  disabled={!activeHasDate}
+                  className="shrink-0 gap-1.5 border-slate-200"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add date
+                </Button>
+              </div>
+
+              {(() => {
+                const dated = reqRows
+                  .map((row, idx) => ({ row, idx }))
+                  .filter(({ row }) => row.date.trim() !== "");
+                if (dated.length === 0) {
+                  return (
+                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-5 text-center text-sm text-slate-500">
+                      Your selected dates will appear here.
+                    </div>
+                  );
+                }
+                return (
                   <div className="overflow-hidden rounded-lg border border-slate-200">
                     <table className="w-full text-sm">
                       <thead>
@@ -833,41 +865,49 @@ export default function SpiReport() {
                           <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                             Reason
                           </th>
-                          <th className="w-16 px-2 py-2" />
+                          <th className="w-14 px-1 py-2" />
                         </tr>
                       </thead>
                       <tbody>
-                        {saved.map(({ row, idx }) => {
+                        {dated.map(({ row, idx }) => {
                           const d = parseYmd(row.date);
+                          const isActive = idx === activeIndex;
                           return (
                             <tr
                               key={idx}
-                              className="border-b border-slate-100 last:border-0"
+                              className={cn(
+                                "border-b border-slate-100 last:border-0",
+                                isActive && "bg-brand-50/60",
+                              )}
                             >
-                              <td className="px-3 py-2.5 font-medium text-slate-900">
+                              <td className="px-3 py-2 font-medium text-slate-900">
                                 {d ? format(d, "EEE, dd MMM yyyy") : row.date}
                               </td>
-                              <td className="max-w-[180px] truncate px-3 py-2.5 text-slate-600">
+                              <td className="max-w-[140px] truncate px-3 py-2 text-slate-600">
                                 {row.reason.trim() || "—"}
                               </td>
-                              <td className="px-2 py-2">
-                                <div className="flex items-center justify-end gap-0.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => focusRow(idx)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-brand-600"
-                                    aria-label="Edit entry"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => removeReqRow(idx)}
-                                    className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                    aria-label="Remove entry"
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
+                              <td className="px-1 py-1.5">
+                                <div className="flex items-center justify-end">
+                                  {!isActive && (
+                                    <button
+                                      type="button"
+                                      onClick={() => focusRow(idx)}
+                                      className="flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-white hover:text-brand-600"
+                                      aria-label="Edit"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {reqRows.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => removeReqRow(idx)}
+                                      className="flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                      aria-label="Remove"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -876,86 +916,53 @@ export default function SpiReport() {
                       </tbody>
                     </table>
                   </div>
-                </div>
-              );
-            })()}
+                );
+              })()}
+            </div>
 
-            {/* Active entry editor */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900">
-                  {validRows.length > 0 && !activeHasDate
-                    ? "Add another date"
-                    : `Entry ${activeIndex + 1}`}
-                </p>
-                {reqRows.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => removeReqRow(activeIndex)}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Remove
-                  </button>
-                )}
-              </div>
-
-              <InlineDateField
+            {/* Date + reason editor */}
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {activeHasDate ? "Selected date" : "Choose a date"}
+              </p>
+              <MonthDatePicker
                 value={reqRows[activeIndex]?.date ?? ""}
                 onChange={(date) => setReqRow(activeIndex, { date })}
               />
-
-              <div className="space-y-1.5">
+              <div className="mt-4 space-y-1.5">
                 <Label
                   htmlFor="req-reason"
-                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                  className="text-xs font-medium text-slate-600"
                 >
                   Reason{" "}
-                  <span className="font-normal normal-case text-slate-400">
-                    (optional)
-                  </span>
+                  <span className="text-slate-400">(optional)</span>
                 </Label>
                 <Textarea
                   id="req-reason"
-                  rows={3}
-                  placeholder="Example: I attended the session but was marked absent by mistake."
+                  rows={2}
+                  placeholder="I attended but was marked absent."
                   value={reqRows[activeIndex]?.reason ?? ""}
                   onChange={(e) =>
                     setReqRow(activeIndex, { reason: e.target.value })
                   }
-                  className="resize-none border-slate-200 text-sm placeholder:text-slate-400 focus-visible:border-brand-400 focus-visible:ring-brand-100"
+                  className="resize-none border-slate-200 text-sm"
                 />
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={addReqRow}
-              disabled={!activeHasDate}
-              className={cn(
-                "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-3 text-sm font-medium transition-colors",
-                activeHasDate
-                  ? "border-slate-300 text-slate-600 hover:border-brand-400 hover:bg-brand-50/50 hover:text-brand-700"
-                  : "cursor-not-allowed border-slate-200 text-slate-300",
-              )}
-            >
-              <Plus className="h-4 w-4" />
-              Add another date
-            </button>
-
             {reqError && (
-              <p className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="mt-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {reqError}
               </p>
             )}
           </div>
 
-          <DialogFooter className="items-center gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:justify-between">
-            <p className="text-xs text-slate-500">
+          <DialogFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3.5 sm:justify-between">
+            <p className="hidden text-xs text-slate-500 sm:block">
               {validRows.length === 0
-                ? "Select at least one date to continue"
-                : `${validRows.length} date${validRows.length === 1 ? "" : "s"} ready to submit`}
+                ? "Select a date to continue"
+                : `${validRows.length} ready to submit`}
             </p>
             <div className="flex w-full gap-2 sm:w-auto">
               <Button
@@ -979,17 +986,17 @@ export default function SpiReport() {
 
       {/* ============ Confirmation dialog ============ */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
-          <DialogHeader className="border-b border-slate-200 px-6 pb-4 pt-6 text-left">
-            <DialogTitle className="text-lg font-semibold text-slate-900">
+        <DialogContent className="flex max-h-[85vh] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
+          <DialogHeader className="shrink-0 border-b border-slate-200 px-5 pb-3 pt-5 text-left">
+            <DialogTitle className="text-base font-semibold text-slate-900">
               Confirm your request
             </DialogTitle>
             <DialogDescription className="text-sm text-slate-600">
-              Review the dates below before sending to your campus team.
+              Review before sending to your campus team.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="max-h-64 overflow-y-auto px-6 py-4">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <div className="overflow-hidden rounded-lg border border-slate-200">
               <table className="w-full text-sm">
                 <thead>
@@ -1013,13 +1020,13 @@ export default function SpiReport() {
                         key={i}
                         className="border-b border-slate-100 last:border-0"
                       >
-                        <td className="px-3 py-2.5 tabular-nums text-slate-500">
+                        <td className="px-3 py-2 tabular-nums text-slate-500">
                           {i + 1}
                         </td>
-                        <td className="px-3 py-2.5 font-medium text-slate-900">
+                        <td className="px-3 py-2 font-medium text-slate-900">
                           {d ? format(d, "EEE, dd MMM yyyy") : r.date}
                         </td>
-                        <td className="max-w-[160px] px-3 py-2.5 text-slate-600">
+                        <td className="max-w-[140px] px-3 py-2 text-slate-600">
                           {r.reason.trim() || "—"}
                         </td>
                       </tr>
@@ -1030,7 +1037,7 @@ export default function SpiReport() {
             </div>
           </div>
 
-          <DialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4">
+          <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-5 py-3.5">
             <Button
               variant="outline"
               onClick={() => setConfirmOpen(false)}
@@ -1065,7 +1072,9 @@ function toYmd(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function InlineDateField({
+const WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+function MonthDatePicker({
   value,
   onChange,
 }: {
@@ -1073,32 +1082,96 @@ function InlineDateField({
   onChange: (value: string) => void;
 }) {
   const selected = parseYmd(value);
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
+  const today = startOfDay(new Date());
+  const [viewMonth, setViewMonth] = useState(() => selected ?? today);
+
+  useEffect(() => {
+    if (selected) setViewMonth(startOfMonth(selected));
+  }, [value]);
+
+  const days = useMemo(() => {
+    const monthStart = startOfMonth(viewMonth);
+    const monthEnd = endOfMonth(viewMonth);
+    return eachDayOfInterval({
+      start: startOfWeek(monthStart),
+      end: endOfWeek(monthEnd),
+    });
+  }, [viewMonth]);
+
+  const canGoNext = startOfMonth(addMonths(viewMonth, 1)) <= today;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Selected date
-        </p>
-        <p className="mt-0.5 text-base font-semibold text-slate-900">
-          {selected
-            ? format(selected, "EEEE, dd MMMM yyyy")
-            : "Tap a date on the calendar below"}
-        </p>
+    <div className="w-full">
+      {selected && (
+        <div className="mb-3 rounded-md border border-brand-200 bg-brand-50 px-3 py-2">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-brand-700">
+            Selected
+          </p>
+          <p className="text-sm font-semibold text-slate-900">
+            {format(selected, "EEEE, dd MMMM yyyy")}
+          </p>
+        </div>
+      )}
+
+      <div className="mb-2 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setViewMonth(subMonths(viewMonth, 1))}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+          aria-label="Previous month"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-sm font-semibold text-slate-900">
+          {format(viewMonth, "MMMM yyyy")}
+        </span>
+        <button
+          type="button"
+          onClick={() => canGoNext && setViewMonth(addMonths(viewMonth, 1))}
+          disabled={!canGoNext}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+          aria-label="Next month"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
-      <div className="flex justify-center px-2 py-3">
-        <Calendar
-          mode="single"
-          selected={selected}
-          onSelect={(date) => {
-            if (date) onChange(toYmd(date));
-          }}
-          disabled={{ after: today }}
-          defaultMonth={selected ?? today}
-          className="p-1 [--cell-size:2.65rem]"
-        />
+
+      <div className="grid grid-cols-7 gap-1">
+        {WEEKDAY_LABELS.map((label) => (
+          <div
+            key={label}
+            className="py-1 text-center text-[11px] font-semibold uppercase text-slate-400"
+          >
+            {label}
+          </div>
+        ))}
+        {days.map((day) => {
+          const inMonth = isSameMonth(day, viewMonth);
+          const isFuture = isAfter(startOfDay(day), today);
+          const isSelected = selected ? isSameDay(day, selected) : false;
+          const disabled = !inMonth || isFuture;
+
+          return (
+            <button
+              key={day.toISOString()}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(toYmd(day))}
+              className={cn(
+                "h-9 rounded-md text-sm font-medium tabular-nums transition-colors",
+                !inMonth && "invisible",
+                inMonth && isFuture && "cursor-not-allowed text-slate-300",
+                inMonth &&
+                  !isFuture &&
+                  !isSelected &&
+                  "text-slate-700 hover:bg-slate-100",
+                isSelected && "bg-brand-600 text-white hover:bg-brand-600",
+              )}
+            >
+              {format(day, "d")}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
