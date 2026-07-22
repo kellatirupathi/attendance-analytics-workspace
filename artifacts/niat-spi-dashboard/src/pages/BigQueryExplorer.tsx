@@ -326,7 +326,7 @@ function TableDataView({
     setDraftColFilters((prev) => ({ ...prev, [col]: val }));
 
   return (
-    <div className="flex h-[calc(100dvh-8rem)] flex-col md:h-[calc(100dvh-3rem)]">
+    <div className="flex h-[calc(100dvh-3.5rem)] flex-col md:h-[100dvh]">
       {/* ===== Toolbar ===== */}
       <div className="flex flex-wrap items-center gap-3 pb-4">
         <Button
