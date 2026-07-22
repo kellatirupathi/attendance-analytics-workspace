@@ -94,7 +94,7 @@ export default function AdminUsers() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col">
       <PageHeader
         badge="Administration"
         title="User Access"

@@ -61,7 +61,7 @@ export default function AdminCampuses() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col">
       <PageHeader
         badge="Administration"
         title="Campus Setup"

@@ -12,7 +12,7 @@ export function PageHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
+    <div className="flex flex-col gap-4 border-b border-slate-200 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
         {badge && (
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">

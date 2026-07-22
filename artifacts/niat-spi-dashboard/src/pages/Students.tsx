@@ -204,7 +204,7 @@ export default function Students() {
   };
 
   return (
-    <div>
+    <div className="flex flex-col">
       <PageHeader
         title="Student Directory"
         subtitle="Search and review student attendance standing across campuses."

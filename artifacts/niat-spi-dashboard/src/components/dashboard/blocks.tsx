@@ -123,7 +123,7 @@ export function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <Card className={cn("overflow-hidden border-slate-200 bg-white", className)}>
+    <Card className={cn("overflow-hidden border-x-0 border-y border-slate-200 bg-white", className)}>
       {children}
     </Card>
   );
@@ -182,7 +182,7 @@ export function KpiCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <div className="border border-slate-200 bg-white px-4 py-4">
+    <div className="border-x-0 border-y border-slate-200 bg-white px-4 py-4">
       <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
         {label}
       </p>

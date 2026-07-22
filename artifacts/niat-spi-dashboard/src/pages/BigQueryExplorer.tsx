@@ -99,14 +99,14 @@ export default function BigQueryExplorer() {
 /* ------------------------------------------------------------------ */
 function TableListView({ onOpen }: { onOpen: (t: TableDef) => void }) {
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col">
       <PageHeader
         badge="Superadmin"
         title="Data Explorer"
         subtitle="Read-only access to the platform's source data tables."
       />
 
-      <div className="overflow-hidden border border-slate-200 bg-white">
+      <div className="overflow-hidden border-y border-slate-200 bg-white">
         <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-3.5">
           <Database className="h-4 w-4 text-gray-500" />
           <h2 className="text-sm font-bold text-gray-900">Tables</h2>
@@ -406,7 +406,7 @@ function TableDataView({
       )}
 
       {/* ===== Full-height data table ===== */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border border-gray-200 bg-white shadow-sm">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-200 bg-white">
         {isLoading ? (
           <div className="space-y-4 p-4">
             {Array.from({ length: 10 }).map((_, i) => (

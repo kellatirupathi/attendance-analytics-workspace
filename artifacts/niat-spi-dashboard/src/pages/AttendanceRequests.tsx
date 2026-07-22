@@ -161,7 +161,7 @@ export default function AttendanceRequests() {
   if (authLoading || !canAccess) return null;
 
   return (
-    <div>
+    <div className="flex flex-col">
       <PageHeader
         title="Request Inbox"
         subtitle="Review and act on attendance-correction requests from students."

@@ -206,7 +206,7 @@ export default function Campuses() {
   if (isLoading) return <PageLoader label="Loading campuses…" />;
 
   return (
-    <div>
+    <div className="flex flex-col">
       <PageHeader
         title="Campus Analytics"
         subtitle="Attendance rollups across campuses and sections."

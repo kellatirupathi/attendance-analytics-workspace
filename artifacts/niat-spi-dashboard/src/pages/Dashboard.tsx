@@ -536,7 +536,7 @@ function SectionsPanel({ summary }: { summary: DashboardSummary }) {
 /* Requests call-to-action (BOA / admin) */
 function RequestsCta() {
   return (
-    <div className="flex flex-col items-start justify-between gap-3 border border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center">
+    <div className="flex flex-col items-start justify-between gap-3 border-x-0 border-y border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center">
       <div>
         <p className="text-sm font-medium text-slate-900">
           Attendance correction requests
@@ -563,7 +563,7 @@ function SuperAdminBody({ ctx }: { ctx: DashCtx }) {
   const s = ctx.summary;
   return (
     <>
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <StudentsKpi summary={s} />
         <CampusesKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
@@ -587,7 +587,7 @@ function AdminBody({ ctx }: { ctx: DashCtx }) {
   const s = ctx.summary;
   return (
     <>
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <StudentsKpi summary={s} />
         <CampusesKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
@@ -610,7 +610,7 @@ function HodBody({ ctx }: { ctx: DashCtx }) {
   const a = ctx.academics;
   return (
     <>
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <AttendanceKpi pct={s.avgAttendancePct} />
         <ScoreKpi
           label="Classroom Avg"
@@ -646,7 +646,7 @@ function CapabilityManagerBody({ ctx }: { ctx: DashCtx }) {
   const a = ctx.academics;
   return (
     <>
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <SubjectsKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
         <ScoreKpi
@@ -682,7 +682,7 @@ function BoaBody({ ctx }: { ctx: DashCtx }) {
   const s = ctx.summary;
   return (
     <>
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <StudentsKpi summary={s} />
         <SectionsKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
@@ -704,7 +704,7 @@ function InstructorBody({ ctx }: { ctx: DashCtx }) {
   const a = ctx.academics;
   return (
     <>
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-3">
         <StudentsKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
         <ScoreKpi
@@ -755,7 +755,7 @@ function LoadingState() {
   return (
     <div className="space-y-6">
       <Skeleton className="h-24 w-full" />
-      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Skeleton key={i} className="h-24 rounded-none bg-white" />
         ))}
@@ -818,14 +818,14 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col">
       <DashboardHeader
         role={role}
         name={user?.name ?? "—"}
         theme={theme}
         updated={updated}
       />
-      {renderBody(role, ctx)}
+      <div className="space-y-6">{renderBody(role, ctx)}</div>
     </div>
   );
 }

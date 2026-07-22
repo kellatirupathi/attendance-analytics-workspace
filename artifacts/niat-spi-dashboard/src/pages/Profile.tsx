@@ -90,12 +90,13 @@ export default function Profile() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="flex flex-col">
       <PageHeader
         title="Profile"
         subtitle="Manage your account settings and password."
       />
 
+      <div className="space-y-6 px-4 py-5 sm:px-5">
       <Card className="border-slate-200">
         <CardHeader>
           <CardTitle>Personal Information</CardTitle>
@@ -185,6 +186,7 @@ export default function Profile() {
           </form>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
