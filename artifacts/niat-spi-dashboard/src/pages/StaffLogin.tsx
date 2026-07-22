@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Logo } from "@/components/LogoMark";
 import { Button } from "@/components/ui/button";
@@ -8,26 +8,33 @@ import { useLogin, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function StaffLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const loginMutation = useLogin();
+  const { user, isLoading: authLoading } = useAuth();
+
+  // Already signed in (e.g. cookie from a prior attempt) — go straight to dashboard.
+  useEffect(() => {
+    if (!authLoading && user) {
+      setLocation("/dashboard");
+    }
+  }, [authLoading, user, setLocation]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     loginMutation.mutate(
       { data: { email, password } },
       {
-        onSuccess: (user) => {
-          // Seed the auth cache synchronously with the user the login call
-          // returned, so ProtectedRoute sees a logged-in user on the very
-          // first navigation. Previously we only invalidated (an async
-          // refetch) then navigated immediately, so the first click landed
-          // back on /staff-login and a second click was needed.
-          queryClient.setQueryData(getGetMeQueryKey(), user);
+        onSuccess: async (loggedInUser) => {
+          // Cancel any in-flight /me from the login page (no cookie yet). If that
+          // 401 lands after login it wipes the cache and forces a second sign-in.
+          await queryClient.cancelQueries({ queryKey: getGetMeQueryKey() });
+          queryClient.setQueryData(getGetMeQueryKey(), loggedInUser);
           setLocation("/dashboard");
         },
       },
