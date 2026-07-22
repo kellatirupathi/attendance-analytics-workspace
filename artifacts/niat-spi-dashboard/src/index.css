@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,500;6..72,600;6..72,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -68,8 +68,7 @@
   --color-brand-800: #A93E05;
   --color-brand-900: #84320A;
 
-  --font-sans: 'Inter', sans-serif;
-  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -163,22 +162,10 @@
     @apply border-border;
   }
   body {
-    @apply font-sans antialiased bg-[#f5f6fa] text-foreground;
-    /* Inter tuned: contextual alternates + a touch of optical letter-spacing so
-       the body face reads crisp at small sizes across the dashboard. */
+    @apply font-sans antialiased bg-slate-50 text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-    letter-spacing: -0.006em;
+    letter-spacing: -0.01em;
     text-rendering: optimizeLegibility;
-  }
-
-  /* Serif display face — Newsreader carries the editorial voice already used on
-     the SPI report. Opt-in via `.font-serif` (and the shared page/section
-     headers add that class), NOT a blanket h1/h2/h3 rule — that would also
-     restyle dialog and sheet titles, which stay on the sans UI face. */
-  .font-serif {
-    font-family: var(--font-serif);
-    letter-spacing: -0.012em;
-    text-wrap: balance;
   }
 
   /* Numeric alignment — percentages, counts, session tallies and table figures

@@ -4,24 +4,24 @@ import { LogoMark } from "./LogoMark";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout } from "@workspace/api-client-react";
 import {
-  LayoutDashboard,
-  GraduationCap,
-  Building2,
-  UserCog,
+  LayoutGrid,
+  UsersRound,
+  MapPin,
+  Inbox,
+  Shield,
+  Building,
+  LogOut,
   User,
   Database,
-  LogOut,
-  ChevronRight,
   Menu,
   X,
-  Bell,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
 
 const REQUEST_ROLES = ["superadmin", "admin", "boa"];
 
-// Polls the unread attendance-request notification count for the badge.
 function useUnreadCount(enabled: boolean): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -56,38 +56,45 @@ interface NavItem {
   icon: React.ElementType;
 }
 
-const primaryNav: NavItem[] = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Students", href: "/dashboard/students", icon: GraduationCap },
-  { label: "Campuses", href: "/dashboard/campuses", icon: Building2 },
+const mainNav: NavItem[] = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutGrid },
+  { label: "Student Directory", href: "/dashboard/students", icon: UsersRound },
+  { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
 ];
 
 const adminNav: NavItem[] = [
-  { label: "Manage Users", href: "/admin/users", icon: UserCog },
-  { label: "Manage Campuses", href: "/admin/campuses", icon: Building2 },
+  { label: "User Access", href: "/admin/users", icon: Shield },
+  { label: "Campus Setup", href: "/admin/campuses", icon: Building },
 ];
 
-function NavLink({
+function NavItemLink({
   item,
   active,
   onNavigate,
+  badge,
 }: {
   item: NavItem;
   active: boolean;
   onNavigate?: () => void;
+  badge?: number;
 }) {
   return (
     <Link href={item.href} onClick={onNavigate}>
       <div
         className={cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors cursor-pointer",
+          "group flex items-center gap-3 border-l-2 py-2.5 pl-3 pr-2 text-[13px] font-medium transition-colors cursor-pointer",
           active
-            ? "bg-brand-600 text-white shadow-sm"
-            : "text-gray-700 hover:bg-gray-100",
+            ? "border-brand-500 bg-slate-800/80 text-white"
+            : "border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200",
         )}
       >
-        <item.icon className="h-[18px] w-[18px]" />
-        {item.label}
+        <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
+        <span className="flex-1 truncate">{item.label}</span>
+        {badge != null && badge > 0 && (
+          <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
       </div>
     </Link>
   );
@@ -97,7 +104,6 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const logout = useLogout();
   const [open, setOpen] = useState(false);
-
   const isSuperadmin = user?.role === "superadmin";
 
   const handleLogout = () => {
@@ -110,7 +116,7 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   return (
-    <div className="relative">
+    <div className="relative border-t border-slate-700/80 p-3">
       {open && (
         <div
           className="fixed inset-0 z-30"
@@ -119,7 +125,7 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
         />
       )}
       {open && (
-        <div className="absolute bottom-full left-2 right-2 z-40 mb-2 w-auto rounded-xl border border-gray-200 bg-white py-1.5 shadow-xl md:bottom-0 md:left-full md:right-auto md:mb-0 md:ml-3 md:w-56">
+        <div className="absolute bottom-full left-3 right-3 z-40 mb-2 rounded-md border border-slate-600 bg-slate-800 py-1 md:bottom-0 md:left-full md:right-auto md:mb-0 md:ml-2 md:w-52">
           <Link
             href="/dashboard/profile"
             onClick={() => {
@@ -127,8 +133,8 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
               onNavigate?.();
             }}
           >
-            <div className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-              <User className="h-4 w-4" /> Edit Profile
+            <div className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700">
+              <User className="h-4 w-4" /> My Profile
             </div>
           </Link>
           {isSuperadmin && (
@@ -139,37 +145,36 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
                 onNavigate?.();
               }}
             >
-              <div className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                <Database className="h-4 w-4" /> BigQuery Check
+              <div className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700">
+                <Database className="h-4 w-4" /> Data Explorer
               </div>
             </Link>
           )}
-          <div className="my-1 border-t border-gray-100" />
+          <div className="my-1 border-t border-slate-600" />
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-slate-700"
           >
-            <LogOut className="h-4 w-4" /> Logout
+            <LogOut className="h-4 w-4" /> Sign out
           </button>
         </div>
       )}
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-gray-50"
+        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-slate-800/60"
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-gray-600">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-700 text-sm font-semibold text-white">
           {user?.name?.charAt(0).toUpperCase()}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-gray-800">
-            {user?.name}
-          </p>
-          <p className="text-[11px] text-gray-400">{roleLabel(user?.role)}</p>
+          <p className="truncate text-sm font-medium text-white">{user?.name}</p>
+          <p className="truncate text-xs text-slate-400">{roleLabel(user?.role)}</p>
         </div>
-        <ChevronRight
+        <ChevronDown
           className={cn(
-            "h-4 w-4 shrink-0 text-gray-400 transition-transform",
-            open && "rotate-90",
+            "h-4 w-4 shrink-0 text-slate-500 transition-transform",
+            open && "rotate-180",
           )}
         />
       </button>
@@ -185,59 +190,53 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   const unread = useUnreadCount(canRequests);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 px-4 py-4">
-        <LogoMark className="h-9 w-9" />
+    <div className="flex h-full flex-col bg-slate-900">
+      <div className="flex items-center gap-3 border-b border-slate-700/80 px-4 py-4">
+        <LogoMark className="h-8 w-8" />
         <div>
-          <p className="text-lg font-extrabold leading-none text-gray-900">
-            NIAT <span className="text-[#F25C05]">SPI</span>
-          </p>
+          <p className="text-[15px] font-bold leading-none text-white">NIAT SPI</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">Analytics Console</p>
         </div>
       </div>
 
-      <nav className="scrollbar-thin flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {primaryNav.map((item) => (
-          <NavLink
+      <nav className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto px-2 py-4">
+        <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          Main
+        </p>
+        {mainNav.map((item) => (
+          <NavItemLink
             key={item.href}
             item={item}
             active={location === item.href}
             onNavigate={onNavigate}
           />
         ))}
+
         {canRequests && (
-          <Link href="/dashboard/requests" onClick={onNavigate}>
-            <div
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors cursor-pointer",
-                location === "/dashboard/requests"
-                  ? "bg-brand-600 text-white shadow-sm"
-                  : "text-gray-700 hover:bg-gray-100",
-              )}
-            >
-              <Bell className="h-[18px] w-[18px]" />
-              <span className="flex-1">Requests</span>
-              {unread > 0 && (
-                <span
-                  className={cn(
-                    "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold",
-                    location === "/dashboard/requests"
-                      ? "bg-white text-brand-600"
-                      : "bg-brand-600 text-white",
-                  )}
-                >
-                  {unread > 99 ? "99+" : unread}
-                </span>
-              )}
-            </div>
-          </Link>
+          <>
+            <p className="px-3 pb-2 pt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Operations
+            </p>
+            <NavItemLink
+              item={{
+                label: "Request Inbox",
+                href: "/dashboard/requests",
+                icon: Inbox,
+              }}
+              active={location === "/dashboard/requests"}
+              onNavigate={onNavigate}
+              badge={unread}
+            />
+          </>
         )}
+
         {canManage && (
           <>
-            <p className="px-3 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+            <p className="px-3 pb-2 pt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               Administration
             </p>
             {adminNav.map((item) => (
-              <NavLink
+              <NavItemLink
                 key={item.href}
                 item={item}
                 active={location === item.href}
@@ -248,9 +247,7 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
         )}
       </nav>
 
-      <div className="border-t border-gray-200 p-3">
-        <ProfileMenu onNavigate={onNavigate} />
-      </div>
+      <ProfileMenu onNavigate={onNavigate} />
     </div>
   );
 }
@@ -259,42 +256,39 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-[100dvh] bg-[#f5f6fa]">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 shrink-0 border-r border-gray-200 bg-white shadow-[1px_0_0_rgba(0,0,0,0.03)] md:flex">
+    <div className="min-h-[100dvh] bg-slate-100">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[240px] md:flex">
         <SidebarInner />
       </aside>
 
-      {/* Mobile top bar */}
-      <header className="fixed inset-x-0 top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 md:hidden">
+      <header className="fixed inset-x-0 top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden">
         <div className="flex items-center gap-2">
-          <LogoMark className="h-8 w-8" />
-          <span className="font-extrabold text-gray-900">
-            NIAT <span className="text-[#F25C05]">SPI</span>
-          </span>
+          <LogoMark className="h-7 w-7" />
+          <span className="text-sm font-bold text-slate-900">NIAT SPI</span>
         </div>
         <button
+          type="button"
           onClick={() => setMobileOpen(true)}
           aria-label="Open menu"
-          className="rounded-md p-1.5 text-gray-600 hover:bg-gray-100"
+          className="rounded-md p-2 text-slate-600 hover:bg-slate-100"
         >
           <Menu className="h-5 w-5" />
         </button>
       </header>
 
-      {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-slate-900/60"
             onClick={() => setMobileOpen(false)}
             aria-hidden
           />
-          <div className="absolute inset-y-0 left-0 w-64 bg-white shadow-xl">
+          <div className="absolute inset-y-0 left-0 w-[240px]">
             <button
+              type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Close menu"
-              className="absolute right-3 top-4 z-50 rounded-md p-1 text-gray-400 hover:bg-gray-100"
+              className="absolute right-2 top-3 z-50 rounded-md p-1.5 text-slate-400 hover:bg-slate-800"
             >
               <X className="h-5 w-5" />
             </button>
@@ -303,9 +297,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Main content */}
-      <main className="pt-14 md:pl-64 md:pt-0">
-        <div className="p-4 sm:p-6">{children}</div>
+      <main className="pt-14 md:pl-[240px] md:pt-0">
+        <div className="mx-auto max-w-[1400px] p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
     </div>
   );

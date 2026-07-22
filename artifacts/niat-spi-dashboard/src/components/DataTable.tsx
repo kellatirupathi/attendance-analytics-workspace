@@ -23,7 +23,7 @@ export function TableShell({
   return (
     <div
       className={cn(
-        "w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08)]",
+        "w-full overflow-hidden rounded-lg border border-slate-200 bg-white",
         className,
       )}
     >

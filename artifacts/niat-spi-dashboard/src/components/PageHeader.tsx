@@ -3,20 +3,29 @@ import React from "react";
 export function PageHeader({
   title,
   subtitle,
+  badge,
   right,
 }: {
   title: string;
   subtitle?: string;
+  badge?: string;
   right?: React.ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-col gap-4 border-b border-gray-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h1 className="font-serif text-[26px] font-semibold tracking-tight text-gray-900">
+    <div className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0">
+        {badge && (
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            {badge}
+          </p>
+        )}
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
           {title}
         </h1>
         {subtitle && (
-          <p className="mt-1 text-sm leading-relaxed text-gray-600">{subtitle}</p>
+          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+            {subtitle}
+          </p>
         )}
       </div>
       {right && <div className="shrink-0">{right}</div>}

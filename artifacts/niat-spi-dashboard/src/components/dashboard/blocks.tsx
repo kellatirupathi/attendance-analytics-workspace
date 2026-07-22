@@ -123,12 +123,7 @@ export function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <Card
-      className={cn(
-        "overflow-hidden border-gray-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_8px_rgba(0,0,0,0.04)]",
-        className,
-      )}
-    >
+    <Card className={cn("overflow-hidden border-slate-200 bg-white", className)}>
       {children}
     </Card>
   );
@@ -137,33 +132,20 @@ export function Panel({
 export function PanelHead({
   title,
   subtitle,
-  icon: Icon,
-  tint,
-  accent,
   action,
 }: {
   title: string;
   subtitle?: string;
-  icon: React.ElementType;
-  tint: string;
-  accent: string;
+  icon?: React.ElementType;
+  tint?: string;
+  accent?: string;
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50/50 px-5 py-4">
-      <div className="flex items-center gap-3">
-        <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-black/[0.04]"
-          style={{ background: tint }}
-        >
-          <Icon className="h-[18px] w-[18px]" style={{ color: accent }} />
-        </span>
-        <div>
-          <h3 className="text-[15px] font-semibold text-gray-900">{title}</h3>
-          {subtitle && (
-            <p className="text-xs text-gray-600">{subtitle}</p>
-          )}
-        </div>
+    <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3.5">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -180,65 +162,45 @@ export function ViewAllLink({
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-0.5 text-sm font-semibold text-brand-600 hover:text-brand-700"
+      className="inline-flex items-center gap-0.5 text-xs font-medium text-brand-600 hover:text-brand-700"
     >
-      {label} <ChevronRight className="h-4 w-4" />
+      {label} <ChevronRight className="h-3.5 w-3.5" />
     </Link>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  KPI stat card                                                      */
-/* ------------------------------------------------------------------ */
-
 export function KpiCard({
   label,
   value,
-  icon: Icon,
-  tint,
-  accent,
   footer,
 }: {
   label: string;
   value: React.ReactNode;
-  icon: React.ElementType;
-  tint: string;
-  accent: string;
+  icon?: React.ElementType;
+  tint?: string;
+  accent?: string;
   footer?: React.ReactNode;
 }) {
   return (
-    <Card className="border-gray-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_6px_rgba(0,0,0,0.04)] transition-shadow hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_4px_12px_rgba(0,0,0,0.06)]">
-      <CardContent className="p-5">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
-            {label}
-          </p>
-          <span
-            className="flex h-9 w-9 items-center justify-center rounded-lg ring-1 ring-black/[0.04]"
-            style={{ background: tint }}
-          >
-            <Icon className="h-[18px] w-[18px]" style={{ color: accent }} />
-          </span>
-        </div>
-        <div className="mt-3 text-[28px] font-bold leading-none tracking-tight tabular-nums text-gray-900">
-          {value}
-        </div>
-        {footer && (
-          <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-600">
-            {footer}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <div className="border border-slate-200 bg-white px-4 py-4">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <div className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">
+        {value}
+      </div>
+      {footer && (
+        <div className="mt-2 text-xs text-slate-500">{footer}</div>
+      )}
+    </div>
   );
 }
 
-/* Compact progress bar shared by several blocks */
 export function MiniBar({ pct }: { pct: number }) {
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
+    <div className="h-1.5 w-full overflow-hidden rounded-sm bg-slate-200">
       <div
-        className="h-full rounded-full transition-[width] duration-300"
+        className="h-full rounded-sm"
         style={{ width: `${Math.min(100, pct)}%`, background: pctColor(pct) }}
       />
     </div>
@@ -679,51 +641,36 @@ function QuizGauge({
   avg,
   covered,
   total,
-  icon: Icon,
-  accent,
-  tint,
 }: {
   label: string;
   avg: number | null;
   covered: number;
   total: number;
-  icon: React.ElementType;
-  accent: string;
-  tint: string;
+  icon?: React.ElementType;
+  accent?: string;
+  tint?: string;
 }) {
   const coverage = pctOf(covered, total);
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <div className="flex items-center gap-2.5">
-        <span
-          className="flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-black/[0.04]"
-          style={{ background: tint }}
-        >
-          <Icon className="h-4 w-4" style={{ color: accent }} />
-        </span>
-        <p className="text-sm font-semibold text-gray-900">{label}</p>
-      </div>
-      <div className="mt-3 flex items-end gap-2">
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <div className="mt-2 flex items-end gap-1">
         {avg !== null ? (
           <span
-            className="text-3xl font-bold leading-none tabular-nums"
+            className="text-2xl font-semibold tabular-nums"
             style={{ color: pctTextColor(avg) }}
           >
-            {avg}
-            <span className="text-lg">%</span>
+            {avg}%
           </span>
         ) : (
-          <span className="text-3xl font-bold leading-none text-gray-400">
-            —
-          </span>
+          <span className="text-2xl font-semibold text-slate-300">—</span>
         )}
-        <span className="pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          avg score
-        </span>
       </div>
-      <div className="mt-3">{avg !== null && <MiniBar pct={avg} />}</div>
-      <p className="mt-2 text-xs text-gray-600">
-        {covered.toLocaleString()} of {total.toLocaleString()} students ·{" "}
+      <div className="mt-2">{avg !== null && <MiniBar pct={avg} />}</div>
+      <p className="mt-2 text-xs text-slate-500">
+        {covered.toLocaleString()} / {total.toLocaleString()} students ·{" "}
         {coverage}% covered
       </p>
     </div>
@@ -790,18 +737,13 @@ function AssessmentSoon({
   icon: React.ElementType;
 }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white ring-1 ring-gray-200">
-          <Icon className="h-4 w-4 text-gray-500" />
-        </span>
-        <p className="text-sm font-semibold text-gray-800">{label}</p>
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-4">
+      <p className="text-sm font-medium text-slate-700">{label}</p>
+      <div className="mt-2 flex items-center gap-1.5 text-slate-400">
+        <Lock className="h-3.5 w-3.5 shrink-0" />
+        <span className="text-xs">Coming soon</span>
       </div>
-      <div className="mt-3 flex items-center gap-1.5 text-gray-500">
-        <Lock className="h-4 w-4 shrink-0" />
-        <span className="text-sm font-medium">Coming soon</span>
-      </div>
-      <p className="mt-3 text-xs font-medium text-gray-600">{weight}</p>
+      <p className="mt-2 text-xs text-slate-500">{weight}</p>
     </div>
   );
 }

@@ -163,7 +163,7 @@ export default function AttendanceRequests() {
   return (
     <div>
       <PageHeader
-        title="Attendance Requests"
+        title="Request Inbox"
         subtitle="Review and act on attendance-correction requests from students."
       />
 

@@ -208,7 +208,7 @@ export default function Campuses() {
   return (
     <div>
       <PageHeader
-        title="Campuses"
+        title="Campus Analytics"
         subtitle="Attendance rollups across campuses and sections."
         right={
           <div className="flex flex-wrap items-center gap-2">

@@ -206,7 +206,7 @@ export default function Students() {
   return (
     <div>
       <PageHeader
-        title="Students"
+        title="Student Directory"
         subtitle="Search and review student attendance standing across campuses."
         right={
           <div className="flex flex-wrap items-center gap-2">

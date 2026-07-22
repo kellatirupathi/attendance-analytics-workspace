@@ -9,7 +9,9 @@ import {
 } from "@workspace/api-client-react";
 import type { DashboardSummary } from "@workspace/api-client-react";
 import { CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PageHeader } from "@/components/PageHeader";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
 import {
@@ -38,12 +40,10 @@ import {
   BookOpenCheck,
   Layers,
   AlertTriangle,
-  ShieldCheck,
   TrendingUp,
   ArrowRight,
   Sparkles,
-  ClipboardCheck,
-  Compass,
+  Inbox,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -69,10 +69,6 @@ interface RoleTheme {
   eyebrow: string;
   title: string;
   subtitle: string;
-  /** hero gradient endpoints */
-  from: string;
-  to: string;
-  /** roles that show classroom/module academic data */
   academics: boolean;
 }
 
@@ -93,8 +89,6 @@ const ROLE_THEME: Record<Role, RoleTheme> = {
     title: "System Overview",
     subtitle:
       "Full visibility across every campus, subject, and assessment on the platform.",
-    from: "#0f172a",
-    to: "#4338ca",
     academics: true,
   },
   admin: {
@@ -102,8 +96,6 @@ const ROLE_THEME: Record<Role, RoleTheme> = {
     title: "Attendance & Access",
     subtitle:
       "Monitor performance across all campuses and manage platform access.",
-    from: "#1e293b",
-    to: "#0e7490",
     academics: true,
   },
   hod: {
@@ -111,16 +103,12 @@ const ROLE_THEME: Record<Role, RoleTheme> = {
     title: "Academic Overview",
     subtitle:
       "Attendance and academic performance across every subject in the department.",
-    from: "#312e81",
-    to: "#6d28d9",
     academics: true,
   },
   capability_manager: {
     eyebrow: "Subject Command",
     title: "Subject Performance",
     subtitle: "Attendance and quiz performance for the subjects you manage.",
-    from: "#134e4a",
-    to: "#0f766e",
     academics: true,
   },
   boa: {
@@ -128,34 +116,30 @@ const ROLE_THEME: Record<Role, RoleTheme> = {
     title: "Campus Overview",
     subtitle:
       "Attendance health and correction requests for your assigned campuses.",
-    from: "#7c2d12",
-    to: "#ea580c",
     academics: false,
   },
   instructor: {
     eyebrow: "My Classes",
     title: "Class Overview",
     subtitle: "Attendance and performance for the students you teach.",
-    from: "#14532d",
-    to: "#16a34a",
     academics: true,
   },
 };
 
 function quickActions(role: Role): QuickAction[] {
   const students: QuickAction = {
-    label: "Students",
+    label: "Student Directory",
     href: "/dashboard/students",
     icon: Users,
     primary: true,
   };
   const campuses: QuickAction = {
-    label: "Campuses",
+    label: "Campus Analytics",
     href: "/dashboard/campuses",
     icon: Building2,
   };
   const requests: QuickAction = {
-    label: "Attendance Requests",
+    label: "Request Inbox",
     href: "/dashboard/requests",
     icon: Bell,
   };
@@ -194,10 +178,10 @@ function quickActions(role: Role): QuickAction[] {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Hero band                                                          */
+/*  Page header + quick actions                                        */
 /* ------------------------------------------------------------------ */
 
-function Hero({
+function DashboardHeader({
   role,
   name,
   theme,
@@ -209,65 +193,35 @@ function Hero({
   updated: string | null;
 }) {
   const actions = quickActions(role);
+  const meta = [
+    `Signed in as ${name}`,
+    updated ? `Updated ${updated}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <div
-      className="relative overflow-hidden rounded-xl border border-black/10 px-6 py-6 text-white shadow-[0_4px_14px_rgba(15,23,42,0.18)] sm:px-8 sm:py-7"
-      style={{
-        backgroundImage: `linear-gradient(135deg, ${theme.from} 0%, ${theme.to} 100%)`,
-      }}
-    >
-      <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-white/[0.07]" />
-      <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide">
-              <ShieldCheck className="h-3 w-3" />
-              {roleLabel(role)}
-            </span>
-            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
-              {theme.eyebrow}
-            </span>
-          </div>
-          <h1 className="mt-2.5 truncate font-serif text-2xl font-semibold tracking-tight sm:text-[28px]">
-            {theme.title}
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-white/85">
-            {theme.subtitle}
-          </p>
-          <p className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/75">
-            <span className="inline-flex items-center gap-1.5">
-              <Compass className="h-3.5 w-3.5" />
-              Signed in as {name}
-            </span>
-            {updated && (
-              <span className="inline-flex items-center gap-1.5">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                </span>
-                Updated {updated}
-              </span>
-            )}
-          </p>
-        </div>
+    <PageHeader
+      badge={roleLabel(role)}
+      title={theme.title}
+      subtitle={`${theme.subtitle} ${meta}`}
+      right={
         <div className="flex flex-wrap gap-2">
           {actions.map((a) => (
             <Link key={a.href} href={a.href}>
-              <div
-                className={
-                  a.primary
-                    ? "inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-black/5 transition-colors hover:bg-gray-50"
-                    : "inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20"
-                }
+              <Button
+                variant={a.primary ? "default" : "outline"}
+                size="sm"
+                className="gap-2"
               >
                 <a.icon className="h-4 w-4" />
                 {a.label}
-              </div>
+              </Button>
             </Link>
           ))}
         </div>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
@@ -582,29 +536,22 @@ function SectionsPanel({ summary }: { summary: DashboardSummary }) {
 /* Requests call-to-action (BOA / admin) */
 function RequestsCta() {
   return (
-    <Panel>
-      <CardContent className="flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-brand-50 text-brand-600 ring-1 ring-brand-100">
-            <ClipboardCheck className="h-5 w-5" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">
-              Attendance correction requests
-            </p>
-            <p className="text-xs text-gray-600">
-              Review and action student-submitted corrections for your campuses.
-            </p>
-          </div>
-        </div>
-        <Link href="/dashboard/requests">
-          <div className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700">
-            <Bell className="h-4 w-4" />
-            Open requests
-          </div>
-        </Link>
-      </CardContent>
-    </Panel>
+    <div className="flex flex-col items-start justify-between gap-3 border border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center">
+      <div>
+        <p className="text-sm font-medium text-slate-900">
+          Attendance correction requests
+        </p>
+        <p className="text-xs text-slate-500">
+          Review and action student-submitted corrections for your campuses.
+        </p>
+      </div>
+      <Link href="/dashboard/requests">
+        <Button size="sm" className="gap-2">
+          <Inbox className="h-4 w-4" />
+          Open inbox
+        </Button>
+      </Link>
+    </div>
   );
 }
 
@@ -616,7 +563,7 @@ function SuperAdminBody({ ctx }: { ctx: DashCtx }) {
   const s = ctx.summary;
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <StudentsKpi summary={s} />
         <CampusesKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
@@ -640,7 +587,7 @@ function AdminBody({ ctx }: { ctx: DashCtx }) {
   const s = ctx.summary;
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <StudentsKpi summary={s} />
         <CampusesKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
@@ -663,7 +610,7 @@ function HodBody({ ctx }: { ctx: DashCtx }) {
   const a = ctx.academics;
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <AttendanceKpi pct={s.avgAttendancePct} />
         <ScoreKpi
           label="Classroom Avg"
@@ -699,7 +646,7 @@ function CapabilityManagerBody({ ctx }: { ctx: DashCtx }) {
   const a = ctx.academics;
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <SubjectsKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
         <ScoreKpi
@@ -735,7 +682,7 @@ function BoaBody({ ctx }: { ctx: DashCtx }) {
   const s = ctx.summary;
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         <StudentsKpi summary={s} />
         <SectionsKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
@@ -757,7 +704,7 @@ function InstructorBody({ ctx }: { ctx: DashCtx }) {
   const a = ctx.academics;
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-3">
         <StudentsKpi summary={s} />
         <AttendanceKpi pct={s.avgAttendancePct} />
         <ScoreKpi
@@ -807,15 +754,15 @@ function renderBody(role: Role, ctx: DashCtx): React.ReactNode {
 function LoadingState() {
   return (
     <div className="space-y-6">
-      <Skeleton className="h-36 w-full rounded-2xl" />
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <Skeleton className="h-24 w-full" />
+      <div className="grid grid-cols-1 gap-px border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-32 rounded-xl" />
+          <Skeleton key={i} className="h-24 rounded-none bg-white" />
         ))}
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Skeleton className="h-96 rounded-xl lg:col-span-2" />
-        <Skeleton className="h-96 rounded-xl" />
+        <Skeleton className="h-96 lg:col-span-2" />
+        <Skeleton className="h-96" />
       </div>
     </div>
   );
@@ -872,7 +819,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <Hero
+      <DashboardHeader
         role={role}
         name={user?.name ?? "—"}
         theme={theme}

@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TableShell } from "@/components/DataTable";
+import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -61,23 +62,17 @@ export default function AdminCampuses() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col items-start justify-between gap-4 border-b border-gray-200 pb-5 sm:flex-row sm:items-end">
-        <div>
-          <h1 className="font-serif text-[26px] font-semibold tracking-tight text-gray-900">
-            Manage Campuses
-          </h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Add and maintain campus records used for staff scope assignment.
-          </p>
-        </div>
-        <Button
-          onClick={() => setIsCreateOpen(true)}
-          className="bg-brand-600 text-white hover:bg-brand-700"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Add campus
-        </Button>
-      </div>
+      <PageHeader
+        badge="Administration"
+        title="Campus Setup"
+        subtitle="Add and maintain campus records used for staff scope assignment."
+        right={
+          <Button onClick={() => setIsCreateOpen(true)} size="sm" className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add campus
+          </Button>
+        }
+      />
 
       <TableShell>
         <div className="overflow-x-auto">

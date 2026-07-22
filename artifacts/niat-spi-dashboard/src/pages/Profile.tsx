@@ -12,6 +12,7 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { PageHeader } from "@/components/PageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -90,16 +91,12 @@ export default function Profile() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h1 className="font-serif text-[26px] font-semibold tracking-tight text-gray-900">
-          Profile
-        </h1>
-        <p className="mt-1 text-sm text-gray-600">
-          Manage your account settings and password.
-        </p>
-      </div>
+      <PageHeader
+        title="Profile"
+        subtitle="Manage your account settings and password."
+      />
 
-      <Card className="border-gray-200 shadow-sm">
+      <Card className="border-slate-200">
         <CardHeader>
           <CardTitle>Personal Information</CardTitle>
           <CardDescription>
@@ -147,7 +144,7 @@ export default function Profile() {
         </CardContent>
       </Card>
 
-      <Card className="border-gray-200 shadow-sm">
+      <Card className="border-slate-200">
         <CardHeader>
           <CardTitle>Change Password</CardTitle>
           <CardDescription>
