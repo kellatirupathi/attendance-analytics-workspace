@@ -31,11 +31,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
 import {
   AlertCircle,
@@ -53,7 +48,6 @@ import {
   Trash2,
   Pencil,
   X,
-  Check,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -789,26 +783,36 @@ export default function SpiReport() {
 
       {/* ============ Request Attendance modal ============ */}
       <Dialog open={reqOpen} onOpenChange={setReqOpen}>
-        <DialogContent className="max-h-[92vh] gap-0 overflow-hidden p-0 sm:max-w-[520px]">
-          <DialogHeader className="space-y-0 border-b border-gray-100 px-6 pb-5 pt-6 text-left">
-            <div className="flex items-start gap-3.5 pr-6">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-100">
-                <CalendarPlus className="h-5 w-5" />
-              </div>
-              <div className="space-y-1">
-                <DialogTitle className="text-[17px] font-semibold text-gray-900">
-                  Request Attendance Correction
-                </DialogTitle>
-                <DialogDescription className="text-[13px] leading-relaxed text-gray-500">
-                  Add the dates you were marked absent by mistake and tell us
-                  why. Your campus team reviews each one.
-                </DialogDescription>
-              </div>
+        <DialogContent className="max-h-[92vh] gap-0 overflow-hidden p-0 sm:max-w-[580px]">
+          <DialogHeader className="space-y-0 border-b border-slate-200 px-6 pb-4 pt-6 text-left">
+            <div className="pr-8">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-brand-600">
+                Attendance correction
+              </p>
+              <DialogTitle className="mt-1 text-xl font-semibold text-slate-900">
+                Request attendance update
+              </DialogTitle>
+              <DialogDescription className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                Select each date you were marked absent by mistake and add a
+                short reason. Your campus team will review every entry.
+              </DialogDescription>
+              {overview?.studentName && (
+                <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-900">
+                    {overview.studentName}
+                  </span>
+                  <span className="text-slate-400">·</span>
+                  <span className="text-slate-500">
+                    {validRows.length} date
+                    {validRows.length === 1 ? "" : "s"} added
+                  </span>
+                </div>
+              )}
             </div>
           </DialogHeader>
 
-          <div className="max-h-[calc(92vh-15rem)] space-y-4 overflow-y-auto px-6 py-5">
-            {/* Saved dates — compact cards, one row */}
+          <div className="max-h-[calc(92vh-14rem)] space-y-5 overflow-y-auto px-6 py-5">
+            {/* Saved entries */}
             {(() => {
               const saved = reqRows
                 .map((row, idx) => ({ row, idx }))
@@ -816,102 +820,111 @@ export default function SpiReport() {
               if (saved.length === 0) return null;
               return (
                 <div className="space-y-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                    Added dates · {saved.length}
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Saved entries ({saved.length})
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    {saved.map(({ row, idx }) => {
-                      const d = parseYmd(row.date);
-                      return (
-                        <div
-                          key={idx}
-                          className="group inline-flex items-stretch overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition-colors hover:border-brand-300"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => focusRow(idx)}
-                            className="flex items-center gap-2 py-1.5 pl-2 pr-2.5 text-left"
-                          >
-                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                              <Check className="h-3.5 w-3.5" />
-                            </span>
-                            <span className="min-w-0">
-                              <span className="block text-[13px] font-semibold leading-tight text-gray-900">
-                                {d ? format(d, "EEE, MMM d") : row.date}
-                              </span>
-                              {row.reason.trim() && (
-                                <span className="block max-w-[150px] truncate text-[11px] leading-tight text-gray-400">
-                                  {row.reason}
-                                </span>
-                              )}
-                            </span>
-                            <Pencil className="h-3.5 w-3.5 shrink-0 text-gray-300 transition-colors group-hover:text-brand-500" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeReqRow(idx)}
-                            aria-label="Remove date"
-                            className="flex items-center border-l border-gray-100 px-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })}
+                  <div className="overflow-hidden rounded-lg border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                          <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Date
+                          </th>
+                          <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Reason
+                          </th>
+                          <th className="w-16 px-2 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {saved.map(({ row, idx }) => {
+                          const d = parseYmd(row.date);
+                          return (
+                            <tr
+                              key={idx}
+                              className="border-b border-slate-100 last:border-0"
+                            >
+                              <td className="px-3 py-2.5 font-medium text-slate-900">
+                                {d ? format(d, "EEE, dd MMM yyyy") : row.date}
+                              </td>
+                              <td className="max-w-[180px] truncate px-3 py-2.5 text-slate-600">
+                                {row.reason.trim() || "—"}
+                              </td>
+                              <td className="px-2 py-2">
+                                <div className="flex items-center justify-end gap-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => focusRow(idx)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-brand-600"
+                                    aria-label="Edit entry"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeReqRow(idx)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                    aria-label="Remove entry"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               );
             })()}
 
-            {/* Active entry — the only expanded editor */}
-            <div className="rounded-2xl border border-brand-200 bg-white p-4 shadow-sm ring-4 ring-brand-50">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-brand-600">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-600 text-[11px] font-bold text-white">
-                    {activeIndex + 1}
-                  </span>
+            {/* Active entry editor */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-900">
                   {validRows.length > 0 && !activeHasDate
-                    ? "New date"
-                    : `Date ${activeIndex + 1}`}
-                </span>
+                    ? "Add another date"
+                    : `Entry ${activeIndex + 1}`}
+                </p>
                 {reqRows.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeReqRow(activeIndex)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                    aria-label="Remove date"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Remove
                   </button>
                 )}
               </div>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600">
-                    Date
-                  </Label>
-                  <DatePicker
-                    value={reqRows[activeIndex]?.date ?? ""}
-                    onChange={(date) => setReqRow(activeIndex, { date })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium text-gray-600">
-                    Reason{" "}
-                    <span className="font-normal text-gray-400">
-                      (optional)
-                    </span>
-                  </Label>
-                  <Textarea
-                    rows={2}
-                    placeholder="e.g. I attended but was marked absent by mistake"
-                    value={reqRows[activeIndex]?.reason ?? ""}
-                    onChange={(e) =>
-                      setReqRow(activeIndex, { reason: e.target.value })
-                    }
-                    className="resize-none rounded-lg border-gray-200 text-sm placeholder:text-gray-400 focus-visible:border-brand-400 focus-visible:ring-brand-100"
-                  />
-                </div>
+
+              <InlineDateField
+                value={reqRows[activeIndex]?.date ?? ""}
+                onChange={(date) => setReqRow(activeIndex, { date })}
+              />
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="req-reason"
+                  className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                >
+                  Reason{" "}
+                  <span className="font-normal normal-case text-slate-400">
+                    (optional)
+                  </span>
+                </Label>
+                <Textarea
+                  id="req-reason"
+                  rows={3}
+                  placeholder="Example: I attended the session but was marked absent by mistake."
+                  value={reqRows[activeIndex]?.reason ?? ""}
+                  onChange={(e) =>
+                    setReqRow(activeIndex, { reason: e.target.value })
+                  }
+                  className="resize-none border-slate-200 text-sm placeholder:text-slate-400 focus-visible:border-brand-400 focus-visible:ring-brand-100"
+                />
               </div>
             </div>
 
@@ -920,43 +933,44 @@ export default function SpiReport() {
               onClick={addReqRow}
               disabled={!activeHasDate}
               className={cn(
-                "flex w-full items-center justify-center gap-2 rounded-xl border border-dashed py-2.5 text-sm font-medium transition-colors",
+                "flex w-full items-center justify-center gap-2 rounded-lg border border-dashed py-3 text-sm font-medium transition-colors",
                 activeHasDate
-                  ? "border-gray-300 text-gray-500 hover:border-brand-300 hover:bg-brand-50/40 hover:text-brand-600"
-                  : "cursor-not-allowed border-gray-200 text-gray-300",
+                  ? "border-slate-300 text-slate-600 hover:border-brand-400 hover:bg-brand-50/50 hover:text-brand-700"
+                  : "cursor-not-allowed border-slate-200 text-slate-300",
               )}
             >
-              <Plus className="h-4 w-4" /> Add another date
+              <Plus className="h-4 w-4" />
+              Add another date
             </button>
 
             {reqError && (
-              <p className="flex items-center gap-1.5 text-sm text-red-600">
+              <p className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {reqError}
               </p>
             )}
           </div>
 
-          <DialogFooter className="items-center gap-2 border-t border-gray-100 bg-gray-50/60 px-6 py-4 sm:justify-between">
-            <span className="hidden text-xs text-gray-400 sm:block">
+          <DialogFooter className="items-center gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:justify-between">
+            <p className="text-xs text-slate-500">
               {validRows.length === 0
-                ? "Add at least one date to submit"
-                : `${validRows.length} date${validRows.length === 1 ? "" : "s"} ready`}
-            </span>
+                ? "Select at least one date to continue"
+                : `${validRows.length} date${validRows.length === 1 ? "" : "s"} ready to submit`}
+            </p>
             <div className="flex w-full gap-2 sm:w-auto">
               <Button
                 variant="outline"
                 onClick={() => setReqOpen(false)}
-                className="flex-1 border-gray-200 sm:flex-none"
+                className="flex-1 border-slate-200 sm:flex-none"
               >
                 Cancel
               </Button>
               <Button
-                className="flex-1 bg-brand-600 text-white shadow-sm hover:bg-brand-700 disabled:opacity-40 sm:flex-none"
+                className="flex-1 sm:flex-none"
                 disabled={validRows.length === 0}
                 onClick={() => setConfirmOpen(true)}
               >
-                Submit request
+                Review & submit
               </Button>
             </div>
           </DialogFooter>
@@ -965,49 +979,68 @@ export default function SpiReport() {
 
       {/* ============ Confirmation dialog ============ */}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Confirm your request</DialogTitle>
-            <DialogDescription>
-              Please confirm these {validRows.length} date
-              {validRows.length === 1 ? "" : "s"} are correct before submitting.
+        <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="border-b border-slate-200 px-6 pb-4 pt-6 text-left">
+            <DialogTitle className="text-lg font-semibold text-slate-900">
+              Confirm your request
+            </DialogTitle>
+            <DialogDescription className="text-sm text-slate-600">
+              Review the dates below before sending to your campus team.
             </DialogDescription>
           </DialogHeader>
-          <ul className="max-h-56 space-y-2 overflow-y-auto">
-            {validRows.map((r, i) => {
-              const d = parseYmd(r.date);
-              return (
-                <li
-                  key={i}
-                  className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2 text-sm"
-                >
-                  <CalendarIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
-                  <span>
-                    <span className="font-semibold text-gray-900">
-                      {d ? format(d, "EEE, MMM d, yyyy") : r.date}
-                    </span>
-                    {r.reason && (
-                      <span className="text-gray-500"> — {r.reason}</span>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <DialogFooter>
+
+          <div className="max-h-64 overflow-y-auto px-6 py-4">
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left">
+                    <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      #
+                    </th>
+                    <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Date
+                    </th>
+                    <th className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Reason
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {validRows.map((r, i) => {
+                    const d = parseYmd(r.date);
+                    return (
+                      <tr
+                        key={i}
+                        className="border-b border-slate-100 last:border-0"
+                      >
+                        <td className="px-3 py-2.5 tabular-nums text-slate-500">
+                          {i + 1}
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-slate-900">
+                          {d ? format(d, "EEE, dd MMM yyyy") : r.date}
+                        </td>
+                        <td className="max-w-[160px] px-3 py-2.5 text-slate-600">
+                          {r.reason.trim() || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4">
             <Button
               variant="outline"
               onClick={() => setConfirmOpen(false)}
               disabled={reqSubmitting}
+              className="border-slate-200"
             >
               Go back
             </Button>
-            <Button
-              className="bg-brand-600 text-white hover:bg-brand-700"
-              onClick={submitRequest}
-              disabled={reqSubmitting}
-            >
-              {reqSubmitting ? "Submitting…" : "Yes, submit"}
+            <Button onClick={submitRequest} disabled={reqSubmitting}>
+              {reqSubmitting ? "Submitting…" : "Submit request"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1032,58 +1065,42 @@ function toYmd(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
-function DatePicker({
+function InlineDateField({
   value,
   onChange,
 }: {
   value: string;
   onChange: (value: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const selected = parseYmd(value);
   const today = new Date();
   today.setHours(23, 59, 59, 999);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex h-10 w-full items-center gap-2.5 rounded-lg border bg-white px-3 text-left text-sm font-medium transition-colors",
-            open
-              ? "border-brand-400 ring-4 ring-brand-50"
-              : "border-gray-200 hover:border-gray-300",
-            selected ? "text-gray-900" : "text-gray-400",
-          )}
-        >
-          <CalendarIcon
-            className={cn(
-              "h-4 w-4 shrink-0",
-              selected ? "text-brand-500" : "text-gray-400",
-            )}
-          />
-          {selected ? format(selected, "EEE, MMM d, yyyy") : "Pick a date"}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        className="w-auto rounded-xl border-gray-200 p-0 shadow-lg"
-        align="start"
-        sideOffset={8}
-      >
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Selected date
+        </p>
+        <p className="mt-0.5 text-base font-semibold text-slate-900">
+          {selected
+            ? format(selected, "EEEE, dd MMMM yyyy")
+            : "Tap a date on the calendar below"}
+        </p>
+      </div>
+      <div className="flex justify-center px-2 py-3">
         <Calendar
           mode="single"
           selected={selected}
           onSelect={(date) => {
             if (date) onChange(toYmd(date));
-            setOpen(false);
           }}
           disabled={{ after: today }}
           defaultMonth={selected ?? today}
-          className="p-3 [--cell-size:2.4rem]"
+          className="p-1 [--cell-size:2.65rem]"
         />
-      </PopoverContent>
-    </Popover>
+      </div>
+    </div>
   );
 }
 
