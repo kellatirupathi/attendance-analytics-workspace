@@ -257,7 +257,7 @@ function Th({
   children,
 }: {
   className?: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <TableHead
