@@ -194,6 +194,7 @@ export async function getTablePreview(
   table: string,
   limit: number = 20,
   offset: number = 0,
+  search?: string,
 ): Promise<{
   columns: string[];
   rows: Record<string, unknown>[];
@@ -206,11 +207,35 @@ export async function getTablePreview(
   const safeOffset = Math.max(0, Math.floor(offset));
   const fqTable = `\`${BQ_PROJECT_ID}.${dataset}.${table}\``;
 
-  // Fetch this page plus the total row count in parallel so pagination can
-  // walk the entire table, not just a capped preview.
+  let whereClause = "";
+  const params: Record<string, unknown> = {};
+  const q = search?.trim();
+  if (q) {
+    const sample = await bqQuery<Record<string, unknown>>(
+      `SELECT * FROM ${fqTable} LIMIT 1`,
+    );
+    if (sample.length > 0) {
+      params["search"] = `%${q.toLowerCase()}%`;
+      const cols = Object.keys(sample[0]!);
+      const ors = cols
+        .map((col) => {
+          const safe = col.replace(/`/g, "");
+          return `LOWER(COALESCE(CAST(\`${safe}\` AS STRING), '')) LIKE @search`;
+        })
+        .join(" OR ");
+      whereClause = `WHERE (${ors})`;
+    }
+  }
+
   const [rows, countRows] = await Promise.all([
-    bqQuery(`SELECT * FROM ${fqTable} LIMIT ${safeLimit} OFFSET ${safeOffset}`),
-    bqQuery<{ n: string }>(`SELECT COUNT(*) AS n FROM ${fqTable}`),
+    bqQuery(
+      `SELECT * FROM ${fqTable} ${whereClause} LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      params,
+    ),
+    bqQuery<{ n: string }>(
+      `SELECT COUNT(*) AS n FROM ${fqTable} ${whereClause}`,
+      params,
+    ),
   ]);
 
   const columns = rows.length > 0 ? Object.keys(rows[0]!) : [];

@@ -311,7 +311,7 @@ export async function getStudentsList(
   if (opts.search) {
     params["q"] = `%${opts.search}%`;
     searchFilter =
-      "AND (LOWER(student_name) LIKE LOWER(@q) OR student_user_id = @q)";
+      "AND (LOWER(student_name) LIKE LOWER(@q) OR LOWER(CAST(student_user_id AS STRING)) LIKE LOWER(@q))";
   }
   let dimensionFilter = "";
   if (opts.campus) {
@@ -505,9 +505,15 @@ export interface SubjectSummaryItem {
 
 export async function getSubjectSummary(
   scope: SessionScope,
+  opts: { campus?: string } = {},
 ): Promise<SubjectSummaryItem[]> {
   const params: Record<string, unknown> = {};
   const where = scopeClause(scope, params);
+  let campusFilter = "";
+  if (opts.campus) {
+    params["filterCampus"] = opts.campus;
+    campusFilter = " AND institute_name = @filterCampus";
+  }
   const rows = await bqQuery<{
     subject_title: string;
     student_count: string;
@@ -520,7 +526,7 @@ export async function getSubjectSummary(
       COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
       COUNT(*) AS total_count
     FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}
+    WHERE ${where}${campusFilter}
     GROUP BY subject_title
     ORDER BY SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) ASC`,
     params,

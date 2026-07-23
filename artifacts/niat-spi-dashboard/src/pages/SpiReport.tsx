@@ -100,7 +100,7 @@ function Section({
 /* ------------------------------------------------------------------ */
 /*  Attendance donut ring                                             */
 /* ------------------------------------------------------------------ */
-function Donut({ pct }: { pct: number }) {
+function Donut({ pct, label = "this semester" }: { pct: number; label?: string }) {
   const size = 150;
   const stroke = 14;
   const r = (size - stroke) / 2;
@@ -138,7 +138,7 @@ function Donut({ pct }: { pct: number }) {
           {pct}%
         </span>
         <span className="mt-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">
-          this semester
+          {label}
         </span>
       </div>
     </div>
@@ -253,6 +253,38 @@ export default function SpiReport() {
   const [reqSubmitting, setReqSubmitting] = useState(false);
   const [reqDone, setReqDone] = useState<string | null>(null);
   const [reqError, setReqError] = useState<string | null>(null);
+
+  type StudentRequest = {
+    id: string;
+    dates: { date: string; reason: string; status: string }[];
+    overallStatus: string;
+    createdAt: string;
+  };
+  const [requestsOpen, setRequestsOpen] = useState(false);
+  const [myRequests, setMyRequests] = useState<StudentRequest[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
+
+  const openRequests = async () => {
+    if (!studentId) return;
+    setRequestsOpen(true);
+    setRequestsLoading(true);
+    try {
+      const qs = token ? `?t=${encodeURIComponent(token)}` : "";
+      const res = await fetch(
+        `/api/attendance/students/${studentId}/requests${qs}`,
+        { credentials: "include" },
+      );
+      if (res.ok) {
+        setMyRequests((await res.json()) as StudentRequest[]);
+      } else {
+        setMyRequests([]);
+      }
+    } catch {
+      setMyRequests([]);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
 
   const openRequest = () => {
     setReqRows([{ date: "", reason: "" }]);
@@ -396,6 +428,11 @@ export default function SpiReport() {
   }
 
   const onTrack = overview.attendancePct >= REQUIRED_PCT;
+  const classroomPct = categoryData.classroom.avgPct;
+  const modulePct = categoryData.module.avgPct;
+  const spiScore = Math.round(
+    overview.attendancePct * 0.75 + classroomPct * 0.1 + modulePct * 0.15,
+  );
 
   return (
     <div className="min-h-screen bg-[#f4f5f9]">
@@ -431,13 +468,22 @@ export default function SpiReport() {
           num="01"
           title="Attendance"
           aside={
-            <Button
-              onClick={openRequest}
-              className="gap-2 bg-brand-600 text-white hover:bg-brand-700"
-            >
-              <CalendarPlus className="h-4 w-4" />
-              Request Attendance
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={openRequests}
+                className="text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+              >
+                Requests
+              </button>
+              <Button
+                onClick={openRequest}
+                className="gap-2 bg-brand-600 text-white hover:bg-brand-700"
+              >
+                <CalendarPlus className="h-4 w-4" />
+                Request Attendance
+              </Button>
+            </div>
           }
         >
           {reqDone && (
@@ -447,17 +493,12 @@ export default function SpiReport() {
             </div>
           )}
           <div className="grid gap-8 sm:grid-cols-2">
-            {/* Donut ring + inline stats */}
             <div className="flex flex-col items-center gap-6 sm:flex-row">
-              <Donut pct={overview.attendancePct} />
-              <div className="flex gap-6 sm:flex-col sm:gap-3">
-                <Stat value={String(overview.presentCount)} label="Present" />
-                <Stat
-                  value={String(overview.absentCount)}
-                  label="Absent"
-                  tone="red"
-                />
-                <Stat value={`${REQUIRED_PCT}%`} label="Required" />
+              <Donut pct={spiScore} label="SPI score" />
+              <div className="flex w-full max-w-[220px] flex-col gap-3">
+                <ScoreBar label="Attendance overall" pct={overview.attendancePct} />
+                <ScoreBar label="Classroom quiz overall" pct={classroomPct} />
+                <ScoreBar label="Module quiz overall" pct={modulePct} />
               </div>
             </div>
 
@@ -1043,6 +1084,59 @@ export default function SpiReport() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============ My requests modal ============ */}
+      <Dialog open={requestsOpen} onOpenChange={setRequestsOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>My attendance requests</DialogTitle>
+            <DialogDescription>
+              Status of requests you submitted for review.
+            </DialogDescription>
+          </DialogHeader>
+          {requestsLoading ? (
+            <p className="py-8 text-center text-sm text-gray-500">Loading…</p>
+          ) : myRequests.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-500">
+              No requests submitted yet.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {myRequests.map((req) => (
+                <li
+                  key={req.id}
+                  className="rounded-lg border border-slate-200 p-4"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-slate-900">
+                      {format(new Date(req.createdAt), "dd MMM yyyy · h:mm a")}
+                    </p>
+                    <RequestStatusBadge status={req.overallStatus} />
+                  </div>
+                  <ul className="mt-3 space-y-2">
+                    {req.dates.map((d, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start justify-between gap-2 text-sm"
+                      >
+                        <div>
+                          <span className="font-medium text-slate-800">
+                            {d.date}
+                          </span>
+                          {d.reason && (
+                            <span className="text-slate-500"> — {d.reason}</span>
+                          )}
+                        </div>
+                        <RequestStatusBadge status={d.status} small />
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1165,6 +1259,66 @@ function MonthDatePicker({
         })}
       </div>
     </div>
+  );
+}
+
+/* Small progress bar for SPI section */
+function ScoreBar({ label, pct }: { label: string; pct: number }) {
+  const safe = Math.min(100, Math.max(0, pct));
+  return (
+    <div className="w-full">
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+        <span className="text-gray-500">{label}</span>
+        <span
+          className="font-semibold tabular-nums"
+          style={{ color: pctTextColor(safe) }}
+        >
+          {safe}%
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${safe}%`, backgroundColor: pctColor(safe) }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RequestStatusBadge({
+  status,
+  small,
+}: {
+  status: string;
+  small?: boolean;
+}) {
+  const label =
+    status === "approved"
+      ? "Verified"
+      : status === "rejected"
+        ? "Rejected"
+        : status === "partial"
+          ? "Partial"
+          : "Pending";
+  const style =
+    status === "approved"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : status === "rejected"
+        ? "bg-red-50 text-red-700 border-red-200"
+        : status === "partial"
+          ? "bg-blue-50 text-blue-700 border-blue-200"
+          : "bg-amber-50 text-amber-700 border-amber-200";
+  return (
+    <span
+      className={cn(
+        "rounded-full border font-bold uppercase tracking-wide",
+        small ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]",
+        style,
+      )}
+    >
+      {label}
+    </span>
   );
 }
 

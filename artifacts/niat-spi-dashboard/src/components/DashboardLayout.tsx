@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   ChevronDown,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
@@ -59,6 +60,7 @@ interface NavItem {
 const mainNav: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutGrid },
   { label: "Student Directory", href: "/dashboard/students", icon: UsersRound },
+  { label: "Student Attendance Stats", href: "/dashboard/attendance-stats", icon: BarChart3 },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
 ];
 
@@ -188,6 +190,9 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   const canManage = user?.role === "superadmin" || user?.role === "admin";
   const canRequests = REQUEST_ROLES.includes(user?.role ?? "");
   const unread = useUnreadCount(canRequests);
+  const visibleMainNav = mainNav.filter(
+    (item) => !(user?.role === "boa" && item.href === "/dashboard/campuses"),
+  );
 
   return (
     <div className="flex h-full flex-col bg-slate-900">
@@ -199,7 +204,7 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
         <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
           Main
         </p>
-        {mainNav.map((item) => (
+        {visibleMainNav.map((item) => (
           <NavItemLink
             key={item.href}
             item={item}

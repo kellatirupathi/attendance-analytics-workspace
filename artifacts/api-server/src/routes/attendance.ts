@@ -7,7 +7,7 @@ import {
   usersTable,
   type RequestDate,
 } from "@workspace/db";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, or, desc } from "drizzle-orm";
 import { requireSession, getSessionFromRequest } from "../lib/auth.js";
 import { verifySpiToken } from "../lib/spiToken.js";
 import { validateStudentId } from "../lib/bigquery.js";
@@ -189,6 +189,44 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching quizzes");
       res.status(500).json({ error: "Failed to fetch quiz data" });
+    }
+  },
+);
+
+// List attendance-correction requests submitted by a student (SPI report).
+router.get(
+  "/students/:studentId/requests",
+  spiLimiter,
+  async (req, res): Promise<void> => {
+    const studentId = String(req.params["studentId"] ?? "");
+    if (!studentId || !validateStudentId.test(studentId)) {
+      res.status(400).json({ error: "Invalid student ID" });
+      return;
+    }
+    if (!checkStudentAccess(req, studentId)) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    try {
+      const rows = await db
+        .select()
+        .from(attendanceRequestsTable)
+        .where(eq(attendanceRequestsTable.studentId, studentId))
+        .orderBy(desc(attendanceRequestsTable.createdAt));
+      res.json(
+        rows.map((r) => ({
+          id: r.id,
+          studentId: r.studentId,
+          studentName: r.studentName,
+          campus: r.campus,
+          dates: r.dates,
+          overallStatus: r.overallStatus,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      );
+    } catch (err) {
+      req.log.error({ err }, "Error fetching student requests");
+      res.status(500).json({ error: "Failed to fetch requests" });
     }
   },
 );

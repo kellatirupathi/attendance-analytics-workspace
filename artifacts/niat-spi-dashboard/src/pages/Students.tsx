@@ -44,6 +44,7 @@ import {
 import { pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
+import { useAuth } from "@/contexts/AuthContext";
 
 const FETCH_LIMIT = 5000;
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -53,21 +54,49 @@ const ATT_BUCKETS = [
   { key: "below80", label: "Below 80% (Recovery)" },
   { key: "above80", label: "80% and above" },
 ];
+const QUIZ_BUCKETS = [
+  { key: "all", label: "All scores" },
+  { key: "below50", label: "Below 50%" },
+  { key: "below80", label: "Below 80%" },
+  { key: "above80", label: "80% and above" },
+];
+
+function matchesQuizBand(value: number | null | undefined, band: string): boolean {
+  if (band === "all") return true;
+  if (value === null || value === undefined) return false;
+  switch (band) {
+    case "below50":
+      return value < 50;
+    case "below80":
+      return value < 80;
+    case "above80":
+      return value >= 80;
+    default:
+      return true;
+  }
+}
 
 type SortKey = "default" | "attendance-desc" | "attendance-asc";
 
 export default function Students() {
+  const { user } = useAuth();
+  const isBoa = user?.role === "boa";
+
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 350);
 
   const [campusFilter, setCampusFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
   const [attFilter, setAttFilter] = useState("all");
+  const [classroomFilter, setClassroomFilter] = useState("all");
+  const [moduleFilter, setModuleFilter] = useState("all");
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftCampus, setDraftCampus] = useState("all");
   const [draftSection, setDraftSection] = useState("all");
   const [draftAtt, setDraftAtt] = useState("all");
+  const [draftClassroom, setDraftClassroom] = useState("all");
+  const [draftModule, setDraftModule] = useState("all");
 
   const [sort, setSort] = useState<SortKey>("default");
   const [pageSize, setPageSize] = useState(50);
@@ -124,14 +153,22 @@ export default function Students() {
 
   const rows = useMemo<DashboardStudent[]>(() => students ?? [], [students]);
 
+  const filtered = useMemo(() => {
+    return rows.filter(
+      (s) =>
+        matchesQuizBand(s.classroomAvg, classroomFilter) &&
+        matchesQuizBand(s.moduleAvg, moduleFilter),
+    );
+  }, [rows, classroomFilter, moduleFilter]);
+
   const sorted = useMemo(() => {
-    if (sort === "default") return rows;
-    return [...rows].sort((a, b) =>
+    if (sort === "default") return filtered;
+    return [...filtered].sort((a, b) =>
       sort === "attendance-asc"
         ? a.attendancePct - b.attendancePct
         : b.attendancePct - a.attendancePct,
     );
-  }, [rows, sort]);
+  }, [filtered, sort]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -143,14 +180,18 @@ export default function Students() {
   const resetPage = () => setPage(1);
 
   const activeFilterCount =
-    (campusFilter !== "all" ? 1 : 0) +
+    (!isBoa && campusFilter !== "all" ? 1 : 0) +
     (sectionFilter !== "all" ? 1 : 0) +
-    (attFilter !== "all" ? 1 : 0);
+    (attFilter !== "all" ? 1 : 0) +
+    (classroomFilter !== "all" ? 1 : 0) +
+    (moduleFilter !== "all" ? 1 : 0);
 
   const openFilters = () => {
     setDraftCampus(campusFilter);
     setDraftSection(sectionFilter);
     setDraftAtt(attFilter);
+    setDraftClassroom(classroomFilter);
+    setDraftModule(moduleFilter);
     setFiltersOpen(true);
   };
 
@@ -158,6 +199,8 @@ export default function Students() {
     setCampusFilter(draftCampus);
     setSectionFilter(draftSection);
     setAttFilter(draftAtt);
+    setClassroomFilter(draftClassroom);
+    setModuleFilter(draftModule);
     setFiltersOpen(false);
     resetPage();
   };
@@ -166,12 +209,16 @@ export default function Students() {
     setDraftCampus("all");
     setDraftSection("all");
     setDraftAtt("all");
+    setDraftClassroom("all");
+    setDraftModule("all");
   };
 
   const clearAll = () => {
     setCampusFilter("all");
     setSectionFilter("all");
     setAttFilter("all");
+    setClassroomFilter("all");
+    setModuleFilter("all");
     resetPage();
   };
 
@@ -213,7 +260,7 @@ export default function Students() {
             <div className="relative min-w-[200px] flex-1 sm:w-64 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
-                placeholder="Search students by name…"
+                placeholder="Search by name, student ID, or user ID…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -424,6 +471,7 @@ export default function Students() {
           </SheetHeader>
 
           <div className="flex-1 space-y-5 overflow-y-auto py-6">
+            {!isBoa && (
             <div className="space-y-1.5">
               <Label>Campus</Label>
               <Select
@@ -447,6 +495,7 @@ export default function Students() {
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>Section</Label>
@@ -477,6 +526,38 @@ export default function Students() {
                 </SelectTrigger>
                 <SelectContent>
                   {ATT_BUCKETS.map((b) => (
+                    <SelectItem key={b.key} value={b.key}>
+                      {b.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Classroom quiz</Label>
+              <Select value={draftClassroom} onValueChange={setDraftClassroom}>
+                <SelectTrigger className="w-full border-gray-200">
+                  <SelectValue placeholder="Classroom quiz" />
+                </SelectTrigger>
+                <SelectContent>
+                  {QUIZ_BUCKETS.map((b) => (
+                    <SelectItem key={b.key} value={b.key}>
+                      {b.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Module quiz</Label>
+              <Select value={draftModule} onValueChange={setDraftModule}>
+                <SelectTrigger className="w-full border-gray-200">
+                  <SelectValue placeholder="Module quiz" />
+                </SelectTrigger>
+                <SelectContent>
+                  {QUIZ_BUCKETS.map((b) => (
                     <SelectItem key={b.key} value={b.key}>
                       {b.label}
                     </SelectItem>

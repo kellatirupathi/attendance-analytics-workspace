@@ -41,12 +41,13 @@ router.get("/preview", async (req, res): Promise<void> => {
   const table = req.query["table"] as string;
   const limit = Math.min(Number(req.query["limit"] ?? 20), 200);
   const offset = Math.max(0, Number(req.query["offset"] ?? 0));
+  const search = (req.query["search"] as string | undefined)?.trim() || undefined;
   if (!dataset || !table) {
     res.status(400).json({ error: "dataset and table required" });
     return;
   }
   try {
-    const preview = await getTablePreview(dataset, table, limit, offset);
+    const preview = await getTablePreview(dataset, table, limit, offset, search);
     res.json(preview);
   } catch {
     res.status(500).json({ error: "Failed to preview table" });

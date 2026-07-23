@@ -57,6 +57,12 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 function StatusBadge({ status }: { status: string }) {
+  const label =
+    status === "approved"
+      ? "Verified"
+      : status === "rejected"
+        ? "Rejected"
+        : status;
   return (
     <span
       className={cn(
@@ -64,7 +70,7 @@ function StatusBadge({ status }: { status: string }) {
         STATUS_STYLE[status] ?? STATUS_STYLE.pending,
       )}
     >
-      {status}
+      {label}
     </span>
   );
 }
@@ -227,7 +233,7 @@ export default function AttendanceRequests() {
                           className="h-9 gap-1.5 border-gray-200"
                           onClick={() => setDetail(n)}
                         >
-                          Update <ChevronRight className="h-4 w-4" />
+                          Verify <ChevronRight className="h-4 w-4" />
                         </Button>
                       ) : (
                         <>
@@ -236,7 +242,7 @@ export default function AttendanceRequests() {
                             disabled={r?.dates[0]?.status !== "pending"}
                             onClick={() => r && decideAll(r.id, "approved")}
                           >
-                            <Check className="h-4 w-4" /> Update
+                            <Check className="h-4 w-4" /> Verify
                           </Button>
                           <Button
                             variant="outline"
@@ -244,7 +250,7 @@ export default function AttendanceRequests() {
                             disabled={r?.dates[0]?.status !== "pending"}
                             onClick={() => r && decideAll(r.id, "rejected")}
                           >
-                            <X className="h-4 w-4" /> Reject
+                            <X className="h-4 w-4" /> Rejected
                           </Button>
                         </>
                       )}
@@ -300,7 +306,7 @@ export default function AttendanceRequests() {
                       decideDate(detail.request.id, i, "approved")
                     }
                   >
-                    <Check className="h-3.5 w-3.5" /> Update
+                    <Check className="h-3.5 w-3.5" /> Verify
                   </Button>
                   <Button
                     variant="outline"
@@ -311,7 +317,7 @@ export default function AttendanceRequests() {
                       decideDate(detail.request.id, i, "rejected")
                     }
                   >
-                    <X className="h-3.5 w-3.5" /> Reject
+                    <X className="h-3.5 w-3.5" /> Rejected
                   </Button>
                 </div>
               </li>

@@ -179,6 +179,15 @@ function TableDataView({
   const [totalRows, setTotalRows] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Global text search — server-side across the entire table.
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounceValue(search, 350);
+
+  // Reset to page 1 when search changes.
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
   // Fetch the current page from BigQuery (with total count) whenever the
   // table, page, or page size changes.
   useEffect(() => {
@@ -191,6 +200,9 @@ function TableDataView({
       limit: String(pageSize),
       offset: String(offset),
     });
+    if (debouncedSearch.trim()) {
+      params.set("search", debouncedSearch.trim());
+    }
     fetch(`/api/bigquery/preview?${params.toString()}`, {
       credentials: "include",
     })
@@ -213,12 +225,7 @@ function TableDataView({
     return () => {
       alive = false;
     };
-  }, [table.table, page, pageSize]);
-
-  // Global text search across every column (top toolbar, debounced) — applies
-  // to the rows currently loaded on this page.
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounceValue(search, 250);
+  }, [table.table, page, pageSize, debouncedSearch]);
 
   // Per-column applied filters. Value "all" = no filter.
   // Categorical columns store an exact value; free-text columns store a
@@ -256,14 +263,7 @@ function TableDataView({
   }, [columns, rows]);
 
   const filteredRows = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
     return rows.filter((row) => {
-      if (q) {
-        const hit = columns.some((c) =>
-          cellText(row[c]).toLowerCase().includes(q),
-        );
-        if (!hit) return false;
-      }
       for (const col of Object.keys(colFilters)) {
         const val = colFilters[col] ?? "";
         const meta = columnMeta.find((m) => m.col === col);
@@ -279,7 +279,7 @@ function TableDataView({
       }
       return true;
     });
-  }, [rows, columns, debouncedSearch, colFilters, columnMeta]);
+  }, [rows, colFilters, columnMeta]);
 
   // Server-side pagination: totalPages spans the whole table. The current
   // page's rows come from the server; client search/filters narrow within it.
@@ -361,13 +361,22 @@ function TableDataView({
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <Input
-              placeholder="Search this page…"
+              placeholder="Search name, student ID, user ID…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9 border-gray-200 pl-9"
-              disabled={columns.length === 0}
+              disabled={columns.length === 0 && !isLoading}
             />
           </div>
+
+          {activeFilterCount > 0 && (
+            <button
+              onClick={clearAll}
+              className="h-9 shrink-0 px-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:underline"
+            >
+              Clear filters
+            </button>
+          )}
 
           <Button
             variant="outline"
@@ -394,17 +403,6 @@ function TableDataView({
         </div>
       </div>
 
-      {activeFilterCount > 0 && (
-        <div className="pb-2">
-          <button
-            onClick={clearAll}
-            className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
-          >
-            Clear filters
-          </button>
-        </div>
-      )}
-
       {/* ===== Full-height data table ===== */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-200 bg-white">
         {isLoading ? (
@@ -419,7 +417,12 @@ function TableDataView({
           </div>
         ) : (
           <>
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div className="relative min-h-0 flex-1 overflow-auto">
+              {filteredRows.length === 0 ? (
+                <div className="flex min-h-[280px] items-center justify-center p-12 text-center text-gray-500">
+                  No rows match your filters.
+                </div>
+              ) : (
               <Table>
                 <TableHeader className="sticky top-0 z-10 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb]">
                   <TableRow>
@@ -434,17 +437,7 @@ function TableDataView({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRows.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={columns.length}
-                        className="h-24 text-center text-gray-500"
-                      >
-                        No rows match your filters.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    pagedRows.map((row: Record<string, unknown>, i: number) => (
+                    {pagedRows.map((row: Record<string, unknown>, i: number) => (
                       <TableRow key={i} className="hover:bg-gray-50/70">
                         {columns.map((col: string) => (
                           <TableCell
@@ -456,10 +449,10 @@ function TableDataView({
                           </TableCell>
                         ))}
                       </TableRow>
-                    ))
-                  )}
+                    ))}
                 </TableBody>
               </Table>
+              )}
             </div>
 
             <TablePagination

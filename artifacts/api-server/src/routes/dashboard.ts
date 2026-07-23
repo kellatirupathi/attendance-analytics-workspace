@@ -94,6 +94,30 @@ router.get("/filters", requireSession(), async (req, res): Promise<void> => {
   }
 });
 
+router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const campus = (req.query["campus"] as string | undefined) || undefined;
+  const cacheKey = `subjects:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const subjects = await getSubjectSummary(scope, { campus });
+    cacheSet(cacheKey, subjects, 60 * 1000);
+    res.json(subjects);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching subject attendance");
+    res.status(500).json({ error: "Failed to fetch subject attendance" });
+  }
+});
+
 router.get("/students", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({

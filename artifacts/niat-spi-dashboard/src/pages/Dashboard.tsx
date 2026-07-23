@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -7,7 +7,14 @@ import {
   useGetDashboardStudents,
   getGetDashboardStudentsQueryKey,
 } from "@workspace/api-client-react";
-import type { DashboardSummary } from "@workspace/api-client-react";
+import type { DashboardSummary, SubjectSummary } from "@workspace/api-client-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -421,17 +428,76 @@ function SubjectChartPanel({
   summary: DashboardSummary;
   span?: boolean;
 }) {
+  const campuses = summary.campusBreakdown.map((c) => c.instituteName);
+  const [campus, setCampus] = useState<string>("all");
+  const [subjects, setSubjects] = useState<SubjectSummary[]>(
+    summary.subjectBreakdown,
+  );
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (campus === "all") {
+      setSubjects(summary.subjectBreakdown);
+      return;
+    }
+    let alive = true;
+    setLoading(true);
+    fetch(`/api/dashboard/subjects?campus=${encodeURIComponent(campus)}`, {
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: SubjectSummary[]) => {
+        if (alive) setSubjects(data ?? []);
+      })
+      .catch(() => {
+        if (alive) setSubjects([]);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [campus, summary.subjectBreakdown]);
+
   return (
     <Panel className={span ? "lg:col-span-2" : undefined}>
       <PanelHead
         title="Attendance by Subject"
-        subtitle="Sorted from lowest to highest attendance"
+        subtitle={
+          campus === "all"
+            ? "All campuses · sorted lowest to highest"
+            : `${campus} · sorted lowest to highest`
+        }
         icon={BookOpenCheck}
         tint="#fff3ea"
         accent="#F25C05"
+        action={
+          campuses.length > 1 ? (
+            <Select value={campus} onValueChange={setCampus}>
+              <SelectTrigger className="h-8 w-[200px] border-gray-200 text-xs">
+                <SelectValue placeholder="Campus" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All campuses</SelectItem>
+                {campuses.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : undefined
+        }
       />
       <CardContent className="p-5">
-        <AttendanceBySubject subjects={summary.subjectBreakdown} />
+        {loading ? (
+          <Skeleton className="h-[340px] w-full" />
+        ) : (
+          <div className="max-h-[340px] overflow-y-auto pr-1 scrollbar-thin">
+            <AttendanceBySubject subjects={subjects} height={Math.max(340, subjects.length * 36)} />
+          </div>
+        )}
       </CardContent>
     </Panel>
   );

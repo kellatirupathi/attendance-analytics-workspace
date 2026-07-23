@@ -19,6 +19,7 @@ import BigQueryExplorer from "@/pages/BigQueryExplorer";
 import AdminUsers from "@/pages/AdminUsers";
 import AdminCampuses from "@/pages/AdminCampuses";
 import AttendanceRequests from "@/pages/AttendanceRequests";
+import StudentAttendanceStats from "@/pages/StudentAttendanceStats";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,11 @@ function Router() {
       <Route path="/dashboard/students">
         <Protected>
           <Students />
+        </Protected>
+      </Route>
+      <Route path="/dashboard/attendance-stats">
+        <Protected>
+          <StudentAttendanceStats />
         </Protected>
       </Route>
       <Route path="/dashboard/campuses">

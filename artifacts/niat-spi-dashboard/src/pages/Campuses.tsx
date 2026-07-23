@@ -4,9 +4,12 @@ import {
   getGetDashboardSummaryQueryKey,
   useGetDashboardFilters,
   getGetDashboardFiltersQueryKey,
+  useGetDashboardStudents,
+  getGetDashboardStudentsQueryKey,
 } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -33,12 +36,12 @@ import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/PageHeader";
 import { PageLoader } from "@/components/PageLoader";
 import { TableShell, TablePagination } from "@/components/DataTable";
-import { Search, Download, SlidersHorizontal, Loader2 } from "lucide-react";
+import { Search, Download, SlidersHorizontal, Loader2, ChevronRight, ArrowLeft } from "lucide-react";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
 
-type View = "section" | "campus";
+type Drill = "campus" | "section" | "students";
 
 const PAGE_SIZES = [25, 50, 100, 200];
 const ATT_BANDS = [
@@ -62,15 +65,17 @@ function matchesBand(pct: number, band: string): boolean {
 }
 
 export default function Campuses() {
-  const [view, setView] = useState<View>("section");
+  const [drill, setDrill] = useState<Drill>("campus");
+  const [selectedCampus, setSelectedCampus] = useState<string | null>(null);
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [showAllStudents, setShowAllStudents] = useState(false);
+
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
 
-  // Applied filters (drive the table)
   const [campusFilter, setCampusFilter] = useState("all");
   const [band, setBand] = useState("all");
 
-  // Draft filters (inside the drawer)
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftCampus, setDraftCampus] = useState("all");
   const [draftBand, setDraftBand] = useState("all");
@@ -88,14 +93,33 @@ export default function Campuses() {
         queryKey: getGetDashboardFiltersQueryKey(),
         enabled: filtersOpen,
         staleTime: 60_000,
-        refetchOnWindowFocus: true,
       },
     });
 
   const campuses = useMemo(() => summary?.campusBreakdown ?? [], [summary]);
   const sections = useMemo(() => summary?.sectionBreakdown ?? [], [summary]);
-
   const campusOptions = filterOptions?.campuses ?? [];
+
+  const studentQuery = {
+    limit: 5000,
+    campus: drill === "students" ? selectedCampus ?? undefined : undefined,
+    section:
+      drill === "students" && selectedSection && !showAllStudents
+        ? selectedSection
+        : undefined,
+    search: debouncedSearch || undefined,
+  };
+
+  const { data: students, isLoading: studentsLoading } = useGetDashboardStudents(
+    studentQuery,
+    {
+      query: {
+        queryKey: getGetDashboardStudentsQueryKey(studentQuery),
+        enabled: drill === "students" && !!selectedCampus,
+        staleTime: 30_000,
+      },
+    },
+  );
 
   const q = debouncedSearch.trim().toLowerCase();
 
@@ -111,11 +135,10 @@ export default function Campuses() {
     [campuses, campusFilter, band, q],
   );
 
-  const filteredSections = useMemo(
+  const campusSections = useMemo(
     () =>
       sections.filter((s) => {
-        if (campusFilter !== "all" && s.instituteName !== campusFilter)
-          return false;
+        if (selectedCampus && s.instituteName !== selectedCampus) return false;
         if (!matchesBand(s.pct, band)) return false;
         if (
           q &&
@@ -125,79 +148,90 @@ export default function Campuses() {
           return false;
         return true;
       }),
-    [sections, campusFilter, band, q],
+    [sections, selectedCampus, band, q],
   );
+
+  const studentRows = useMemo(() => students ?? [], [students]);
 
   const resetPage = () => setPage(1);
 
   const activeFilterCount =
     (campusFilter !== "all" ? 1 : 0) + (band !== "all" ? 1 : 0);
 
-  const openFilters = () => {
-    setDraftCampus(campusFilter);
-    setDraftBand(band);
-    setFiltersOpen(true);
-  };
-
-  const applyFilters = () => {
-    setCampusFilter(draftCampus);
-    setBand(draftBand);
-    setFiltersOpen(false);
+  const openCampus = (name: string) => {
+    setSelectedCampus(name);
+    setSelectedSection(null);
+    setShowAllStudents(false);
+    setDrill("section");
+    setSearch("");
     resetPage();
   };
 
-  const clearDraft = () => {
-    setDraftCampus("all");
-    setDraftBand("all");
-  };
-
-  const clearAll = () => {
-    setCampusFilter("all");
-    setBand("all");
+  const openSection = (sectionName: string) => {
+    setSelectedSection(sectionName);
+    setShowAllStudents(false);
+    setDrill("students");
     resetPage();
   };
 
-  const activeList = view === "campus" ? filteredCampuses : filteredSections;
+  const backToCampuses = () => {
+    setDrill("campus");
+    setSelectedCampus(null);
+    setSelectedSection(null);
+    setShowAllStudents(false);
+    resetPage();
+  };
+
+  const backToSections = () => {
+    setDrill("section");
+    setSelectedSection(null);
+    resetPage();
+  };
+
+  const activeList =
+    drill === "campus"
+      ? filteredCampuses
+      : drill === "section" && !showAllStudents
+        ? campusSections
+        : studentRows;
+
   const totalPages = Math.max(1, Math.ceil(activeList.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const start = (currentPage - 1) * pageSize;
-  const pagedCampuses = filteredCampuses.slice(start, start + pageSize);
-  const pagedSections = filteredSections.slice(start, start + pageSize);
 
   const handleExport = () => {
-    if (view === "campus") {
+    if (drill === "campus") {
       exportCsv(
         "campuses.csv",
-        [
-          "Campus",
-          "Sections",
-          "Subjects",
-          "Students",
-          "Present",
-          "Total",
-          "Attendance %",
-        ],
+        ["Campus", "Sections", "Subjects", "Students", "Attendance %"],
         filteredCampuses.map((c) => [
           c.instituteName,
           c.sectionCount,
           c.subjectCount,
           c.studentCount,
-          c.presentCount,
-          c.totalCount,
           c.pct,
+        ]),
+      );
+    } else if (drill === "section") {
+      exportCsv(
+        "sections.csv",
+        ["Campus", "Section", "Students", "Attendance %"],
+        campusSections.map((s) => [
+          s.instituteName,
+          s.sectionName,
+          s.studentCount,
+          s.pct,
         ]),
       );
     } else {
       exportCsv(
-        "sections.csv",
-        ["Campus", "Section", "Students", "Present", "Total", "Attendance %"],
-        filteredSections.map((s) => [
-          s.instituteName,
-          s.sectionName,
-          s.studentCount,
-          s.presentCount,
-          s.totalCount,
-          s.pct,
+        "students.csv",
+        ["Name", "Student ID", "Section", "Attendance %"],
+        studentRows.map((s) => [
+          s.studentName,
+          s.studentId,
+          s.sectionName ?? "",
+          s.attendancePct,
         ]),
       );
     }
@@ -209,14 +243,28 @@ export default function Campuses() {
     <div className="flex flex-col">
       <PageHeader
         title="Campus Analytics"
-        subtitle="Attendance rollups across campuses and sections."
+        subtitle="Drill from campus → section → students."
         right={
           <div className="flex flex-wrap items-center gap-2">
+            {drill !== "campus" && (
+              <Button
+                variant="outline"
+                className="h-9 gap-2 border-gray-200"
+                onClick={drill === "students" ? backToSections : backToCampuses}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </Button>
+            )}
             <div className="relative min-w-[200px] flex-1 sm:w-56 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
                 placeholder={
-                  view === "campus" ? "Search campuses…" : "Search sections…"
+                  drill === "campus"
+                    ? "Search campuses…"
+                    : drill === "section"
+                      ? "Search sections…"
+                      : "Search students…"
                 }
                 value={search}
                 onChange={(e) => {
@@ -227,30 +275,14 @@ export default function Campuses() {
               />
             </div>
 
-            <div className="flex rounded-md border border-gray-200 p-0.5">
-              {(["section", "campus"] as View[]).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => {
-                    setView(v);
-                    resetPage();
-                  }}
-                  className={cn(
-                    "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                    view === v
-                      ? "bg-brand-600 text-white"
-                      : "text-gray-600 hover:bg-gray-100",
-                  )}
-                >
-                  {v === "section" ? "By section" : "By campus"}
-                </button>
-              ))}
-            </div>
-
             <Button
               variant="outline"
               className="h-9 gap-2 border-gray-200"
-              onClick={openFilters}
+              onClick={() => {
+                setDraftCampus(campusFilter);
+                setDraftBand(band);
+                setFiltersOpen(true);
+              }}
             >
               <SlidersHorizontal className="h-4 w-4" /> Filters
               {activeFilterCount > 0 && (
@@ -271,7 +303,11 @@ export default function Campuses() {
 
             {activeFilterCount > 0 && (
               <button
-                onClick={clearAll}
+                onClick={() => {
+                  setCampusFilter("all");
+                  setBand("all");
+                  resetPage();
+                }}
                 className="h-9 px-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:underline"
               >
                 Clear
@@ -281,45 +317,111 @@ export default function Campuses() {
         }
       />
 
+      {drill !== "campus" && selectedCampus && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+          <button
+            type="button"
+            onClick={backToCampuses}
+            className="font-medium text-brand-600 hover:underline"
+          >
+            All campuses
+          </button>
+          <ChevronRight className="h-4 w-4 text-gray-300" />
+          <span className="font-medium text-gray-900">{selectedCampus}</span>
+          {selectedSection && (
+            <>
+              <ChevronRight className="h-4 w-4 text-gray-300" />
+              <span className="font-medium text-gray-900">{selectedSection}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {selectedCampus && drill !== "campus" && (
+        <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+          <Checkbox
+            checked={showAllStudents}
+            onCheckedChange={(v) => {
+              const on = v === true;
+              setShowAllStudents(on);
+              if (on) {
+                setDrill("students");
+                setSelectedSection(null);
+              } else {
+                setDrill("section");
+                setSelectedSection(null);
+              }
+              resetPage();
+            }}
+          />
+          Show all students in this campus
+        </label>
+      )}
+
       <TableShell>
         <div className="border-b border-gray-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-900">
-            {view === "campus" ? "Campus Breakdown" : "Section Breakdown"}
+            {drill === "campus"
+              ? "Campus breakdown"
+              : drill === "section"
+                ? `Sections · ${selectedCampus}`
+                : showAllStudents
+                  ? `All students · ${selectedCampus}`
+                  : `Students · ${selectedSection}`}
           </h2>
         </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-                <Th>Campus</Th>
-                {view === "section" ? (
-                  <Th>Section</Th>
-                ) : (
+                {drill === "campus" && (
                   <>
+                    <Th>Campus</Th>
                     <Th className="text-right">Sections</Th>
                     <Th className="text-right">Subjects</Th>
+                    <Th className="text-right">Students</Th>
+                    <Th className="w-[220px] text-right">Attendance</Th>
                   </>
                 )}
-                <Th className="text-right">Students</Th>
-                <Th className="w-[220px] text-right">Attendance</Th>
+                {drill === "section" && (
+                  <>
+                    <Th>Section</Th>
+                    <Th className="text-right">Students</Th>
+                    <Th className="w-[220px] text-right">Attendance</Th>
+                  </>
+                )}
+                {drill === "students" && (
+                  <>
+                    <Th>Name</Th>
+                    <Th>Student ID</Th>
+                    <Th>Section</Th>
+                    <Th className="text-right">Attendance</Th>
+                  </>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {activeList.length === 0 ? (
+              {drill === "students" && studentsLoading ? (
                 <TableRow>
-                  <TableCell
-                    colSpan={view === "campus" ? 5 : 4}
-                    className="h-24 text-center text-gray-500"
-                  >
-                    No {view === "campus" ? "campuses" : "sections"} match your
-                    filters.
+                  <TableCell colSpan={4} className="h-24 text-center text-gray-500">
+                    Loading students…
                   </TableCell>
                 </TableRow>
-              ) : view === "campus" ? (
-                pagedCampuses.map((c, idx) => (
+              ) : activeList.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={drill === "campus" ? 5 : drill === "section" ? 3 : 4}
+                    className="h-24 text-center text-gray-500"
+                  >
+                    No data matches your filters.
+                  </TableCell>
+                </TableRow>
+              ) : drill === "campus" ? (
+                filteredCampuses.slice(start, start + pageSize).map((c) => (
                   <TableRow
-                    key={idx}
-                    className="border-b border-gray-200 hover:bg-gray-50"
+                    key={c.instituteName}
+                    className="cursor-pointer border-b border-gray-200 hover:bg-gray-50"
+                    onClick={() => openCampus(c.instituteName)}
                   >
                     <TableCell className="py-3 font-medium text-gray-900">
                       {c.instituteName}
@@ -336,22 +438,45 @@ export default function Campuses() {
                     <AttendanceCell pct={c.pct} />
                   </TableRow>
                 ))
-              ) : (
-                pagedSections.map((s, idx) => (
+              ) : drill === "section" ? (
+                campusSections.slice(start, start + pageSize).map((s) => (
                   <TableRow
-                    key={idx}
-                    className="border-b border-gray-200 hover:bg-gray-50"
+                    key={`${s.instituteName}-${s.sectionName}`}
+                    className="cursor-pointer border-b border-gray-200 hover:bg-gray-50"
+                    onClick={() => openSection(s.sectionName)}
                   >
-                    <TableCell className="py-3 text-gray-600">
-                      {s.instituteName}
-                    </TableCell>
-                    <TableCell className="font-medium text-gray-900">
+                    <TableCell className="py-3 font-medium text-gray-900">
                       {s.sectionName}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-gray-600">
                       {s.studentCount.toLocaleString()}
                     </TableCell>
                     <AttendanceCell pct={s.pct} />
+                  </TableRow>
+                ))
+              ) : (
+                studentRows.slice(start, start + pageSize).map((s) => (
+                  <TableRow
+                    key={s.studentId}
+                    className="border-b border-gray-200 hover:bg-gray-50"
+                  >
+                    <TableCell className="py-3 font-medium text-gray-900">
+                      {s.studentName}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-gray-500">
+                      {s.studentId}
+                    </TableCell>
+                    <TableCell className="text-gray-600">
+                      {s.sectionName ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span
+                        className="font-bold tabular-nums"
+                        style={{ color: pctTextColor(s.attendancePct) }}
+                      >
+                        {s.attendancePct}%
+                      </span>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -371,7 +496,13 @@ export default function Campuses() {
               setPageSize(s);
               resetPage();
             }}
-            itemLabel={view === "campus" ? "campuses" : "sections"}
+            itemLabel={
+              drill === "campus"
+                ? "campuses"
+                : drill === "section"
+                  ? "sections"
+                  : "students"
+            }
           />
         )}
       </TableShell>
@@ -388,7 +519,11 @@ export default function Campuses() {
           <div className="flex-1 space-y-5 overflow-y-auto py-6">
             <div className="space-y-1.5">
               <Label>Campus</Label>
-              <Select value={draftCampus} onValueChange={setDraftCampus} disabled={filtersLoading}>
+              <Select
+                value={draftCampus}
+                onValueChange={setDraftCampus}
+                disabled={filtersLoading}
+              >
                 <SelectTrigger className="w-full border-gray-200">
                   <SelectValue placeholder="Campus" />
                 </SelectTrigger>
@@ -432,11 +567,22 @@ export default function Campuses() {
               Cancel
             </Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={clearDraft}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDraftCampus("all");
+                  setDraftBand("all");
+                }}
+              >
                 Clear filters
               </Button>
               <Button
-                onClick={applyFilters}
+                onClick={() => {
+                  setCampusFilter(draftCampus);
+                  setBand(draftBand);
+                  setFiltersOpen(false);
+                  resetPage();
+                }}
                 className="bg-brand-600 text-white hover:bg-brand-700"
               >
                 Apply filters
