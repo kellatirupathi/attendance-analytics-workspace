@@ -92,7 +92,17 @@ export default function SubjectAttendanceStudents() {
             label: "Student Attendance Stats",
             onClick: () => setLocation("/dashboard/attendance-stats"),
           },
-          ...(campus !== "all" ? [{ label: campus }] : []),
+          ...(campus !== "all"
+            ? [
+                {
+                  label: campus,
+                  onClick: () =>
+                    setLocation(
+                      `/dashboard/attendance-stats?campus=${encodeURIComponent(campus)}`,
+                    ),
+                },
+              ]
+            : []),
           { label: subject, current: true },
         ]}
       />

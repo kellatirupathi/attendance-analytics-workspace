@@ -190,6 +190,7 @@ export default function Campuses() {
   const backToSections = () => {
     setDrill("section");
     setSelectedSection(null);
+    setShowAllStudents(false);
     resetPage();
   };
 
@@ -249,13 +250,7 @@ export default function Campuses() {
       ? [
           { label: "All campuses", onClick: backToCampuses },
           ...(drill === "students"
-            ? [
-                {
-                  label: selectedCampus,
-                  onClick: selectedSection ? backToSections : undefined,
-                  current: !selectedSection,
-                },
-              ]
+            ? [{ label: selectedCampus, onClick: backToSections }]
             : [{ label: selectedCampus, current: true }]),
           ...(selectedSection
             ? [{ label: selectedSection, current: true }]

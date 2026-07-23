@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import {
   SearchableSelect,
@@ -33,7 +34,18 @@ const PAGE_SIZES = [25, 50, 100];
 export default function StudentAttendanceStats() {
   const { user } = useAuth();
   const isBoa = user?.role === "boa";
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+
+  const urlCampus = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("campus");
+  }, [location]);
+
+  const campus = useMemo(() => {
+    if (urlCampus) return urlCampus;
+    if (isBoa && user?.campuses?.length === 1) return user.campuses[0]!;
+    return "all";
+  }, [urlCampus, isBoa, user?.campuses]);
 
   const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() },
@@ -51,7 +63,6 @@ export default function StudentAttendanceStats() {
     return filterOptions?.campuses ?? summary?.campusBreakdown.map((c) => c.instituteName) ?? [];
   }, [filterOptions, summary, isBoa, user?.campuses]);
 
-  const [campus, setCampus] = useState<string>("all");
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
   const [subjects, setSubjects] = useState<SubjectSummary[]>([]);
@@ -59,11 +70,13 @@ export default function StudentAttendanceStats() {
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    if (isBoa && user?.campuses?.length === 1 && campus === "all") {
-      setCampus(user.campuses[0]!);
-    }
-  }, [isBoa, user?.campuses, campus]);
+  const setCampusFilter = (value: string) => {
+    setPage(1);
+    const params = new URLSearchParams();
+    if (value !== "all") params.set("campus", value);
+    const qs = params.toString();
+    setLocation(`/dashboard/attendance-stats${qs ? `?${qs}` : ""}`);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -112,6 +125,18 @@ export default function StudentAttendanceStats() {
 
   return (
     <div className="flex flex-col">
+      {campus !== "all" && !(isBoa && user?.campuses?.length === 1) && (
+        <PageBreadcrumb
+          items={[
+            {
+              label: "Student Attendance Stats",
+              onClick: () => setLocation("/dashboard/attendance-stats"),
+            },
+            { label: campus, current: true },
+          ]}
+        />
+      )}
+
       <PageHeader
         title="Student Attendance Stats"
         subtitle="Subject-wise attendance — click a row to view students in that subject."
@@ -120,10 +145,7 @@ export default function StudentAttendanceStats() {
             {!isBoa && campusOptions.length > 0 && (
               <SearchableSelect
                 value={campus}
-                onValueChange={(v) => {
-                  setCampus(v);
-                  setPage(1);
-                }}
+                onValueChange={setCampusFilter}
                 options={campusSelectOptions(campusOptions)}
                 placeholder="All campuses"
                 searchPlaceholder="Search campuses…"
