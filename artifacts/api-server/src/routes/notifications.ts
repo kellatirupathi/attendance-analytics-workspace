@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { requireSession } from "../lib/auth.js";
+import { spiSharePath } from "../lib/spiToken.js";
 import type { Role } from "../lib/rbac.js";
 
 const router = Router();
@@ -109,6 +110,7 @@ router.get("/", async (req, res): Promise<void> => {
               dates: r.dates,
               overallStatus: r.overallStatus,
               createdAt: r.createdAt.toISOString(),
+              spiPath: spiSharePath(r.studentId),
             }
           : null,
       };
@@ -211,6 +213,7 @@ router.patch("/requests/:id/dates/:index", async (req, res): Promise<void> => {
     dates: r.dates,
     overallStatus: r.overallStatus,
     createdAt: r.createdAt.toISOString(),
+    spiPath: spiSharePath(r.studentId),
   });
 });
 
@@ -264,6 +267,7 @@ router.patch("/requests/:id/decision", async (req, res): Promise<void> => {
     dates: r.dates,
     overallStatus: r.overallStatus,
     createdAt: r.createdAt.toISOString(),
+    spiPath: spiSharePath(r.studentId),
   });
 });
 

@@ -130,6 +130,7 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
   const limit = Math.min(Number(q["limit"] ?? 200), 5000);
   const campus = q["campus"] || undefined;
   const section = q["section"] || undefined;
+  const subject = q["subject"] || undefined;
   const attendanceBand = q["attendanceBand"] || undefined;
   try {
     const students = await getStudentsList(scope, {
@@ -137,6 +138,7 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
       limit,
       campus,
       section,
+      subject,
       attendanceBand,
     });
     const withPaths = students.map((s) => ({

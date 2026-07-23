@@ -208,7 +208,11 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
           <NavItemLink
             key={item.href}
             item={item}
-            active={location === item.href}
+            active={
+              location === item.href ||
+              (item.href !== "/dashboard" &&
+                location.startsWith(`${item.href}/`))
+            }
             onNavigate={onNavigate}
           />
         ))}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import {
   useGetDashboardSummary,
   getGetDashboardSummaryQueryKey,
@@ -14,18 +15,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { TableShell, TablePagination } from "@/components/DataTable";
-import { Search, Loader2 } from "lucide-react";
+import {
+  SearchableSelect,
+  campusSelectOptions,
+} from "@/components/SearchableSelect";
+import { Search, Loader2, ChevronRight } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useAuth } from "@/contexts/AuthContext";
@@ -35,6 +33,7 @@ const PAGE_SIZES = [25, 50, 100];
 export default function StudentAttendanceStats() {
   const { user } = useAuth();
   const isBoa = user?.role === "boa";
+  const [, setLocation] = useLocation();
 
   const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() },
@@ -102,33 +101,34 @@ export default function StudentAttendanceStats() {
     currentPage * pageSize,
   );
 
+  const openSubject = (s: SubjectSummary) => {
+    const params = new URLSearchParams({
+      subject: s.subjectTitle,
+      pct: String(s.pct),
+    });
+    if (campus !== "all") params.set("campus", campus);
+    setLocation(`/dashboard/attendance-stats/students?${params.toString()}`);
+  };
+
   return (
     <div className="flex flex-col">
       <PageHeader
         title="Student Attendance Stats"
-        subtitle="Subject-wise attendance for your role scope and campuses."
+        subtitle="Subject-wise attendance — click a row to view students in that subject."
         right={
           <div className="flex flex-wrap items-center gap-2">
-            {!isBoa && campusOptions.length > 1 && (
-              <Select
+            {!isBoa && campusOptions.length > 0 && (
+              <SearchableSelect
                 value={campus}
                 onValueChange={(v) => {
                   setCampus(v);
                   setPage(1);
                 }}
-              >
-                <SelectTrigger className="h-9 w-[220px] border-gray-200">
-                  <SelectValue placeholder="Campus" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All campuses</SelectItem>
-                  {campusOptions.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={campusSelectOptions(campusOptions)}
+                placeholder="All campuses"
+                searchPlaceholder="Search campuses…"
+                className="w-[220px]"
+              />
             )}
             <div className="relative min-w-[200px] sm:w-64">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -153,6 +153,9 @@ export default function StudentAttendanceStats() {
             Attendance by subject
             {campus !== "all" ? ` · ${campus}` : ""}
           </h2>
+          <p className="mt-0.5 text-xs text-gray-500">
+            {filtered.length.toLocaleString()} subject{filtered.length === 1 ? "" : "s"}
+          </p>
         </div>
         <div className="overflow-x-auto">
           <Table>
@@ -163,26 +166,31 @@ export default function StudentAttendanceStats() {
                 <Th className="text-right">Present</Th>
                 <Th className="text-right">Total sessions</Th>
                 <Th className="w-[220px] text-right">Attendance</Th>
+                <Th className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {summaryLoading || loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={6}>
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : paged.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center text-gray-500">
+                  <TableCell colSpan={6} className="h-32 text-center text-gray-500">
                     No subjects found for this scope.
                   </TableCell>
                 </TableRow>
               ) : (
                 paged.map((s) => (
-                  <TableRow key={s.subjectTitle} className="border-b border-gray-200 hover:bg-gray-50">
+                  <TableRow
+                    key={s.subjectTitle}
+                    className="cursor-pointer border-b border-gray-200 hover:bg-brand-50/40"
+                    onClick={() => openSubject(s)}
+                  >
                     <TableCell className="py-3 font-medium text-gray-900">
                       {s.subjectTitle}
                     </TableCell>
@@ -213,6 +221,9 @@ export default function StudentAttendanceStats() {
                           {s.pct}%
                         </span>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-right text-gray-300">
+                      <ChevronRight className="ml-auto h-4 w-4" />
                     </TableCell>
                   </TableRow>
                 ))

@@ -20,6 +20,7 @@ import {
   Calendar,
   Building2,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -38,6 +39,7 @@ type RequestObj = {
   dates: ReqDate[];
   overallStatus: string;
   createdAt: string;
+  spiPath?: string;
 };
 type Notification = {
   id: string;
@@ -227,6 +229,16 @@ export default function AttendanceRequests() {
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {r?.spiPath && (
+                        <a
+                          href={r.spiPath}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-9 items-center gap-1.5 px-2 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                        >
+                          Open <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      )}
                       {isMulti ? (
                         <Button
                           variant="outline"
@@ -277,8 +289,18 @@ export default function AttendanceRequests() {
       <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>
+            <DialogTitle className="flex flex-wrap items-center gap-2">
               {detail?.request?.studentName || "Attendance request"}
+              {detail?.request?.spiPath && (
+                <a
+                  href={detail.request.spiPath}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                >
+                  Open report <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              )}
             </DialogTitle>
             <DialogDescription>
               {detail?.request?.campus} · Decide each date individually.

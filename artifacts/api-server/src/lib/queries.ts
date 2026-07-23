@@ -301,6 +301,7 @@ export async function getStudentsList(
     limit?: number;
     campus?: string;
     section?: string;
+    subject?: string;
     attendanceBand?: string;
   } = {},
 ): Promise<StudentSearchResult[]> {
@@ -321,6 +322,10 @@ export async function getStudentsList(
   if (opts.section) {
     params["section"] = opts.section;
     dimensionFilter += " AND batch_section_name = @section";
+  }
+  if (opts.subject) {
+    params["subject"] = opts.subject;
+    dimensionFilter += " AND subject_title = @subject";
   }
   const having = attendanceHavingClause(opts.attendanceBand);
   const rows = await bqQuery<{

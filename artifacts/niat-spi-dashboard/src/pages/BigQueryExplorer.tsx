@@ -27,6 +27,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { exportCsv } from "@/lib/csv";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { cn } from "@/lib/utils";
@@ -35,7 +36,6 @@ import {
   GraduationCap,
   BookOpenCheck,
   ChevronRight,
-  ArrowLeft,
   SlidersHorizontal,
   Search,
   Download,
@@ -134,9 +134,6 @@ function TableListView({ onOpen }: { onOpen: (t: TableDef) => void }) {
                   <p className="text-sm font-semibold text-gray-900 group-hover:text-brand-700">
                     {t.label}
                   </p>
-                  <p className="truncate font-mono text-xs text-gray-400">
-                    {t.table}
-                  </p>
                 </div>
                 <span className="hidden text-xs text-gray-400 sm:block">
                   {t.description}
@@ -146,15 +143,6 @@ function TableListView({ onOpen }: { onOpen: (t: TableDef) => void }) {
             </li>
           ))}
         </ul>
-      </div>
-
-      <div className="rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-          Dataset
-        </p>
-        <p className="mt-1 break-all font-mono text-[11px] text-gray-500">
-          {DATASET}
-        </p>
       </div>
     </div>
   );
@@ -296,7 +284,7 @@ function TableDataView({
   const handleExport = () => {
     if (columns.length === 0 || filteredRows.length === 0) return;
     exportCsv(
-      `${table.table}.csv`,
+      `${table.key}.csv`,
       columns,
       filteredRows.map((row: Record<string, unknown>) =>
         columns.map((col: string) => cellText(row[col])),
@@ -327,81 +315,62 @@ function TableDataView({
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col md:h-[100dvh]">
-      {/* ===== Toolbar ===== */}
-      <div className="flex flex-wrap items-center gap-3 pb-4">
-        <Button
-          variant="outline"
-          onClick={onBack}
-          className="h-9 gap-2 border-gray-200"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to BigQuery
-        </Button>
+      <PageBreadcrumb
+        items={[
+          { label: "Data Explorer", onClick: onBack },
+          { label: table.label, current: true },
+        ]}
+      />
 
-        <div className="flex min-w-0 items-center gap-3">
-          <span
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-            style={{ background: table.tint }}
-          >
-            <table.icon
-              className="h-[18px] w-[18px]"
-              style={{ color: table.accent }}
-            />
-          </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-bold text-gray-900">
-              {table.label}
-            </h1>
-            <p className="truncate font-mono text-xs text-gray-400">
-              {table.table}
-            </p>
-          </div>
-        </div>
+      <PageHeader
+        title={table.label}
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder="Search name, student ID, user ID…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 border-gray-200 pl-9"
+                disabled={columns.length === 0 && !isLoading}
+              />
+            </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              placeholder="Search name, student ID, user ID…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-9 border-gray-200 pl-9"
-              disabled={columns.length === 0 && !isLoading}
-            />
-          </div>
-
-          {activeFilterCount > 0 && (
-            <button
-              onClick={clearAll}
-              className="h-9 shrink-0 px-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:underline"
-            >
-              Clear filters
-            </button>
-          )}
-
-          <Button
-            variant="outline"
-            className="h-9 gap-2 border-gray-200"
-            onClick={openFilters}
-            disabled={columns.length === 0}
-          >
-            <SlidersHorizontal className="h-4 w-4" /> Filters
             {activeFilterCount > 0 && (
-              <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-xs font-semibold text-white">
-                {activeFilterCount}
-              </span>
+              <button
+                onClick={clearAll}
+                className="h-9 shrink-0 px-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:underline"
+              >
+                Clear filters
+              </button>
             )}
-          </Button>
 
-          <Button
-            variant="outline"
-            className="h-9 gap-2 border-gray-200"
-            onClick={handleExport}
-            disabled={filteredRows.length === 0}
-          >
-            <Download className="h-4 w-4" /> Export
-          </Button>
-        </div>
-      </div>
+            <Button
+              variant="outline"
+              className="h-9 gap-2 border-gray-200"
+              onClick={openFilters}
+              disabled={columns.length === 0}
+            >
+              <SlidersHorizontal className="h-4 w-4" /> Filters
+              {activeFilterCount > 0 && (
+                <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-xs font-semibold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-9 gap-2 border-gray-200"
+              onClick={handleExport}
+              disabled={filteredRows.length === 0}
+            >
+              <Download className="h-4 w-4" /> Export
+            </Button>
+          </div>
+        }
+      />
 
       {/* ===== Full-height data table ===== */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-200 bg-white">

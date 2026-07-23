@@ -7,7 +7,7 @@ export function PageHeader({
   right,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   badge?: string;
   right?: React.ReactNode;
 }) {

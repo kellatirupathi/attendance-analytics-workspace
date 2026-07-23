@@ -9,12 +9,9 @@ import {
 } from "@workspace/api-client-react";
 import type { DashboardSummary, SubjectSummary } from "@workspace/api-client-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  SearchableSelect,
+  campusSelectOptions,
+} from "@/components/SearchableSelect";
 import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -474,19 +471,14 @@ function SubjectChartPanel({
         accent="#F25C05"
         action={
           campuses.length > 1 ? (
-            <Select value={campus} onValueChange={setCampus}>
-              <SelectTrigger className="h-8 w-[200px] border-gray-200 text-xs">
-                <SelectValue placeholder="Campus" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All campuses</SelectItem>
-                {campuses.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={campus}
+              onValueChange={setCampus}
+              options={campusSelectOptions(campuses)}
+              placeholder="All campuses"
+              searchPlaceholder="Search campuses…"
+              className="w-[200px] text-xs"
+            />
           ) : undefined
         }
       />
@@ -494,9 +486,7 @@ function SubjectChartPanel({
         {loading ? (
           <Skeleton className="h-[340px] w-full" />
         ) : (
-          <div className="max-h-[340px] overflow-y-auto pr-1 scrollbar-thin">
-            <AttendanceBySubject subjects={subjects} height={Math.max(340, subjects.length * 36)} />
-          </div>
+          <AttendanceBySubject subjects={subjects} />
         )}
       </CardContent>
     </Panel>

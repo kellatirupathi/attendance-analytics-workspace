@@ -34,9 +34,14 @@ import {
 } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/PageHeader";
+import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { PageLoader } from "@/components/PageLoader";
 import { TableShell, TablePagination } from "@/components/DataTable";
-import { Search, Download, SlidersHorizontal, Loader2, ChevronRight, ArrowLeft } from "lucide-react";
+import {
+  SearchableSelect,
+  campusSelectOptions,
+} from "@/components/SearchableSelect";
+import { Search, Download, SlidersHorizontal, Loader2 } from "lucide-react";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
@@ -239,23 +244,34 @@ export default function Campuses() {
 
   if (isLoading) return <PageLoader label="Loading campuses…" />;
 
+  const breadcrumbItems =
+    drill !== "campus" && selectedCampus
+      ? [
+          { label: "All campuses", onClick: backToCampuses },
+          ...(drill === "students"
+            ? [
+                {
+                  label: selectedCampus,
+                  onClick: selectedSection ? backToSections : undefined,
+                  current: !selectedSection,
+                },
+              ]
+            : [{ label: selectedCampus, current: true }]),
+          ...(selectedSection
+            ? [{ label: selectedSection, current: true }]
+            : []),
+        ]
+      : [];
+
   return (
     <div className="flex flex-col">
+      {breadcrumbItems.length > 0 && <PageBreadcrumb items={breadcrumbItems} />}
+
       <PageHeader
         title="Campus Analytics"
         subtitle="Drill from campus → section → students."
         right={
           <div className="flex flex-wrap items-center gap-2">
-            {drill !== "campus" && (
-              <Button
-                variant="outline"
-                className="h-9 gap-2 border-gray-200"
-                onClick={drill === "students" ? backToSections : backToCampuses}
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Button>
-            )}
             <div className="relative min-w-[200px] flex-1 sm:w-56 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
@@ -316,26 +332,6 @@ export default function Campuses() {
           </div>
         }
       />
-
-      {drill !== "campus" && selectedCampus && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-gray-600">
-          <button
-            type="button"
-            onClick={backToCampuses}
-            className="font-medium text-brand-600 hover:underline"
-          >
-            All campuses
-          </button>
-          <ChevronRight className="h-4 w-4 text-gray-300" />
-          <span className="font-medium text-gray-900">{selectedCampus}</span>
-          {selectedSection && (
-            <>
-              <ChevronRight className="h-4 w-4 text-gray-300" />
-              <span className="font-medium text-gray-900">{selectedSection}</span>
-            </>
-          )}
-        </div>
-      )}
 
       {selectedCampus && drill !== "campus" && (
         <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-gray-700">
@@ -519,23 +515,15 @@ export default function Campuses() {
           <div className="flex-1 space-y-5 overflow-y-auto py-6">
             <div className="space-y-1.5">
               <Label>Campus</Label>
-              <Select
+              <SearchableSelect
                 value={draftCampus}
                 onValueChange={setDraftCampus}
+                options={campusSelectOptions(campusOptions)}
+                placeholder="All campuses"
+                searchPlaceholder="Search campuses…"
                 disabled={filtersLoading}
-              >
-                <SelectTrigger className="w-full border-gray-200">
-                  <SelectValue placeholder="Campus" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All campuses</SelectItem>
-                  {campusOptions.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className="w-full"
+              />
             </div>
 
             <div className="space-y-1.5">

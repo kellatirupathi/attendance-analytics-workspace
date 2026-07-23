@@ -275,6 +275,7 @@ export type GetDashboardStudentsParams = {
   limit?: number;
   campus?: string;
   section?: string;
+  subject?: string;
   attendanceBand?: string;
 };
 

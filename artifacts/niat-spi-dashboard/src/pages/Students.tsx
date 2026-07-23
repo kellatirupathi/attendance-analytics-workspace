@@ -35,6 +35,11 @@ import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/PageHeader";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import {
+  SearchableSelect,
+  campusSelectOptions,
+  sectionSelectOptions,
+} from "@/components/SearchableSelect";
+import {
   Search,
   Download,
   ExternalLink,
@@ -328,7 +333,7 @@ export default function Students() {
                 <Th className="min-w-[220px]">Student ID</Th>
                 <Th className="min-w-[220px]">Campus</Th>
                 <Th className="min-w-[200px]">Section</Th>
-                <Th className="min-w-[120px] text-right">Attendance</Th>
+                <Th className="min-w-[148px] text-right">Attendance</Th>
                 <Th className="min-w-[120px] text-right">Classroom Quiz</Th>
                 <Th className="min-w-[120px] text-right">Module Quiz</Th>
                 <Th className="min-w-[90px] text-right">Report</Th>
@@ -411,18 +416,20 @@ export default function Students() {
                         {student.sectionName || "—"}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <span
-                        className="font-bold tabular-nums"
-                        style={{ color: pctTextColor(student.attendancePct) }}
-                      >
-                        {student.attendancePct}%
-                      </span>
-                      {student.totalCount > 0 && (
-                        <span className="ml-1.5 text-xs tabular-nums text-gray-400">
-                          ({student.presentCount}/{student.totalCount})
+                    <TableCell className="whitespace-nowrap text-right">
+                      <span className="tabular-nums">
+                        <span
+                          className="font-bold"
+                          style={{ color: pctTextColor(student.attendancePct) }}
+                        >
+                          {student.attendancePct}%
                         </span>
-                      )}
+                        {student.totalCount > 0 && (
+                          <span className="text-xs text-gray-400">
+                            ({student.presentCount}/{student.totalCount})
+                          </span>
+                        )}
+                      </span>
                     </TableCell>
                     <QuizPctCell value={student.classroomAvg} />
                     <QuizPctCell value={student.moduleAvg} />
@@ -474,48 +481,32 @@ export default function Students() {
             {!isBoa && (
             <div className="space-y-1.5">
               <Label>Campus</Label>
-              <Select
+              <SearchableSelect
                 value={draftCampus}
                 onValueChange={(v) => {
                   setDraftCampus(v);
                   setDraftSection("all");
                 }}
+                options={campusSelectOptions(campusOptions)}
+                placeholder="All campuses"
+                searchPlaceholder="Search campuses…"
                 disabled={filtersLoading}
-              >
-                <SelectTrigger className="w-full border-gray-200">
-                  <SelectValue placeholder="Campus" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All campuses</SelectItem>
-                  {campusOptions.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className="w-full"
+              />
             </div>
             )}
 
             <div className="space-y-1.5">
               <Label>Section</Label>
-              <Select
+              <SearchableSelect
                 value={draftSection}
                 onValueChange={setDraftSection}
+                options={sectionSelectOptions(sectionOptions)}
+                placeholder="All sections"
+                searchPlaceholder="Search sections…"
                 disabled={filtersLoading}
-              >
-                <SelectTrigger className="w-full border-gray-200">
-                  <SelectValue placeholder="Section" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All sections</SelectItem>
-                  {sectionOptions.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className="w-full"
+              />
             </div>
 
             <div className="space-y-1.5">

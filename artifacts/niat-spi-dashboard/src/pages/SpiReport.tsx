@@ -28,6 +28,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ import {
   Plus,
   Pencil,
   X,
+  Search,
 } from "lucide-react";
 import {
   format,
@@ -263,10 +265,27 @@ export default function SpiReport() {
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [myRequests, setMyRequests] = useState<StudentRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsSearch, setRequestsSearch] = useState("");
+
+  const filteredMyRequests = useMemo(() => {
+    const q = requestsSearch.trim().toLowerCase();
+    if (!q) return myRequests;
+    return myRequests.filter((req) => {
+      const haystack = [
+        req.overallStatus,
+        format(new Date(req.createdAt), "dd MMM yyyy · h:mm a"),
+        ...req.dates.flatMap((d) => [d.date, d.reason, d.status]),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [myRequests, requestsSearch]);
 
   const openRequests = async () => {
     if (!studentId) return;
     setRequestsOpen(true);
+    setRequestsSearch("");
     setRequestsLoading(true);
     try {
       const qs = token ? `?t=${encodeURIComponent(token)}` : "";
@@ -1086,55 +1105,82 @@ export default function SpiReport() {
       </Dialog>
 
       {/* ============ My requests modal ============ */}
-      <Dialog open={requestsOpen} onOpenChange={setRequestsOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
+      <Dialog
+        open={requestsOpen}
+        onOpenChange={(open) => {
+          setRequestsOpen(open);
+          if (!open) setRequestsSearch("");
+        }}
+      >
+        <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="shrink-0 space-y-0 border-b border-slate-200 px-5 pb-4 pt-5 text-left">
             <DialogTitle>My attendance requests</DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="mt-1">
               Status of requests you submitted for review.
             </DialogDescription>
           </DialogHeader>
-          {requestsLoading ? (
-            <p className="py-8 text-center text-sm text-gray-500">Loading…</p>
-          ) : myRequests.length === 0 ? (
-            <p className="py-8 text-center text-sm text-gray-500">
-              No requests submitted yet.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {myRequests.map((req) => (
-                <li
-                  key={req.id}
-                  className="rounded-lg border border-slate-200 p-4"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-slate-900">
-                      {format(new Date(req.createdAt), "dd MMM yyyy · h:mm a")}
-                    </p>
-                    <RequestStatusBadge status={req.overallStatus} />
-                  </div>
-                  <ul className="mt-3 space-y-2">
-                    {req.dates.map((d, i) => (
-                      <li
-                        key={i}
-                        className="flex items-start justify-between gap-2 text-sm"
-                      >
-                        <div>
-                          <span className="font-medium text-slate-800">
-                            {d.date}
-                          </span>
-                          {d.reason && (
-                            <span className="text-slate-500"> — {d.reason}</span>
-                          )}
-                        </div>
-                        <RequestStatusBadge status={d.status} small />
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
+
+          {!requestsLoading && myRequests.length > 0 && (
+            <div className="shrink-0 border-b border-slate-200 px-5 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  placeholder="Search by date, reason, or status…"
+                  value={requestsSearch}
+                  onChange={(e) => setRequestsSearch(e.target.value)}
+                  className="h-9 border-slate-200 pl-9"
+                />
+              </div>
+            </div>
           )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+            {requestsLoading ? (
+              <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
+            ) : myRequests.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-500">
+                No requests submitted yet.
+              </p>
+            ) : filteredMyRequests.length === 0 ? (
+              <p className="py-8 text-center text-sm text-slate-500">
+                No requests match your search.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {filteredMyRequests.map((req) => (
+                  <li
+                    key={req.id}
+                    className="rounded-lg border border-slate-200 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-slate-900">
+                        {format(new Date(req.createdAt), "dd MMM yyyy · h:mm a")}
+                      </p>
+                      <RequestStatusBadge status={req.overallStatus} />
+                    </div>
+                    <ul className="mt-3 space-y-2">
+                      {req.dates.map((d, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start justify-between gap-2 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <span className="font-medium text-slate-800">
+                              {d.date}
+                            </span>
+                            {d.reason && (
+                              <span className="text-slate-500"> — {d.reason}</span>
+                            )}
+                          </div>
+                          <RequestStatusBadge status={d.status} small />
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -1187,17 +1233,6 @@ function MonthDatePicker({
 
   return (
     <div className="w-full">
-      {selected && (
-        <div className="mb-3 rounded-md border border-brand-200 bg-brand-50 px-3 py-2">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-brand-700">
-            Selected
-          </p>
-          <p className="text-sm font-semibold text-slate-900">
-            {format(selected, "EEEE, dd MMMM yyyy")}
-          </p>
-        </div>
-      )}
-
       <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
