@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { LogoMark } from "./LogoMark";
+import { Logo } from "./LogoMark";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout } from "@workspace/api-client-react";
 import {
@@ -191,12 +191,8 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <div className="flex h-full flex-col bg-slate-900">
-      <div className="flex items-center gap-3 border-b border-slate-700/80 px-4 py-4">
-        <LogoMark className="h-8 w-8" />
-        <div>
-          <p className="text-[15px] font-bold leading-none text-white">NIAT SPI</p>
-          <p className="mt-0.5 text-[11px] text-slate-400">Analytics Console</p>
-        </div>
+      <div className="border-b border-slate-700/80 px-4 py-4">
+        <Logo inverted className="gap-3" />
       </div>
 
       <nav className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto px-2 py-4">
@@ -262,10 +258,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       <header className="fixed inset-x-0 top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden">
-        <div className="flex items-center gap-2">
-          <LogoMark className="h-7 w-7" />
-          <span className="text-sm font-bold text-slate-900">NIAT SPI</span>
-        </div>
+        <Logo className="scale-90 origin-left" />
         <button
           type="button"
           onClick={() => setMobileOpen(true)}

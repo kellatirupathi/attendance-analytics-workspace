@@ -804,15 +804,6 @@ export default function SpiReport() {
               <DialogTitle className="mt-1 text-lg font-semibold text-slate-900">
                 Request attendance update
               </DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-slate-600">
-                Pick absent dates, add a reason if needed, then submit for
-                campus review.
-              </DialogDescription>
-              {overview?.studentName && (
-                <p className="mt-2.5 text-sm font-medium text-slate-800">
-                  {overview.studentName}
-                </p>
-              )}
             </div>
           </DialogHeader>
 
