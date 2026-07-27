@@ -22,9 +22,11 @@ import {
   ExternalLink,
   Search,
   Loader2,
+  Download,
 } from "lucide-react";
 import { pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { exportCsv } from "@/lib/csv";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -68,6 +70,24 @@ export default function SubjectAttendanceStudents() {
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const paged = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const handleExport = () => {
+    if (rows.length === 0) return;
+    const safeName = subject.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
+    exportCsv(
+      `${safeName || "subject"}-students.csv`,
+      ["Name", "Student ID", "Campus", "Section", "Attendance %", "Present", "Total"],
+      rows.map((s) => [
+        s.studentName,
+        s.studentId,
+        s.instituteName,
+        s.sectionName ?? "",
+        s.attendancePct,
+        s.presentCount,
+        s.totalCount,
+      ]),
+    );
+  };
 
   if (!subject) {
     return (
@@ -131,6 +151,14 @@ export default function SubjectAttendanceStudents() {
             {isFetching && !isLoading && (
               <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
             )}
+            <Button
+              variant="outline"
+              className="h-9 gap-2 border-gray-200"
+              onClick={handleExport}
+              disabled={rows.length === 0 || isLoading}
+            >
+              <Download className="h-4 w-4" /> Export
+            </Button>
           </div>
         }
       />
