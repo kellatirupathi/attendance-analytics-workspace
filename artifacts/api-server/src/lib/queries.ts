@@ -1,5 +1,19 @@
-import { bqQuery, pct, validateStudentId } from "./bigquery.js";
+import {
+  bqQuery,
+  pct,
+  validateStudentId,
+  normalizeStudentId,
+} from "./bigquery.js";
 import type { SessionScope } from "./rbac.js";
+
+/**
+ * Matches a student id column against @studentId regardless of UUID hyphens.
+ * The warehouse is inconsistent: the attendance table stores hyphenated
+ * UUIDs while the quiz table stores bare hex, and SPI links can carry either.
+ */
+function studentIdMatch(column: string): string {
+  return `LOWER(REPLACE(CAST(${column} AS STRING), '-', '')) = @studentId`;
+}
 
 const ATTENDANCE_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_student_session_wise_attendance_details`";
@@ -69,11 +83,11 @@ export async function getStudentOverview(
           COUNT(*) OVER (PARTITION BY student_user_id, subject_title)
         ) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
-      WHERE student_user_id = @studentId
+      WHERE ${studentIdMatch('student_user_id')}
         AND is_current_semester = 1
     )
     GROUP BY student_user_id`,
-    { studentId },
+    { studentId: normalizeStudentId(studentId) },
   );
   if (rows.length === 0) return null;
   const r = rows[0]!;
@@ -117,11 +131,11 @@ export async function getStudentSubjects(
       COUNTIF(LOWER(attendance_status) = 'present') AS present,
       COUNT(*) AS total
     FROM ${ATTENDANCE_TABLE}
-    WHERE student_user_id = @studentId
+    WHERE ${studentIdMatch('student_user_id')}
       AND is_current_semester = 1
     GROUP BY subject_title
     ORDER BY subject_title`,
-    { studentId },
+    { studentId: normalizeStudentId(studentId) },
   );
   return rows.map((r) => {
     const p = Number(r.present);
@@ -163,11 +177,11 @@ export async function getStudentRecentSessions(
       attendance_status,
       marking_method
     FROM ${ATTENDANCE_TABLE}
-    WHERE student_user_id = @studentId
+    WHERE ${studentIdMatch('student_user_id')}
       AND is_current_semester = 1
     ORDER BY date DESC
     LIMIT 500`,
-    { studentId },
+    { studentId: normalizeStudentId(studentId) },
   );
   return rows.map((r) => ({
     date: r.date,
@@ -195,7 +209,10 @@ export async function searchStudents(
   limit: number = 50,
   scope: SessionScope = {},
 ): Promise<StudentSearchResult[]> {
-  const params: Record<string, unknown> = { q: `%${q}%`, exactId: q };
+  const params: Record<string, unknown> = {
+    q: `%${q}%`,
+    exactId: normalizeStudentId(q),
+  };
   const where = scopeClause(scope, params);
   const safeLimit = Math.min(limit, 50);
   const rows = await bqQuery<{
@@ -215,7 +232,8 @@ export async function searchStudents(
       COUNT(*) AS total
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
-      AND (LOWER(student_name) LIKE LOWER(@q) OR student_user_id = @exactId)
+      AND (LOWER(student_name) LIKE LOWER(@q)
+           OR ${studentIdMatch("student_user_id")})
     GROUP BY student_user_id
     LIMIT ${safeLimit}`,
     params,
@@ -375,7 +393,9 @@ export async function getStudentsList(
       quiz.classroom_avg,
       quiz.module_avg
     FROM att
-    LEFT JOIN quiz ON quiz.user_id = att.student_user_id
+    LEFT JOIN quiz
+      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
+       = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
     ORDER BY SAFE_DIVIDE(att.present, att.total) ASC
     LIMIT ${safeLimit}`,
     params,
@@ -653,9 +673,9 @@ export async function getStudentQuizzes(
       total_completed_quizzes,
       avg_best_attempt_percentage_score
     FROM ${QUIZ_TABLE}
-    WHERE user_id = @studentId
+    WHERE ${studentIdMatch('user_id')}
     ORDER BY semester_course_title, course_title`,
-    { studentId },
+    { studentId: normalizeStudentId(studentId) },
   );
 
   const classroomQuizzes: QuizItem[] = [];

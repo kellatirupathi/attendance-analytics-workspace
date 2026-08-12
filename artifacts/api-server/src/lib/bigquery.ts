@@ -245,6 +245,16 @@ export async function getTablePreview(
 
 export const validateStudentId = /^[a-zA-Z0-9_\-]{4,64}$/;
 
+/**
+ * Student ids reach us in both hyphenated UUID form (`40b54050-8476-...`,
+ * used in SPI links and the attendance table) and bare hex form
+ * (`40b540508476...`, how the quiz table stores user_id). Strip hyphens so a
+ * single normalized value matches either representation in SQL.
+ */
+export function normalizeStudentId(studentId: string): string {
+  return studentId.replace(/-/g, "").toLowerCase();
+}
+
 export function pct(present: number, total: number): number {
   if (total === 0) return 0;
   return Math.round((present / total) * 1000) / 10;

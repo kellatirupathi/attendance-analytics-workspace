@@ -8,6 +8,7 @@ import {
   getStudentsList,
   getDashboardFilterOptions,
 } from "../lib/queries.js";
+import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { spiSharePath } from "../lib/spiToken.js";
 import type { Role } from "../lib/rbac.js";
@@ -115,6 +116,35 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "Error fetching subject attendance");
     res.status(500).json({ error: "Failed to fetch subject attendance" });
+  }
+});
+
+// Campus rollup for the Campus-wise Stats view. Scope-filtered like every
+// other dashboard route, so a BOA only ever sees their own campuses.
+router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const cacheKey = `campuses:${session.role}:${JSON.stringify(scope)}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const campuses = await getCampusSummary(scope);
+    const payload = campuses.map((c) => ({
+      ...c,
+      belowRequirement: c.pct < REQUIRED_PCT,
+    }));
+    cacheSet(cacheKey, payload, 60 * 1000);
+    res.json(payload);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching campus stats");
+    res.status(500).json({ error: "Failed to fetch campus stats" });
   }
 });
 

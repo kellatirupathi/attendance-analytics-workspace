@@ -26,6 +26,7 @@ import {
   SearchableSelect,
   campusSelectOptions,
 } from "@/components/SearchableSelect";
+import { SubNav, ATTENDANCE_STATS_NAV } from "@/components/SubNav";
 import { Search, Loader2, ChevronRight, Download } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
@@ -152,6 +153,8 @@ export default function StudentAttendanceStats() {
 
   return (
     <div className="flex flex-col">
+      <SubNav items={ATTENDANCE_STATS_NAV} />
+
       {campus !== "all" && !(isBoa && user?.campuses?.length === 1) && (
         <PageBreadcrumb
           items={[

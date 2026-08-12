@@ -32,14 +32,55 @@ const PAGE_SIZES = [25, 50, 100];
 
 export default function SubjectAttendanceStudents() {
   const [location, setLocation] = useLocation();
-  const { subject, campus, pct } = useMemo(() => {
+  const { subject, campus, pct, from } = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return {
       subject: params.get("subject") ?? "",
       campus: params.get("campus") ?? "all",
       pct: params.get("pct") ?? "",
+      // "campuses" when reached via Campus-wise Stats, so the trail leads back
+      // there instead of to the flat Attendance Stats list.
+      from: params.get("from") ?? "",
     };
   }, [location]);
+
+  const viaCampuses = from === "campuses";
+
+  const backTrail = viaCampuses
+    ? [
+        {
+          label: "Campus-wise Stats",
+          onClick: () => setLocation("/dashboard/attendance-stats/campuses"),
+        },
+        ...(campus !== "all"
+          ? [
+              {
+                label: campus,
+                onClick: () =>
+                  setLocation(
+                    `/dashboard/attendance-stats/campuses?campus=${encodeURIComponent(campus)}`,
+                  ),
+              },
+            ]
+          : []),
+      ]
+    : [
+        {
+          label: "Student Attendance Stats",
+          onClick: () => setLocation("/dashboard/attendance-stats"),
+        },
+        ...(campus !== "all"
+          ? [
+              {
+                label: campus,
+                onClick: () =>
+                  setLocation(
+                    `/dashboard/attendance-stats?campus=${encodeURIComponent(campus)}`,
+                  ),
+              },
+            ]
+          : []),
+      ];
 
   useEffect(() => {
     setPage(1);
@@ -99,9 +140,17 @@ export default function SubjectAttendanceStudents() {
         <Button
           variant="link"
           className="mt-2"
-          onClick={() => setLocation("/dashboard/attendance-stats")}
+          onClick={() =>
+            setLocation(
+              viaCampuses
+                ? "/dashboard/attendance-stats/campuses"
+                : "/dashboard/attendance-stats",
+            )
+          }
         >
-          Back to Student Attendance Stats
+          {viaCampuses
+            ? "Back to Campus-wise Stats"
+            : "Back to Student Attendance Stats"}
         </Button>
       </div>
     );
@@ -110,24 +159,7 @@ export default function SubjectAttendanceStudents() {
   return (
     <div className="flex flex-col">
       <PageBreadcrumb
-        items={[
-          {
-            label: "Student Attendance Stats",
-            onClick: () => setLocation("/dashboard/attendance-stats"),
-          },
-          ...(campus !== "all"
-            ? [
-                {
-                  label: campus,
-                  onClick: () =>
-                    setLocation(
-                      `/dashboard/attendance-stats?campus=${encodeURIComponent(campus)}`,
-                    ),
-                },
-              ]
-            : []),
-          { label: subject, current: true },
-        ]}
+        items={[...backTrail, { label: subject, current: true }]}
       />
 
       <PageHeader

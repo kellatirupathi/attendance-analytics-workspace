@@ -21,6 +21,7 @@ import AdminCampuses from "@/pages/AdminCampuses";
 import AttendanceRequests from "@/pages/AttendanceRequests";
 import StudentAttendanceStats from "@/pages/StudentAttendanceStats";
 import SubjectAttendanceStudents from "@/pages/SubjectAttendanceStudents";
+import CampusWiseStats from "@/pages/CampusWiseStats";
 
 const queryClient = new QueryClient();
 
@@ -59,14 +60,19 @@ function Router() {
           <Students />
         </Protected>
       </Route>
-      <Route path="/dashboard/attendance-stats">
+      <Route path="/dashboard/attendance-stats/campuses">
         <Protected>
-          <StudentAttendanceStats />
+          <CampusWiseStats />
         </Protected>
       </Route>
       <Route path="/dashboard/attendance-stats/students">
         <Protected>
           <SubjectAttendanceStudents />
+        </Protected>
+      </Route>
+      <Route path="/dashboard/attendance-stats">
+        <Protected>
+          <StudentAttendanceStats />
         </Protected>
       </Route>
       <Route path="/dashboard/campuses">
