@@ -22,6 +22,7 @@ import AttendanceRequests from "@/pages/AttendanceRequests";
 import StudentAttendanceStats from "@/pages/StudentAttendanceStats";
 import SubjectAttendanceStudents from "@/pages/SubjectAttendanceStudents";
 import CampusWiseStats from "@/pages/CampusWiseStats";
+import SubjectSessions from "@/pages/SubjectSessions";
 
 const queryClient = new QueryClient();
 
@@ -63,6 +64,11 @@ function Router() {
       <Route path="/dashboard/attendance-stats/campuses">
         <Protected>
           <CampusWiseStats />
+        </Protected>
+      </Route>
+      <Route path="/dashboard/attendance-stats/sessions">
+        <Protected>
+          <SubjectSessions />
         </Protected>
       </Route>
       <Route path="/dashboard/attendance-stats/students">

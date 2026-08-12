@@ -27,7 +27,13 @@ import {
   campusSelectOptions,
 } from "@/components/SearchableSelect";
 import { SubNav, ATTENDANCE_STATS_NAV } from "@/components/SubNav";
-import { Search, Loader2, ChevronRight, Download } from "lucide-react";
+import {
+  Search,
+  Loader2,
+  ChevronRight,
+  Download,
+  CalendarDays,
+} from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
@@ -151,6 +157,12 @@ export default function StudentAttendanceStats() {
     setLocation(`/dashboard/attendance-stats/students?${params.toString()}`);
   };
 
+  const openSessions = (s: SubjectSummary) => {
+    const params = new URLSearchParams({ subject: s.subjectTitle });
+    if (campus !== "all") params.set("campus", campus);
+    setLocation(`/dashboard/attendance-stats/sessions?${params.toString()}`);
+  };
+
   return (
     <div className="flex flex-col">
       <SubNav items={ATTENDANCE_STATS_NAV} />
@@ -232,6 +244,7 @@ export default function StudentAttendanceStats() {
                 <Th className="text-right">Present</Th>
                 <Th className="text-right">Total sessions</Th>
                 <Th className="w-[220px] text-right">Attendance</Th>
+                <Th className="w-24 text-right">Sessions</Th>
                 <Th className="w-10" />
               </TableRow>
             </TableHeader>
@@ -239,14 +252,14 @@ export default function StudentAttendanceStats() {
               {summaryLoading || loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : paged.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-32 text-center text-gray-500">
+                  <TableCell colSpan={7} className="h-32 text-center text-gray-500">
                     No subjects found for this scope.
                   </TableCell>
                 </TableRow>
@@ -287,6 +300,18 @@ export default function StudentAttendanceStats() {
                           {s.pct}%
                         </span>
                       </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openSessions(s);
+                        }}
+                        className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                      >
+                        <CalendarDays className="h-3.5 w-3.5" /> Units
+                      </button>
                     </TableCell>
                     <TableCell className="text-right text-gray-300">
                       <ChevronRight className="ml-auto h-4 w-4" />

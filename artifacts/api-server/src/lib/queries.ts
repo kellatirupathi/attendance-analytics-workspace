@@ -569,6 +569,145 @@ export async function getSubjectSummary(
   });
 }
 
+export interface SessionSummaryItem {
+  sessionTitle: string;
+  date: string | null;
+  studentCount: number;
+  presentCount: number;
+  totalCount: number;
+  pct: number;
+}
+
+/**
+ * Session (unit) level rollup inside one subject. One row per
+ * (session_title, date) so a session repeated on different days stays
+ * distinct. Scope-filtered like every other dashboard query.
+ */
+export async function getSubjectSessions(
+  scope: SessionScope,
+  opts: { subject: string; campus?: string; section?: string },
+): Promise<SessionSummaryItem[]> {
+  const params: Record<string, unknown> = { subject: opts.subject };
+  const where = scopeClause(scope, params);
+  let extra = " AND subject_title = @subject";
+  if (opts.campus) {
+    params["campus"] = opts.campus;
+    extra += " AND institute_name = @campus";
+  }
+  if (opts.section) {
+    params["section"] = opts.section;
+    extra += " AND batch_section_name = @section";
+  }
+  const rows = await bqQuery<{
+    session_title: string;
+    date: string | null;
+    student_count: string;
+    present_count: string;
+    total_count: string;
+  }>(
+    `SELECT
+      COALESCE(session_title, 'Untitled session') AS session_title,
+      CAST(date AS STRING) AS date,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNT(*) AS total_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${where}${extra}
+    GROUP BY session_title, date
+    ORDER BY date DESC, session_title`,
+    params,
+  );
+  return rows.map((r) => {
+    const p = Number(r.present_count);
+    const t = Number(r.total_count);
+    return {
+      sessionTitle: r.session_title,
+      date: r.date ?? null,
+      studentCount: Number(r.student_count),
+      presentCount: p,
+      totalCount: t,
+      pct: pct(p, t),
+    };
+  });
+}
+
+export interface SessionStudentItem {
+  studentId: string;
+  studentName: string;
+  instituteName: string | null;
+  sectionName: string | null;
+  attendanceStatus: string;
+  markingMethod: string | null;
+}
+
+/**
+ * Per-student attendance for one session of one subject — who attended and
+ * who did not, which is the leaf of the campus drill-down.
+ */
+export async function getSessionStudents(
+  scope: SessionScope,
+  opts: {
+    subject: string;
+    sessionTitle: string;
+    date?: string;
+    campus?: string;
+    section?: string;
+    limit?: number;
+  },
+): Promise<SessionStudentItem[]> {
+  const params: Record<string, unknown> = {
+    subject: opts.subject,
+    sessionTitle: opts.sessionTitle,
+  };
+  const where = scopeClause(scope, params);
+  let extra =
+    " AND subject_title = @subject" +
+    " AND COALESCE(session_title, 'Untitled session') = @sessionTitle";
+  if (opts.date) {
+    params["date"] = opts.date;
+    extra += " AND CAST(date AS STRING) = @date";
+  }
+  if (opts.campus) {
+    params["campus"] = opts.campus;
+    extra += " AND institute_name = @campus";
+  }
+  if (opts.section) {
+    params["section"] = opts.section;
+    extra += " AND batch_section_name = @section";
+  }
+  const safeLimit = Math.min(opts.limit ?? 2000, 5000);
+  const rows = await bqQuery<{
+    student_user_id: string;
+    student_name: string;
+    institute_name: string;
+    batch_section_name: string;
+    attendance_status: string;
+    marking_method: string | null;
+  }>(
+    `SELECT
+      student_user_id,
+      MAX(student_name) AS student_name,
+      MAX(institute_name) AS institute_name,
+      MAX(batch_section_name) AS batch_section_name,
+      MAX(attendance_status) AS attendance_status,
+      MAX(marking_method) AS marking_method
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${where}${extra}
+    GROUP BY student_user_id
+    ORDER BY MAX(student_name)
+    LIMIT ${safeLimit}`,
+    params,
+  );
+  return rows.map((r) => ({
+    studentId: r.student_user_id,
+    studentName: r.student_name,
+    instituteName: r.institute_name ?? null,
+    sectionName: r.batch_section_name ?? null,
+    attendanceStatus: r.attendance_status ?? "",
+    markingMethod: r.marking_method ?? null,
+  }));
+}
+
 export async function getCampusList(): Promise<string[]> {
   const rows = await bqQuery<{ institute_name: string }>(
     `SELECT DISTINCT institute_name FROM ${ATTENDANCE_TABLE} WHERE is_current_semester = 1 ORDER BY institute_name`,

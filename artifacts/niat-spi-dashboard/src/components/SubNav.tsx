@@ -4,8 +4,8 @@ import { cn } from "@/lib/utils";
 export interface SubNavItem {
   label: string;
   href: string;
-  /** Also mark active when the current location sits under this href. */
-  matchPrefix?: string;
+  /** Also mark active when the current location sits under one of these. */
+  matchPrefix?: string | string[];
 }
 
 /**
@@ -19,8 +19,12 @@ export function SubNav({ items }: { items: SubNavItem[] }) {
   const isActive = (item: SubNavItem) => {
     const base = item.href.split("?")[0]!;
     if (path === base) return true;
-    if (item.matchPrefix && path.startsWith(item.matchPrefix)) return true;
-    return false;
+    const prefixes = item.matchPrefix
+      ? Array.isArray(item.matchPrefix)
+        ? item.matchPrefix
+        : [item.matchPrefix]
+      : [];
+    return prefixes.some((p) => path.startsWith(p));
   };
 
   return (
@@ -47,15 +51,9 @@ export function SubNav({ items }: { items: SubNavItem[] }) {
   );
 }
 
+// Only the two top-level views render this strip; the drill-down pages use
+// breadcrumbs instead, so no prefix matching is needed here.
 export const ATTENDANCE_STATS_NAV: SubNavItem[] = [
-  {
-    label: "Attendance Stats",
-    href: "/dashboard/attendance-stats",
-    matchPrefix: "/dashboard/attendance-stats/students",
-  },
-  {
-    label: "Campus-wise Stats",
-    href: "/dashboard/attendance-stats/campuses",
-    matchPrefix: "/dashboard/attendance-stats/campuses",
-  },
+  { label: "Attendance Stats", href: "/dashboard/attendance-stats" },
+  { label: "Campus-wise Stats", href: "/dashboard/attendance-stats/campuses" },
 ];

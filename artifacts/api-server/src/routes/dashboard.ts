@@ -7,6 +7,8 @@ import {
   getSubjectSummary,
   getStudentsList,
   getDashboardFilterOptions,
+  getSubjectSessions,
+  getSessionStudents,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
@@ -147,6 +149,80 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
     res.status(500).json({ error: "Failed to fetch campus stats" });
   }
 });
+
+// Session (unit) rollup inside one subject.
+router.get("/sessions", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | undefined>;
+  const subject = q["subject"];
+  if (!subject) {
+    res.status(400).json({ error: "subject required" });
+    return;
+  }
+  const campus = q["campus"] || undefined;
+  const section = q["section"] || undefined;
+  const cacheKey = `sessions:${session.role}:${JSON.stringify(scope)}:${subject}:${campus ?? ""}:${section ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const sessions = await getSubjectSessions(scope, {
+      subject,
+      campus,
+      section,
+    });
+    cacheSet(cacheKey, sessions, 60 * 1000);
+    res.json(sessions);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching subject sessions");
+    res.status(500).json({ error: "Failed to fetch sessions" });
+  }
+});
+
+// Per-student attendance for a single session of a subject.
+router.get(
+  "/session-students",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const subject = q["subject"];
+    const sessionTitle = q["sessionTitle"];
+    if (!subject || !sessionTitle) {
+      res.status(400).json({ error: "subject and sessionTitle required" });
+      return;
+    }
+    try {
+      const students = await getSessionStudents(scope, {
+        subject,
+        sessionTitle,
+        date: q["date"] || undefined,
+        campus: q["campus"] || undefined,
+        section: q["section"] || undefined,
+      });
+      const withPaths = students.map((s) => ({
+        ...s,
+        spiPath: spiSharePath(s.studentId),
+      }));
+      res.json(withPaths);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching session students");
+      res.status(500).json({ error: "Failed to fetch session students" });
+    }
+  },
+);
 
 router.get("/students", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
