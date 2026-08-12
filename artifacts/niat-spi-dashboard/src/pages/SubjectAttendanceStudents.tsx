@@ -26,23 +26,21 @@ import {
 } from "lucide-react";
 import { pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 
 const PAGE_SIZES = [25, 50, 100];
 
 export default function SubjectAttendanceStudents() {
-  const [location, setLocation] = useLocation();
-  const { subject, campus, pct, from } = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return {
-      subject: params.get("subject") ?? "",
-      campus: params.get("campus") ?? "all",
-      pct: params.get("pct") ?? "",
-      // "campuses" when reached via Campus-wise Stats, so the trail leads back
-      // there instead of to the flat Attendance Stats list.
-      from: params.get("from") ?? "",
-    };
-  }, [location]);
+  const [, setLocation] = useLocation();
+  const params = useQueryParams();
+
+  const subject = params.get("subject") ?? "";
+  const campus = params.get("campus") ?? "all";
+  const pct = params.get("pct") ?? "";
+  // "campuses" when reached via Campus-wise Stats, so the trail leads back
+  // there instead of to the flat Attendance Stats list.
+  const from = params.get("from") ?? "";
 
   const viaCampuses = from === "campuses";
 

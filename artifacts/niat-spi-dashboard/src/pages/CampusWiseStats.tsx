@@ -17,6 +17,7 @@ import { ErrorState } from "@/components/PageStates";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import { SubNav, ATTENDANCE_STATS_NAV } from "@/components/SubNav";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import {
   Search,
   Loader2,
@@ -44,14 +45,12 @@ const safeFileName = (value: string) =>
   value.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
 
 export default function CampusWiseStats() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
+  const query = useQueryParams();
 
   // A campus in the query string switches this page from the campus list to
   // the subject breakdown for that campus.
-  const campus = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("campus") ?? "";
-  }, [location]);
+  const campus = query.get("campus") ?? "";
 
   return (
     <div className="flex flex-col">
