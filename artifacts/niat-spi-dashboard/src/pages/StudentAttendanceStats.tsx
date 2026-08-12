@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -44,12 +45,10 @@ const PAGE_SIZES = [25, 50, 100];
 export default function StudentAttendanceStats() {
   const { user } = useAuth();
   const isBoa = user?.role === "boa";
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
+  const query = useQueryParams();
 
-  const urlCampus = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("campus");
-  }, [location]);
+  const urlCampus = query.get("campus");
 
   const campus = useMemo(() => {
     if (urlCampus) return urlCampus;

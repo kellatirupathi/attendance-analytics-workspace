@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import {
   AlertCircle,
   AlertTriangle,
@@ -171,8 +172,7 @@ const SPI_CATEGORIES: {
 
 export default function SpiReport() {
   const { studentId } = useParams<{ studentId: string }>();
-  const token =
-    new URLSearchParams(window.location.search).get("t") ?? undefined;
+  const token = useQueryParams().get("t") ?? undefined;
   const params = token ? { t: token } : undefined;
 
   type Panel =

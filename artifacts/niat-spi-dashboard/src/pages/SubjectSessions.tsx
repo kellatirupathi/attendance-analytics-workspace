@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 
 const PAGE_SIZES = [25, 50, 100];
@@ -58,20 +59,14 @@ const isPresent = (status: string) => status.trim().toLowerCase() === "present";
  * session and whether each attended.
  */
 export default function SubjectSessions() {
-  const [location, setLocation] = useLocation();
+  const [, setLocation] = useLocation();
+  const p = useQueryParams();
 
-  const params = useMemo(() => {
-    const p = new URLSearchParams(window.location.search);
-    return {
-      subject: p.get("subject") ?? "",
-      campus: p.get("campus") ?? "",
-      session: p.get("session") ?? "",
-      date: p.get("date") ?? "",
-      from: p.get("from") ?? "",
-    };
-  }, [location]);
-
-  const { subject, campus, session, date, from } = params;
+  const subject = p.get("subject") ?? "";
+  const campus = p.get("campus") ?? "";
+  const session = p.get("session") ?? "";
+  const date = p.get("date") ?? "";
+  const from = p.get("from") ?? "";
   const viaCampuses = from === "campuses";
 
   // Trail back through whichever tab the user drilled in from.
