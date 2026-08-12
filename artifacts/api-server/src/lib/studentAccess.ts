@@ -27,12 +27,11 @@ export async function assertStudentAccess(
     try {
       const overview = await getStudentOverview(studentId);
       if (!overview) return false;
-      if (
-        scope.campuses &&
-        scope.campuses.length > 0 &&
-        !scope.campuses.includes(overview.instituteName)
-      ) {
-        return false;
+      if (scope.campuses && scope.campuses.length > 0) {
+        // A student with no institute cannot match a campus-scoped session,
+        // so fail closed rather than treating null as unrestricted.
+        const campus = overview.instituteName;
+        if (!campus || !scope.campuses.includes(campus)) return false;
       }
       return true;
     } catch {
