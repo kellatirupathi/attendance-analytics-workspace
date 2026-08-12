@@ -4,6 +4,7 @@ import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import type { AuthUser } from "@workspace/api-client-react";
 import { Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
+import { ErrorState } from "@/components/PageStates";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -54,7 +55,7 @@ export function ProtectedRoute({
   superadminOnly?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isError } = useAuth();
   const [, setLocation] = useLocation();
 
   // Fall back to the query cache so a just-completed login is visible before
@@ -69,18 +70,32 @@ export function ProtectedRoute({
 
   React.useEffect(() => {
     if (isLoading) return;
+    if (isError && !sessionUser) return;
     if (!sessionUser) {
       setLocation("/staff-login");
     } else if (lacksAccess(sessionUser.role)) {
       setLocation("/dashboard");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionUser, isLoading, setLocation, adminOnly, superadminOnly]);
+  }, [sessionUser, isLoading, isError, setLocation, adminOnly, superadminOnly]);
 
   if (isLoading && !sessionUser) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="size-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (isError && !sessionUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <ErrorState
+          message="Could not verify your session."
+          onRetry={() =>
+            queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() })
+          }
+        />
       </div>
     );
   }

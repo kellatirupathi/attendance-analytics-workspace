@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { usersTable, campusesTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireSession } from "../lib/auth.js";
+import { invalidateSessionCache } from "../lib/sessionCache.js";
 import { manageableRoles, ROLE_META, SUBJECTS } from "../lib/rbac.js";
 import type { Role } from "../lib/rbac.js";
 import { getInstitutions, getSubjectList } from "../lib/queries.js";
@@ -149,6 +150,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     .where(eq(usersTable.id, id))
     .returning();
   const u = updated[0]!;
+  invalidateSessionCache(u.id);
   res.json({
     id: u.id,
     name: u.name,

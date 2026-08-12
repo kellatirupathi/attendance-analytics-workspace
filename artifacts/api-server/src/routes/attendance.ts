@@ -12,7 +12,7 @@ import { requireSession, getSessionFromRequest } from "../lib/auth.js";
 import { verifySpiToken } from "../lib/spiToken.js";
 import { validateStudentId } from "../lib/bigquery.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
-import { scopeForSession } from "../lib/rbac.js";
+import { assertStudentAccess } from "../lib/studentAccess.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -21,6 +21,7 @@ import {
   getStudentQuizzes,
 } from "../lib/queries.js";
 import type { Role } from "../lib/rbac.js";
+import { scopeForSession } from "../lib/rbac.js";
 
 const router = Router();
 
@@ -31,15 +32,65 @@ const spiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-function checkStudentAccess(
+function hasSpiTokenAccess(
   req: Parameters<typeof getSessionFromRequest>[0],
   studentId: string,
 ): boolean {
-  const session = getSessionFromRequest(req);
-  if (session) return true;
   const token = (req.query as Record<string, string | undefined>)["t"];
-  if (token && verifySpiToken(studentId, token)) return true;
-  return false;
+  return Boolean(token && verifySpiToken(studentId, token));
+}
+
+async function canAccessStudent(
+  req: Parameters<typeof getSessionFromRequest>[0],
+  studentId: string,
+): Promise<boolean> {
+  if (getSessionFromRequest(req)) {
+    return assertStudentAccess(req, studentId);
+  }
+  return hasSpiTokenAccess(req, studentId);
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseRequestDates(
+  raw: unknown,
+): { dates: RequestDate[]; error?: string } {
+  if (!Array.isArray(raw)) {
+    return { dates: [], error: "dates must be an array" };
+  }
+  if (raw.length === 0) {
+    return { dates: [], error: "At least one date is required" };
+  }
+  if (raw.length > 10) {
+    return { dates: [], error: "Maximum 10 dates per request" };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const seen = new Set<string>();
+  const dates: RequestDate[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const d = item as { date?: string; reason?: string };
+    const date = String(d.date ?? "").slice(0, 10);
+    if (!DATE_RE.test(date)) {
+      return { dates: [], error: "Each date must be YYYY-MM-DD" };
+    }
+    if (date > today) {
+      return { dates: [], error: "Future dates are not allowed" };
+    }
+    if (seen.has(date)) continue;
+    seen.add(date);
+    dates.push({
+      date,
+      reason: String(d.reason ?? "").slice(0, 500),
+      status: "pending",
+      decidedBy: null,
+      decidedAt: null,
+    });
+  }
+  if (dates.length === 0) {
+    return { dates: [], error: "At least one valid date is required" };
+  }
+  return { dates };
 }
 
 // Search students - staff only, scoped
@@ -78,7 +129,7 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
-    if (!checkStudentAccess(req, studentId)) {
+    if (!(await canAccessStudent(req, studentId))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -112,7 +163,7 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
-    if (!checkStudentAccess(req, studentId)) {
+    if (!(await canAccessStudent(req, studentId))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -142,7 +193,7 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
-    if (!checkStudentAccess(req, studentId)) {
+    if (!(await canAccessStudent(req, studentId))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -172,7 +223,7 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
-    if (!checkStudentAccess(req, studentId)) {
+    if (!(await canAccessStudent(req, studentId))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -203,7 +254,7 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
-    if (!checkStudentAccess(req, studentId)) {
+    if (!(await canAccessStudent(req, studentId))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }
@@ -238,95 +289,112 @@ router.post(
   "/students/:studentId/requests",
   spiLimiter,
   async (req, res): Promise<void> => {
-    const studentId = String(req.params["studentId"] ?? "");
-    if (!studentId || !validateStudentId.test(studentId)) {
-      res.status(400).json({ error: "Invalid student ID" });
-      return;
-    }
-    if (!checkStudentAccess(req, studentId)) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
-
-    const body = req.body as { dates?: { date?: string; reason?: string }[] };
-    const dates: RequestDate[] = (Array.isArray(body.dates) ? body.dates : [])
-      .filter((d) => d && typeof d.date === "string" && d.date.trim() !== "")
-      .map((d) => ({
-        date: String(d.date).slice(0, 10),
-        reason: String(d.reason ?? "").slice(0, 500),
-        status: "pending" as const,
-        decidedBy: null,
-        decidedAt: null,
-      }));
-    if (dates.length === 0) {
-      res.status(400).json({ error: "At least one date is required" });
-      return;
-    }
-
-    let campus = "";
-    let studentName = "";
     try {
+      const studentId = String(req.params["studentId"] ?? "");
+      if (!studentId || !validateStudentId.test(studentId)) {
+        res.status(400).json({ error: "Invalid student ID" });
+        return;
+      }
+      if (!(await canAccessStudent(req, studentId))) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+
+      const body = req.body as { dates?: unknown };
+      const parsed = parseRequestDates(body.dates);
+      if (parsed.error) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+      const dates = parsed.dates;
+
       const overview = await getStudentOverview(studentId);
-      campus = overview?.instituteName ?? "";
-      studentName = overview?.studentName ?? "";
-    } catch (err) {
-      req.log.error({ err }, "Failed to resolve student campus for request");
-    }
+      if (!overview) {
+        res.status(404).json({ error: "Student not found" });
+        return;
+      }
+      const campus = overview.instituteName ?? "";
+      const studentName = overview.studentName ?? "";
 
-    const inserted = await db
-      .insert(attendanceRequestsTable)
-      .values({
-        studentId,
-        studentName,
-        campus,
-        dates,
-        overallStatus: "pending",
-      })
-      .returning();
-    const request = inserted[0]!;
+      const existing = await db
+        .select()
+        .from(attendanceRequestsTable)
+        .where(eq(attendanceRequestsTable.studentId, studentId));
+      for (const reqRow of existing) {
+        if (reqRow.overallStatus === "rejected") continue;
+        for (const d of dates) {
+          if (
+            reqRow.dates.some(
+              (rd) => rd.date === d.date && rd.status === "pending",
+            )
+          ) {
+            res.status(409).json({
+              error: `A pending request already exists for ${d.date}`,
+            });
+            return;
+          }
+        }
+      }
 
-    const staff = await db
-      .select()
-      .from(usersTable)
-      .where(
-        and(
-          eq(usersTable.isActive, true),
-          or(
-            inArray(usersTable.role, ["superadmin", "admin"]),
-            eq(usersTable.role, "boa"),
+      const inserted = await db
+        .insert(attendanceRequestsTable)
+        .values({
+          studentId,
+          studentName,
+          campus,
+          dates,
+          overallStatus: "pending",
+        })
+        .returning();
+      const request = inserted[0]!;
+
+      const staff = await db
+        .select()
+        .from(usersTable)
+        .where(
+          and(
+            eq(usersTable.isActive, true),
+            or(
+              inArray(usersTable.role, ["superadmin", "admin"]),
+              eq(usersTable.role, "boa"),
+            ),
           ),
-        ),
-      );
-    const recipients = staff.filter((u) => {
-      if (u.role === "superadmin" || u.role === "admin") return true;
-      if (u.role === "boa")
-        return u.campuses.length === 0 || u.campuses.includes(campus);
-      return false;
-    });
+        );
+      const recipients = staff.filter((u) => {
+        if (u.role === "superadmin" || u.role === "admin") return true;
+        if (u.role === "boa") {
+          return u.campuses.length > 0 && u.campuses.includes(campus);
+        }
+        return false;
+      });
 
-    if (recipients.length > 0) {
-      const dateLabel =
-        dates.length === 1 ? dates[0]!.date : `${dates.length} dates`;
-      await db.insert(notificationsTable).values(
-        recipients.map((u) => ({
-          userId: u.id,
-          requestId: request.id,
-          title: `Attendance request from ${studentName || studentId}`,
-          body: `${campus || "Unknown campus"} · ${dateLabel}`,
-        })),
-      );
+      if (recipients.length > 0) {
+        const dateLabel =
+          dates.length === 1 ? dates[0]!.date : `${dates.length} dates`;
+        await db.insert(notificationsTable).values(
+          recipients.map((u) => ({
+            userId: u.id,
+            requestId: request.id,
+            title: `Attendance request from ${studentName || studentId}`,
+            body: `${campus || "Unknown campus"} · ${dateLabel}`,
+          })),
+        );
+      }
+
+      res.status(201).json({
+        id: request.id,
+        studentId: request.studentId,
+        studentName: request.studentName,
+        campus: request.campus,
+        dates: request.dates,
+        overallStatus: request.overallStatus,
+        createdAt: request.createdAt.toISOString(),
+        notifiedCount: recipients.length,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Error submitting attendance request");
+      res.status(500).json({ error: "Failed to submit request" });
     }
-
-    res.status(201).json({
-      id: request.id,
-      studentId: request.studentId,
-      studentName: request.studentName,
-      campus: request.campus,
-      dates: request.dates,
-      overallStatus: request.overallStatus,
-      createdAt: request.createdAt.toISOString(),
-      notifiedCount: recipients.length,
-    });
   },
 );
 

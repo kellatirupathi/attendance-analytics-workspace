@@ -127,7 +127,10 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
   });
   const q = req.query as Record<string, string | undefined>;
   const search = q["search"];
-  const limit = Math.min(Number(q["limit"] ?? 200), 5000);
+  const rawLimit = Number(q["limit"] ?? 200);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), 5000)
+    : 200;
   const campus = q["campus"] || undefined;
   const section = q["section"] || undefined;
   const subject = q["subject"] || undefined;

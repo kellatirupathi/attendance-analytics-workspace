@@ -16,17 +16,20 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
+import { ErrorState } from "@/components/PageStates";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import {
   SearchableSelect,
   campusSelectOptions,
 } from "@/components/SearchableSelect";
-import { Search, Loader2, ChevronRight } from "lucide-react";
+import { Search, Loader2, ChevronRight, Download } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 
 const PAGE_SIZES = [25, 50, 100];
@@ -67,6 +70,7 @@ export default function StudentAttendanceStats() {
   const debouncedSearch = useDebounceValue(search, 300);
   const [subjects, setSubjects] = useState<SubjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
@@ -81,6 +85,7 @@ export default function StudentAttendanceStats() {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setFetchError(false);
     const params = new URLSearchParams();
     if (campus !== "all") params.set("campus", campus);
     fetch(`/api/dashboard/subjects?${params.toString()}`, {
@@ -91,7 +96,10 @@ export default function StudentAttendanceStats() {
         if (alive) setSubjects(data ?? []);
       })
       .catch(() => {
-        if (alive) setSubjects([]);
+        if (alive) {
+          setSubjects([]);
+          setFetchError(true);
+        }
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -113,6 +121,25 @@ export default function StudentAttendanceStats() {
     (currentPage - 1) * pageSize,
     currentPage * pageSize,
   );
+
+  const handleExport = () => {
+    if (filtered.length === 0) return;
+    const safeCampus =
+      campus !== "all"
+        ? campus.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-")
+        : "all-campuses";
+    exportCsv(
+      `attendance-stats-${safeCampus}.csv`,
+      ["Subject", "Students", "Present", "Total sessions", "Attendance %"],
+      filtered.map((s) => [
+        s.subjectTitle,
+        s.studentCount,
+        s.presentCount,
+        s.totalCount,
+        s.pct,
+      ]),
+    );
+  };
 
   const openSubject = (s: SubjectSummary) => {
     const params = new URLSearchParams({
@@ -165,9 +192,23 @@ export default function StudentAttendanceStats() {
               />
             </div>
             {loading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+            <Button
+              variant="outline"
+              className="h-9 gap-2 border-gray-200"
+              onClick={handleExport}
+              disabled={filtered.length === 0 || loading}
+            >
+              <Download className="h-4 w-4" /> Export
+            </Button>
           </div>
         }
       />
+
+      {fetchError && (
+        <div className="mb-4">
+          <ErrorState message="Failed to load subject attendance data." />
+        </div>
+      )}
 
       <TableShell>
         <div className="border-b border-gray-200 px-4 py-3">

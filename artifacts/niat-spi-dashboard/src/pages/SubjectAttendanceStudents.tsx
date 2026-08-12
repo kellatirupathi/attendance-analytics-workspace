@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   useGetDashboardStudents,
@@ -30,18 +30,21 @@ import { exportCsv } from "@/lib/csv";
 
 const PAGE_SIZES = [25, 50, 100];
 
-function readQuery(): { subject: string; campus: string; pct: string } {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    subject: params.get("subject") ?? "",
-    campus: params.get("campus") ?? "all",
-    pct: params.get("pct") ?? "",
-  };
-}
-
 export default function SubjectAttendanceStudents() {
-  const [, setLocation] = useLocation();
-  const { subject, campus, pct } = useMemo(() => readQuery(), []);
+  const [location, setLocation] = useLocation();
+  const { subject, campus, pct } = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      subject: params.get("subject") ?? "",
+      campus: params.get("campus") ?? "all",
+      pct: params.get("pct") ?? "",
+    };
+  }, [location]);
+
+  useEffect(() => {
+    setPage(1);
+    setSearch("");
+  }, [subject, campus]);
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 350);

@@ -156,7 +156,11 @@ export default function Campuses() {
     [sections, selectedCampus, band, q],
   );
 
-  const studentRows = useMemo(() => students ?? [], [students]);
+  const studentRows = useMemo(() => {
+    const rows = students ?? [];
+    if (band === "all") return rows;
+    return rows.filter((s) => matchesBand(s.attendancePct, band));
+  }, [students, band]);
 
   const resetPage = () => setPage(1);
 

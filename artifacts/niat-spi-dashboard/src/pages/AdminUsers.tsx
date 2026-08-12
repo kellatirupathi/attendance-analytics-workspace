@@ -464,7 +464,7 @@ function UserFormDialog({
               </Label>
               <Input
                 id="password"
-                type="text"
+                type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={mode === "create" ? "Set a password" : "••••••••"}

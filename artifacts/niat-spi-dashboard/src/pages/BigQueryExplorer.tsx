@@ -80,6 +80,14 @@ interface PreviewResponse {
  * cardinality columns get a free-text "contains" filter instead. */
 const CATEGORICAL_MAX_DISTINCT = 25;
 
+function formatColumnLabel(col: string): string {
+  return col
+    .toLowerCase()
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value);
@@ -400,7 +408,7 @@ function TableDataView({
                         key={col}
                         className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-gray-500"
                       >
-                        {col}
+                        {formatColumnLabel(col)}
                       </TableHead>
                     ))}
                   </TableRow>
@@ -427,7 +435,11 @@ function TableDataView({
             <TablePagination
               page={currentPage}
               totalPages={totalPages}
-              totalItems={totalRows}
+              totalItems={
+                filteredRows.length !== rows.length
+                  ? filteredRows.length
+                  : totalRows
+              }
               pageSize={pageSize}
               pageSizeOptions={[25, 50, 100, 200]}
               onPageChange={setPage}
@@ -435,7 +447,11 @@ function TableDataView({
                 setPageSize(s);
                 resetPage();
               }}
-              itemLabel="rows"
+              itemLabel={
+                filteredRows.length !== rows.length
+                  ? "filtered rows on this page"
+                  : "rows"
+              }
             />
           </>
         )}
@@ -449,6 +465,7 @@ function TableDataView({
             <SheetDescription>
               Filter the loaded rows of{" "}
               <span className="font-medium">{table.label}</span> by any column.
+              Filters apply to the current page only.
             </SheetDescription>
           </SheetHeader>
 

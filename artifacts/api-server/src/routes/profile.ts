@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireSession, signSession, setSessionCookie } from "../lib/auth.js";
+import { invalidateSessionCache } from "../lib/sessionCache.js";
 import type { Role } from "../lib/rbac.js";
 
 const router = Router();
@@ -52,9 +53,11 @@ router.patch("/", requireSession(), async (req, res): Promise<void> => {
       return;
     }
     updates.passwordHash = await bcrypt.hash(newPassword, 10);
+    updates.tokenVersion = user.tokenVersion + 1;
   }
   const updated = await db.update(usersTable).set(updates).where(eq(usersTable.id, session.sub)).returning();
   const u = updated[0]!;
+  invalidateSessionCache(u.id);
   const token = signSession({
     sub: u.id,
     email: u.email,

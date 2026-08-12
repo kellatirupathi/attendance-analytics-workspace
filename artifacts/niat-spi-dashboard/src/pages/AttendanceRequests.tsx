@@ -2,9 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/PageHeader";
+import { ErrorState } from "@/components/PageStates";
 import { TableShell } from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +50,7 @@ type Notification = {
   body: string;
   read: boolean;
   createdAt: string;
+  canManage: boolean;
   request: RequestObj | null;
 };
 
@@ -77,13 +80,15 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-const REQUEST_ROLES = ["superadmin", "admin", "boa"];
+const REQUEST_ROLES = ["superadmin", "admin", "boa", "hod"];
 
 export default function AttendanceRequests() {
   const { user, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [detail, setDetail] = useState<Notification | null>(null);
 
   const canAccess = REQUEST_ROLES.includes(user?.role ?? "");
@@ -95,11 +100,18 @@ export default function AttendanceRequests() {
   }, [authLoading, user, canAccess, setLocation]);
 
   const load = useCallback(async () => {
+    setLoadError(null);
     try {
       const res = await fetch("/api/notifications", {
         credentials: "include",
       });
-      if (res.ok) setNotifs((await res.json()) as Notification[]);
+      if (res.ok) {
+        setNotifs((await res.json()) as Notification[]);
+      } else {
+        setLoadError("Failed to load attendance requests.");
+      }
+    } catch {
+      setLoadError("Failed to load attendance requests.");
     } finally {
       setLoading(false);
     }
@@ -111,7 +123,11 @@ export default function AttendanceRequests() {
     fetch("/api/notifications/read-all", {
       method: "POST",
       credentials: "include",
-    }).catch(() => {});
+    })
+      .then(() => {
+        window.dispatchEvent(new Event("notifications-read"));
+      })
+      .catch(() => {});
   }, [load, canAccess]);
 
   // Approve/reject a single date within a request, then refresh.
@@ -120,25 +136,40 @@ export default function AttendanceRequests() {
     index: number,
     status: "approved" | "rejected",
   ) => {
-    const res = await fetch(
-      `/api/notifications/requests/${requestId}/dates/${index}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ status }),
-      },
-    );
-    if (res.ok) {
-      const updated = (await res.json()) as RequestObj;
-      setNotifs((prev) =>
-        prev.map((n) =>
-          n.requestId === requestId ? { ...n, request: updated } : n,
-        ),
+    try {
+      const res = await fetch(
+        `/api/notifications/requests/${requestId}/dates/${index}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status }),
+        },
       );
-      setDetail((d) =>
-        d && d.requestId === requestId ? { ...d, request: updated } : d,
-      );
+      if (res.ok) {
+        const updated = (await res.json()) as RequestObj;
+        setNotifs((prev) =>
+          prev.map((n) =>
+            n.requestId === requestId ? { ...n, request: updated } : n,
+          ),
+        );
+        setDetail((d) =>
+          d && d.requestId === requestId ? { ...d, request: updated } : d,
+        );
+        toast({
+          title: status === "approved" ? "Date verified" : "Date rejected",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to update request",
+        });
+      }
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update request",
+      });
     }
   };
 
@@ -147,22 +178,37 @@ export default function AttendanceRequests() {
     requestId: string,
     status: "approved" | "rejected",
   ) => {
-    const res = await fetch(
-      `/api/notifications/requests/${requestId}/decision`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ status }),
-      },
-    );
-    if (res.ok) {
-      const updated = (await res.json()) as RequestObj;
-      setNotifs((prev) =>
-        prev.map((n) =>
-          n.requestId === requestId ? { ...n, request: updated } : n,
-        ),
+    try {
+      const res = await fetch(
+        `/api/notifications/requests/${requestId}/decision`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status }),
+        },
       );
+      if (res.ok) {
+        const updated = (await res.json()) as RequestObj;
+        setNotifs((prev) =>
+          prev.map((n) =>
+            n.requestId === requestId ? { ...n, request: updated } : n,
+          ),
+        );
+        toast({
+          title: status === "approved" ? "Request verified" : "Request rejected",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Failed to update request",
+        });
+      }
+    } catch {
+      toast({
+        variant: "destructive",
+        title: "Failed to update request",
+      });
     }
   };
 
@@ -176,7 +222,11 @@ export default function AttendanceRequests() {
       />
 
       <TableShell>
-        {loading ? (
+        {loadError ? (
+          <div className="p-5">
+            <ErrorState message={loadError} onRetry={load} />
+          </div>
+        ) : loading ? (
           <div className="space-y-3 p-5">
             {Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-16 w-full rounded-xl" />
@@ -239,33 +289,34 @@ export default function AttendanceRequests() {
                           Open <ExternalLink className="h-3.5 w-3.5" />
                         </a>
                       )}
-                      {isMulti ? (
-                        <Button
-                          variant="outline"
-                          className="h-9 gap-1.5 border-gray-200"
-                          onClick={() => setDetail(n)}
-                        >
-                          Verify <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      ) : (
-                        <>
-                          <Button
-                            className="h-9 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
-                            disabled={r?.dates[0]?.status !== "pending"}
-                            onClick={() => r && decideAll(r.id, "approved")}
-                          >
-                            <Check className="h-4 w-4" /> Verify
-                          </Button>
+                      {n.canManage &&
+                        (isMulti ? (
                           <Button
                             variant="outline"
-                            className="h-9 gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
-                            disabled={r?.dates[0]?.status !== "pending"}
-                            onClick={() => r && decideAll(r.id, "rejected")}
+                            className="h-9 gap-1.5 border-gray-200"
+                            onClick={() => setDetail(n)}
                           >
-                            <X className="h-4 w-4" /> Rejected
+                            Verify <ChevronRight className="h-4 w-4" />
                           </Button>
-                        </>
-                      )}
+                        ) : (
+                          <>
+                            <Button
+                              className="h-9 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                              disabled={r?.dates[0]?.status !== "pending"}
+                              onClick={() => r && decideAll(r.id, "approved")}
+                            >
+                              <Check className="h-4 w-4" /> Verify
+                            </Button>
+                            <Button
+                              variant="outline"
+                              className="h-9 gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+                              disabled={r?.dates[0]?.status !== "pending"}
+                              onClick={() => r && decideAll(r.id, "rejected")}
+                            >
+                              <X className="h-4 w-4" /> Reject
+                            </Button>
+                          </>
+                        ))}
                     </div>
                   </div>
 
@@ -319,29 +370,31 @@ export default function AttendanceRequests() {
                   </div>
                   <StatusBadge status={d.status} />
                 </div>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    className="h-8 flex-1 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
-                    disabled={d.status !== "pending"}
-                    onClick={() =>
-                      detail?.request &&
-                      decideDate(detail.request.id, i, "approved")
-                    }
-                  >
-                    <Check className="h-3.5 w-3.5" /> Verify
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-8 flex-1 gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
-                    disabled={d.status !== "pending"}
-                    onClick={() =>
-                      detail?.request &&
-                      decideDate(detail.request.id, i, "rejected")
-                    }
-                  >
-                    <X className="h-3.5 w-3.5" /> Rejected
-                  </Button>
-                </div>
+                {detail?.canManage && (
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      className="h-8 flex-1 gap-1.5 bg-emerald-600 text-white hover:bg-emerald-700"
+                      disabled={d.status !== "pending"}
+                      onClick={() =>
+                        detail?.request &&
+                        decideDate(detail.request.id, i, "approved")
+                      }
+                    >
+                      <Check className="h-3.5 w-3.5" /> Verify
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-8 flex-1 gap-1.5 border-red-200 text-red-600 hover:bg-red-50"
+                      disabled={d.status !== "pending"}
+                      onClick={() =>
+                        detail?.request &&
+                        decideDate(detail.request.id, i, "rejected")
+                      }
+                    >
+                      <X className="h-3.5 w-3.5" /> Reject
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

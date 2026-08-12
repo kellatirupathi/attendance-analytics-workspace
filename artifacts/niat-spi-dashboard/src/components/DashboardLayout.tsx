@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Logo } from "./LogoMark";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,36 +20,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
+import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 
-const REQUEST_ROLES = ["superadmin", "admin", "boa"];
-
-function useUnreadCount(enabled: boolean): number {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let alive = true;
-    const fetchCount = async () => {
-      try {
-        const res = await fetch("/api/notifications/count", {
-          credentials: "include",
-        });
-        if (res.ok && alive) {
-          const data = (await res.json()) as { unread?: number };
-          setCount(data.unread ?? 0);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    fetchCount();
-    const id = setInterval(fetchCount, 30000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, [enabled]);
-  return count;
-}
+const REQUEST_ROLES = ["superadmin", "admin", "boa", "hod"];
 
 interface NavItem {
   label: string;
@@ -189,7 +162,7 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   const [location] = useLocation();
   const canManage = user?.role === "superadmin" || user?.role === "admin";
   const canRequests = REQUEST_ROLES.includes(user?.role ?? "");
-  const unread = useUnreadCount(canRequests);
+  const unread = useUnreadNotificationCount(canRequests);
   const visibleMainNav = mainNav.filter(
     (item) => !(user?.role === "boa" && item.href === "/dashboard/campuses"),
   );

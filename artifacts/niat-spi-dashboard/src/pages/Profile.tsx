@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { roleLabel } from "@/lib/roleLabels";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -131,9 +132,9 @@ export default function Profile() {
               <div className="space-y-2">
                 <Label>Role</Label>
                 <Input
-                  value={user?.role || ""}
+                  value={roleLabel(user?.role)}
                   disabled
-                  className="bg-gray-50 capitalize"
+                  className="bg-gray-50"
                 />
               </div>
             </div>

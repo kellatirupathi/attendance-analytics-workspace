@@ -16,8 +16,10 @@ import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
+import { ErrorState } from "@/components/PageStates";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
+import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import {
   Panel,
   PanelHead,
@@ -158,7 +160,7 @@ function quickActions(role: Role): QuickAction[] {
     icon: Building2,
   };
   const bigquery: QuickAction = {
-    label: "BigQuery",
+    label: "Data Explorer",
     href: "/dashboard/bigquery",
     icon: Database,
   };
@@ -169,7 +171,7 @@ function quickActions(role: Role): QuickAction[] {
     case "admin":
       return [students, manageUsers, manageCampuses, requests];
     case "hod":
-      return [students, campuses];
+      return [students, campuses, requests];
     case "capability_manager":
       return [students, campuses];
     case "boa":
@@ -190,11 +192,13 @@ function DashboardHeader({
   name,
   theme,
   updated,
+  unreadRequests,
 }: {
   role: Role;
   name: string;
   theme: RoleTheme;
   updated: string | null;
+  unreadRequests: number;
 }) {
   const actions = quickActions(role);
   const meta = [
@@ -216,10 +220,15 @@ function DashboardHeader({
               <Button
                 variant={a.primary ? "default" : "outline"}
                 size="sm"
-                className="gap-2"
+                className="relative gap-2"
               >
                 <a.icon className="h-4 w-4" />
                 {a.label}
+                {a.href === "/dashboard/requests" && unreadRequests > 0 && (
+                  <span className="ml-1 rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {unreadRequests > 99 ? "99+" : unreadRequests}
+                  </span>
+                )}
               </Button>
             </Link>
           ))}
@@ -834,8 +843,10 @@ export default function Dashboard() {
   const { user } = useAuth();
   const role = (user?.role as Role) ?? "instructor";
   const theme = ROLE_THEME[role] ?? ROLE_THEME.instructor;
+  const canSeeRequests = ["superadmin", "admin", "boa", "hod"].includes(role);
+  const unreadRequests = useUnreadNotificationCount(canSeeRequests);
 
-  const { data: summary, isLoading } = useGetDashboardSummary({
+  const { data: summary, isLoading, isError, refetch } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() },
   });
 
@@ -856,7 +867,14 @@ export default function Dashboard() {
   );
 
   if (isLoading) return <LoadingState />;
-  if (!summary) return null;
+  if (isError || !summary) {
+    return (
+      <ErrorState
+        message="Failed to load dashboard summary."
+        onRetry={() => refetch()}
+      />
+    );
+  }
 
   const updated =
     summary.updatedAt != null
@@ -880,6 +898,7 @@ export default function Dashboard() {
         name={user?.name ?? "—"}
         theme={theme}
         updated={updated}
+        unreadRequests={unreadRequests}
       />
       <div className="space-y-6">{renderBody(role, ctx)}</div>
     </div>

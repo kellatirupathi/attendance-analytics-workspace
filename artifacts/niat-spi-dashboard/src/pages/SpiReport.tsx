@@ -512,6 +512,26 @@ export default function SpiReport() {
             </div>
           )}
           <div className="grid gap-8 sm:grid-cols-2">
+            {quizzesLoading ? (
+              <>
+                <div className="flex flex-col items-center gap-6 sm:flex-row">
+                  <Skeleton className="h-[150px] w-[150px] shrink-0 rounded-full" />
+                  <div className="flex w-full max-w-[220px] flex-col gap-3">
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              </>
+            ) : (
+              <>
             <div className="flex flex-col items-center gap-6 sm:flex-row">
               <Donut pct={spiScore} label="SPI score" />
               <div className="flex w-full max-w-[220px] flex-col gap-3">
@@ -551,6 +571,8 @@ export default function SpiReport() {
                 />
               </dl>
             </div>
+              </>
+            )}
           </div>
         </Section>
 

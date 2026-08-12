@@ -50,6 +50,7 @@ import { pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 const FETCH_LIMIT = 5000;
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -85,6 +86,7 @@ type SortKey = "default" | "attendance-desc" | "attendance-asc";
 
 export default function Students() {
   const { user } = useAuth();
+  const { toast } = useToast();
   const isBoa = user?.role === "boa";
 
   const [search, setSearch] = useState("");
@@ -228,6 +230,12 @@ export default function Students() {
   };
 
   const handleExport = () => {
+    if (sorted.length >= FETCH_LIMIT) {
+      toast({
+        title: "Export truncated",
+        description: `Only the first ${FETCH_LIMIT.toLocaleString()} students are included in this export.`,
+      });
+    }
     exportCsv(
       "students.csv",
       [

@@ -1,23 +1,51 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret-change-me";
+/** SPI share links expire after 90 days. Legacy tokens without expiry remain valid. */
+const SPI_TOKEN_TTL_SEC = 90 * 24 * 60 * 60;
 
-export function makeSpiToken(studentId: string): string {
+function signPayload(payload: string): string {
   return createHmac("sha256", JWT_SECRET)
-    .update("spi:" + studentId)
+    .update(payload)
     .digest("base64url");
 }
 
-export function verifySpiToken(studentId: string, token: string): boolean {
-  const expected = makeSpiToken(studentId);
+function safeEqual(a: string, b: string): boolean {
   try {
-    const a = Buffer.from(expected);
-    const b = Buffer.from(token);
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    if (ba.length !== bb.length) return false;
+    return timingSafeEqual(ba, bb);
   } catch {
     return false;
   }
+}
+
+export function makeSpiToken(studentId: string): string {
+  const exp = Math.floor(Date.now() / 1000) + SPI_TOKEN_TTL_SEC;
+  const sig = signPayload(`spi:${studentId}:${exp}`);
+  return `${exp}.${sig}`;
+}
+
+export function verifySpiToken(studentId: string, token: string): boolean {
+  if (!token) return false;
+
+  // New format: exp.signature
+  if (token.includes(".")) {
+    const dot = token.indexOf(".");
+    const expStr = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const exp = Number(expStr);
+    if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) {
+      return false;
+    }
+    const expected = signPayload(`spi:${studentId}:${exp}`);
+    return safeEqual(expected, sig);
+  }
+
+  // Legacy permanent token (backward compatible)
+  const expected = signPayload(`spi:${studentId}`);
+  return safeEqual(expected, token);
 }
 
 export function spiSharePath(studentId: string): string {

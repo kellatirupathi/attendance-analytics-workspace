@@ -12,6 +12,7 @@ import {
   signStateToken,
   verifyStateToken,
 } from "../lib/auth.js";
+import { verifyGoogleIdToken } from "../lib/googleAuth.js";
 import type { Role } from "../lib/rbac.js";
 
 const router = Router();
@@ -50,6 +51,7 @@ router.post("/login", loginLimiter, async (req, res): Promise<void> => {
     .update(usersTable)
     .set({ lastLoginAt: new Date() })
     .where(eq(usersTable.id, user.id));
+  const loginTime = new Date();
   const token = signSession({
     sub: user.id,
     email: user.email,
@@ -68,7 +70,7 @@ router.post("/login", loginLimiter, async (req, res): Promise<void> => {
     campuses: user.campuses,
     subjects: user.subjects,
     isActive: user.isActive,
-    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+    lastLoginAt: loginTime.toISOString(),
   });
 });
 
@@ -165,11 +167,11 @@ router.get("/google/callback", async (req, res): Promise<void> => {
       res.redirect("/staff-login?error=oauth_failed");
       return;
     }
-    const parts = tokenData.id_token.split(".");
-    const payload = JSON.parse(
-      Buffer.from(parts[1]!, "base64url").toString()
-    ) as { email?: string; name?: string; email_verified?: boolean };
-    if (!payload.email || !payload.email_verified) {
+    const payload = await verifyGoogleIdToken(
+      tokenData.id_token,
+      GOOGLE_CLIENT_ID,
+    );
+    if (!payload) {
       res.redirect("/staff-login?error=unverified_email");
       return;
     }
@@ -188,6 +190,7 @@ router.get("/google/callback", async (req, res): Promise<void> => {
       .update(usersTable)
       .set({ lastLoginAt: new Date() })
       .where(eq(usersTable.id, user.id));
+    const loginTime = new Date();
     const token = signSession({
       sub: user.id,
       email: user.email,
