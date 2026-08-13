@@ -9,6 +9,7 @@ import {
   getDashboardFilterOptions,
   getSubjectSessions,
   getSessionStudents,
+  getCampusSessions,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
@@ -149,6 +150,42 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
     res.status(500).json({ error: "Failed to fetch campus stats" });
   }
 });
+
+// Every session at one campus, flattened across subjects — powers the
+// campus drill-down table.
+router.get(
+  "/campus-sessions",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const campus = q["campus"];
+    if (!campus) {
+      res.status(400).json({ error: "campus required" });
+      return;
+    }
+    const section = q["section"] || undefined;
+    const cacheKey = `campus-sessions:${session.role}:${JSON.stringify(scope)}:${campus}:${section ?? ""}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const rows = await getCampusSessions(scope, { campus, section });
+      cacheSet(cacheKey, rows, 60 * 1000);
+      res.json(rows);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching campus sessions");
+      res.status(500).json({ error: "Failed to fetch campus sessions" });
+    }
+  },
+);
 
 // Session (unit) rollup inside one subject.
 router.get("/sessions", requireSession(), async (req, res): Promise<void> => {
