@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import type { SubjectSummary } from "@workspace/api-client-react";
 import {
   Table,
   TableBody,
@@ -17,14 +16,10 @@ import { ErrorState } from "@/components/PageStates";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import { SubNav, ATTENDANCE_STATS_NAV } from "@/components/SubNav";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { useQueryParams } from "@/hooks/useQueryParams";
-import {
-  Search,
-  Loader2,
-  ChevronRight,
-  Download,
-  CalendarDays,
-} from "lucide-react";
+import { subjectColor } from "@/lib/subjectColors";
+import { Search, Loader2, ChevronRight, Download } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
@@ -37,6 +32,17 @@ interface CampusStat {
   sectionCount: number;
   subjectCount: number;
   presentCount: number;
+  totalCount: number;
+  pct: number;
+}
+
+interface CampusSessionRow {
+  subjectTitle: string;
+  sessionTitle: string;
+  date: string | null;
+  studentCount: number;
+  presentCount: number;
+  absentCount: number;
   totalCount: number;
   pct: number;
 }
@@ -276,17 +282,19 @@ function CampusSubjects({
   campus: string;
   setLocation: (to: string) => void;
 }) {
-  const [subjects, setSubjects] = useState<SubjectSummary[]>([]);
+  const [rows, setRows] = useState<CampusSessionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
+  const [subjectFilter, setSubjectFilter] = useState("all");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
     setPage(1);
     setSearch("");
+    setSubjectFilter("all");
   }, [campus]);
 
   useEffect(() => {
@@ -294,16 +302,16 @@ function CampusSubjects({
     setLoading(true);
     setFetchError(false);
     const params = new URLSearchParams({ campus });
-    fetch(`/api/dashboard/subjects?${params.toString()}`, {
+    fetch(`/api/dashboard/campus-sessions?${params.toString()}`, {
       credentials: "include",
     })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: SubjectSummary[]) => {
-        if (alive) setSubjects(data ?? []);
+      .then((data: CampusSessionRow[]) => {
+        if (alive) setRows(data ?? []);
       })
       .catch(() => {
         if (alive) {
-          setSubjects([]);
+          setRows([]);
           setFetchError(true);
         }
       })
@@ -315,11 +323,33 @@ function CampusSubjects({
     };
   }, [campus]);
 
+  const subjectOptions = useMemo(() => {
+    const seen = new Set(rows.map((r) => r.subjectTitle));
+    return Array.from(seen).sort();
+  }, [rows]);
+
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return subjects;
-    return subjects.filter((s) => s.subjectTitle.toLowerCase().includes(q));
-  }, [subjects, debouncedSearch]);
+    return rows.filter((r) => {
+      if (subjectFilter !== "all" && r.subjectTitle !== subjectFilter)
+        return false;
+      if (!q) return true;
+      return (
+        r.subjectTitle.toLowerCase().includes(q) ||
+        r.sessionTitle.toLowerCase().includes(q) ||
+        (r.date ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [rows, debouncedSearch, subjectFilter]);
+
+  const totals = useMemo(
+    () => ({
+      sessions: filtered.length,
+      subjects: new Set(filtered.map((r) => r.subjectTitle)).size,
+      absent: filtered.reduce((sum, r) => sum + r.absentCount, 0),
+    }),
+    [filtered],
+  );
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -331,37 +361,40 @@ function CampusSubjects({
   const handleExport = () => {
     if (filtered.length === 0) return;
     exportCsv(
-      `${safeFileName(campus) || "campus"}-subjects.csv`,
-      ["Subject", "Students", "Present", "Total sessions", "Attendance %"],
-      filtered.map((s) => [
-        s.subjectTitle,
-        s.studentCount,
-        s.presentCount,
-        s.totalCount,
-        s.pct,
+      `${safeFileName(campus) || "campus"}-sessions.csv`,
+      [
+        "Subject",
+        "Session",
+        "Date",
+        "Students",
+        "Not attended",
+        "Present",
+        "Total",
+        "Attendance %",
+      ],
+      filtered.map((r) => [
+        r.subjectTitle,
+        r.sessionTitle,
+        r.date ?? "",
+        r.studentCount,
+        r.absentCount,
+        r.presentCount,
+        r.totalCount,
+        r.pct,
       ]),
     );
   };
 
-  // Reuses the existing subject drill-down, scoped to this campus. `from`
-  // lets that page send the user back here rather than to Attendance Stats.
-  const openSubject = (s: SubjectSummary) => {
-    const params = new URLSearchParams({
-      subject: s.subjectTitle,
-      pct: String(s.pct),
+  // Opens the per-student list for this exact session.
+  const openSession = (r: CampusSessionRow) => {
+    const p = new URLSearchParams({
+      subject: r.subjectTitle,
+      session: r.sessionTitle,
       campus,
       from: "campuses",
     });
-    setLocation(`/dashboard/attendance-stats/students?${params.toString()}`);
-  };
-
-  const openSessions = (s: SubjectSummary) => {
-    const params = new URLSearchParams({
-      subject: s.subjectTitle,
-      campus,
-      from: "campuses",
-    });
-    setLocation(`/dashboard/attendance-stats/sessions?${params.toString()}`);
+    if (r.date) p.set("date", r.date);
+    setLocation(`/dashboard/attendance-stats/sessions?${p.toString()}`);
   };
 
   return (
@@ -378,13 +411,29 @@ function CampusSubjects({
 
       <PageHeader
         title={campus}
-        subtitle="Subject-wise attendance at this campus — click a row to view its students."
+        subtitle="Session-wise attendance by subject — click a row to see which students missed it."
         right={
           <div className="flex flex-wrap items-center gap-2">
+            {subjectOptions.length > 0 && (
+              <SearchableSelect
+                value={subjectFilter}
+                onValueChange={(v) => {
+                  setSubjectFilter(v);
+                  setPage(1);
+                }}
+                options={[
+                  { value: "all", label: "All subjects" },
+                  ...subjectOptions.map((s) => ({ value: s, label: s })),
+                ]}
+                placeholder="All subjects"
+                searchPlaceholder="Search subjects…"
+                className="w-[220px]"
+              />
+            )}
             <div className="relative min-w-[200px] sm:w-64">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
-                placeholder="Search subjects…"
+                placeholder="Search sessions…"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -408,36 +457,60 @@ function CampusSubjects({
 
       {fetchError && (
         <div className="mb-4">
-          <ErrorState message="Failed to load subject attendance for this campus." />
+          <ErrorState message="Failed to load sessions for this campus." />
+        </div>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <span>
+            <span className="font-semibold text-slate-900">
+              {totals.subjects.toLocaleString()}
+            </span>{" "}
+            subject{totals.subjects === 1 ? "" : "s"}
+          </span>
+          <span>
+            <span className="font-semibold text-slate-900">
+              {totals.sessions.toLocaleString()}
+            </span>{" "}
+            session{totals.sessions === 1 ? "" : "s"}
+          </span>
+          <span>
+            <span className="font-semibold text-red-600">
+              {totals.absent.toLocaleString()}
+            </span>{" "}
+            absences
+          </span>
         </div>
       )}
 
       <TableShell>
         <div className="border-b border-gray-200 px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-900">
-            Attendance by subject · {campus}
+            Sessions by subject · {campus}
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
-            {filtered.length.toLocaleString()} subject
-            {filtered.length === 1 ? "" : "s"}
+            {filtered.length.toLocaleString()} session
+            {filtered.length === 1 ? "" : "s"} · lowest attendance first within
+            each subject
           </p>
         </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-                <Th>Subject</Th>
+                <Th className="w-[240px]">Subject</Th>
+                <Th>Session / Unit</Th>
+                <Th className="w-[110px]">Date</Th>
                 <Th className="text-right">Students</Th>
-                <Th className="text-right">Present</Th>
-                <Th className="text-right">Total sessions</Th>
-                <Th className="w-[220px] text-right">Attendance</Th>
-                <Th className="w-24 text-right">Sessions</Th>
+                <Th className="text-right">Not attended</Th>
+                <Th className="w-[200px] text-right">Attendance</Th>
                 <Th className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                Array.from({ length: 8 }).map((_, i) => (
+                Array.from({ length: 10 }).map((_, i) => (
                   <TableRow key={i}>
                     <TableCell colSpan={7}>
                       <Skeleton className="h-8 w-full" />
@@ -447,48 +520,64 @@ function CampusSubjects({
               ) : paged.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-32 text-center text-gray-500">
-                    No subjects found for this campus.
+                    No sessions found for this campus.
                   </TableCell>
                 </TableRow>
               ) : (
-                paged.map((s) => (
-                  <TableRow
-                    key={s.subjectTitle}
-                    className="cursor-pointer border-b border-gray-200 hover:bg-brand-50/40"
-                    onClick={() => openSubject(s)}
-                  >
-                    <TableCell className="py-3 font-medium text-gray-900">
-                      {s.subjectTitle}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-gray-600">
-                      {s.studentCount.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-gray-600">
-                      {s.presentCount.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-gray-600">
-                      {s.totalCount.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <PctBar pct={s.pct} />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openSessions(s);
+                paged.map((r, i) => {
+                  const color = subjectColor(r.subjectTitle);
+                  // Only label the subject on the first row of each run, so
+                  // long groups read as blocks instead of repeating the name.
+                  const isGroupStart =
+                    i === 0 || paged[i - 1]!.subjectTitle !== r.subjectTitle;
+                  return (
+                    <TableRow
+                      key={`${r.subjectTitle}-${r.sessionTitle}-${r.date ?? ""}`}
+                      className="cursor-pointer border-b border-gray-200 hover:bg-brand-50/40"
+                      onClick={() => openSession(r)}
+                    >
+                      <TableCell
+                        className="relative py-3 font-medium"
+                        style={{
+                          backgroundColor: color.tint,
+                          color: color.text,
+                          boxShadow: `inset 3px 0 0 0 ${color.bar}`,
                         }}
-                        className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
                       >
-                        <CalendarDays className="h-3.5 w-3.5" /> Units
-                      </button>
-                    </TableCell>
-                    <TableCell className="text-right text-gray-300">
-                      <ChevronRight className="ml-auto h-4 w-4" />
-                    </TableCell>
-                  </TableRow>
-                ))
+                        {isGroupStart ? (
+                          r.subjectTitle
+                        ) : (
+                          <span className="sr-only">{r.subjectTitle}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-3 text-gray-900">
+                        {r.sessionTitle}
+                      </TableCell>
+                      <TableCell className="tabular-nums text-gray-500">
+                        {r.date ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-gray-600">
+                        {r.studentCount.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span
+                          className={
+                            "font-semibold tabular-nums " +
+                            (r.absentCount > 0 ? "text-red-600" : "text-gray-400")
+                          }
+                        >
+                          {r.absentCount.toLocaleString()}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <PctBar pct={r.pct} />
+                      </TableCell>
+                      <TableCell className="text-right text-gray-300">
+                        <ChevronRight className="ml-auto h-4 w-4" />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -506,14 +595,13 @@ function CampusSubjects({
               setPageSize(s);
               setPage(1);
             }}
-            itemLabel="subjects"
+            itemLabel="sessions"
           />
         )}
       </TableShell>
     </>
   );
 }
-
 function PctBar({ pct }: { pct: number }) {
   return (
     <div className="flex items-center justify-end gap-3">

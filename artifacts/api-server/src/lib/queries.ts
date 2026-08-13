@@ -631,6 +631,75 @@ export async function getSubjectSessions(
   });
 }
 
+export interface CampusSessionRow {
+  subjectTitle: string;
+  sessionTitle: string;
+  date: string | null;
+  studentCount: number;
+  presentCount: number;
+  absentCount: number;
+  totalCount: number;
+  pct: number;
+}
+
+/**
+ * Every session at one campus, flattened across subjects — the campus
+ * drill-down table. Ordered by subject then worst attendance first, so the
+ * sessions needing attention surface at the top of each subject group.
+ */
+export async function getCampusSessions(
+  scope: SessionScope,
+  opts: { campus: string; section?: string },
+): Promise<CampusSessionRow[]> {
+  const params: Record<string, unknown> = { campus: opts.campus };
+  const where = scopeClause(scope, params);
+  let extra = " AND institute_name = @campus";
+  if (opts.section) {
+    params["section"] = opts.section;
+    extra += " AND batch_section_name = @section";
+  }
+  const rows = await bqQuery<{
+    subject_title: string;
+    session_title: string;
+    date: string | null;
+    student_count: string;
+    present_count: string;
+    total_count: string;
+  }>(
+    `SELECT
+      subject_title,
+      COALESCE(session_title, 'Untitled session') AS session_title,
+      CAST(date AS STRING) AS date,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNT(*) AS total_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${where}${extra}
+    GROUP BY subject_title, session_title, date
+    ORDER BY
+      subject_title,
+      SAFE_DIVIDE(
+        COUNTIF(LOWER(attendance_status) = 'present'),
+        COUNT(*)
+      ) ASC`,
+    params,
+  );
+  return rows.map((r) => {
+    const p = Number(r.present_count);
+    const t = Number(r.total_count);
+    return {
+      subjectTitle: r.subject_title,
+      sessionTitle: r.session_title,
+      date: r.date ?? null,
+      studentCount: Number(r.student_count),
+      presentCount: p,
+      absentCount: t - p,
+      totalCount: t,
+      pct: pct(p, t),
+    };
+  });
+}
+
 export interface SessionStudentItem {
   studentId: string;
   studentName: string;
