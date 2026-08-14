@@ -17,6 +17,7 @@ import {
   X,
   ChevronDown,
   BarChart3,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
@@ -35,6 +36,7 @@ const mainNav: NavItem[] = [
   { label: "Student Directory", href: "/dashboard/students", icon: UsersRound },
   { label: "Student Attendance Stats", href: "/dashboard/attendance-stats", icon: BarChart3 },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
+  { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
 ];
 
 const adminNav: NavItem[] = [

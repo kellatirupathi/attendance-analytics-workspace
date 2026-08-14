@@ -23,6 +23,7 @@ import StudentAttendanceStats from "@/pages/StudentAttendanceStats";
 import SubjectAttendanceStudents from "@/pages/SubjectAttendanceStudents";
 import CampusWiseStats from "@/pages/CampusWiseStats";
 import SubjectSessions from "@/pages/SubjectSessions";
+import Recovery from "@/pages/Recovery";
 
 const queryClient = new QueryClient();
 
@@ -84,6 +85,11 @@ function Router() {
       <Route path="/dashboard/campuses">
         <Protected>
           <Campuses />
+        </Protected>
+      </Route>
+      <Route path="/dashboard/recovery">
+        <Protected>
+          <Recovery />
         </Protected>
       </Route>
       <Route path="/dashboard/profile">

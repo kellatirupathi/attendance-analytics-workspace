@@ -777,6 +777,108 @@ export async function getSessionStudents(
   }));
 }
 
+export interface RecoveryStudent {
+  studentId: string;
+  studentName: string;
+  sectionName: string | null;
+  attendancePct: number;
+  presentCount: number;
+  totalCount: number;
+}
+
+export interface RecoverySubject {
+  subjectTitle: string;
+  studentCount: number;
+  students: RecoveryStudent[];
+}
+
+export interface RecoveryData {
+  campus: string;
+  subjects: RecoverySubject[];
+  totalStudentsInRecovery: number;
+}
+
+/**
+ * Get all students with attendance below 75% for a specific campus,
+ * grouped by subject. If a student has low attendance in multiple subjects,
+ * they appear under each subject.
+ */
+export async function getRecoveryStudents(
+  campus: string,
+  scope: SessionScope,
+): Promise<RecoveryData> {
+  const params: Record<string, unknown> = { campus };
+  const where = scopeClause(scope, params);
+
+  // Get all students with attendance < 75% for each subject in the campus
+  const rows = await bqQuery<{
+    subject_title: string;
+    student_user_id: string;
+    student_name: string;
+    batch_section_name: string | null;
+    present_count: string;
+    total_count: string;
+  }>(
+    `SELECT
+      subject_title,
+      student_user_id,
+      MAX(student_name) AS student_name,
+      MAX(batch_section_name) AS batch_section_name,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNT(*) AS total_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${where}
+      AND institute_name = @campus
+    GROUP BY subject_title, student_user_id
+    HAVING SAFE_DIVIDE(
+      COUNTIF(LOWER(attendance_status) = 'present'),
+      COUNT(*)
+    ) * 100 < 75
+    ORDER BY subject_title, SAFE_DIVIDE(
+      COUNTIF(LOWER(attendance_status) = 'present'),
+      COUNT(*)
+    ) ASC`,
+    params,
+  );
+
+  // Group by subject
+  const subjectMap = new Map<string, RecoveryStudent[]>();
+  const studentIds = new Set<string>();
+
+  for (const r of rows) {
+    const present = Number(r.present_count);
+    const total = Number(r.total_count);
+    const student: RecoveryStudent = {
+      studentId: r.student_user_id,
+      studentName: r.student_name,
+      sectionName: r.batch_section_name ?? null,
+      attendancePct: pct(present, total),
+      presentCount: present,
+      totalCount: total,
+    };
+
+    if (!subjectMap.has(r.subject_title)) {
+      subjectMap.set(r.subject_title, []);
+    }
+    subjectMap.get(r.subject_title)!.push(student);
+    studentIds.add(r.student_user_id);
+  }
+
+  const subjects: RecoverySubject[] = Array.from(subjectMap.entries()).map(
+    ([subjectTitle, students]) => ({
+      subjectTitle,
+      studentCount: students.length,
+      students,
+    }),
+  );
+
+  return {
+    campus,
+    subjects: subjects.sort((a, b) => a.subjectTitle.localeCompare(b.subjectTitle)),
+    totalStudentsInRecovery: studentIds.size,
+  };
+}
+
 export async function getCampusList(): Promise<string[]> {
   const rows = await bqQuery<{ institute_name: string }>(
     `SELECT DISTINCT institute_name FROM ${ATTENDANCE_TABLE} WHERE is_current_semester = 1 ORDER BY institute_name`,

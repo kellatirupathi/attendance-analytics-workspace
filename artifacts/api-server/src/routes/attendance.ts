@@ -19,6 +19,7 @@ import {
   getStudentRecentSessions,
   searchStudents,
   getStudentQuizzes,
+  getRecoveryStudents,
 } from "../lib/queries.js";
 import type { Role } from "../lib/rbac.js";
 import { scopeForSession } from "../lib/rbac.js";
@@ -397,5 +398,27 @@ router.post(
     }
   },
 );
+
+// Recovery dashboard - students with attendance below 75% by campus
+router.get("/recovery", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const campus = (req.query as Record<string, string>)["campus"] ?? "";
+  if (!campus) {
+    res.status(400).json({ error: "Campus parameter is required" });
+    return;
+  }
+  try {
+    const data = await getRecoveryStudents(campus, scope);
+    res.json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching recovery data");
+    res.status(500).json({ error: "Failed to fetch recovery data" });
+  }
+});
 
 export default router;
