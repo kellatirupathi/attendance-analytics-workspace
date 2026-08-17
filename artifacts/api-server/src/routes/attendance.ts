@@ -19,7 +19,7 @@ import {
   getStudentRecentSessions,
   searchStudents,
   getStudentQuizzes,
-  getRecoveryStudents,
+  getCampusSubjectRecovery,
 } from "../lib/queries.js";
 import type { Role } from "../lib/rbac.js";
 import { scopeForSession } from "../lib/rbac.js";
@@ -399,8 +399,8 @@ router.post(
   },
 );
 
-// Recovery dashboard - students with attendance below 75% by campus
-router.get("/recovery", requireSession(), async (req, res): Promise<void> => {
+// Recovery dashboard - subject-wise attendance below 75% by campus
+router.get("/recovery/subjects", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({
     role: session.role as Role,
@@ -413,11 +413,11 @@ router.get("/recovery", requireSession(), async (req, res): Promise<void> => {
     return;
   }
   try {
-    const data = await getRecoveryStudents(campus, scope);
+    const data = await getCampusSubjectRecovery(campus, scope);
     res.json(data);
   } catch (err) {
-    req.log.error({ err }, "Error fetching recovery data");
-    res.status(500).json({ error: "Failed to fetch recovery data" });
+    req.log.error({ err }, "Error fetching subject recovery data");
+    res.status(500).json({ error: "Failed to fetch subject recovery data" });
   }
 });
 
