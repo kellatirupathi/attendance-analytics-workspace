@@ -789,7 +789,7 @@ export interface RecoveryStudent {
 export interface RecoverySubjectCard {
   subjectTitle: string;
   attendancePct: number;
-  studentsBelow75Count: number;
+  studentsBelow80Count: number;
   students: RecoveryStudent[];
 }
 
@@ -804,7 +804,7 @@ export interface RecoveryCampusData {
  * Subject-level recovery data for a campus.
  *
  * The threshold is applied at the subject level: a student may appear under one
- * or more subjects even if their overall attendance is above 75%.
+ * or more subjects even if their overall attendance is above 80%.
  */
 export async function getCampusSubjectRecovery(
   campus: string,
@@ -845,7 +845,7 @@ export async function getCampusSubjectRecovery(
       total_count,
       subject_pct
     FROM student_subject_attendance
-    WHERE CAST(subject_pct AS FLOAT64) < 75
+    WHERE CAST(subject_pct AS FLOAT64) < 80
     ORDER BY subject_title, subject_pct ASC, student_name`,
     params,
   );
@@ -898,15 +898,15 @@ export async function getCampusSubjectRecovery(
   const subjectCards: RecoverySubjectCard[] = subjectSummaryRows
     .map((r) => {
       const students = subjectMap.get(r.subject_title) ?? [];
-      const studentsBelow75 = students.length;
+      const studentsBelow80 = students.length;
       return {
         subjectTitle: r.subject_title,
         attendancePct: Number(r.subject_pct),
-        studentsBelow75Count: studentsBelow75,
+        studentsBelow80Count: studentsBelow80,
         students,
       };
     })
-    .filter((subject) => subject.studentsBelow75Count > 0)
+    .filter((subject) => subject.studentsBelow80Count > 0)
     .sort((a, b) => a.subjectTitle.localeCompare(b.subjectTitle));
 
   return {

@@ -399,7 +399,7 @@ router.post(
   },
 );
 
-// Recovery dashboard - subject-wise attendance below 75% by campus
+// Recovery dashboard - subject-wise attendance below 80% by campus
 router.get("/recovery/subjects", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({
