@@ -9,7 +9,12 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray, or, desc } from "drizzle-orm";
 import { requireSession, getSessionFromRequest } from "../lib/auth.js";
-import { verifySpiToken } from "../lib/spiToken.js";
+import {
+  makeCampusAccessToken,
+  makeSpiToken,
+  verifyCampusAccessToken,
+  verifySpiToken,
+} from "../lib/spiToken.js";
 import { validateStudentId } from "../lib/bigquery.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { assertStudentAccess } from "../lib/studentAccess.js";
@@ -40,6 +45,115 @@ function hasSpiTokenAccess(
   const token = (req.query as Record<string, string | undefined>)["t"];
   return Boolean(token && verifySpiToken(studentId, token));
 }
+
+function getBearerOrQueryToken(req: Parameters<typeof getSessionFromRequest>[0]): string {
+  const header = req.headers.authorization ?? "";
+  if (header.startsWith("Bearer ")) {
+    return header.slice("Bearer ".length).trim();
+  }
+  const query = req.query as Record<string, string | undefined>;
+  return query["token"] ?? query["access_token"] ?? query["campusToken"] ?? "";
+}
+
+router.post(
+  "/spi-token",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const studentId = String((req.body as { studentId?: string } | undefined)?.studentId ?? "");
+    if (!studentId || !validateStudentId.test(studentId)) {
+      res.status(400).json({ error: "Valid studentId is required" });
+      return;
+    }
+
+    try {
+      const token = makeSpiToken(studentId);
+      const exp = Number(token.split(".")[0]);
+      res.json({
+        studentId,
+        token,
+        expiresAt: new Date(exp * 1000).toISOString(),
+        shareUrl: `/spi/${studentId}?t=${encodeURIComponent(token)}`,
+        apiUrl: `/api/attendance/students/${studentId}/overview?t=${encodeURIComponent(token)}`,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Error generating SPI token");
+      res.status(500).json({ error: "Failed to generate SPI token" });
+    }
+  },
+);
+
+router.post(
+  "/campus-access-token",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const campus = String((req.body as { campus?: string } | undefined)?.campus ?? "");
+    if (!campus) {
+      res.status(400).json({ error: "Valid campus is required" });
+      return;
+    }
+
+    try {
+      const token = makeCampusAccessToken(campus);
+      const exp = Number(token.split(".")[0]);
+      res.json({
+        campus,
+        token,
+        expiresAt: new Date(exp * 1000).toISOString(),
+        summaryUrl: `/api/attendance/campus-summary?campus=${encodeURIComponent(campus)}&token=${encodeURIComponent(token)}`,
+        recoveryUrl: `/api/attendance/campus-recovery?campus=${encodeURIComponent(campus)}&token=${encodeURIComponent(token)}`,
+      });
+    } catch (err) {
+      req.log.error({ err }, "Error generating campus access token");
+      res.status(500).json({ error: "Failed to generate campus access token" });
+    }
+  },
+);
+
+router.get("/campus-summary", async (req, res): Promise<void> => {
+  const campus = String((req.query as Record<string, string | undefined>)["campus"] ?? "");
+  const token = getBearerOrQueryToken(req as Parameters<typeof getSessionFromRequest>[0]);
+
+  if (!campus) {
+    res.status(400).json({ error: "Campus parameter is required" });
+    return;
+  }
+
+  if (!verifyCampusAccessToken(campus, token)) {
+    res.status(403).json({ error: "Forbidden: invalid campus access token" });
+    return;
+  }
+
+  try {
+    const rows = await getCampusSummary({ campuses: [campus] });
+    res.json(rows);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching campus summary");
+    res.status(500).json({ error: "Failed to fetch campus summary" });
+  }
+});
+
+router.get("/campus-recovery", async (req, res): Promise<void> => {
+  const campus = String((req.query as Record<string, string | undefined>)["campus"] ?? "");
+  const token = getBearerOrQueryToken(req as Parameters<typeof getSessionFromRequest>[0]);
+
+  if (!campus) {
+    res.status(400).json({ error: "Campus parameter is required" });
+    return;
+  }
+
+  if (!verifyCampusAccessToken(campus, token)) {
+    res.status(403).json({ error: "Forbidden: invalid campus access token" });
+    return;
+  }
+
+  try {
+    const data = await getCampusSubjectRecovery(campus, { campuses: [campus] });
+    res.json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching campus recovery data" );
+    res.status(500).json({ error: "Failed to fetch campus recovery data" });
+  }
+});
 
 async function canAccessStudent(
   req: Parameters<typeof getSessionFromRequest>[0],

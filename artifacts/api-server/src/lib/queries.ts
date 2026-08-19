@@ -834,6 +834,11 @@ export async function getCampusSubjectRecovery(
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
         AND institute_name = @campus
+        AND COALESCE(session_title, '') NOT IN (
+          'Coding Practice',
+          'MCQ Practice',
+          'Module Quiz'
+        )
       GROUP BY subject_title, student_user_id
     )
     SELECT
@@ -890,6 +895,11 @@ export async function getCampusSubjectRecovery(
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
       AND institute_name = @campus
+      AND COALESCE(session_title, '') NOT IN (
+        'Coding Practice',
+        'MCQ Practice',
+        'Module Quiz'
+      )
     GROUP BY subject_title
     ORDER BY subject_title`,
     params,

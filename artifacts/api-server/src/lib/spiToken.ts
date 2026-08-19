@@ -21,9 +21,15 @@ function safeEqual(a: string, b: string): boolean {
   }
 }
 
-export function makeSpiToken(studentId: string): string {
-  const exp = Math.floor(Date.now() / 1000) + SPI_TOKEN_TTL_SEC;
+export function makeSpiToken(studentId: string, expirySeconds = SPI_TOKEN_TTL_SEC): string {
+  const exp = Math.floor(Date.now() / 1000) + expirySeconds;
   const sig = signPayload(`spi:${studentId}:${exp}`);
+  return `${exp}.${sig}`;
+}
+
+export function makeCampusAccessToken(campus: string, expirySeconds = SPI_TOKEN_TTL_SEC): string {
+  const exp = Math.floor(Date.now() / 1000) + expirySeconds;
+  const sig = signPayload(`campus:${campus}:${exp}`);
   return `${exp}.${sig}`;
 }
 
@@ -45,6 +51,25 @@ export function verifySpiToken(studentId: string, token: string): boolean {
 
   // Legacy permanent token (backward compatible)
   const expected = signPayload(`spi:${studentId}`);
+  return safeEqual(expected, token);
+}
+
+export function verifyCampusAccessToken(campus: string, token: string): boolean {
+  if (!token) return false;
+
+  if (token.includes(".")) {
+    const dot = token.indexOf(".");
+    const expStr = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const exp = Number(expStr);
+    if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) {
+      return false;
+    }
+    const expected = signPayload(`campus:${campus}:${exp}`);
+    return safeEqual(expected, sig);
+  }
+
+  const expected = signPayload(`campus:${campus}`);
   return safeEqual(expected, token);
 }
 
