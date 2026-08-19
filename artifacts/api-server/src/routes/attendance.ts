@@ -25,6 +25,7 @@ import {
   searchStudents,
   getStudentQuizzes,
   getCampusSubjectRecovery,
+  getCampusSummary,
 } from "../lib/queries.js";
 import type { Role } from "../lib/rbac.js";
 import { scopeForSession } from "../lib/rbac.js";
