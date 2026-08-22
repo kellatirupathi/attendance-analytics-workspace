@@ -105,7 +105,7 @@ export const CDU_DELIVERED_SESSIONS: DeliveredSession[] = [
   },
   {
     subject: "DSA", scheduledDate: "2026-07-21",
-    instructorName: "Gattadi Vikranth", isBackupInstructor: false,
+    instructorName: "Gattadi Vikranth", isBackupInstructor: true,
     startTime: "5:30 pm", endTime: "7:00 pm",
     remarks: "",
     topics: ["Sliding Window, Two-Pointer Technique", "Longest Subarray with Sum K"],
@@ -137,7 +137,7 @@ export const CDU_DELIVERED_SESSIONS: DeliveredSession[] = [
   },
   {
     subject: "Backend", scheduledDate: "2026-07-27",
-    instructorName: "Varun Chakravarthy", isBackupInstructor: false,
+    instructorName: "Varun Chakravarthy", isBackupInstructor: true,
     startTime: "6:30 pm", endTime: "8:00 pm",
     remarks: "",
     topics: ["Debugging Common Errors | Part 2", "Authentication"],

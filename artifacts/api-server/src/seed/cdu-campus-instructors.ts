@@ -51,3 +51,75 @@ export const CDU_CAMPUS_INSTRUCTORS: CampusInstructor[] = [
   { campus: CDU_CAMPUS, subject: "Math", instructorName: "Suraj Neerati", sections: ["CDU Batch-1 - S-007", "CDU Batch-1 - S-008", "CDU Batch-1 - S-009", "CDU Batch-1 - S-010", "CDU Batch-1 - S-011", "CDU Batch-1 - S-012"] },
   { campus: CDU_CAMPUS, subject: "Math", instructorName: "Jyotirmayee Sahoo", sections: ["CDU Batch-1 - S-013", "CDU Batch-1 - S-014", "CDU Batch-1 - S-015", "CDU Batch-1 - S-016", "CDU Batch-1 - S-017", "CDU Batch-1 - S-018", "CDU Batch-1 - S-020"] },
 ];
+
+function nameTokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Longest-common-subsequence similarity tolerates inserted and transposed
+ * letters without over-matching unrelated names that happen to share letters.
+ */
+function tokenSimilarity(left: string, right: string): number {
+  if (left === right) return 1;
+  if (!left.length || !right.length) return 0;
+
+  const lengths = Array.from({ length: left.length + 1 }, () =>
+    Array.from({ length: right.length + 1 }, () => 0),
+  );
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex++) {
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex++) {
+      lengths[leftIndex]![rightIndex] =
+        left[leftIndex - 1] === right[rightIndex - 1]
+          ? lengths[leftIndex - 1]![rightIndex - 1]! + 1
+          : Math.max(
+              lengths[leftIndex - 1]![rightIndex]!,
+              lengths[leftIndex]![rightIndex - 1]!,
+            );
+    }
+  }
+  const commonLength = lengths[left.length]![right.length]!;
+  return (2 * commonLength) / (left.length + right.length);
+}
+
+export type SeededInstructorType = "campus" | "backup" | "unknown";
+
+/**
+ * Classify once at seed time. Exact shared tokens win; otherwise the strongest
+ * individual token match must meet the approved 0.75 threshold.
+ */
+export function classifyCampusInstructor(
+  subject: string,
+  instructorName: string,
+): SeededInstructorType {
+  const instructorTokens = nameTokens(instructorName);
+  const roster = CDU_CAMPUS_INSTRUCTORS.filter(
+    (instructor) => instructor.subject === subject,
+  );
+  if (instructorTokens.length === 0 || roster.length === 0) return "unknown";
+
+  for (const rosterInstructor of roster) {
+    const rosterTokens = nameTokens(rosterInstructor.instructorName);
+    if (instructorTokens.some((token) => rosterTokens.includes(token))) {
+      return "campus";
+    }
+  }
+
+  let strongestMatch = 0;
+  for (const rosterInstructor of roster) {
+    for (const instructorToken of instructorTokens) {
+      for (const rosterToken of nameTokens(rosterInstructor.instructorName)) {
+        strongestMatch = Math.max(
+          strongestMatch,
+          tokenSimilarity(instructorToken, rosterToken),
+        );
+      }
+    }
+  }
+  return strongestMatch >= 0.75 ? "campus" : "backup";
+}

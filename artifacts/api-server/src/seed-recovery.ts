@@ -1,3 +1,4 @@
+
 /**
  * Seeds the recovery curriculum and the sessions already delivered.
  *
@@ -21,9 +22,45 @@ import {
   SUBJECT_TO_BIGQUERY,
 } from "./seed/cdu-curriculum.js";
 import { CDU_DELIVERED_SESSIONS } from "./seed/cdu-delivered-sessions.js";
-import { CDU_CAMPUS_INSTRUCTORS } from "./seed/cdu-campus-instructors.js";
+import {
+  CDU_CAMPUS_INSTRUCTORS,
+  classifyCampusInstructor,
+} from "./seed/cdu-campus-instructors.js";
 import { getSubjectSessions } from "./lib/queries.js";
+import { logger } from "./lib/logger.js";
 
+/*
+/**
+ * Seeds the recovery curriculum and the sessions already delivered.
+ *
+ *   pnpm --filter @workspace/api-server run seed:recovery
+ *
+ * Idempotent: re-running updates existing rows rather than duplicating them.
+ * /
+
+import { db } from "@workspace/db";
+import {
+  campusInstructorsTable,
+  recoveryTopicsTable,
+  recoveryProgressTable,
+  recoverySessionsTable,
+  sessionTopicsTable,
+} from "@workspace/db";
+import { eq, and, sql } from "drizzle-orm";
+import {
+  CDU_CURRICULUM,
+  CDU_CAMPUS,
+  SUBJECT_TO_BIGQUERY,
+} from "./seed/cdu-curriculum.js";
+import { CDU_DELIVERED_SESSIONS } from "./seed/cdu-delivered-sessions.js";
+import {
+  CDU_CAMPUS_INSTRUCTORS,
+  classifyCampusInstructor,
+} from "./seed/cdu-campus-instructors.js";
+import { getSubjectSessions } from "./lib/queries.js";
+import { logger } from "./lib/logger.js";
+
+*/
 type InstructorType = "campus" | "backup" | "unknown";
 
 /**
@@ -111,6 +148,7 @@ function classifyInstructor(subject: string, instructorName: string): Instructor
   return isCampus ? "campus" : "backup";
 }
 
+/*
 async function seedCampusInstructors() {
   console.log(
     `Seeding ${CDU_CAMPUS_INSTRUCTORS.length} campus instructors for ${CDU_CAMPUS}…`,
@@ -133,9 +171,31 @@ async function seedCampusInstructors() {
       });
   }
 }
+*/
+async function seedCampusInstructors() {
+  for (const instructor of CDU_CAMPUS_INSTRUCTORS) {
+    await db
+      .insert(campusInstructorsTable)
+      .values(instructor)
+      .onConflictDoNothing({
+        target: [
+          campusInstructorsTable.campus,
+          campusInstructorsTable.subject,
+          campusInstructorsTable.instructorName,
+        ],
+      });
+  }
+  logger.info(
+    { instructorCount: CDU_CAMPUS_INSTRUCTORS.length, campus: CDU_CAMPUS },
+    "Seeded campus instructor roster",
+  );
+}
 
 async function seedCurriculum() {
-  console.log(`Seeding ${CDU_CURRICULUM.length} lectures for ${CDU_CAMPUS}…`);
+  logger.info(
+    { lectureCount: CDU_CURRICULUM.length, campus: CDU_CAMPUS },
+    "Seeding recovery curriculum",
+  );
 
   // Pull BigQuery's session titles once per subject so we can resolve each
   // lecture to a stored exact string instead of matching at query time.
@@ -151,7 +211,10 @@ async function seedCurriculum() {
       if (title) lut.set(normalize(title), title);
     }
     bqTitlesBySubject.set(subject, lut);
-    console.log(`  ${subject}: ${lut.size} distinct BigQuery titles`);
+    logger.info(
+      { subject, titleCount: lut.size },
+      "Loaded distinct BigQuery session titles",
+    );
   }
 
   let resolved = 0;
@@ -197,16 +260,24 @@ async function seedCurriculum() {
       });
   }
 
-  console.log(`  resolved ${resolved}/${CDU_CURRICULUM.length} to BigQuery`);
+  logger.info(
+    { resolved, total: CDU_CURRICULUM.length },
+    "Resolved recovery curriculum titles",
+  );
   // Unresolved topics are usually just not taught yet — but a topic that HAS
   // been taught and still fails to resolve will silently report 0% attendance,
   // so list them rather than swallowing the problem.
   if (unresolved.length) {
-    console.log(`  unresolved (not yet taught, or needs manual mapping):`);
-    for (const u of unresolved) console.log(`    ${u}`);
+    logger.warn(
+      {
+        unresolvedCount: unresolved.length,
+        examples: unresolved.slice(0, 10),
+      },
+      "Some curriculum titles are unresolved",
+    );
   }
 }
-
+/*
 async function seedDeliveredSessions() {
   console.log(`Seeding ${CDU_DELIVERED_SESSIONS.length} delivered sessions…`);
 
@@ -301,6 +372,142 @@ async function seedDeliveredSessions() {
 
   console.log(`  ${sessionCount} sessions, ${topicCount} topics recovered`);
 }
+*/
+async function seedDeliveredSessions() {
+  logger.info(
+    { sessionCount: CDU_DELIVERED_SESSIONS.length },
+    "Seeding delivered recovery sessions",
+  );
+
+  const topics = await db
+    .select()
+    .from(recoveryTopicsTable)
+    .where(eq(recoveryTopicsTable.campus, CDU_CAMPUS));
+
+  const byKey = new Map(
+    topics.map((t) => [`${t.subject}::${normalize(t.topicTitle)}`, t]),
+  );
+
+  let sessionCount = 0;
+  let topicCount = 0;
+  const classificationCounts = { campus: 0, backup: 0, unknown: 0 };
+
+  for (const s of CDU_DELIVERED_SESSIONS) {
+    const inferredInstructorType = classifyCampusInstructor(
+      s.subject,
+      s.instructorName,
+    );
+    classificationCounts[inferredInstructorType]++;
+    if (s.isBackupInstructor !== (inferredInstructorType === "backup")) {
+      logger.warn(
+        {
+          subject: s.subject,
+          instructorName: s.instructorName,
+          inferredInstructorType,
+        },
+        "Seeded instructor classification differs from the reviewed result",
+      );
+    }
+    // A session is identified by campus + subject + date, so re-running the
+    // seed updates rather than duplicating.
+    const existing = await db
+      .select()
+      .from(recoverySessionsTable)
+      .where(
+        and(
+          eq(recoverySessionsTable.campus, CDU_CAMPUS),
+          eq(recoverySessionsTable.subject, s.subject),
+          eq(recoverySessionsTable.scheduledDate, s.scheduledDate),
+        ),
+      )
+      .limit(1);
+
+    const values = {
+      campus: CDU_CAMPUS,
+      subject: s.subject,
+      section: null,
+      instructorName: s.instructorName,
+      instructorType: inferredInstructorType,
+      isBackupInstructor: inferredInstructorType === "backup",
+      scheduledDate: s.scheduledDate,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      status: "conducted" as const,
+      remarks: s.remarks,
+      qaReportUrls: s.qaReportUrls,
+      reportedAt: new Date(),
+    };
+
+    const session =
+      existing[0] ??
+      (await db.insert(recoverySessionsTable).values(values).returning())[0]!;
+
+    if (
+      existing[0]?.instructorType === "unknown" &&
+      !existing[0].instructorTypeReviewedAt
+    ) {
+      await db
+        .update(recoverySessionsTable)
+        .set({
+          instructorType: inferredInstructorType,
+          isBackupInstructor: inferredInstructorType === "backup",
+        })
+        .where(eq(recoverySessionsTable.id, session.id));
+    }
+    sessionCount++;
+
+    for (const [i, title] of s.topics.entries()) {
+      const topic = byKey.get(`${s.subject}::${normalize(title)}`);
+      if (!topic) {
+        logger.warn(
+          { subject: s.subject, title },
+          "No curriculum match for recovery session topic",
+        );
+        continue;
+      }
+
+      await db
+        .insert(sessionTopicsTable)
+        .values({
+          sessionId: session.id,
+          topicId: topic.id,
+          wasCovered: true,
+          orderInSession: i,
+        })
+        .onConflictDoNothing();
+
+      const existingProgress = await db
+        .select({ id: recoveryProgressTable.id })
+        .from(recoveryProgressTable)
+        .where(
+          and(
+            eq(recoveryProgressTable.campus, CDU_CAMPUS),
+            eq(recoveryProgressTable.subject, s.subject),
+            sql`${recoveryProgressTable.section} is null`,
+            eq(recoveryProgressTable.topicId, topic.id),
+          ),
+        )
+        .limit(1);
+      if (!existingProgress[0]) {
+        await db.insert(recoveryProgressTable).values({
+          campus: CDU_CAMPUS,
+          subject: s.subject,
+          section: null,
+          topicId: topic.id,
+          status: "completed",
+          completedAt: new Date(s.scheduledDate),
+        });
+      }
+
+      topicCount++;
+    }
+  }
+
+  logger.info(
+    { sessionCount, topicCount, classificationCounts },
+    "Seeded delivered recovery sessions",
+  );
+}
 
 async function main() {
   await seedCurriculum();
@@ -319,13 +526,17 @@ async function main() {
     )
     .where(eq(recoveryTopicsTable.campus, CDU_CAMPUS));
 
-  console.log(
-    `\nDone. ${summary?.topics ?? 0} topics seeded, ${summary?.completed ?? 0} marked recovered.`,
+  logger.info(
+    {
+      topics: summary?.topics ?? 0,
+      completed: summary?.completed ?? 0,
+    },
+    "Recovery seed completed",
   );
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error("Seed failed:", err);
+  logger.error({ err }, "Recovery seed failed");
   process.exit(1);
 });

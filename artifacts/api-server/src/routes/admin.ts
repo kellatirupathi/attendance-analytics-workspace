@@ -1,13 +1,18 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { db } from "@workspace/db";
-import { usersTable, campusesTable } from "@workspace/db";
+import {
+  usersTable,
+  campusesTable,
+  recoverySessionsTable,
+} from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireSession } from "../lib/auth.js";
 import { invalidateSessionCache } from "../lib/sessionCache.js";
 import { manageableRoles, ROLE_META, SUBJECTS } from "../lib/rbac.js";
 import type { Role } from "../lib/rbac.js";
 import { getInstitutions, getSubjectList } from "../lib/queries.js";
+import { cacheDeletePrefix } from "../lib/cache.js";
 
 const router = Router();
 
@@ -267,6 +272,51 @@ router.delete("/campuses/:id", async (req, res): Promise<void> => {
   await db.delete(campusesTable).where(eq(campusesTable.id, id));
   res.status(204).send();
 });
+
+router.patch(
+  "/recovery-sessions/:id/instructor-type",
+  async (req, res): Promise<void> => {
+    const id = String(req.params["id"] ?? "");
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(id)) {
+      res.status(400).json({ error: "Invalid recovery session id" });
+      return;
+    }
+
+    const instructorType = (req.body as { instructorType?: unknown })
+      .instructorType;
+    if (
+      instructorType !== "campus" &&
+      instructorType !== "backup" &&
+      instructorType !== "unknown"
+    ) {
+      res.status(400).json({ error: "Invalid instructor type" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(recoverySessionsTable)
+      .set({
+        instructorType,
+        instructorTypeReviewedAt: new Date(),
+        isBackupInstructor: instructorType === "backup",
+        updatedAt: new Date(),
+      })
+      .where(eq(recoverySessionsTable.id, id))
+      .returning({
+        id: recoverySessionsTable.id,
+        instructorType: recoverySessionsTable.instructorType,
+      });
+    if (!updated) {
+      res.status(404).json({ error: "Recovery session not found" });
+      return;
+    }
+
+    cacheDeletePrefix("session-tracker:");
+    res.json(updated);
+  },
+);
 
 // Meta — campuses and subjects come live from BigQuery so the assignable
 // options exactly match the institutions/subjects present in the data

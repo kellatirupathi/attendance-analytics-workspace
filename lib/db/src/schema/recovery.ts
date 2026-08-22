@@ -173,10 +173,15 @@ export const recoverySessionsTable = pgTable(
     instructorId: uuid("instructor_id").references(() => usersTable.id),
     /** Free text: backup instructors are not always platform users. */
     instructorName: text("instructor_name").notNull().default(""),
-    isBackupInstructor: boolean("is_backup_instructor").notNull().default(false),
     instructorType: recoveryInstructorTypeEnum("instructor_type")
       .notNull()
       .default("unknown"),
+    /** Set when an administrator explicitly confirms or corrects the type. */
+    instructorTypeReviewedAt: timestamp("instructor_type_reviewed_at", {
+      withTimezone: true,
+    }),
+    /** @deprecated Use instructorType. Retained for compatibility with older data. */
+    isBackupInstructor: boolean("is_backup_instructor").notNull().default(false),
     scheduledDate: date("scheduled_date").notNull(),
     startTime: text("start_time").notNull().default(""),
     endTime: text("end_time").notNull().default(""),
@@ -244,6 +249,14 @@ export const insertRecoveryTopicSchema = createInsertSchema(
 export const selectRecoveryTopicSchema =
   createSelectSchema(recoveryTopicsTable);
 
+export const insertCampusInstructorSchema = createInsertSchema(
+  campusInstructorsTable,
+).omit({ id: true });
+
+export const selectCampusInstructorSchema = createSelectSchema(
+  campusInstructorsTable,
+);
+
 export const insertRecoverySessionSchema = createInsertSchema(
   recoverySessionsTable,
 ).omit({ id: true, createdAt: true, updatedAt: true });
@@ -251,22 +264,15 @@ export const insertRecoverySessionSchema = createInsertSchema(
 export const selectRecoverySessionSchema =
   createSelectSchema(recoverySessionsTable);
 
-export const insertCampusInstructorSchema = createInsertSchema(
-  campusInstructorsTable,
-).omit({ id: true });
-
-export const selectCampusInstructorSchema =
-  createSelectSchema(campusInstructorsTable);
-
 export type RecoveryTopic = typeof recoveryTopicsTable.$inferSelect;
 export type InsertRecoveryTopic = z.infer<typeof insertRecoveryTopicSchema>;
 export type RecoveryProgress = typeof recoveryProgressTable.$inferSelect;
 export type InsertRecoveryProgress = typeof recoveryProgressTable.$inferInsert;
-export type RecoverySession = typeof recoverySessionsTable.$inferSelect;
-export type InsertRecoverySession = z.infer<typeof insertRecoverySessionSchema>;
 export type CampusInstructor = typeof campusInstructorsTable.$inferSelect;
 export type InsertCampusInstructor = z.infer<
   typeof insertCampusInstructorSchema
 >;
+export type RecoverySession = typeof recoverySessionsTable.$inferSelect;
+export type InsertRecoverySession = z.infer<typeof insertRecoverySessionSchema>;
 export type SessionTopic = typeof sessionTopicsTable.$inferSelect;
 export type InsertSessionTopic = typeof sessionTopicsTable.$inferInsert;

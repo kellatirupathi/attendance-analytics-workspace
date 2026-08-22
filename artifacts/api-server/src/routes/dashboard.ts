@@ -11,8 +11,8 @@ import {
   getSessionStudents,
   getCampusSessions,
   getRecoveryProgress,
-  getRecoverySessionTracker,
   getResolvedRecoverySessionTitles,
+  getSessionTracker,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
@@ -394,6 +394,7 @@ router.get(
   },
 );
 
+/*
 // Ordered curriculum and recovery-delivery status for one subject.
 router.get(
   "/session-tracker",
@@ -470,6 +471,91 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching recovery session tracker");
       res.status(500).json({ error: "Failed to fetch session tracker" });
+    }
+  },
+);
+
+*/
+// Full curriculum delivery state for one subject at one campus.
+router.get(
+  "/session-tracker",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const campus = q["campus"];
+    const bigQuerySubject = q["subject"];
+    const section = q["section"] || undefined;
+    if (!campus || !bigQuerySubject) {
+      res.status(400).json({ error: "campus and subject required" });
+      return;
+    }
+
+    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+      res.status(403).json({ error: "Not permitted for this campus" });
+      return;
+    }
+    if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
+      res.status(403).json({ error: "Not permitted for this subject" });
+      return;
+    }
+
+    const curriculumSubject =
+      BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
+    if (!curriculumSubject) {
+      res
+        .status(404)
+        .json({ error: "Recovery curriculum not configured for this subject" });
+      return;
+    }
+
+    const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+
+    try {
+      const [sessions, trackedSessionTitles] = await Promise.all([
+        getSubjectSessions(scope, {
+          subject: bigQuerySubject,
+          campus,
+          section,
+        }),
+        getResolvedRecoverySessionTitles(campus, curriculumSubject),
+      ]);
+      const attendanceByTitle = new Map<
+        string,
+        { presentCount: number; totalCount: number }
+      >();
+      for (const subjectSession of sessions) {
+        if (!trackedSessionTitles.has(subjectSession.sessionTitle)) continue;
+        const current = attendanceByTitle.get(subjectSession.sessionTitle) ?? {
+          presentCount: 0,
+          totalCount: 0,
+        };
+        current.presentCount += subjectSession.presentCount;
+        current.totalCount += subjectSession.totalCount;
+        attendanceByTitle.set(subjectSession.sessionTitle, current);
+      }
+
+      const tracker = await getSessionTracker(
+        campus,
+        curriculumSubject,
+        attendanceByTitle,
+        section,
+      );
+      cacheSet(cacheKey, tracker, 60 * 1000);
+      res.json(tracker);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching recovery session tracker");
+      res.status(500).json({ error: "Failed to fetch recovery session tracker" });
     }
   },
 );

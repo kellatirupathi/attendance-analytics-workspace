@@ -1,201 +1,3 @@
-    SELECT
-      att.student_user_id,
-      att.student_name,
-      att.institute_name,
-      att.batch_section_name,
-      att.present,
-      att.total,
-      quiz.classroom_avg,
-      quiz.module_avg
-    FROM att
-    LEFT JOIN quiz
-      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
-       = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
-    ORDER BY SAFE_DIVIDE(att.present, att.total) ASC
-    LIMIT ${safeLimit}`,
-    params,
-  );
-  const round1 = (v: string | null): number | null => {
-    if (v === null || v === undefined) return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? Math.round(n * 10) / 10 : null;
-  };
-  return rows.map((r) => {
-    const p = Number(r.present);
-    const t = Number(r.total);
-    return {
-      studentId: r.student_user_id,
-      studentName: r.student_name,
-      instituteName: r.institute_name ?? null,
-      sectionName: r.batch_section_name ?? null,
-      attendancePct: t > 0 ? pct(p, t) : null,
-      presentCount: p,
-      totalCount: t,
-      classroomAvg: round1(r.classroom_avg),
-      moduleAvg: round1(r.module_avg),
-    };
-  });
-}
-
-export interface CampusSummaryItem {
-  instituteName: string;
-  studentCount: number;
-  sectionCount: number;
-  subjectCount: number;
-  presentCount: number;
-  totalCount: number;
-  pct: number;
-}
-
-export interface SectionSummaryItem {
-  instituteName: string;
-  sectionName: string;
-  studentCount: number;
-  presentCount: number;
-  totalCount: number;
-  pct: number;
-}
-
-export async function getCampusSummary(
-  scope: SessionScope,
-): Promise<CampusSummaryItem[]> {
-  const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params);
-  const rows = await bqQuery<{
-    institute_name: string;
-    student_count: string;
-    section_count: string;
-    subject_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
-    `SELECT
-      institute_name,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNT(DISTINCT batch_section_name) AS section_count,
-      COUNT(DISTINCT subject_title) AS subject_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}
-    GROUP BY institute_name
-    ORDER BY institute_name`,
-    params,
-  );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      instituteName: r.institute_name,
-      studentCount: Number(r.student_count),
-      sectionCount: Number(r.section_count),
-      subjectCount: Number(r.subject_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
-}
-
-export async function getSectionSummary(
-  scope: SessionScope,
-): Promise<SectionSummaryItem[]> {
-  const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params);
-  const rows = await bqQuery<{
-    institute_name: string;
-    batch_section_name: string;
-    student_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
-    `SELECT
-      institute_name,
-      COALESCE(batch_section_name, 'Unknown') AS batch_section_name,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}
-    GROUP BY institute_name, COALESCE(batch_section_name, 'Unknown')
-    ORDER BY institute_name, batch_section_name`,
-    params,
-  );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      instituteName: r.institute_name,
-      sectionName: r.batch_section_name,
-      studentCount: Number(r.student_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
-}
-
-export interface SubjectSummaryItem {
-  subjectTitle: string;
-  studentCount: number;
-  presentCount: number;
-  totalCount: number;
-  pct: number;
-}
-
-export async function getSubjectSummary(
-  scope: SessionScope,
-  opts: { campus?: string } = {},
-): Promise<SubjectSummaryItem[]> {
-  const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params);
-  let campusFilter = "";
-  if (opts.campus) {
-    params["filterCampus"] = opts.campus;
-    campusFilter = " AND institute_name = @filterCampus";
-  }
-  const rows = await bqQuery<{
-    subject_title: string;
-    student_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
-    `SELECT
-      subject_title,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}${campusFilter}
-    GROUP BY subject_title
-    ORDER BY SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) ASC`,
-    params,
-  );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      subjectTitle: r.subject_title,
-      studentCount: Number(r.student_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
-}
-
-export interface SessionSummaryItem {
-  sessionTitle: string;
-  date: string | null;
-  studentCount: number;
-  presentCount: number;
-  totalCount: number;
-  pct: number;
-}
-
-/**
- * Session (unit) level rollup inside one subject. One row per
- * (session_title, date) so a session repeated on different days stays
  * distinct. Scope-filtered like every other dashboard query.
  */
 export async function getSubjectSessions(
@@ -556,6 +358,36 @@ export interface RecoveryProgressSummary {
   nextScheduled: { date: string; topics: string[] } | null;
 }
 
+export type SessionTrackerStatus =
+  | "not_taught"
+  | "ok"
+  | "needs_recovery"
+  | "recovery_scheduled"
+  | "recovered";
+
+export interface SessionTrackerRow {
+  sequenceNo: number;
+  weekNo: number | null;
+  topicTitle: string;
+  unitId: string | null;
+  attendancePct: number | null;
+  presentCount: number | null;
+  totalCount: number | null;
+  status: SessionTrackerStatus;
+  recoverySession: {
+    id: string;
+    date: string;
+    instructorName: string;
+    instructorType: "campus" | "backup" | "unknown";
+    wasCovered: boolean | null;
+  } | null;
+}
+
+export interface RecoveryTopicAttendance {
+  presentCount: number;
+  totalCount: number;
+}
+
 export async function getResolvedRecoverySessionTitles(
   campus: string,
   subject: string,
@@ -574,6 +406,172 @@ export async function getResolvedRecoverySessionTitles(
   return new Set(
     rows.flatMap((row) => (row.title ? [row.title] : [])),
   );
+}
+
+export async function getSessionTracker(
+  campus: string,
+  subject: string,
+  attendanceByTitle: ReadonlyMap<string, RecoveryTopicAttendance>,
+  section?: string,
+): Promise<SessionTrackerRow[]> {
+  const topics = await db
+    .select({
+      id: recoveryTopicsTable.id,
+      sequenceNo: recoveryTopicsTable.sequenceNo,
+      weekNo: recoveryTopicsTable.weekNo,
+      topicTitle: recoveryTopicsTable.topicTitle,
+      unitId: recoveryTopicsTable.unitId,
+      bigquerySessionTitle: recoveryTopicsTable.bigquerySessionTitle,
+    })
+    .from(recoveryTopicsTable)
+    .where(
+      and(
+        eq(recoveryTopicsTable.campus, campus),
+        eq(recoveryTopicsTable.subject, subject),
+        eq(recoveryTopicsTable.isActive, true),
+      ),
+    )
+    .orderBy(asc(recoveryTopicsTable.sequenceNo));
+
+  const progressRows = await db
+    .select({
+      topicId: recoveryProgressTable.topicId,
+      status: recoveryProgressTable.status,
+      section: recoveryProgressTable.section,
+    })
+    .from(recoveryProgressTable)
+    .where(
+      and(
+        eq(recoveryProgressTable.campus, campus),
+        eq(recoveryProgressTable.subject, subject),
+        section
+          ? or(
+              isNull(recoveryProgressTable.section),
+              eq(recoveryProgressTable.section, section),
+            )
+          : undefined,
+      ),
+    );
+
+  const progressRank = { pending: 1, scheduled: 2, completed: 3 } as const;
+  const progressByTopic = new Map<
+    string,
+    { status: keyof typeof progressRank; score: number }
+  >();
+  for (const row of progressRows) {
+    const score =
+      progressRank[row.status] + (section && row.section === section ? 10 : 0);
+    const current = progressByTopic.get(row.topicId);
+    if (!current || score > current.score) {
+      progressByTopic.set(row.topicId, { status: row.status, score });
+    }
+  }
+
+  const recoveryRows = await db
+    .select({
+      topicId: sessionTopicsTable.topicId,
+      id: recoverySessionsTable.id,
+      date: recoverySessionsTable.scheduledDate,
+      instructorName: recoverySessionsTable.instructorName,
+      instructorType: recoverySessionsTable.instructorType,
+      wasCovered: sessionTopicsTable.wasCovered,
+      sessionStatus: recoverySessionsTable.status,
+      section: recoverySessionsTable.section,
+    })
+    .from(sessionTopicsTable)
+    .innerJoin(
+      recoverySessionsTable,
+      eq(recoverySessionsTable.id, sessionTopicsTable.sessionId),
+    )
+    .where(
+      and(
+        eq(recoverySessionsTable.campus, campus),
+        eq(recoverySessionsTable.subject, subject),
+        section
+          ? or(
+              isNull(recoverySessionsTable.section),
+              eq(recoverySessionsTable.section, section),
+            )
+          : undefined,
+      ),
+    )
+    .orderBy(
+      desc(recoverySessionsTable.scheduledDate),
+      desc(recoverySessionsTable.createdAt),
+    );
+
+  const recoveryByTopic = new Map<string, typeof recoveryRows>();
+  for (const row of recoveryRows) {
+    const rows = recoveryByTopic.get(row.topicId) ?? [];
+    rows.push(row);
+    recoveryByTopic.set(row.topicId, rows);
+  }
+
+  return topics.map((topic) => {
+    const attendance = topic.bigquerySessionTitle
+      ? attendanceByTitle.get(topic.bigquerySessionTitle)
+      : undefined;
+    const hasAttendance = Boolean(attendance && attendance.totalCount > 0);
+    const attendancePct =
+      attendance && attendance.totalCount > 0
+        ? Math.round(
+            (attendance.presentCount / attendance.totalCount) * 1000,
+          ) / 10
+        : null;
+    const progressStatus = progressByTopic.get(topic.id)?.status;
+
+    let status: SessionTrackerStatus;
+    if (!hasAttendance || attendancePct === null) {
+      status = "not_taught";
+    } else if (attendancePct >= 80) {
+      status = "ok";
+    } else if (progressStatus === "completed") {
+      status = "recovered";
+    } else if (progressStatus === "scheduled") {
+      status = "recovery_scheduled";
+    } else {
+      status = "needs_recovery";
+    }
+
+    const candidateRows = (recoveryByTopic.get(topic.id) ?? [])
+      .filter((row) =>
+        ["planned", "conducted", "partial"].includes(row.sessionStatus),
+      )
+      .sort((left, right) => {
+        if (!section) return 0;
+        return Number(right.section === section) - Number(left.section === section);
+      });
+    const recovery =
+      (progressStatus === "scheduled"
+        ? candidateRows.find((row) => row.sessionStatus === "planned")
+        : progressStatus === "completed"
+          ? candidateRows.find(
+              (row) =>
+                row.wasCovered === true &&
+                ["conducted", "partial"].includes(row.sessionStatus),
+            )
+          : undefined) ?? candidateRows[0];
+
+    return {
+      sequenceNo: topic.sequenceNo,
+      weekNo: topic.weekNo,
+      topicTitle: topic.topicTitle,
+      unitId: topic.unitId,
+      attendancePct,
+      presentCount: hasAttendance ? attendance!.presentCount : null,
+      totalCount: hasAttendance ? attendance!.totalCount : null,
+      status,
+      recoverySession: recovery
+        ? {
+            id: recovery.id,
+            date: recovery.date,
+            instructorName: recovery.instructorName,
+            instructorType: recovery.instructorType,
+            wasCovered: recovery.wasCovered,
+          }
+        : null,
+    };
+  });
 }
 
 /**
@@ -692,6 +690,7 @@ export async function getRecoveryProgress(
   };
 }
 
+/*
 export type SessionTrackerStatus =
   | "not_taught"
   | "ok"
@@ -725,7 +724,7 @@ export interface SessionTrackerRow {
  * Combines the ordered Postgres recovery curriculum with already-aggregated
  * BigQuery attendance. Recovery delivery fields come only from recovery
  * sessions; regular-class instructors are deliberately not substituted.
- */
+ * /
 export async function getRecoverySessionTracker(
   campus: string,
   subject: string,
@@ -847,6 +846,7 @@ export async function getRecoverySessionTracker(
     };
   });
 }
+*/
 
 export async function getCampusList(): Promise<string[]> {
   const rows = await bqQuery<{ institute_name: string }>(
