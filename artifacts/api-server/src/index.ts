@@ -23,7 +23,7 @@ async function start(): Promise<void> {
     logger.error({ err }, "Startup seed failed (continuing)");
   }
 
-  app.listen(port, (err) => {
+  app.listen(port, "0.0.0.0", (err) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
       process.exit(1);
