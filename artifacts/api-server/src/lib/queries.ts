@@ -4,6 +4,14 @@ import {
   validateStudentId,
   normalizeStudentId,
 } from "./bigquery.js";
+import {
+  db,
+  recoveryProgressTable,
+  recoverySessionsTable,
+  recoveryTopicsTable,
+  sessionTopicsTable,
+} from "@workspace/db";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { SessionScope } from "./rbac.js";
 
 /**
@@ -924,6 +932,156 @@ export async function getCampusSubjectRecovery(
     subjects: subjectCards,
     totalSubjectsInRecovery: subjectCards.length,
     totalStudentsInRecovery: studentIds.size,
+  };
+}
+
+export interface RecoveryProgressSummary {
+  campus: string;
+  subject: string;
+  totalTopics: number;
+  topicsBelowThreshold: number;
+  topicsRecovered: number;
+  topicsRemaining: number;
+  recoveryCompletionPct: number;
+  sessionsHeld: number;
+  sessionsCancelled: number;
+  lastSession: { date: string; topics: string[] } | null;
+  nextScheduled: { date: string; topics: string[] } | null;
+}
+
+export async function getResolvedRecoverySessionTitles(
+  campus: string,
+  subject: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ title: recoveryTopicsTable.bigquerySessionTitle })
+    .from(recoveryTopicsTable)
+    .where(
+      and(
+        eq(recoveryTopicsTable.campus, campus),
+        eq(recoveryTopicsTable.subject, subject),
+        eq(recoveryTopicsTable.isActive, true),
+      ),
+    );
+
+  return new Set(
+    rows.flatMap((row) => (row.title ? [row.title] : [])),
+  );
+}
+
+/**
+ * Recovery progress for one campus and curriculum subject.
+ *
+ * The caller supplies the below-threshold topic count from BigQuery so this
+ * database query does not repeat a warehouse request on the dashboard path.
+ */
+export async function getRecoveryProgress(
+  campus: string,
+  subject: string,
+  topicsBelowThreshold: number,
+): Promise<RecoveryProgressSummary> {
+  const scope = and(
+    eq(recoveryTopicsTable.campus, campus),
+    eq(recoveryTopicsTable.subject, subject),
+    eq(recoveryTopicsTable.isActive, true),
+  );
+
+  const [counts] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      recovered:
+        sql<number>`count(*) filter (where ${recoveryProgressTable.status} = 'completed')::int`,
+    })
+    .from(recoveryTopicsTable)
+    .leftJoin(
+      recoveryProgressTable,
+      eq(recoveryProgressTable.topicId, recoveryTopicsTable.id),
+    )
+    .where(scope);
+
+  const [sessions] = await db
+    .select({
+      held:
+        sql<number>`count(*) filter (where ${recoverySessionsTable.status} in ('conducted', 'partial'))::int`,
+      cancelled:
+        sql<number>`count(*) filter (where ${recoverySessionsTable.status} in ('cancelled', 'no_show'))::int`,
+    })
+    .from(recoverySessionsTable)
+    .where(
+      and(
+        eq(recoverySessionsTable.campus, campus),
+        eq(recoverySessionsTable.subject, subject),
+      ),
+    );
+
+  const [last] = await db
+    .select({
+      id: recoverySessionsTable.id,
+      date: recoverySessionsTable.scheduledDate,
+    })
+    .from(recoverySessionsTable)
+    .where(
+      and(
+        eq(recoverySessionsTable.campus, campus),
+        eq(recoverySessionsTable.subject, subject),
+        inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+      ),
+    )
+    .orderBy(desc(recoverySessionsTable.scheduledDate))
+    .limit(1);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const [next] = await db
+    .select({
+      id: recoverySessionsTable.id,
+      date: recoverySessionsTable.scheduledDate,
+    })
+    .from(recoverySessionsTable)
+    .where(
+      and(
+        eq(recoverySessionsTable.campus, campus),
+        eq(recoverySessionsTable.subject, subject),
+        eq(recoverySessionsTable.status, "planned"),
+        gte(recoverySessionsTable.scheduledDate, today),
+      ),
+    )
+    .orderBy(asc(recoverySessionsTable.scheduledDate))
+    .limit(1);
+
+  async function topicsFor(sessionId: string | undefined): Promise<string[]> {
+    if (!sessionId) return [];
+    const rows = await db
+      .select({ title: recoveryTopicsTable.topicTitle })
+      .from(sessionTopicsTable)
+      .innerJoin(
+        recoveryTopicsTable,
+        eq(recoveryTopicsTable.id, sessionTopicsTable.topicId),
+      )
+      .where(eq(sessionTopicsTable.sessionId, sessionId))
+      .orderBy(asc(sessionTopicsTable.orderInSession));
+    return rows.map((row) => row.title);
+  }
+
+  const recovered = counts?.recovered ?? 0;
+  return {
+    campus,
+    subject,
+    totalTopics: counts?.total ?? 0,
+    topicsBelowThreshold,
+    topicsRecovered: recovered,
+    topicsRemaining: Math.max(topicsBelowThreshold - recovered, 0),
+    recoveryCompletionPct:
+      topicsBelowThreshold > 0
+        ? Math.round((recovered / topicsBelowThreshold) * 1000) / 10
+        : 0,
+    sessionsHeld: sessions?.held ?? 0,
+    sessionsCancelled: sessions?.cancelled ?? 0,
+    lastSession: last
+      ? { date: last.date, topics: await topicsFor(last.id) }
+      : null,
+    nextScheduled: next
+      ? { date: next.date, topics: await topicsFor(next.id) }
+      : null,
   };
 }
 
