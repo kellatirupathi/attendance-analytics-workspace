@@ -8,6 +8,7 @@
 
 import { db } from "@workspace/db";
 import {
+  campusInstructorsTable,
   recoveryTopicsTable,
   recoveryProgressTable,
   recoverySessionsTable,
@@ -20,7 +21,10 @@ import {
   SUBJECT_TO_BIGQUERY,
 } from "./seed/cdu-curriculum.js";
 import { CDU_DELIVERED_SESSIONS } from "./seed/cdu-delivered-sessions.js";
+import { CDU_CAMPUS_INSTRUCTORS } from "./seed/cdu-campus-instructors.js";
 import { getSubjectSessions } from "./lib/queries.js";
+
+type InstructorType = "campus" | "backup" | "unknown";
 
 /**
  * Titles drift between the prod sequence and BigQuery. Normalising both sides
@@ -47,6 +51,88 @@ const TITLE_OVERRIDES: Record<string, string> = {
   "Probability Distributions Implementation":
     "Probability Distributions Implementation Practice",
 };
+
+function nameTokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function levenshtein(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    let diagonal = previous[0]!;
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const above = previous[j]!;
+      previous[j] = Math.min(
+        previous[j]! + 1,
+        previous[j - 1]! + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length]!;
+}
+
+function tokenSimilarity(left: string, right: string): number {
+  const longest = Math.max(left.length, right.length);
+  return longest === 0 ? 1 : 1 - levenshtein(left, right) / longest;
+}
+
+/**
+ * Campus rosters use informal names while the recovery sheet often uses full
+ * names. Exact shared tokens are strongest; spelling similarity is the
+ * fallback. The persisted result can later be corrected by an administrator.
+ */
+function classifyInstructor(subject: string, instructorName: string): InstructorType {
+  const deliveredTokens = nameTokens(instructorName);
+  if (deliveredTokens.length === 0) return "unknown";
+
+  const isCampus = CDU_CAMPUS_INSTRUCTORS.filter(
+    (row) => row.campus === CDU_CAMPUS && row.subject === subject,
+  ).some((row) => {
+    const rosterTokens = nameTokens(row.instructorName);
+    if (deliveredTokens.some((token) => rosterTokens.includes(token))) {
+      return true;
+    }
+    return deliveredTokens.some((deliveredToken) =>
+      rosterTokens.some(
+        (rosterToken) =>
+          tokenSimilarity(deliveredToken, rosterToken) >= 0.75,
+      ),
+    );
+  });
+
+  return isCampus ? "campus" : "backup";
+}
+
+async function seedCampusInstructors() {
+  console.log(
+    `Seeding ${CDU_CAMPUS_INSTRUCTORS.length} campus instructors for ${CDU_CAMPUS}…`,
+  );
+
+  for (const instructor of CDU_CAMPUS_INSTRUCTORS) {
+    await db
+      .insert(campusInstructorsTable)
+      .values(instructor)
+      .onConflictDoUpdate({
+        target: [
+          campusInstructorsTable.campus,
+          campusInstructorsTable.subject,
+          campusInstructorsTable.instructorName,
+        ],
+        set: {
+          sections: instructor.sections,
+          isActive: true,
+        },
+      });
+  }
+}
 
 async function seedCurriculum() {
   console.log(`Seeding ${CDU_CURRICULUM.length} lectures for ${CDU_CAMPUS}…`);
@@ -151,12 +237,14 @@ async function seedDeliveredSessions() {
       )
       .limit(1);
 
+    const instructorType = classifyInstructor(s.subject, s.instructorName);
     const values = {
       campus: CDU_CAMPUS,
       subject: s.subject,
       section: null,
       instructorName: s.instructorName,
-      isBackupInstructor: s.isBackupInstructor,
+      isBackupInstructor: instructorType === "backup",
+      instructorType,
       scheduledDate: s.scheduledDate,
       startTime: s.startTime,
       endTime: s.endTime,
@@ -216,6 +304,7 @@ async function seedDeliveredSessions() {
 
 async function main() {
   await seedCurriculum();
+  await seedCampusInstructors();
   await seedDeliveredSessions();
 
   const [summary] = await db

@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { usersTable } from "./brave.js";
@@ -35,6 +36,12 @@ export const recoverySessionStatusEnum = pgEnum("recovery_session_status", [
   "partial",
   "cancelled",
   "no_show",
+]);
+
+export const recoveryInstructorTypeEnum = pgEnum("recovery_instructor_type", [
+  "campus",
+  "backup",
+  "unknown",
 ]);
 
 /**
@@ -117,6 +124,40 @@ export const recoveryProgressTable = pgTable(
       table.subject,
     ),
     index("recovery_progress_topic_idx").on(table.topicId),
+    uniqueIndex("recovery_progress_pooled_unique_idx")
+      .on(table.campus, table.subject, table.topicId)
+      .where(sql`${table.section} is null`),
+    uniqueIndex("recovery_progress_section_unique_idx")
+      .on(table.campus, table.subject, table.section, table.topicId)
+      .where(sql`${table.section} is not null`),
+  ],
+);
+
+/**
+ * The regular campus teaching roster. Recovery-session instructors are matched
+ * against this list once and stored on the session as campus/backup/unknown.
+ */
+export const campusInstructorsTable = pgTable(
+  "campus_instructors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campus: text("campus").notNull(),
+    subject: text("subject").notNull(),
+    instructorName: text("instructor_name").notNull(),
+    instructorId: uuid("instructor_id").references(() => usersTable.id),
+    sections: text("sections").array().notNull().default([]),
+    isActive: boolean("is_active").notNull().default(true),
+  },
+  (table) => [
+    uniqueIndex("campus_instructors_unique_idx").on(
+      table.campus,
+      table.subject,
+      table.instructorName,
+    ),
+    index("campus_instructors_campus_subject_idx").on(
+      table.campus,
+      table.subject,
+    ),
   ],
 );
 
@@ -133,6 +174,9 @@ export const recoverySessionsTable = pgTable(
     /** Free text: backup instructors are not always platform users. */
     instructorName: text("instructor_name").notNull().default(""),
     isBackupInstructor: boolean("is_backup_instructor").notNull().default(false),
+    instructorType: recoveryInstructorTypeEnum("instructor_type")
+      .notNull()
+      .default("unknown"),
     scheduledDate: date("scheduled_date").notNull(),
     startTime: text("start_time").notNull().default(""),
     endTime: text("end_time").notNull().default(""),
@@ -207,11 +251,22 @@ export const insertRecoverySessionSchema = createInsertSchema(
 export const selectRecoverySessionSchema =
   createSelectSchema(recoverySessionsTable);
 
+export const insertCampusInstructorSchema = createInsertSchema(
+  campusInstructorsTable,
+).omit({ id: true });
+
+export const selectCampusInstructorSchema =
+  createSelectSchema(campusInstructorsTable);
+
 export type RecoveryTopic = typeof recoveryTopicsTable.$inferSelect;
 export type InsertRecoveryTopic = z.infer<typeof insertRecoveryTopicSchema>;
 export type RecoveryProgress = typeof recoveryProgressTable.$inferSelect;
 export type InsertRecoveryProgress = typeof recoveryProgressTable.$inferInsert;
 export type RecoverySession = typeof recoverySessionsTable.$inferSelect;
 export type InsertRecoverySession = z.infer<typeof insertRecoverySessionSchema>;
+export type CampusInstructor = typeof campusInstructorsTable.$inferSelect;
+export type InsertCampusInstructor = z.infer<
+  typeof insertCampusInstructorSchema
+>;
 export type SessionTopic = typeof sessionTopicsTable.$inferSelect;
 export type InsertSessionTopic = typeof sessionTopicsTable.$inferInsert;

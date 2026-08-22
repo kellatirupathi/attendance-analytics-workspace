@@ -73,7 +73,11 @@ export function scopeForSession(session: {
     return { campuses: session.campuses };
   }
   if (session.role === "capability_manager" || session.role === "instructor") {
-    return { campuses: session.campuses, subjects: session.subjects };
+    return {
+      campuses:
+        session.campuses.length > 0 ? session.campuses : ["__none__"],
+      subjects: session.subjects,
+    };
   }
   return { campuses: ["__none__"] };
 }

@@ -56,6 +56,47 @@ interface RecoveryProgress {
   nextScheduled: { date: string; topics: string[] } | null;
 }
 
+interface SessionTrackerRow {
+  sequenceNo: number;
+  weekNo: number | null;
+  topicTitle: string;
+  unitId: string | null;
+  attendancePct: number | null;
+  presentCount: number;
+  totalCount: number;
+  status: 'not_taught' | 'ok' | 'needs_recovery' | 'recovery_scheduled' | 'recovered';
+  recoverySession: {
+    date: string;
+    instructorName: string;
+    instructorType: 'campus' | 'backup' | 'unknown';
+    wasCovered: boolean | null;
+  } | null;
+}
+
+function SessionStatusBadge({ status }: { status: SessionTrackerRow['status'] }) {
+  switch (status) {
+    case 'not_taught':
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">Not taught</span>;
+    case 'ok':
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">OK</span>;
+    case 'needs_recovery':
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">Needs recovery</span>;
+    case 'recovery_scheduled':
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Scheduled</span>;
+    case 'recovered':
+      return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">Recovered</span>;
+    default:
+      return null;
+  }
+}
+
+function InstructorTypeBadge({ type }: { type: 'campus' | 'backup' | 'unknown' }) {
+  if (!type || type === 'unknown') return <span className="text-slate-400">-</span>;
+  if (type === 'campus') return <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-wider">Campus</span>;
+  if (type === 'backup') return <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200 uppercase tracking-wider">Backup</span>;
+  return null;
+}
+
 function safeDecode(val: string | undefined): string | null {
   if (!val) return null;
   try {
@@ -95,10 +136,15 @@ export default function RecoverySubjectDetail() {
   const [error, setError] = useState("");
 
   const [searchFilter, setSearchFilter] = useState("");
-  
+
   const [recoveryProgress, setRecoveryProgress] = useState<RecoveryProgress | null>(null);
   const [progressLoading, setProgressLoading] = useState(false);
   const [progressError, setProgressError] = useState("");
+
+  const [sessions, setSessions] = useState<SessionTrackerRow[] | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
+  const [sessionRetryTrigger, setSessionRetryTrigger] = useState(0);
 
   useEffect(() => {
     if (!campus) return;
@@ -183,6 +229,46 @@ export default function RecoverySubjectDetail() {
       controller.abort();
     };
   }, [campus, subject]);
+
+  useEffect(() => {
+    if (!campus || !subject) return;
+
+    const controller = new AbortController();
+    let active = true;
+
+    async function fetchTracker() {
+      if (!active) return;
+      setSessionsLoading(true);
+      setSessionsError("");
+      try {
+        const queryParams = new URLSearchParams({
+          campus: campus!,
+          subject: subject!,
+        });
+        const response = await fetch(`/api/dashboard/session-tracker?${queryParams}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error("Failed to load session tracker");
+        }
+        const data = (await response.json()) as SessionTrackerRow[];
+        if (active && !controller.signal.aborted) setSessions(data);
+      } catch (err) {
+        if (!active || (err instanceof DOMException && err.name === "AbortError")) return;
+        setSessionsError(
+          err instanceof Error ? err.message : "Failed to load session tracker",
+        );
+      } finally {
+        if (active && !controller.signal.aborted) setSessionsLoading(false);
+      }
+    }
+
+    fetchTracker();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [campus, subject, sessionRetryTrigger]);
 
   const filteredStudents = useMemo(() => {
     if (!selectedSubjectData) return [];
@@ -454,13 +540,79 @@ export default function RecoverySubjectDetail() {
           </div>
         </TabsContent>
         
-        <TabsContent value="sessions">
-          <div className="rounded-xl border border-slate-200 bg-white p-12 text-center flex flex-col items-center justify-center min-h-[300px]">
-            <CalendarDays className="h-12 w-12 text-slate-300 mb-4" />
-            <h3 className="text-lg font-medium text-slate-900 mb-1">Session Tracker</h3>
-            <p className="text-slate-500 max-w-sm">
-              Detailed tracking of recovery sessions and topic completion will be available in Phase 2.
-            </p>
+        <TabsContent value="sessions" className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
+            {sessionsLoading && !sessions ? (
+              <div className="p-12 text-center flex flex-col items-center justify-center min-h-[300px]">
+                <Loader2 className="h-8 w-8 animate-spin text-brand-600 mb-4" />
+                <p className="text-slate-500">Loading session tracker...</p>
+              </div>
+            ) : sessionsError ? (
+              <div className="p-12 text-center flex flex-col items-center justify-center min-h-[300px]">
+                <ErrorState message={sessionsError} onRetry={() => setSessionRetryTrigger(t => t + 1)} />
+              </div>
+            ) : sessions?.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 bg-slate-50/50 min-h-[300px] flex items-center justify-center">
+                No session data found for this subject.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">
+                    Session Tracker for {selectedSubjectData.subjectTitle}.
+                  </caption>
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">#</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 w-20">Week</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 min-w-[200px]">Topic</th>
+                      <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-32">Regular Att. %</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 w-36">Status</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 w-32">Recovery Date</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 min-w-[160px]">Recovery Instructor</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 w-28">Type</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {sessions?.map((session) => (
+                      <tr key={session.sequenceNo} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-5 py-3.5 text-slate-600 tabular-nums">{session.sequenceNo}</td>
+                        <td className="px-5 py-3.5 text-slate-600 tabular-nums">{session.weekNo ?? "-"}</td>
+                        <td className="px-5 py-3.5 font-medium text-slate-900">{session.topicTitle}</td>
+                        <td className="px-5 py-3.5 text-center">
+                          {session.status === 'not_taught' ? (
+                            <span className="text-slate-500 text-xs font-medium uppercase tracking-wider">Not taught</span>
+                          ) : session.attendancePct !== null ? (
+                            <div className="flex flex-col items-center justify-center">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${pctTextColor(session.attendancePct)} bg-white border border-slate-200 shadow-xs mb-0.5`}>
+                                {session.attendancePct.toFixed(1)}%
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-medium tabular-nums">{session.presentCount}/{session.totalCount}</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <SessionStatusBadge status={session.status} />
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">
+                          {session.recoverySession ? formatRecoveryDate(session.recoverySession.date) : ""}
+                        </td>
+                        <td className="px-5 py-3.5 text-slate-900">
+                          {session.recoverySession?.instructorName ?? ""}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          {session.recoverySession ? (
+                            <InstructorTypeBadge type={session.recoverySession.instructorType} />
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>
