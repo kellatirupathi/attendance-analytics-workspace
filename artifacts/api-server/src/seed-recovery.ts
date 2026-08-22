@@ -42,6 +42,10 @@ function normalize(s: string): string {
 const TITLE_OVERRIDES: Record<string, string> = {
   // curriculum title → BigQuery session title
   "Introduction to Stack": "Introduction of Stack",
+  "Introduction to Statistics & Datasets":
+    "Practice session - Introduction to Statistics & Datasets",
+  "Probability Distributions Implementation":
+    "Probability Distributions Implementation Practice",
 };
 
 async function seedCurriculum() {
@@ -113,9 +117,7 @@ async function seedCurriculum() {
   // so list them rather than swallowing the problem.
   if (unresolved.length) {
     console.log(`  unresolved (not yet taught, or needs manual mapping):`);
-    for (const u of unresolved.slice(0, 10)) console.log(`    ${u}`);
-    if (unresolved.length > 10)
-      console.log(`    …and ${unresolved.length - 10} more`);
+    for (const u of unresolved) console.log(`    ${u}`);
   }
 }
 
