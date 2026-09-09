@@ -191,7 +191,7 @@ export default function Recovery() {
           title="Recovery Dashboard"
           subtitle={
             isQuizTab
-              ? "Students at 80%+ lecture attendance whose C.Q or M.Q is not fully completed at 100%. This tab is for follow-up only — it does not schedule lecture recovery."
+              ? "Students at 80%+ lecture attendance whose classroom or module quizzes are not fully completed at 100%. This tab is for follow-up only — it does not schedule lecture recovery."
               : "Campus subject recovery based on subject-level attendance below 80%"
           }
         />
@@ -244,7 +244,7 @@ export default function Recovery() {
           <div className="flex items-center justify-center gap-2 py-12">
             <Loader2 className="h-5 w-5 animate-spin text-brand-600" />
             <span className="text-slate-600 font-medium">
-              {isQuizTab ? "Loading C.Q + M.Q recovery data..." : "Loading subject recovery data..."}
+              {isQuizTab ? "Loading quiz recovery data..." : "Loading subject recovery data..."}
             </span>
           </div>
         )}
@@ -298,7 +298,7 @@ export default function Recovery() {
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-12 text-center">
                 <p className="text-emerald-700 font-medium text-lg">
                   {isQuizTab
-                    ? `Great! No students with 80%+ attendance are below 100% on C.Q or M.Q in ${recoveryData.campus}.`
+                    ? `Great! No students with 80%+ attendance are below 100% on classroom or module quizzes in ${recoveryData.campus}.`
                     : `Great! No subject is below 80% attendance in ${recoveryData.campus}.`}
                 </p>
               </div>
@@ -349,7 +349,7 @@ export default function Recovery() {
 
             {recoveryData.subjects.length > 0 && isQuizTab && quizData && (
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-slate-900">Subjects with C.Q or M.Q below 100%</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Subjects with quizzes below 100%</h3>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {quizData.subjects.map((subject) => (
                     <button

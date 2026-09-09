@@ -84,6 +84,6 @@ export function recoveryListPath(
 export function recoveryNav(campus?: string, semester?: string): SubNavItem[] {
   return [
     { label: "Attendance", href: recoveryListPath("attendance", campus, semester) },
-    { label: "C.Q + M.Q", href: recoveryListPath("quiz", campus, semester) },
+    { label: "Quizzes", href: recoveryListPath("quiz", campus, semester) },
   ];
 }

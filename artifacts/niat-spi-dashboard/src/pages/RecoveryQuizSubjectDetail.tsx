@@ -199,10 +199,10 @@ export default function RecoveryQuizSubjectDetail() {
           className="mb-4 -ml-3 text-slate-500 hover:text-slate-900 hover:bg-slate-100"
         >
           <ChevronLeft className="h-4 w-4 mr-1" />
-          Back to C.Q + M.Q
+          Back to Quizzes
         </Button>
         <PageHeader
-          title={subject ?? "C.Q + M.Q"}
+          title={subject ?? "Quizzes"}
           subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""} · Lecture attendance ≥ 80%`}
           right={
             <Button onClick={handleExport} variant="outline" size="sm">
@@ -214,8 +214,8 @@ export default function RecoveryQuizSubjectDetail() {
       </div>
 
       <p className="text-sm text-slate-600">
-        These students already meet the 80% lecture bar. Follow up on C.Q / M.Q —
-        lecture recovery is not scheduled from this list.
+        These students already meet the 80% lecture bar. Follow up on classroom
+        and module quizzes — lecture recovery is not scheduled from this list.
       </p>
 
       <div className="relative">
@@ -237,14 +237,14 @@ export default function RecoveryQuizSubjectDetail() {
         {filteredStudents.length === 0 ? (
           <div className="p-12 text-center text-slate-500 bg-slate-50/50">
             {students.length === 0
-              ? "No students in this subject need C.Q or M.Q follow-up."
+              ? "No students in this subject need quiz follow-up."
               : "No students match your search."}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <caption className="sr-only">
-                Students in {subject} with 80%+ attendance who are not at 100% on C.Q or M.Q.
+                Students in {subject} with 80%+ attendance who are not at 100% on classroom or module quizzes.
               </caption>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
