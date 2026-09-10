@@ -25,6 +25,7 @@ const SubjectAttendanceStudents = lazy(
   () => import("@/pages/SubjectAttendanceStudents"),
 );
 const CampusWiseStats = lazy(() => import("@/pages/CampusWiseStats"));
+const Assessments = lazy(() => import("@/pages/Assessments"));
 const SubjectSessions = lazy(() => import("@/pages/SubjectSessions"));
 const Recovery = lazy(() => import("@/pages/Recovery"));
 const RecoverySubjectDetail = lazy(
@@ -105,6 +106,16 @@ function Router() {
         <Route path="/dashboard/attendance-stats">
           <Protected>
             <StudentAttendanceStats />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/assessments/students">
+          <Protected>
+            <Assessments />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/assessments">
+          <Protected>
+            <Assessments />
           </Protected>
         </Route>
         <Route path="/dashboard/campuses">

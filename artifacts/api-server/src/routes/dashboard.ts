@@ -14,6 +14,8 @@ import {
   getRecoveryProgress,
   getResolvedRecoverySessionTitles,
   getSessionTracker,
+  getAssessmentCampusSummary,
+  getAssessmentStudents,
   parseDateRange,
   dateRangeCacheKey,
 } from "../lib/queries.js";
@@ -634,6 +636,75 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching recovery session tracker");
       res.status(500).json({ error: "Failed to fetch recovery session tracker" });
+    }
+  },
+);
+
+router.get(
+  "/assessment-campuses",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const cacheKey = `assessment-campuses:${session.role}:${JSON.stringify(scope)}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const campuses = await getAssessmentCampusSummary(scope);
+      cacheSet(cacheKey, campuses, 60 * 1000);
+      res.json(campuses);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment campus stats");
+      res.status(500).json({ error: "Failed to fetch assessment campus stats" });
+    }
+  },
+);
+
+router.get(
+  "/assessment-students",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const campus = q["campus"] || undefined;
+    const search = q["search"] || undefined;
+    const rawLimit = Number(q["limit"] ?? 2000);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(rawLimit, 1), 5000)
+      : 2000;
+    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${search ?? ""}:${limit}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const students = await getAssessmentStudents(scope, {
+        campus,
+        search,
+        limit,
+      });
+      const payload = students.map((s) => ({
+        ...s,
+        spiPath: spiSharePath(s.studentId),
+      }));
+      cacheSet(cacheKey, payload, 60 * 1000);
+      res.json(payload);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment students");
+      res.status(500).json({ error: "Failed to fetch assessment students" });
     }
   },
 );

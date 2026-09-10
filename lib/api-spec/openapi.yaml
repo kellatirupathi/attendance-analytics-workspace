@@ -464,6 +464,49 @@ paths:
                 items:
                   $ref: "#/components/schemas/DashboardStudent"
 
+  /dashboard/assessment-campuses:
+    get:
+      operationId: getAssessmentCampuses
+      tags: [dashboard]
+      summary: Campus-wise classroom and module quiz counts
+      responses:
+        "200":
+          description: Assessment counts rolled up by campus
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssessmentCampus"
+
+  /dashboard/assessment-students:
+    get:
+      operationId: getAssessmentStudents
+      tags: [dashboard]
+      summary: Student-wise classroom and module quiz counts
+      parameters:
+        - name: campus
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Per-student assessment counts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssessmentStudent"
+
   /admin/users:
     get:
       operationId: listUsers
@@ -1242,6 +1285,62 @@ components:
           type: ["number", "null"]
         spiPath:
           type: string
+
+    AssessmentCounts:
+      type: object
+      required:
+        - classroomCompleted
+        - classroomTotal
+        - moduleCompleted
+        - moduleTotal
+        - totalCompleted
+        - totalAssigned
+        - completionPct
+      properties:
+        classroomCompleted:
+          type: integer
+        classroomTotal:
+          type: integer
+        moduleCompleted:
+          type: integer
+        moduleTotal:
+          type: integer
+        totalCompleted:
+          type: integer
+          description: Classroom + module completed (Skill and Final are not in BigQuery yet)
+        totalAssigned:
+          type: integer
+          description: Classroom + module assigned
+        completionPct:
+          type: number
+
+    AssessmentCampus:
+      allOf:
+        - $ref: "#/components/schemas/AssessmentCounts"
+        - type: object
+          required: [instituteName, studentCount]
+          properties:
+            instituteName:
+              type: string
+            studentCount:
+              type: integer
+
+    AssessmentStudent:
+      allOf:
+        - $ref: "#/components/schemas/AssessmentCounts"
+        - type: object
+          required: [studentId, studentName, instituteName, sectionName, spiPath]
+          properties:
+            studentId:
+              type: string
+            studentName:
+              type: string
+            instituteName:
+              type: string
+            sectionName:
+              type: ["string", "null"]
+            spiPath:
+              type: string
 
     User:
       type: object

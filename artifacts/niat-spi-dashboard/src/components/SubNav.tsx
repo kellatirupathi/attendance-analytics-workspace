@@ -68,6 +68,18 @@ export function attendanceStatsNav(
   ];
 }
 
+export function assessmentsNav(studentsHref: string): SubNavItem[] {
+  return [
+    { label: "Campus-wise", href: "/dashboard/assessments" },
+    { label: "Students", href: studentsHref },
+  ];
+}
+
+export function assessmentStudentsPath(campus?: string): string {
+  if (!campus || campus === "all") return "/dashboard/assessments/students";
+  return `/dashboard/assessments/students?campus=${encodeURIComponent(campus)}`;
+}
+
 export function recoveryListPath(
   tab: "attendance" | "quiz",
   campus?: string,
