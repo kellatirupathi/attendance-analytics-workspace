@@ -1200,6 +1200,16 @@ function quizMatchesSubjectSql(subjectExpr: string, quizAlias = ""): string {
   )`;
 }
 
+/** Prefer semester_course_title, then course_title — CQ and MQ store the subject in different columns. */
+function quizSubjectTitleSql(quizAlias = ""): string {
+  const col = quizAlias ? `${quizAlias}.` : "";
+  return `COALESCE(
+    NULLIF(TRIM(CAST(${col}semester_course_title AS STRING)), ''),
+    NULLIF(TRIM(CAST(${col}course_title AS STRING)), ''),
+    'Unknown'
+  )`;
+}
+
 const QUIZ_PIVOT_SELECT = `SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', 0,
           IFNULL(SAFE_CAST({a}total_quizzes AS INT64), 0))) AS cq_total,
         SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', 0,
@@ -1252,6 +1262,11 @@ export interface AssessmentCountRow {
 
 export interface AssessmentCampusItem extends AssessmentCountRow {
   instituteName: string;
+  studentCount: number;
+}
+
+export interface AssessmentSubjectItem extends AssessmentCountRow {
+  subjectTitle: string;
   studentCount: number;
 }
 
@@ -1318,17 +1333,60 @@ export async function getAssessmentCampusSummary(
   }));
 }
 
+/** Subject rollup of classroom + module quiz counts at one campus. */
+export async function getAssessmentSubjects(
+  scope: SessionScope,
+  opts: { campus: string },
+): Promise<AssessmentSubjectItem[]> {
+  const params: Record<string, unknown> = { filterCampus: opts.campus };
+  const where = quizScopeClause(scope, params);
+  const subjectTitle = quizSubjectTitleSql();
+  const rows = await bqQuery<{
+    subject_title: string;
+    student_count: string;
+    cq_completed: string;
+    cq_total: string;
+    mq_completed: string;
+    mq_total: string;
+  }>(
+    `SELECT
+      ${subjectTitle} AS subject_title,
+      COUNT(DISTINCT user_id) AS student_count,
+      ${quizPivotSelect()}
+    FROM ${QUIZ_TABLE}
+    WHERE ${where}
+      AND institute_name = @filterCampus
+    GROUP BY subject_title
+    ORDER BY subject_title`,
+    params,
+  );
+  return rows.map((r) => ({
+    subjectTitle: r.subject_title,
+    studentCount: Number(r.student_count),
+    ...mapAssessmentCounts(r),
+  }));
+}
+
 /** Per-student classroom + module quiz counts. Names come from attendance. */
 export async function getAssessmentStudents(
   scope: SessionScope,
-  opts: { campus?: string; search?: string; limit?: number } = {},
+  opts: {
+    campus?: string;
+    subject?: string;
+    search?: string;
+    limit?: number;
+  } = {},
 ): Promise<AssessmentStudentItem[]> {
   const params: Record<string, unknown> = {};
   const where = quizScopeClause(scope, params);
-  let campusFilter = "";
+  let extra = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
-    campusFilter = " AND institute_name = @filterCampus";
+    extra += " AND institute_name = @filterCampus";
+  }
+  if (opts.subject) {
+    params["subject"] = opts.subject;
+    extra += ` AND ${quizMatchesSubjectSql("@subject")}`;
   }
   let searchFilter = "";
   if (opts.search) {
@@ -1353,7 +1411,7 @@ export async function getAssessmentStudents(
         ANY_VALUE(institute_name) AS institute_name,
         ${quizPivotSelect()}
       FROM ${QUIZ_TABLE}
-      WHERE ${where}${campusFilter}
+      WHERE ${where}${extra}
       GROUP BY user_id
     ),
     names AS (
@@ -1362,12 +1420,13 @@ export async function getAssessmentStudents(
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS section_name
       FROM ${ATTENDANCE_TABLE}
-      WHERE is_current_semester = 1
+      WHERE student_name IS NOT NULL
+        AND TRIM(student_name) != ''
       GROUP BY 1
     )
     SELECT
       CAST(quiz.user_id AS STRING) AS student_user_id,
-      COALESCE(names.student_name, CAST(quiz.user_id AS STRING)) AS student_name,
+      COALESCE(names.student_name, '') AS student_name,
       quiz.institute_name,
       names.section_name,
       quiz.cq_completed,
@@ -1390,7 +1449,7 @@ export async function getAssessmentStudents(
   );
   return rows.map((r) => ({
     studentId: r.student_user_id,
-    studentName: r.student_name,
+    studentName: r.student_name || "Unknown student",
     instituteName: r.institute_name ?? "",
     sectionName: r.section_name ?? null,
     ...mapAssessmentCounts(r),

@@ -68,16 +68,16 @@ export function attendanceStatsNav(
   ];
 }
 
-export function assessmentsNav(studentsHref: string): SubNavItem[] {
-  return [
-    { label: "Campus-wise", href: "/dashboard/assessments" },
-    { label: "Students", href: studentsHref },
-  ];
+export function assessmentSubjectsPath(campus: string): string {
+  return `/dashboard/assessments/subjects?campus=${encodeURIComponent(campus)}`;
 }
 
-export function assessmentStudentsPath(campus?: string): string {
-  if (!campus || campus === "all") return "/dashboard/assessments/students";
-  return `/dashboard/assessments/students?campus=${encodeURIComponent(campus)}`;
+export function assessmentStudentsPath(
+  campus: string,
+  subject: string,
+): string {
+  const params = new URLSearchParams({ campus, subject });
+  return `/dashboard/assessments/students?${params.toString()}`;
 }
 
 export function recoveryListPath(

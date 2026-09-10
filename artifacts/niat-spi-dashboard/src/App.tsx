@@ -113,6 +113,11 @@ function Router() {
             <Assessments />
           </Protected>
         </Route>
+        <Route path="/dashboard/assessments/subjects">
+          <Protected>
+            <Assessments />
+          </Protected>
+        </Route>
         <Route path="/dashboard/assessments">
           <Protected>
             <Assessments />
