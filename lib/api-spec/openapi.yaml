@@ -479,6 +479,27 @@ paths:
                 items:
                   $ref: "#/components/schemas/AssessmentCampus"
 
+  /dashboard/assessment-subjects:
+    get:
+      operationId: getAssessmentSubjects
+      tags: [dashboard]
+      summary: Subject-wise classroom and module quiz counts for one campus
+      parameters:
+        - name: campus
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Assessment counts rolled up by subject
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssessmentSubject"
+
   /dashboard/assessment-students:
     get:
       operationId: getAssessmentStudents
@@ -486,6 +507,10 @@ paths:
       summary: Student-wise classroom and module quiz counts
       parameters:
         - name: campus
+          in: query
+          schema:
+            type: string
+        - name: subject
           in: query
           schema:
             type: string
@@ -1321,6 +1346,17 @@ components:
           required: [instituteName, studentCount]
           properties:
             instituteName:
+              type: string
+            studentCount:
+              type: integer
+
+    AssessmentSubject:
+      allOf:
+        - $ref: "#/components/schemas/AssessmentCounts"
+        - type: object
+          required: [subjectTitle, studentCount]
+          properties:
+            subjectTitle:
               type: string
             studentCount:
               type: integer

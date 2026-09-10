@@ -15,6 +15,7 @@ import {
   getResolvedRecoverySessionTitles,
   getSessionTracker,
   getAssessmentCampusSummary,
+  getAssessmentSubjects,
   getAssessmentStudents,
   parseDateRange,
   dateRangeCacheKey,
@@ -668,6 +669,38 @@ router.get(
 );
 
 router.get(
+  "/assessment-subjects",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const campus = (req.query as Record<string, string | undefined>)["campus"];
+    if (!campus) {
+      res.status(400).json({ error: "campus required" });
+      return;
+    }
+    const cacheKey = `assessment-subjects:${session.role}:${JSON.stringify(scope)}:${campus}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const subjects = await getAssessmentSubjects(scope, { campus });
+      cacheSet(cacheKey, subjects, 60 * 1000);
+      res.json(subjects);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment subjects");
+      res.status(500).json({ error: "Failed to fetch assessment subjects" });
+    }
+  },
+);
+
+router.get(
   "/assessment-students",
   requireSession(),
   async (req, res): Promise<void> => {
@@ -679,12 +712,13 @@ router.get(
     });
     const q = req.query as Record<string, string | undefined>;
     const campus = q["campus"] || undefined;
+    const subject = q["subject"] || undefined;
     const search = q["search"] || undefined;
     const rawLimit = Number(q["limit"] ?? 2000);
     const limit = Number.isFinite(rawLimit)
       ? Math.min(Math.max(rawLimit, 1), 5000)
       : 2000;
-    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${search ?? ""}:${limit}`;
+    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${subject ?? ""}:${search ?? ""}:${limit}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -693,6 +727,7 @@ router.get(
     try {
       const students = await getAssessmentStudents(scope, {
         campus,
+        subject,
         search,
         limit,
       });
