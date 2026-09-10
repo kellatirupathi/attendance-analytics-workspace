@@ -68,6 +68,18 @@ export function attendanceStatsNav(
   ];
 }
 
+export function assessmentsNav(studentsHref: string): SubNavItem[] {
+  return [
+    { label: "Campus-wise", href: "/dashboard/assessments" },
+    { label: "Students", href: studentsHref },
+  ];
+}
+
+export function assessmentStudentsPath(campus?: string): string {
+  if (!campus || campus === "all") return "/dashboard/assessments/students";
+  return `/dashboard/assessments/students?campus=${encodeURIComponent(campus)}`;
+}
+
 export function recoveryListPath(
   tab: "attendance" | "quiz",
   campus?: string,
@@ -84,6 +96,6 @@ export function recoveryListPath(
 export function recoveryNav(campus?: string, semester?: string): SubNavItem[] {
   return [
     { label: "Attendance", href: recoveryListPath("attendance", campus, semester) },
-    { label: "C.Q + M.Q", href: recoveryListPath("quiz", campus, semester) },
+    { label: "Quizzes", href: recoveryListPath("quiz", campus, semester) },
   ];
 }

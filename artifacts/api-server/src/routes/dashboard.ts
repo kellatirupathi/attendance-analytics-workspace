@@ -11,8 +11,11 @@ import {
   getSessionStudents,
   getCampusSessions,
   getSubjectProdSequence,
-  getProdSequenceSessionTracker,
   getRecoveryProgress,
+  getResolvedRecoverySessionTitles,
+  getSessionTracker,
+  getAssessmentCampusSummary,
+  getAssessmentStudents,
   parseDateRange,
   dateRangeCacheKey,
 } from "../lib/queries.js";
@@ -415,10 +418,14 @@ router.get(
       return;
     }
 
-    const semester = q["semester"] || undefined;
-    const recoverySubject = BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
+    const curriculumSubject =
+      BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
+    if (!curriculumSubject) {
+      res.status(404).json({ error: "Recovery curriculum not configured for this subject" });
+      return;
+    }
 
-    const cacheKey = `recovery-progress:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${semester ?? ""}`;
+    const cacheKey = `recovery-progress:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -426,19 +433,19 @@ router.get(
     }
 
     try {
-      const [sessions, prodSequence] = await Promise.all([
+      const [sessions, trackedSessionTitles] = await Promise.all([
         getSubjectSessions(scope, {
           subject: bigQuerySubject,
           campus,
-          semester,
         }),
-        getSubjectProdSequence(campus, bigQuerySubject, semester),
+        getResolvedRecoverySessionTitles(campus, curriculumSubject),
       ]);
       const attendanceByTitle = new Map<
         string,
         { presentCount: number; totalCount: number }
       >();
       for (const subjectSession of sessions) {
+        if (!trackedSessionTitles.has(subjectSession.sessionTitle)) continue;
         const current = attendanceByTitle.get(subjectSession.sessionTitle) ?? {
           presentCount: 0,
           totalCount: 0,
@@ -455,41 +462,11 @@ router.get(
 
       const progress = await getRecoveryProgress(
         campus,
-        recoverySubject ?? bigQuerySubject,
+        curriculumSubject,
         topicsBelowThreshold,
       );
-      const completedSequence = prodSequence.filter((item) => item.completed);
-      const latestCompletion = completedSequence
-        .filter((item) => item.completedAt)
-        .sort((left, right) =>
-          String(right.completedAt).localeCompare(String(left.completedAt)),
-        )[0];
-      const topicsRecovered = Math.min(
-        progress.topicsRecovered,
-        topicsBelowThreshold,
-      );
-      const response = {
-        ...progress,
-        subject: bigQuerySubject,
-        totalTopics: prodSequence.length,
-        topicsRecovered,
-        topicsRemaining: Math.max(topicsBelowThreshold - topicsRecovered, 0),
-        recoveryCompletionPct:
-          topicsBelowThreshold > 0
-            ? Math.round((topicsRecovered / topicsBelowThreshold) * 1000) / 10
-            : 0,
-        sessionsHeld: completedSequence.length,
-        lastSession: latestCompletion
-          ? {
-              date: latestCompletion.completedAt!,
-              topics: completedSequence
-                .filter((item) => item.completedAt === latestCompletion.completedAt)
-                .map((item) => item.topicTitle),
-            }
-          : progress.lastSession,
-      };
-      cacheSet(cacheKey, response, 60 * 1000);
-      res.json(response);
+      cacheSet(cacheKey, progress, 60 * 1000);
+      res.json(progress);
     } catch (err) {
       req.log.error({ err }, "Error fetching recovery progress");
       res.status(500).json({ error: "Failed to fetch recovery progress" });
@@ -608,10 +585,16 @@ router.get(
       return;
     }
 
-    const semester = q["semester"] || undefined;
-    const recoverySubject = BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
+    const curriculumSubject =
+      BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
+    if (!curriculumSubject) {
+      res
+        .status(404)
+        .json({ error: "Recovery curriculum not configured for this subject" });
+      return;
+    }
 
-    const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}:${semester ?? ""}`;
+    const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -619,17 +602,20 @@ router.get(
     }
 
     try {
-      const sessions = await getSubjectSessions(scope, {
-        subject: bigQuerySubject,
-        campus,
-        section,
-        semester,
-      });
+      const [sessions, trackedSessionTitles] = await Promise.all([
+        getSubjectSessions(scope, {
+          subject: bigQuerySubject,
+          campus,
+          section,
+        }),
+        getResolvedRecoverySessionTitles(campus, curriculumSubject),
+      ]);
       const attendanceByTitle = new Map<
         string,
         { presentCount: number; totalCount: number }
       >();
       for (const subjectSession of sessions) {
+        if (!trackedSessionTitles.has(subjectSession.sessionTitle)) continue;
         const current = attendanceByTitle.get(subjectSession.sessionTitle) ?? {
           presentCount: 0,
           totalCount: 0,
@@ -639,19 +625,86 @@ router.get(
         attendanceByTitle.set(subjectSession.sessionTitle, current);
       }
 
-      const tracker = await getProdSequenceSessionTracker(
+      const tracker = await getSessionTracker(
         campus,
-        bigQuerySubject,
+        curriculumSubject,
         attendanceByTitle,
         section,
-        semester,
-        recoverySubject,
       );
       cacheSet(cacheKey, tracker, 60 * 1000);
       res.json(tracker);
     } catch (err) {
       req.log.error({ err }, "Error fetching recovery session tracker");
       res.status(500).json({ error: "Failed to fetch recovery session tracker" });
+    }
+  },
+);
+
+router.get(
+  "/assessment-campuses",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const cacheKey = `assessment-campuses:${session.role}:${JSON.stringify(scope)}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const campuses = await getAssessmentCampusSummary(scope);
+      cacheSet(cacheKey, campuses, 60 * 1000);
+      res.json(campuses);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment campus stats");
+      res.status(500).json({ error: "Failed to fetch assessment campus stats" });
+    }
+  },
+);
+
+router.get(
+  "/assessment-students",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const campus = q["campus"] || undefined;
+    const search = q["search"] || undefined;
+    const rawLimit = Number(q["limit"] ?? 2000);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(rawLimit, 1), 5000)
+      : 2000;
+    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${search ?? ""}:${limit}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const students = await getAssessmentStudents(scope, {
+        campus,
+        search,
+        limit,
+      });
+      const payload = students.map((s) => ({
+        ...s,
+        spiPath: spiSharePath(s.studentId),
+      }));
+      cacheSet(cacheKey, payload, 60 * 1000);
+      res.json(payload);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment students");
+      res.status(500).json({ error: "Failed to fetch assessment students" });
     }
   },
 );
