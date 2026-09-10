@@ -1183,9 +1183,9 @@ const LECTURE_SESSION_EXCLUSIONS = `COALESCE(session_title, '') NOT IN (
           'Module Quiz'
         )`;
 
-/** C.Q / M.Q fail the 100% bar if unfinished or average best score is under 100. */
+/** C.Q / M.Q fail the 100% bar if unfinished or a known average is under 100. Null avg is not treated as 0. */
 function quizFails100Sql(completed: string, total: string, avg: string): string {
-  return `(${total} > 0 AND (${completed} < ${total} OR IFNULL(${avg}, 0) < 100))`;
+  return `(${total} > 0 AND (${completed} < ${total} OR (${avg} IS NOT NULL AND ${avg} < 100)))`;
 }
 
 /**
@@ -1215,13 +1215,13 @@ const QUIZ_PIVOT_SELECT = `SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', 0
         SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', 0,
           IFNULL(SAFE_CAST({a}total_completed_quizzes AS INT64), 0))) AS cq_completed,
         AVG(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST({a}avg_best_attempt_percentage_score AS FLOAT64), 0))) AS cq_avg,
+          SAFE_CAST({a}avg_best_attempt_percentage_score AS FLOAT64))) AS cq_avg,
         SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%',
           IFNULL(SAFE_CAST({a}total_quizzes AS INT64), 0), 0)) AS mq_total,
         SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%',
           IFNULL(SAFE_CAST({a}total_completed_quizzes AS INT64), 0), 0)) AS mq_completed,
         AVG(IF(UPPER({a}derived_unit_type) NOT LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST({a}avg_best_attempt_percentage_score AS FLOAT64), 0))) AS mq_avg`;
+          SAFE_CAST({a}avg_best_attempt_percentage_score AS FLOAT64))) AS mq_avg`;
 
 function quizPivotSelect(quizAlias = ""): string {
   const prefix = quizAlias ? `${quizAlias}.` : "";
@@ -1235,15 +1235,17 @@ function quizPivotSelect(quizAlias = ""): string {
 function quizScopeClause(
   scope: SessionScope,
   params: Record<string, unknown>,
+  quizAlias = "",
 ): string {
+  const col = quizAlias ? `${quizAlias}.` : "";
   const clauses: string[] = [];
   if (scope.campuses && scope.campuses.length > 0) {
-    clauses.push("institute_name IN UNNEST(@campuses)");
+    clauses.push(`${col}institute_name IN UNNEST(@campuses)`);
     params["campuses"] = scope.campuses;
   }
   if (scope.subjects && scope.subjects.length > 0) {
     clauses.push(
-      "(semester_course_title IN UNNEST(@subjects) OR course_title IN UNNEST(@subjects))",
+      `(${col}semester_course_title IN UNNEST(@subjects) OR ${col}course_title IN UNNEST(@subjects))`,
     );
     params["subjects"] = scope.subjects;
   }
@@ -1300,12 +1302,17 @@ function mapAssessmentCounts(row: {
   };
 }
 
-/** Campus rollup of classroom + module quiz counts from the quiz table. */
+/**
+ * Campus rollup of classroom + module quiz counts.
+ * Campus list matches attendance (current semester), so campuses without
+ * quiz rows still appear with zero counts — same 34 as the dashboard.
+ */
 export async function getAssessmentCampusSummary(
   scope: SessionScope,
 ): Promise<AssessmentCampusItem[]> {
   const params: Record<string, unknown> = {};
-  const where = quizScopeClause(scope, params);
+  const attWhere = scopeClause(scope, params);
+  const quizWhere = quizScopeClause(scope, params);
   const rows = await bqQuery<{
     institute_name: string;
     student_count: string;
@@ -1314,16 +1321,34 @@ export async function getAssessmentCampusSummary(
     mq_completed: string;
     mq_total: string;
   }>(
-    `SELECT
-      institute_name,
-      COUNT(DISTINCT user_id) AS student_count,
-      ${quizPivotSelect()}
-    FROM ${QUIZ_TABLE}
-    WHERE ${where}
-      AND institute_name IS NOT NULL
-      AND TRIM(institute_name) != ''
-    GROUP BY institute_name
-    ORDER BY institute_name`,
+    `WITH campuses AS (
+      SELECT DISTINCT institute_name
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${attWhere}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+    ),
+    quiz AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT user_id) AS student_count,
+        ${quizPivotSelect()}
+      FROM ${QUIZ_TABLE}
+      WHERE ${quizWhere}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+      GROUP BY institute_name
+    )
+    SELECT
+      campuses.institute_name,
+      IFNULL(quiz.student_count, 0) AS student_count,
+      IFNULL(quiz.cq_completed, 0) AS cq_completed,
+      IFNULL(quiz.cq_total, 0) AS cq_total,
+      IFNULL(quiz.mq_completed, 0) AS mq_completed,
+      IFNULL(quiz.mq_total, 0) AS mq_total
+    FROM campuses
+    LEFT JOIN quiz ON quiz.institute_name = campuses.institute_name
+    ORDER BY campuses.institute_name`,
     params,
   );
   return rows.map((r) => ({
@@ -1520,8 +1545,9 @@ function mapQuizRecoveryStudent(row: {
 }
 
 /**
- * Students with lecture attendance ≥ 80% whose C.Q or M.Q is not fully
- * completed at 100% average. Skill assessment is not in BigQuery yet.
+ * Students whose C.Q or M.Q is not fully completed at 100%. Attendance is
+ * joined only for name/section and display % — it does not gate the list.
+ * Skill assessment is not in BigQuery yet.
  */
 export async function getCampusQuizRecovery(
   campus: string,
@@ -1529,7 +1555,8 @@ export async function getCampusQuizRecovery(
   semester?: string,
 ): Promise<QuizRecoveryCampusData> {
   const params: Record<string, unknown> = { campus };
-  const where = scopeClause(scope, params, { semester });
+  const attWhere = scopeClause(scope, params, { semester });
+  const quizWhere = quizScopeClause(scope, params, "q");
   const rows = await bqQuery<{
     subject_title: string;
     student_user_id: string;
@@ -1545,7 +1572,19 @@ export async function getCampusQuizRecovery(
     mq_completed: string;
     mq_total: string;
   }>(
-    `WITH att AS (
+    `WITH quiz AS (
+      SELECT
+        ${quizSubjectTitleSql("q")} AS subject_title,
+        q.user_id,
+        ${quizPivotSelect("q")}
+      FROM ${QUIZ_TABLE} q
+      WHERE (q.institute_name = @campus OR q.institute_name IS NULL)
+        AND ${quizWhere}
+      GROUP BY 1, q.user_id
+      HAVING ${quizFails100Sql("cq_completed", "cq_total", "cq_avg")}
+          OR ${quizFails100Sql("mq_completed", "mq_total", "mq_avg")}
+    ),
+    att AS (
       SELECT
         subject_title,
         student_user_id,
@@ -1555,47 +1594,44 @@ export async function getCampusQuizRecovery(
         COUNT(*) AS total_count,
         SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
-      WHERE ${where}
+      WHERE ${attWhere}
         AND institute_name = @campus
         AND ${LECTURE_SESSION_EXCLUSIONS}
       GROUP BY subject_title, student_user_id
-      HAVING CAST(subject_pct AS FLOAT64) >= 80
     ),
-    quiz AS (
+    names AS (
       SELECT
-        att.subject_title,
-        q.user_id,
-        ${quizPivotSelect("q")}
-      FROM ${QUIZ_TABLE} q
-      INNER JOIN att
-        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
-         = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
-       AND ${quizMatchesSubjectSql("CAST(att.subject_title AS STRING)", "q")}
-      WHERE (q.institute_name = @campus OR q.institute_name IS NULL)
-      GROUP BY att.subject_title, q.user_id
+        student_user_id,
+        MAX(student_name) AS student_name,
+        MAX(batch_section_name) AS batch_section_name
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${attWhere}
+        AND institute_name = @campus
+      GROUP BY student_user_id
     )
     SELECT
-      att.subject_title,
-      att.student_user_id,
-      att.student_name,
-      att.batch_section_name,
-      att.present_count,
-      att.total_count,
-      att.subject_pct,
+      quiz.subject_title,
+      CAST(quiz.user_id AS STRING) AS student_user_id,
+      COALESCE(att.student_name, names.student_name, 'Unknown student') AS student_name,
+      COALESCE(att.batch_section_name, names.batch_section_name) AS batch_section_name,
+      IFNULL(att.present_count, 0) AS present_count,
+      IFNULL(att.total_count, 0) AS total_count,
+      IFNULL(att.subject_pct, 0) AS subject_pct,
       quiz.cq_avg,
       quiz.cq_completed,
       quiz.cq_total,
       quiz.mq_avg,
       quiz.mq_completed,
       quiz.mq_total
-    FROM att
-    INNER JOIN quiz
+    FROM quiz
+    LEFT JOIN att
       ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
        = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
-     AND quiz.subject_title = att.subject_title
-    WHERE ${quizFails100Sql("quiz.cq_completed", "quiz.cq_total", "quiz.cq_avg")}
-       OR ${quizFails100Sql("quiz.mq_completed", "quiz.mq_total", "quiz.mq_avg")}
-    ORDER BY att.subject_title, att.student_name`,
+     AND LOWER(TRIM(att.subject_title)) = LOWER(TRIM(quiz.subject_title))
+    LEFT JOIN names
+      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
+       = LOWER(REPLACE(CAST(names.student_user_id AS STRING), '-', ''))
+    ORDER BY quiz.subject_title, student_name`,
     params,
   );
 
@@ -1632,7 +1668,8 @@ export async function getQuizRecoveryStudents(
   scope: SessionScope,
 ): Promise<QuizRecoveryStudent[]> {
   const params: Record<string, unknown> = { campus, subject };
-  const where = scopeClause(scope, params, { semester });
+  const attWhere = scopeClause(scope, params, { semester });
+  const quizWhere = quizScopeClause(scope, params);
   const rows = await bqQuery<{
     student_user_id: string;
     student_name: string;
@@ -1647,7 +1684,19 @@ export async function getQuizRecoveryStudents(
     mq_completed: string;
     mq_total: string;
   }>(
-    `WITH att AS (
+    `WITH quiz AS (
+      SELECT
+        user_id,
+        ${quizPivotSelect()}
+      FROM ${QUIZ_TABLE}
+      WHERE (institute_name = @campus OR institute_name IS NULL)
+        AND ${quizMatchesSubjectSql("@subject")}
+        AND ${quizWhere}
+      GROUP BY user_id
+      HAVING ${quizFails100Sql("cq_completed", "cq_total", "cq_avg")}
+          OR ${quizFails100Sql("mq_completed", "mq_total", "mq_avg")}
+    ),
+    att AS (
       SELECT
         student_user_id,
         MAX(student_name) AS student_name,
@@ -1656,42 +1705,43 @@ export async function getQuizRecoveryStudents(
         COUNT(*) AS total_count,
         SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
-      WHERE ${where}
+      WHERE ${attWhere}
         AND institute_name = @campus
         AND subject_title = @subject
         AND ${LECTURE_SESSION_EXCLUSIONS}
       GROUP BY student_user_id
-      HAVING CAST(subject_pct AS FLOAT64) >= 80
     ),
-    quiz AS (
+    names AS (
       SELECT
-        user_id,
-        ${quizPivotSelect()}
-      FROM ${QUIZ_TABLE}
-      WHERE (institute_name = @campus OR institute_name IS NULL)
-        AND ${quizMatchesSubjectSql("@subject")}
-      GROUP BY user_id
+        student_user_id,
+        MAX(student_name) AS student_name,
+        MAX(batch_section_name) AS batch_section_name
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${attWhere}
+        AND institute_name = @campus
+      GROUP BY student_user_id
     )
     SELECT
-      att.student_user_id,
-      att.student_name,
-      att.batch_section_name,
-      att.present_count,
-      att.total_count,
-      att.subject_pct,
+      CAST(quiz.user_id AS STRING) AS student_user_id,
+      COALESCE(att.student_name, names.student_name, 'Unknown student') AS student_name,
+      COALESCE(att.batch_section_name, names.batch_section_name) AS batch_section_name,
+      IFNULL(att.present_count, 0) AS present_count,
+      IFNULL(att.total_count, 0) AS total_count,
+      IFNULL(att.subject_pct, 0) AS subject_pct,
       quiz.cq_avg,
       quiz.cq_completed,
       quiz.cq_total,
       quiz.mq_avg,
       quiz.mq_completed,
       quiz.mq_total
-    FROM att
-    INNER JOIN quiz
+    FROM quiz
+    LEFT JOIN att
       ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
        = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
-    WHERE ${quizFails100Sql("quiz.cq_completed", "quiz.cq_total", "quiz.cq_avg")}
-       OR ${quizFails100Sql("quiz.mq_completed", "quiz.mq_total", "quiz.mq_avg")}
-    ORDER BY att.student_name`,
+    LEFT JOIN names
+      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
+       = LOWER(REPLACE(CAST(names.student_user_id AS STRING), '-', ''))
+    ORDER BY student_name`,
     params,
   );
 

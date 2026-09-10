@@ -191,7 +191,7 @@ export default function Recovery() {
           title="Recovery Dashboard"
           subtitle={
             isQuizTab
-              ? "Students at 80%+ lecture attendance whose classroom or module quizzes are not fully completed at 100%. This tab is for follow-up only — it does not schedule lecture recovery."
+              ? "Students whose classroom or module quizzes are not fully completed at 100%. This tab is for follow-up only — it does not schedule lecture recovery."
               : "Campus subject recovery based on subject-level attendance below 80%"
           }
         />
@@ -298,7 +298,7 @@ export default function Recovery() {
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-12 text-center">
                 <p className="text-emerald-700 font-medium text-lg">
                   {isQuizTab
-                    ? `Great! No students with 80%+ attendance are below 100% on classroom or module quizzes in ${recoveryData.campus}.`
+                    ? `Great! No students are below 100% on classroom or module quizzes in ${recoveryData.campus}.`
                     : `Great! No subject is below 80% attendance in ${recoveryData.campus}.`}
                 </p>
               </div>
@@ -369,7 +369,7 @@ export default function Recovery() {
                           </h4>
                         </div>
                         <span className="shrink-0 rounded bg-white shadow-sm border border-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-600">
-                          Attendance ≥ 80%
+                          Quiz follow-up
                         </span>
                       </div>
 

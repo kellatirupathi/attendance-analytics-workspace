@@ -1101,7 +1101,7 @@ export const getListQuizRecoverySubjectsUrl = (params: ListQuizRecoverySubjectsP
 }
 
 /**
- * @summary List subjects whose students attend ≥80% but are not at 100% on C.Q or M.Q
+ * @summary List subjects whose students are not at 100% on C.Q or M.Q
  */
 export const listQuizRecoverySubjects = async (params: ListQuizRecoverySubjectsParams, options?: RequestInit): Promise<QuizRecoveryCampusData> => {
 
@@ -1147,7 +1147,7 @@ export type ListQuizRecoverySubjectsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List subjects whose students attend ≥80% but are not at 100% on C.Q or M.Q
+ * @summary List subjects whose students are not at 100% on C.Q or M.Q
  */
 
 export function useListQuizRecoverySubjects<TData = Awaited<ReturnType<typeof listQuizRecoverySubjects>>, TError = ErrorType<unknown>>(
@@ -1184,7 +1184,7 @@ export const getListQuizRecoveryStudentsUrl = (params: ListQuizRecoveryStudentsP
 }
 
 /**
- * @summary List students at ≥80% attendance who are not at 100% on C.Q or M.Q
+ * @summary List students who are not at 100% on C.Q or M.Q
  */
 export const listQuizRecoveryStudents = async (params: ListQuizRecoveryStudentsParams, options?: RequestInit): Promise<QuizRecoveryStudent[]> => {
 
@@ -1230,7 +1230,7 @@ export type ListQuizRecoveryStudentsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List students at ≥80% attendance who are not at 100% on C.Q or M.Q
+ * @summary List students who are not at 100% on C.Q or M.Q
  */
 
 export function useListQuizRecoveryStudents<TData = Awaited<ReturnType<typeof listQuizRecoveryStudents>>, TError = ErrorType<unknown>>(

@@ -247,7 +247,7 @@ export const ListRecoveryStudentsResponse = zod.array(ListRecoveryStudentsRespon
 
 
 /**
- * @summary List subjects whose students attend ≥80% but are not at 100% on C.Q or M.Q
+ * @summary List subjects whose students are not at 100% on C.Q or M.Q
  */
 export const ListQuizRecoverySubjectsQueryParams = zod.object({
   "campus": zod.coerce.string(),
@@ -281,7 +281,7 @@ export const ListQuizRecoverySubjectsResponse = zod.object({
 
 
 /**
- * @summary List students at ≥80% attendance who are not at 100% on C.Q or M.Q
+ * @summary List students who are not at 100% on C.Q or M.Q
  */
 export const ListQuizRecoveryStudentsQueryParams = zod.object({
   "campus": zod.coerce.string(),

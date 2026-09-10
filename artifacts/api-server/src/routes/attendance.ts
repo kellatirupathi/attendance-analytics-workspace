@@ -606,7 +606,7 @@ function withQuizSpi(student: QuizRecoveryStudent) {
   return { ...student, spiPath: spiSharePath(student.studentId) };
 }
 
-// C.Q / M.Q recovery: attendance ≥ 80% and quizzes not fully completed at 100%
+// C.Q / M.Q recovery: quizzes not fully completed at 100%
 router.get("/recovery/quiz-subjects", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   if (session.role === "instructor") {

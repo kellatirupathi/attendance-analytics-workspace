@@ -203,7 +203,7 @@ export default function RecoveryQuizSubjectDetail() {
         </Button>
         <PageHeader
           title={subject ?? "Quizzes"}
-          subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""} · Lecture attendance ≥ 80%`}
+          subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""} · Classroom and module quizzes not at 100%`}
           right={
             <Button onClick={handleExport} variant="outline" size="sm">
               <Download className="mr-2 h-4 w-4" />
@@ -214,8 +214,9 @@ export default function RecoveryQuizSubjectDetail() {
       </div>
 
       <p className="text-sm text-slate-600">
-        These students already meet the 80% lecture bar. Follow up on classroom
-        and module quizzes — lecture recovery is not scheduled from this list.
+        Follow up on classroom and module quizzes that are not fully completed
+        at 100%. Lecture recovery is not scheduled from this list.
+
       </p>
 
       <div className="relative">
@@ -244,7 +245,7 @@ export default function RecoveryQuizSubjectDetail() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <caption className="sr-only">
-                Students in {subject} with 80%+ attendance who are not at 100% on classroom or module quizzes.
+                Students in {subject} whose classroom or module quizzes are not at 100%.
               </caption>
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">

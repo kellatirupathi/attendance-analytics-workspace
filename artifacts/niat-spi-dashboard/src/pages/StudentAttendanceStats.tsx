@@ -204,7 +204,7 @@ export default function StudentAttendanceStats() {
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter value={range} onChange={setRange} />
-        {!isBoa && campusOptions.length > 0 && (
+        {!(isBoa && user?.campuses?.length === 1) && campusOptions.length > 0 && (
           <SearchableSelect
             value={campus}
             onValueChange={setCampusFilter}
