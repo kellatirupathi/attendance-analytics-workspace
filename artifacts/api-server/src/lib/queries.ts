@@ -38,15 +38,6 @@ const ATTENDANCE_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_student_session_wise_attendance_details`";
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
-/**
- * The live prod curriculum/schedule: one row per section per scheduled
- * session (lecture, exam, practice, ...), with delivery status. This is the
- * source of truth for the recovery "broad sequence" — no more hand-typed
- * curriculum lists. It has no subject column of its own, so callers join it
- * to ATTENDANCE_TABLE on session_section_id to recover subject_title.
- */
-const INSTITUTE_SCHEDULE_TABLE =
-  "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_institute_wise_daily_scheduled_session_details`";
 
 function scopeClause(
   scope: SessionScope,
@@ -1803,11 +1794,9 @@ export interface ProdSequenceTopic {
 }
 
 /**
- * Every distinct lecture BigQuery has ever scheduled for a campus, grouped by
- * subject and ordered by the date it was first scheduled — the actual prod
- * delivery order, which is also the order recovery re-teaches them in.
- * `delivered` is true once at least one section has that session marked
- * COMPLETED.
+ * Every distinct completed lecture in the current semester for a campus,
+ * grouped by subject and ordered by the date it was first scheduled — the
+ * actual prod delivery order.
  */
 export async function getProdSequence(
   campus: string,
@@ -1819,16 +1808,15 @@ export async function getProdSequence(
     delivered: string;
   }>(
     `SELECT
-      att.subject_title AS subject_title,
-      sched.session_name AS topic_title,
-      MIN(sched.session_date) AS first_date,
-      MAX(IF(sched.session_status = 'COMPLETED', 1, 0)) AS delivered
-    FROM ${INSTITUTE_SCHEDULE_TABLE} sched
-    JOIN ${ATTENDANCE_TABLE} att
-      ON sched.session_section_id = att.session_section_id
+       sched.course_title AS subject_title,
+       sched.session_title AS topic_title,
+       MIN(sched.session_start_datetime) AS first_date,
+       MAX(IF(sched.session_status = 'COMPLETED', 1, 0)) AS delivered
+     FROM ${PROD_SEQUENCE_TABLE} sched
     WHERE sched.institute_name = @campus
-      AND att.institute_name = @campus
       AND sched.session_type = 'LECTURE'
+       AND sched.session_status = 'COMPLETED'
+       AND sched.is_current_semester = 1
     GROUP BY subject_title, topic_title
     ORDER BY subject_title, first_date`,
     { campus },
@@ -1851,15 +1839,13 @@ export async function getDeliveredTopicTitles(
   subjectTitle: string,
 ): Promise<Set<string>> {
   const rows = await bqQuery<{ session_name: string }>(
-    `SELECT DISTINCT sched.session_name AS session_name
-     FROM ${INSTITUTE_SCHEDULE_TABLE} sched
-     JOIN ${ATTENDANCE_TABLE} att
-       ON sched.session_section_id = att.session_section_id
+    `SELECT DISTINCT sched.session_title AS session_name
+     FROM ${PROD_SEQUENCE_TABLE} sched
      WHERE sched.institute_name = @campus
-       AND att.institute_name = @campus
-       AND att.subject_title = @subjectTitle
+       AND sched.course_title = @subjectTitle
        AND sched.session_type = 'LECTURE'
-       AND sched.session_status = 'COMPLETED'`,
+       AND sched.session_status = 'COMPLETED'
+       AND sched.is_current_semester = 1`,
     { campus, subjectTitle },
   );
   return new Set(rows.map((r) => r.session_name));
