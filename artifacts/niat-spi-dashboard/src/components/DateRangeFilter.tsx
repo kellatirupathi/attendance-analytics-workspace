@@ -26,7 +26,7 @@ export function DateRangeFilter({
   const [showCustom, setShowCustom] = useState(preset === "custom");
 
   useEffect(() => {
-    setShowCustom(preset === "custom");
+    if (preset === "custom") setShowCustom(true);
   }, [preset]);
 
   const selectValue: DatePreset = showCustom ? "custom" : preset;
@@ -43,7 +43,7 @@ export function DateRangeFilter({
           }
           if (next === "custom") {
             setShowCustom(true);
-            if (preset === "all") onChange(rangeForPreset("30d"));
+            onChange({});
             return;
           }
           setShowCustom(false);

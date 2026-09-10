@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import {
   Table,
@@ -19,6 +19,10 @@ import {
   assessmentStudentsPath,
   assessmentSubjectsPath,
 } from "@/components/SubNav";
+import {
+  SearchableSelect,
+  campusSelectOptions,
+} from "@/components/SearchableSelect";
 import {
   Search,
   Loader2,
@@ -79,8 +83,7 @@ function CampusList() {
   const [rows, setRows] = useState<AssessmentCampus[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounceValue(search, 300);
+  const [campusFilter, setCampusFilter] = useState("all");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
@@ -114,10 +117,9 @@ function CampusList() {
   }, []);
 
   const filtered = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((c) => c.instituteName.toLowerCase().includes(q));
-  }, [rows, debouncedSearch]);
+    if (campusFilter === "all") return rows;
+    return rows.filter((c) => c.instituteName === campusFilter);
+  }, [rows, campusFilter]);
 
   const totals = useMemo(() => sumCounts(filtered), [filtered]);
   const { currentPage, totalPages, paged } = usePaging(
@@ -133,15 +135,25 @@ function CampusList() {
         subtitle="Campus-wise classroom and module quiz counts. Click a campus to view subjects, then students. Skill and Final assessments are not in the warehouse yet. Total is CQ + MQ only."
       />
       <Toolbar
-        search={search}
-        searchPlaceholder="Search campuses…"
-        showSearch={!(isBoa && user?.campuses?.length === 1)}
+        showSearch={false}
+        extraFilter={
+          !(isBoa && user?.campuses?.length === 1) ? (
+            <SearchableSelect
+              value={campusFilter}
+              onValueChange={(value) => {
+                setCampusFilter(value);
+                setPage(1);
+              }}
+              options={campusSelectOptions(rows.map((c) => c.instituteName))}
+              placeholder="All campuses"
+              searchPlaceholder="Search campuses…"
+              className="w-[220px]"
+              disabled={loading}
+            />
+          ) : null
+        }
         loading={loading}
         exportDisabled={filtered.length === 0 || loading}
-        onSearch={(value) => {
-          setSearch(value);
-          setPage(1);
-        }}
         onExport={() => {
           exportCsv(
             "assessment-campus-stats.csv",
@@ -180,7 +192,7 @@ function CampusList() {
         title="Assessment counts by campus"
         subtitle={`${filtered.length.toLocaleString()} campus${filtered.length === 1 ? "" : "es"} · click a row for subjects`}
         loading={loading}
-        empty="No campus quiz data found."
+        empty="No campuses found."
         firstColumn="Campus"
         rows={paged}
         nameOf={(c: AssessmentCampus) => c.instituteName}
@@ -656,28 +668,31 @@ function Toolbar({
   search,
   searchPlaceholder,
   showSearch,
+  extraFilter,
   loading,
   exportDisabled,
   onSearch,
   onExport,
 }: {
-  search: string;
-  searchPlaceholder: string;
+  search?: string;
+  searchPlaceholder?: string;
   showSearch: boolean;
+  extraFilter?: ReactNode;
   loading: boolean;
   exportDisabled: boolean;
-  onSearch: (value: string) => void;
+  onSearch?: (value: string) => void;
   onExport: () => void;
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
+      {extraFilter}
       {showSearch && (
         <div className="relative min-w-[200px] sm:w-72">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
             placeholder={searchPlaceholder}
             value={search}
-            onChange={(e) => onSearch(e.target.value)}
+            onChange={(e) => onSearch?.(e.target.value)}
             className="h-9 border-gray-200 pl-9"
           />
         </div>
