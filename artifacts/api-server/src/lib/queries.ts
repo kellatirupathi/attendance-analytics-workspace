@@ -1897,7 +1897,7 @@ export async function getSessionTracker(
    */
   deliveredTitles?: ReadonlySet<string>,
 ): Promise<SessionTrackerRow[]> {
-  const topics = await db
+    const topics = await db
     .select({
       id: recoveryTopicsTable.id,
       sequenceNo: recoveryTopicsTable.sequenceNo,
@@ -2558,4 +2558,62 @@ export async function getStudentQuizzes(
     classroomSummary: calcSummary(classroomQuizzes),
     moduleSummary: calcSummary(moduleQuizzes),
   };
+}
+export interface CompletedLecture {
+  sessionId: string;
+  sequenceNo: number;
+  weekNo: number | null;
+  topicTitle: string;
+  completedAt: string | null;
+}
+
+/**
+ * Completed lectures for one campus + subject, in prod sequence order.
+ *
+ * Reads the prod sequence view directly, keyed on the BigQuery course title —
+ * no curriculum-name translation, so this works for every campus rather than
+ * only the six subjects the CDU seed knew about.
+ *
+ * A lecture is delivered separately to each section, so rows are grouped by
+ * session_id; MIN(initial_session_start_datetime) is the date it was first
+ * taught anywhere.
+ */
+export async function getCompletedLectures(
+  campus: string,
+  subject: string,
+): Promise<CompletedLecture[]> {
+  const rows = await bqQuery<{
+    session_id: string;
+    session_title: string;
+    seq: string | number | null;
+    week_count: string | number | null;
+    completed_at: string | null;
+  }>(
+    `SELECT
+       session_id,
+       ANY_VALUE(session_title) AS session_title,
+       MIN(calculated_session_id_order) AS seq,
+       MIN(week_count) AS week_count,
+       CAST(MIN(DATE(initial_session_start_datetime)) AS STRING) AS completed_at
+     FROM ${PROD_SEQUENCE_TABLE}
+     WHERE institute_name = @campus
+       AND course_title = @subject
+       AND is_current_semester = 1
+       AND session_type = 'LECTURE'
+       AND UPPER(COALESCE(session_status, '')) = 'COMPLETED'
+       AND session_id IS NOT NULL
+     GROUP BY session_id
+     ORDER BY seq`,
+    { campus, subject },
+  );
+
+  return rows.map((r, i) => ({
+    sessionId: r.session_id,
+    // Fall back to row position when the view has no order value, so the
+    // tracker still renders in a stable sequence.
+    sequenceNo: r.seq == null ? i + 1 : Number(r.seq),
+    weekNo: r.week_count == null ? null : Number(r.week_count),
+    topicTitle: r.session_title,
+    completedAt: r.completed_at ?? null,
+  }));
 }

@@ -586,15 +586,6 @@ router.get(
       return;
     }
 
-    const curriculumSubject =
-      BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
-    if (!curriculumSubject) {
-      res
-        .status(404)
-        .json({ error: "Recovery curriculum not configured for this subject" });
-      return;
-    }
-
     const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
@@ -609,7 +600,7 @@ router.get(
           campus,
           section,
         }),
-        getResolvedRecoverySessionTitles(campus, curriculumSubject),
+                getResolvedRecoverySessionTitles(campus, bigQuerySubject),
       ]);
       const attendanceByTitle = new Map<
         string,
@@ -628,7 +619,7 @@ router.get(
 
       const tracker = await getSessionTracker(
         campus,
-        curriculumSubject,
+        bigQuerySubject,
         attendanceByTitle,
         section,
       );
