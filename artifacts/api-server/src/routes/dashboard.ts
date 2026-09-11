@@ -14,6 +14,7 @@ import {
   getRecoveryProgress,
   getAttendanceBySessionId,
   getProdSequenceSessionTracker,
+  scheduleRecoverySession,
   getAssessmentCampusSummary,
   getAssessmentSubjects,
   getAssessmentStudents,
@@ -21,7 +22,7 @@ import {
   dateRangeCacheKey,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
-import { cacheGet, cacheSet } from "../lib/cache.js";
+import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
 import { spiSharePath } from "../lib/spiToken.js";
 import type { Role } from "../lib/rbac.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
@@ -528,6 +529,106 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching recovery session tracker");
       res.status(500).json({ error: "Failed to fetch recovery session tracker" });
+    }
+  },
+);
+
+// Books a future recovery session for a set of not-yet-recovered topics.
+// campus/subject follow the same conventions as session-tracker above: the
+// caller passes the raw BigQuery subject_title, which is resolved here to
+// the curriculum subject before touching recovery_sessions/recovery_topics.
+router.post(
+  "/recovery-sessions",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    if (session.role === "instructor") {
+      res.status(403).json({
+        error: "Instructors can only view their assigned recovery sessions",
+      });
+      return;
+    }
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const body = req.body as {
+      campus?: string;
+      subject?: string;
+      section?: string;
+      scheduledDate?: string;
+      startTime?: string;
+      endTime?: string;
+      instructorName?: string;
+      studentsExpected?: number;
+      topicTitles?: string[];
+    };
+    const campus = body.campus;
+    const bigQuerySubject = body.subject;
+    if (!campus || !bigQuerySubject) {
+      res.status(400).json({ error: "campus and subject required" });
+      return;
+    }
+    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+      res.status(403).json({ error: "Not permitted for this campus" });
+      return;
+    }
+    if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
+      res.status(403).json({ error: "Not permitted for this subject" });
+      return;
+    }
+
+    const scheduledDate = body.scheduledDate ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
+      res.status(400).json({ error: "scheduledDate must be YYYY-MM-DD" });
+      return;
+    }
+    const instructorName = (body.instructorName ?? "").trim();
+    if (!instructorName) {
+      res.status(400).json({ error: "instructorName required" });
+      return;
+    }
+    const topicTitles = Array.isArray(body.topicTitles)
+      ? body.topicTitles.filter(
+          (t): t is string => typeof t === "string" && t.trim().length > 0,
+        )
+      : [];
+    if (topicTitles.length === 0) {
+      res.status(400).json({ error: "Select at least one topic" });
+      return;
+    }
+    const studentsExpected =
+      typeof body.studentsExpected === "number" &&
+      Number.isFinite(body.studentsExpected)
+        ? Math.max(0, Math.round(body.studentsExpected))
+        : undefined;
+
+    const recoverySubject =
+      BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject] ?? bigQuerySubject;
+
+    try {
+      const result = await scheduleRecoverySession({
+        campus,
+        subject: recoverySubject,
+        section: body.section,
+        scheduledDate,
+        startTime: body.startTime,
+        endTime: body.endTime,
+        instructorName,
+        studentsExpected,
+        topicTitles,
+      });
+      if (!result.ok) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      cacheDeletePrefix("session-tracker:");
+      cacheDeletePrefix("recovery-progress:");
+      res.status(201).json(result.session);
+    } catch (err) {
+      req.log.error({ err }, "Error scheduling recovery session");
+      res.status(500).json({ error: "Failed to schedule recovery session" });
     }
   },
 );

@@ -7,6 +7,18 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import {
+  CalendarPlus,
   CheckCircle2,
   Clock3,
   Download,
@@ -726,6 +738,15 @@ export default function RecoverySubjectDetail() {
   const [prodSequenceLoading, setProdSequenceLoading] = useState(false);
   const [prodSequenceError, setProdSequenceError] = useState("");
 
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleStartTime, setScheduleStartTime] = useState("");
+  const [scheduleEndTime, setScheduleEndTime] = useState("");
+  const [scheduleInstructor, setScheduleInstructor] = useState("");
+  const [scheduleStudentsExpected, setScheduleStudentsExpected] = useState("");
+  const [scheduleTopics, setScheduleTopics] = useState<Set<string>>(new Set());
+  const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+
   useEffect(() => {
     if (!campus) return;
 
@@ -923,6 +944,100 @@ export default function RecoverySubjectDetail() {
         student.studentId.toLowerCase().includes(lowerSearch),
     );
   }, [selectedSubjectData, searchFilter]);
+
+  const needsRecoveryTopics = useMemo(
+    () => (trackerData ?? []).filter((row) => row.status === "needs_recovery"),
+    [trackerData],
+  );
+
+  function resetScheduleForm() {
+    setScheduleDate("");
+    setScheduleStartTime("");
+    setScheduleEndTime("");
+    setScheduleInstructor("");
+    setScheduleStudentsExpected("");
+    setScheduleTopics(new Set());
+  }
+
+  function openScheduleDialog() {
+    resetScheduleForm();
+    setScheduleOpen(true);
+  }
+
+  function toggleScheduleTopic(title: string) {
+    setScheduleTopics((current) => {
+      const next = new Set(current);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  }
+
+  async function submitSchedule() {
+    if (!campus || !subject) return;
+    if (!scheduleDate) {
+      toast({ variant: "destructive", title: "Pick a date for the session" });
+      return;
+    }
+    if (!scheduleInstructor.trim()) {
+      toast({ variant: "destructive", title: "Enter an instructor name" });
+      return;
+    }
+    if (scheduleTopics.size === 0) {
+      toast({ variant: "destructive", title: "Select at least one topic to cover" });
+      return;
+    }
+    setScheduleSubmitting(true);
+    try {
+      const response = await fetch("/api/dashboard/recovery-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campus,
+          subject,
+          scheduledDate: scheduleDate,
+          startTime: scheduleStartTime || undefined,
+          endTime: scheduleEndTime || undefined,
+          instructorName: scheduleInstructor.trim(),
+          studentsExpected: scheduleStudentsExpected
+            ? Number(scheduleStudentsExpected)
+            : undefined,
+          topicTitles: [...scheduleTopics],
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error ?? "Failed to schedule session");
+      }
+      toast({
+        title: "Recovery session scheduled",
+        description: `${formatRecoveryDate(scheduleDate)} · ${scheduleTopics.size} topic${scheduleTopics.size === 1 ? "" : "s"}`,
+      });
+      setScheduleOpen(false);
+      resetScheduleForm();
+
+      const queryParams = new URLSearchParams({ campus, subject });
+      if (semester) queryParams.set("semester", semester);
+      const [trackerResponse, progressResponse] = await Promise.all([
+        fetch(`/api/dashboard/session-tracker?${queryParams}`),
+        fetch(`/api/dashboard/recovery-progress?${queryParams}`),
+      ]);
+      if (trackerResponse.ok) {
+        setTrackerData((await trackerResponse.json()) as SessionTrackerRow[]);
+      }
+      if (progressResponse.ok) {
+        setRecoveryProgress((await progressResponse.json()) as RecoveryProgress);
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not schedule session",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setScheduleSubmitting(false);
+    }
+  }
 
   const canEditInstructorType =
     user?.role === "admin" || user?.role === "superadmin";
@@ -1286,6 +1401,22 @@ export default function RecoverySubjectDetail() {
         </TabsContent>
 
         <TabsContent value="sessions" className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              {needsRecoveryTopics.length > 0
+                ? `${needsRecoveryTopics.length} topic${needsRecoveryTopics.length === 1 ? "" : "s"} still need${needsRecoveryTopics.length === 1 ? "s" : ""} a recovery session.`
+                : "No topics currently need a recovery session."}
+            </p>
+            <Button
+              size="sm"
+              className="gap-2"
+              onClick={openScheduleDialog}
+              disabled={needsRecoveryTopics.length === 0}
+            >
+              <CalendarPlus className="h-4 w-4" />
+              Schedule recovery session
+            </Button>
+          </div>
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
             {trackerLoading ? (
               <div className="p-12 text-center flex flex-col items-center justify-center min-h-[300px]">
@@ -1414,6 +1545,120 @@ export default function RecoverySubjectDetail() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={scheduleOpen}
+        onOpenChange={(open) => {
+          if (scheduleSubmitting) return;
+          setScheduleOpen(open);
+          if (!open) resetScheduleForm();
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Schedule recovery session</DialogTitle>
+            <DialogDescription>
+              {selectedSubjectData.subjectTitle} · {campus}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-date">Date</Label>
+                <Input
+                  id="schedule-date"
+                  type="date"
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-instructor">Instructor</Label>
+                <Input
+                  id="schedule-instructor"
+                  placeholder="Instructor name"
+                  value={scheduleInstructor}
+                  onChange={(e) => setScheduleInstructor(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-start">Start time</Label>
+                <Input
+                  id="schedule-start"
+                  type="time"
+                  value={scheduleStartTime}
+                  onChange={(e) => setScheduleStartTime(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-end">End time</Label>
+                <Input
+                  id="schedule-end"
+                  type="time"
+                  value={scheduleEndTime}
+                  onChange={(e) => setScheduleEndTime(e.target.value)}
+                />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="schedule-students">Students expected (optional)</Label>
+                <Input
+                  id="schedule-students"
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 25"
+                  value={scheduleStudentsExpected}
+                  onChange={(e) => setScheduleStudentsExpected(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Topics to cover ({scheduleTopics.size} selected)</Label>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+                {needsRecoveryTopics.length === 0 ? (
+                  <p className="p-4 text-sm text-slate-500">
+                    No topics currently need a recovery session.
+                  </p>
+                ) : (
+                  needsRecoveryTopics.map((row) => (
+                    <label
+                      key={row.topicTitle}
+                      className="flex items-start gap-2.5 px-3 py-2.5 text-sm hover:bg-slate-50 cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={scheduleTopics.has(row.topicTitle)}
+                        onCheckedChange={() => toggleScheduleTopic(row.topicTitle)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="text-slate-400 tabular-nums mr-1.5">
+                          #{row.sequenceNo}
+                        </span>
+                        <span className="text-slate-900">{row.topicTitle}</span>
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setScheduleOpen(false);
+                resetScheduleForm();
+              }}
+              disabled={scheduleSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button onClick={submitSchedule} disabled={scheduleSubmitting} className="gap-2">
+              {scheduleSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Schedule session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

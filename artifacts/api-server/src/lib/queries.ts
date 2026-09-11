@@ -2464,6 +2464,167 @@ export async function getRecoveryProgress(
   };
 }
 
+export interface ScheduleRecoverySessionInput {
+  campus: string;
+  /** Already resolved to the curriculum/recovery subject, not the raw BigQuery subject_title. */
+  subject: string;
+  section?: string;
+  scheduledDate: string;
+  startTime?: string;
+  endTime?: string;
+  instructorName: string;
+  studentsExpected?: number;
+  /** Topic titles as shown in the session tracker; matched against recovery_topics. */
+  topicTitles: string[];
+}
+
+export interface ScheduledRecoverySession {
+  id: string;
+  campus: string;
+  subject: string;
+  section: string | null;
+  scheduledDate: string;
+  startTime: string;
+  endTime: string;
+  instructorName: string;
+  status: string;
+  topicsScheduled: string[];
+}
+
+export type ScheduleRecoverySessionOutcome =
+  | { ok: true; session: ScheduledRecoverySession }
+  | { ok: false; error: string };
+
+/**
+ * Books a future recovery session for a set of curriculum topics. Topics are
+ * matched by title against `recovery_topics` for the campus+subject -- the
+ * same title-based join `getSessionTracker`'s recovery overlay relies on --
+ * so the caller (the session tracker UI) can pass back the exact titles it
+ * already displayed. Any title that doesn't resolve fails the whole request
+ * rather than silently dropping it, since a partially-scheduled session with
+ * missing topics would be confusing to spot later.
+ *
+ * Sets each covered topic's `recovery_progress` to "scheduled" (pooled,
+ * section-less) so the tracker immediately reflects the booking, without
+ * touching topics that are already "completed".
+ */
+export async function scheduleRecoverySession(
+  input: ScheduleRecoverySessionInput,
+): Promise<ScheduleRecoverySessionOutcome> {
+  const uniqueTitles = [...new Set(input.topicTitles)];
+  if (uniqueTitles.length === 0) {
+    return { ok: false, error: "Select at least one topic" };
+  }
+
+  const topics = await db
+    .select({
+      id: recoveryTopicsTable.id,
+      topicTitle: recoveryTopicsTable.topicTitle,
+    })
+    .from(recoveryTopicsTable)
+    .where(
+      and(
+        eq(recoveryTopicsTable.campus, input.campus),
+        eq(recoveryTopicsTable.subject, input.subject),
+        eq(recoveryTopicsTable.isActive, true),
+      ),
+    );
+  const byTitle = new Map(topics.map((t) => [t.topicTitle, t.id]));
+  const missing = uniqueTitles.filter((title) => !byTitle.has(title));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      error: `Could not match these topics to the curriculum: ${missing.join(", ")}`,
+    };
+  }
+
+  const section = input.section || null;
+
+  const created = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(recoverySessionsTable)
+      .values({
+        campus: input.campus,
+        subject: input.subject,
+        section,
+        instructorName: input.instructorName,
+        instructorType: "unknown",
+        scheduledDate: input.scheduledDate,
+        startTime: input.startTime ?? "",
+        endTime: input.endTime ?? "",
+        status: "planned",
+        studentsExpected: input.studentsExpected,
+      })
+      .returning();
+    if (!inserted) throw new Error("Failed to create recovery session");
+
+    await tx.insert(sessionTopicsTable).values(
+      uniqueTitles.map((title, index) => ({
+        sessionId: inserted.id,
+        topicId: byTitle.get(title)!,
+        orderInSession: index,
+      })),
+    );
+
+    for (const title of uniqueTitles) {
+      const topicId = byTitle.get(title)!;
+      const sectionClause =
+        section == null
+          ? isNull(recoveryProgressTable.section)
+          : eq(recoveryProgressTable.section, section);
+      const existing = await tx
+        .select({
+          id: recoveryProgressTable.id,
+          status: recoveryProgressTable.status,
+        })
+        .from(recoveryProgressTable)
+        .where(
+          and(
+            eq(recoveryProgressTable.campus, input.campus),
+            eq(recoveryProgressTable.subject, input.subject),
+            eq(recoveryProgressTable.topicId, topicId),
+            sectionClause,
+          ),
+        )
+        .limit(1);
+      if (existing[0]) {
+        if (existing[0].status === "pending") {
+          await tx
+            .update(recoveryProgressTable)
+            .set({ status: "scheduled", updatedAt: new Date() })
+            .where(eq(recoveryProgressTable.id, existing[0].id));
+        }
+      } else {
+        await tx.insert(recoveryProgressTable).values({
+          campus: input.campus,
+          subject: input.subject,
+          section,
+          topicId,
+          status: "scheduled",
+        });
+      }
+    }
+
+    return inserted;
+  });
+
+  return {
+    ok: true,
+    session: {
+      id: created.id,
+      campus: created.campus,
+      subject: created.subject,
+      section: created.section,
+      scheduledDate: created.scheduledDate,
+      startTime: created.startTime,
+      endTime: created.endTime,
+      instructorName: created.instructorName,
+      status: created.status,
+      topicsScheduled: uniqueTitles,
+    },
+  };
+}
+
 /*
 export type SessionTrackerStatus =
   | "not_taught"
