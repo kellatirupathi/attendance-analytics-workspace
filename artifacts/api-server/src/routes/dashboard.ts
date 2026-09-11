@@ -13,7 +13,8 @@ import {
   getSubjectProdSequence,
   getRecoveryProgress,
   getResolvedRecoverySessionTitles,
-  getSessionTracker,
+  getAttendanceBySessionId,
+  getProdSequenceSessionTracker,
   getAssessmentCampusSummary,
   getAssessmentSubjects,
   getAssessmentStudents,
@@ -470,8 +471,13 @@ router.get(
   },
 );
 
-/*
-// Ordered curriculum and recovery-delivery status for one subject.
+// Full curriculum delivery state for one subject at one campus. Topics and
+// their delivery status come straight from the live BigQuery prod sequence
+// (not the Postgres recovery_topics cache, which only reflects whatever the
+// sync:recovery-curriculum script last wrote); attendance is joined by
+// session_id, not title, since the attendance and prod-sequence tables name
+// sessions differently. See getAttendanceBySessionId / getProdSequenceSessionTracker
+// in lib/queries.ts for why.
 router.get(
   "/session-tracker",
   requireSession(),
@@ -486,6 +492,7 @@ router.get(
     const campus = q["campus"];
     const bigQuerySubject = q["subject"];
     const section = q["section"] || undefined;
+    const semester = q["semester"] || undefined;
     if (!campus || !bigQuerySubject) {
       res.status(400).json({ error: "campus and subject required" });
       return;
@@ -500,9 +507,7 @@ router.get(
       return;
     }
 
-   
-
-    const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}`;
+    const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}:${semester ?? ""}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -510,106 +515,21 @@ router.get(
     }
 
     try {
-      const sessions = await getSubjectSessions(scope, {
-        subject: bigQuerySubject,
-        campus,
-        section,
-      });
-      const attendanceByTitle = new Map<
-        string,
-        { presentCount: number; totalCount: number }
-      >();
-      for (const subjectSession of sessions) {
-        const current = attendanceByTitle.get(subjectSession.sessionTitle) ?? {
-          presentCount: 0,
-          totalCount: 0,
-        };
-        current.presentCount += subjectSession.presentCount;
-        current.totalCount += subjectSession.totalCount;
-        attendanceByTitle.set(subjectSession.sessionTitle, current);
-      }
-
-      const rows = await getRecoverySessionTracker(
+      const recoverySubject =
+        BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject] ?? bigQuerySubject;
+      const attendanceBySessionId = await getAttendanceBySessionId(
         campus,
         bigQuerySubject,
-        attendanceByTitle,
+        semester,
         section,
       );
-      cacheSet(cacheKey, rows, 60 * 1000);
-      res.json(rows);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching recovery session tracker");
-      res.status(500).json({ error: "Failed to fetch session tracker" });
-    }
-  },
-);
-
-*/
-// Full curriculum delivery state for one subject at one campus.
-router.get(
-  "/session-tracker",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const q = req.query as Record<string, string | undefined>;
-    const campus = q["campus"];
-    const bigQuerySubject = q["subject"];
-    const section = q["section"] || undefined;
-    if (!campus || !bigQuerySubject) {
-      res.status(400).json({ error: "campus and subject required" });
-      return;
-    }
-
-    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
-      res.status(403).json({ error: "Not permitted for this campus" });
-      return;
-    }
-    if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
-      res.status(403).json({ error: "Not permitted for this subject" });
-      return;
-    }
-
-    const cacheKey = `session-tracker:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-
-    try {
-      const [sessions, trackedSessionTitles] = await Promise.all([
-        getSubjectSessions(scope, {
-          subject: bigQuerySubject,
-          campus,
-          section,
-        }),
-                getResolvedRecoverySessionTitles(campus, bigQuerySubject),
-      ]);
-      const attendanceByTitle = new Map<
-        string,
-        { presentCount: number; totalCount: number }
-      >();
-      for (const subjectSession of sessions) {
-        if (!trackedSessionTitles.has(subjectSession.sessionTitle)) continue;
-        const current = attendanceByTitle.get(subjectSession.sessionTitle) ?? {
-          presentCount: 0,
-          totalCount: 0,
-        };
-        current.presentCount += subjectSession.presentCount;
-        current.totalCount += subjectSession.totalCount;
-        attendanceByTitle.set(subjectSession.sessionTitle, current);
-      }
-
-      const tracker = await getSessionTracker(
+      const tracker = await getProdSequenceSessionTracker(
         campus,
         bigQuerySubject,
-        attendanceByTitle,
+        attendanceBySessionId,
         section,
+        semester,
+        recoverySubject,
       );
       cacheSet(cacheKey, tracker, 60 * 1000);
       res.json(tracker);

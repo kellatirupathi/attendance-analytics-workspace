@@ -1991,7 +1991,14 @@ export async function getProdSequence(
 export async function getDeliveredTopicTitles(
   campus: string,
   subjectTitle: string,
+  semester?: string,
 ): Promise<Set<string>> {
+  const params: Record<string, unknown> = { campus, subjectTitle };
+  const semesterClause = semester
+    ? "sched.semester_title = @semester"
+    : "sched.is_current_semester = 1";
+  if (semester) params["semester"] = semester;
+
   const rows = await bqQuery<{ session_name: string }>(
     `SELECT DISTINCT sched.session_title AS session_name
      FROM ${PROD_SEQUENCE_TABLE} sched
@@ -1999,10 +2006,63 @@ export async function getDeliveredTopicTitles(
        AND sched.course_title = @subjectTitle
        AND sched.session_type = 'LECTURE'
        AND sched.session_status = 'COMPLETED'
-       AND sched.is_current_semester = 1`,
-    { campus, subjectTitle },
+       AND ${semesterClause}`,
+    params,
   );
   return new Set(rows.map((r) => r.session_name));
+}
+
+/**
+ * Attendance aggregated by session_id rather than session title.
+ *
+ * The attendance table names individual deliveries ("For Loop", "Coding
+ * Practice Walkthrough | Part 1") while the prod sequence table names
+ * modules ("Programming with Python") -- a title join silently drops rows
+ * wherever the two strings don't happen to coincide, which is most campuses.
+ * Both tables carry session_id, so that's the reliable join key. Pair this
+ * with getSubjectProdSequence, whose rows already carry sessionId.
+ */
+export async function getAttendanceBySessionId(
+  campus: string,
+  subject: string,
+  semester?: string,
+  section?: string,
+): Promise<Map<string, RecoveryTopicAttendance>> {
+  const params: Record<string, unknown> = { campus, subject };
+  const semesterClause = semester
+    ? "derived_semester_title = @semester"
+    : "is_current_semester = 1";
+  const sectionClause = section ? "AND batch_section_name = @section" : "";
+  if (semester) params["semester"] = semester;
+  if (section) params["section"] = section;
+
+  const rows = await bqQuery<{
+    session_id: string;
+    present_count: string;
+    total_count: string;
+  }>(
+    `SELECT
+       session_id,
+       COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+       COUNT(*) AS total_count
+     FROM ${ATTENDANCE_TABLE}
+     WHERE institute_name = @campus
+       AND subject_title = @subject
+       AND ${semesterClause}
+       ${sectionClause}
+       AND session_id IS NOT NULL
+     GROUP BY session_id`,
+    params,
+  );
+
+  const map = new Map<string, RecoveryTopicAttendance>();
+  for (const row of rows) {
+    map.set(row.session_id, {
+      presentCount: Number(row.present_count),
+      totalCount: Number(row.total_count),
+    });
+  }
+  return map;
 }
 
 export async function getResolvedRecoverySessionTitles(
@@ -2209,11 +2269,21 @@ export async function getSessionTracker(
  * a Postgres recovery curriculum. Recovery metadata is overlaid when the
  * subject has a seeded recovery curriculum, but the production rows are the
  * source of truth for every college and subject.
+ *
+ * Attendance is looked up by session_id (see getAttendanceBySessionId), and
+ * the caller is expected to have sourced `attendanceBySessionId` from there
+ * -- not by title, which is where the 0%-attendance bug came from.
+ *
+ * The recovery-curriculum overlay still matches by topic title against
+ * Postgres `recovery_topics`, which is safe: sync-recovery-curriculum.ts
+ * copies BigQuery's session_title verbatim into that table, so the titles
+ * are guaranteed to agree. Only the BigQuery-to-BigQuery attendance join
+ * needed the session_id fix.
  */
 export async function getProdSequenceSessionTracker(
   campus: string,
   subject: string,
-  attendanceByTitle: ReadonlyMap<string, RecoveryTopicAttendance>,
+  attendanceBySessionId: ReadonlyMap<string, RecoveryTopicAttendance>,
   section?: string,
   semester?: string,
   recoverySubject?: string,
@@ -2225,28 +2295,49 @@ export async function getProdSequenceSessionTracker(
     section,
     "LECTURE",
   );
-  const recoveryRows = recoverySubject
-    ? await getSessionTracker(
-        campus,
-        recoverySubject,
-        attendanceByTitle,
-        section,
-      )
-    : [];
-  const recoveryByTitle = new Map(
-    recoveryRows.map((row) => [row.topicTitle, row]),
-  );
+
+  let recoveryByTitle = new Map<string, SessionTrackerRow>();
+  if (recoverySubject) {
+    // deliveredTitles drives the Postgres-side "not_taught" check directly
+    // off the live schedule, so passing an empty attendance map into
+    // getSessionTracker here is fine -- we only read status/unitId/
+    // recoverySession off its rows, never its attendance numbers.
+    const deliveredTitles = await getDeliveredTopicTitles(
+      campus,
+      subject,
+      semester,
+    );
+    const recoveryRows = await getSessionTracker(
+      campus,
+      recoverySubject,
+      new Map<string, RecoveryTopicAttendance>(),
+      section,
+      deliveredTitles,
+    );
+    recoveryByTitle = new Map(
+      recoveryRows.map((row) => [row.topicTitle, row]),
+    );
+  }
 
   return sequence.map((item) => {
-    const attendance = attendanceByTitle.get(item.topicTitle);
+    const attendance = attendanceBySessionId.get(item.sessionId);
     const attendancePct =
       attendance && attendance.totalCount > 0
         ? Math.round((attendance.presentCount / attendance.totalCount) * 1000) /
           10
         : null;
     const recovery = recoveryByTitle.get(item.topicTitle);
-    const status: SessionTrackerStatus =
-      recovery?.status === "recovered" ? "completed" : "needs_recovery";
+
+    let status: SessionTrackerStatus;
+    if (!item.completed) {
+      status = "not_taught";
+    } else if (recovery?.status === "recovered") {
+      status = "recovered";
+    } else if (recovery?.status === "recovery_scheduled") {
+      status = "recovery_scheduled";
+    } else {
+      status = "needs_recovery";
+    }
 
     return {
       sequenceNo: item.order,
@@ -2697,62 +2788,4 @@ export async function getStudentQuizzes(
     classroomSummary: calcSummary(classroomQuizzes),
     moduleSummary: calcSummary(moduleQuizzes),
   };
-}
-export interface CompletedLecture {
-  sessionId: string;
-  sequenceNo: number;
-  weekNo: number | null;
-  topicTitle: string;
-  completedAt: string | null;
-}
-
-/**
- * Completed lectures for one campus + subject, in prod sequence order.
- *
- * Reads the prod sequence view directly, keyed on the BigQuery course title —
- * no curriculum-name translation, so this works for every campus rather than
- * only the six subjects the CDU seed knew about.
- *
- * A lecture is delivered separately to each section, so rows are grouped by
- * session_id; MIN(initial_session_start_datetime) is the date it was first
- * taught anywhere.
- */
-export async function getCompletedLectures(
-  campus: string,
-  subject: string,
-): Promise<CompletedLecture[]> {
-  const rows = await bqQuery<{
-    session_id: string;
-    session_title: string;
-    seq: string | number | null;
-    week_count: string | number | null;
-    completed_at: string | null;
-  }>(
-    `SELECT
-       session_id,
-       ANY_VALUE(session_title) AS session_title,
-       MIN(calculated_session_id_order) AS seq,
-       MIN(week_count) AS week_count,
-       CAST(MIN(DATE(initial_session_start_datetime)) AS STRING) AS completed_at
-     FROM ${PROD_SEQUENCE_TABLE}
-     WHERE institute_name = @campus
-       AND course_title = @subject
-       AND is_current_semester = 1
-       AND session_type = 'LECTURE'
-       AND UPPER(COALESCE(session_status, '')) = 'COMPLETED'
-       AND session_id IS NOT NULL
-     GROUP BY session_id
-     ORDER BY seq`,
-    { campus, subject },
-  );
-
-  return rows.map((r, i) => ({
-    sessionId: r.session_id,
-    // Fall back to row position when the view has no order value, so the
-    // tracker still renders in a stable sequence.
-    sequenceNo: r.seq == null ? i + 1 : Number(r.seq),
-    weekNo: r.week_count == null ? null : Number(r.week_count),
-    topicTitle: r.session_title,
-    completedAt: r.completed_at ?? null,
-  }));
 }
