@@ -95,7 +95,21 @@ function suggestClosestTitles(
  * normalisation alone can't bridge. Add entries here (and re-run) for any
  * title the dry run reports as UNMATCHED that you've confirmed by eye.
  */
-const TITLE_OVERRIDES: Record<string, string> = {};
+const TITLE_OVERRIDES: Record<string, string> = {
+  // Confirmed from the dry-run's closest-match suggestions (2026-09-11).
+  "Prefix sum K": "Prefix Sum",
+  "Introduction to ExpressJs part-1": "Introduction to Express JS",
+  "setting kaggle environment": "Setting Up Your Kaggle Environment",
+  "Measures of Central Tendency topics": "Measures of Central Tendency",
+  "Authentication - 1": "Authentication",
+  "1) Framing Effective Questions": "Framing Effective Questions",
+  "2) Emphasizing Self-Expression": "Emphasizing Self-Expression",
+  // "Introduction to Statistics & Datasets" and "Skewness,Kurtosis&Outliers"
+  // deliberately left unmapped -- the closest live-curriculum matches were
+  // under 70% and none looked confidently right. Left unmatched rather than
+  // guessed; those two rows' affected topics stay "needs recovery" until
+  // confirmed by eye against the actual curriculum.
+};
 
 interface TopicCandidate {
   id: string;

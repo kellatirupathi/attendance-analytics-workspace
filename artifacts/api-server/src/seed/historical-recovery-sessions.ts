@@ -69,7 +69,13 @@ export const HISTORICAL_RECOVERY_SESSIONS: HistoricalRecoverySessionRow[] = [
     qaReportUrls: [
       "https://niat-instructor-platform.ccbp.in/evaluation_report/fe07e855-34b3-42bd-8630-718687146394",
     ],
-    topics: ["Building your own ai news summariser part 1,2"],
+    // Sheet listed this as one combined entry ("part 1,2"); the dry run's
+    // closest-match suggestions confirmed these are two separate recovery_topics
+    // rows ("... | Part 1" and "... | Part 2"), so split them here.
+    topics: [
+      "Build Your Own AI News Summarizer | Part 1",
+      "Build Your Own AI News Summarizer | Part 2",
+    ],
     skip: false,
   },
   {
