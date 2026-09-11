@@ -51,6 +51,45 @@ function normalize(s: string): string {
     .replace(/[^a-z0-9]/g, "");
 }
 
+function levenshtein(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    let diagonal = previous[0]!;
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j++) {
+      const above = previous[j]!;
+      previous[j] = Math.min(
+        previous[j]! + 1,
+        previous[j - 1]! + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length]!;
+}
+
+function similarity(left: string, right: string): number {
+  const longest = Math.max(left.length, right.length);
+  return longest === 0 ? 1 : 1 - levenshtein(left, right) / longest;
+}
+
+/** Top 3 closest actual recovery_topics titles for this campus, for diagnostics. */
+function suggestClosestTitles(
+  title: string,
+  allTopics: TopicCandidate[],
+): { title: string; subject: string; score: number }[] {
+  const key = normalize(title);
+  return allTopics
+    .map((t) => ({
+      title: t.topicTitle,
+      subject: t.subject,
+      score: similarity(key, normalize(t.topicTitle)),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+}
+
 /**
  * Verified spreadsheet title -> recovery_topics title overrides, for cases
  * normalisation alone can't bridge. Add entries here (and re-run) for any
@@ -64,9 +103,12 @@ interface TopicCandidate {
   topicTitle: string;
 }
 
-async function loadCampusTopics(
-  campus: string,
-): Promise<Map<string, TopicCandidate[]>> {
+interface CampusTopics {
+  byNormalizedTitle: Map<string, TopicCandidate[]>;
+  all: TopicCandidate[];
+}
+
+async function loadCampusTopics(campus: string): Promise<CampusTopics> {
   const rows = await db
     .select({
       id: recoveryTopicsTable.id,
@@ -88,7 +130,7 @@ async function loadCampusTopics(
     list.push(row);
     byNormalizedTitle.set(key, list);
   }
-  return byNormalizedTitle;
+  return { byNormalizedTitle, all: rows };
 }
 
 function resolveTopic(
@@ -110,13 +152,13 @@ async function main() {
     "Starting historical recovery session import",
   );
 
-  const topicsByCampus = new Map<string, Map<string, TopicCandidate[]>>();
+  const topicsByCampus = new Map<string, CampusTopics>();
   const campuses = [...new Set(HISTORICAL_RECOVERY_SESSIONS.map((r) => r.campus))];
   for (const campus of campuses) {
-    const map = await loadCampusTopics(campus);
-    topicsByCampus.set(campus, map);
+    const loaded = await loadCampusTopics(campus);
+    topicsByCampus.set(campus, loaded);
     logger.info(
-      { campus, distinctTitles: map.size },
+      { campus, distinctTitles: loaded.byNormalizedTitle.size, totalTopics: loaded.all.length },
       "Loaded recovery_topics for campus",
     );
   }
@@ -143,10 +185,10 @@ async function main() {
       continue;
     }
 
-    const byNormalizedTitle = topicsByCampus.get(row.campus)!;
+    const campusTopics = topicsByCampus.get(row.campus)!;
     const resolved = row.topics.map((title) => ({
       title,
-      result: resolveTopic(title, byNormalizedTitle),
+      result: resolveTopic(title, campusTopics.byNormalizedTitle),
     }));
 
     const matchedTopics = resolved.filter(
@@ -157,7 +199,10 @@ async function main() {
     const ambiguousTopics = resolved.filter((r) => r.result.status === "ambiguous");
 
     for (const u of unmatchedTopics) {
-      unmatched.push(`${rowLabel} -- "${u.title}"`);
+      const suggestions = suggestClosestTitles(u.title, campusTopics.all)
+        .map((s) => `"${s.title}" (${s.subject}, ${Math.round(s.score * 100)}%)`)
+        .join("  |  ");
+      unmatched.push(`${rowLabel} -- "${u.title}"  =>  closest: ${suggestions}`);
     }
     for (const a of ambiguousTopics) {
       const cand = (a.result as { status: "ambiguous"; candidates: TopicCandidate[] }).candidates;
