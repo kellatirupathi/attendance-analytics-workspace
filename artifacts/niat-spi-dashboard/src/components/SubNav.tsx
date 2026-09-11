@@ -68,15 +68,22 @@ export function attendanceStatsNav(
   ];
 }
 
-export function assessmentSubjectsPath(campus: string): string {
-  return `/dashboard/assessments/subjects?campus=${encodeURIComponent(campus)}`;
+export function assessmentSubjectsPath(
+  campus: string,
+  semester?: string,
+): string {
+  const params = new URLSearchParams({ campus });
+  if (semester) params.set("semester", semester);
+  return `/dashboard/assessments/subjects?${params.toString()}`;
 }
 
 export function assessmentStudentsPath(
   campus: string,
   subject: string,
+  semester?: string,
 ): string {
   const params = new URLSearchParams({ campus, subject });
+  if (semester) params.set("semester", semester);
   return `/dashboard/assessments/students?${params.toString()}`;
 }
 

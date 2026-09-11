@@ -630,14 +630,20 @@ router.get(
       campuses: session.campuses,
       subjects: session.subjects,
     });
-    const cacheKey = `assessment-campuses:${session.role}:${JSON.stringify(scope)}`;
+    const q = req.query as Record<string, string | undefined>;
+    const campus = q["campus"] || undefined;
+    const semester = q["semester"] || undefined;
+    const cacheKey = `assessment-campuses:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
       return;
     }
     try {
-      const campuses = await getAssessmentCampusSummary(scope);
+      const campuses = await getAssessmentCampusSummary(scope, {
+        campus,
+        semester,
+      });
       cacheSet(cacheKey, campuses, 60 * 1000);
       res.json(campuses);
     } catch (err) {
@@ -657,19 +663,21 @@ router.get(
       campuses: session.campuses,
       subjects: session.subjects,
     });
-    const campus = (req.query as Record<string, string | undefined>)["campus"];
+    const q = req.query as Record<string, string | undefined>;
+    const campus = q["campus"];
+    const semester = q["semester"] || undefined;
     if (!campus) {
       res.status(400).json({ error: "campus required" });
       return;
     }
-    const cacheKey = `assessment-subjects:${session.role}:${JSON.stringify(scope)}:${campus}`;
+    const cacheKey = `assessment-subjects:${session.role}:${JSON.stringify(scope)}:${campus}:${semester ?? ""}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
       return;
     }
     try {
-      const subjects = await getAssessmentSubjects(scope, { campus });
+      const subjects = await getAssessmentSubjects(scope, { campus, semester });
       cacheSet(cacheKey, subjects, 60 * 1000);
       res.json(subjects);
     } catch (err) {
@@ -692,12 +700,13 @@ router.get(
     const q = req.query as Record<string, string | undefined>;
     const campus = q["campus"] || undefined;
     const subject = q["subject"] || undefined;
+    const semester = q["semester"] || undefined;
     const search = q["search"] || undefined;
     const rawLimit = Number(q["limit"] ?? 2000);
     const limit = Number.isFinite(rawLimit)
       ? Math.min(Math.max(rawLimit, 1), 5000)
       : 2000;
-    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${subject ?? ""}:${search ?? ""}:${limit}`;
+    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${subject ?? ""}:${semester ?? ""}:${search ?? ""}:${limit}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -707,6 +716,7 @@ router.get(
       const students = await getAssessmentStudents(scope, {
         campus,
         subject,
+        semester,
         search,
         limit,
       });

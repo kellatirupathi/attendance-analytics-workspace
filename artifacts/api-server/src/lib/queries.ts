@@ -1250,6 +1250,12 @@ export interface AssessmentCountRow {
   moduleTotal: number;
   totalCompleted: number;
   totalAssigned: number;
+  classroomStudentCompleted: number;
+  classroomStudentTotal: number;
+  moduleStudentCompleted: number;
+  moduleStudentTotal: number;
+  classroomPct: number;
+  modulePct: number;
   completionPct: number;
 }
 
@@ -1275,35 +1281,121 @@ function mapAssessmentCounts(row: {
   cq_total: string;
   mq_completed: string;
   mq_total: string;
+  cq_student_completed?: string;
+  cq_student_total?: string;
+  mq_student_completed?: string;
+  mq_student_total?: string;
 }): AssessmentCountRow {
   const classroomCompleted = Number(row.cq_completed ?? 0);
   const classroomTotal = Number(row.cq_total ?? 0);
   const moduleCompleted = Number(row.mq_completed ?? 0);
   const moduleTotal = Number(row.mq_total ?? 0);
-  const totalCompleted = classroomCompleted + moduleCompleted;
-  const totalAssigned = classroomTotal + moduleTotal;
+  const classroomStudentCompleted = Number(
+    row.cq_student_completed ?? row.cq_completed ?? 0,
+  );
+  const classroomStudentTotal = Number(
+    row.cq_student_total ?? row.cq_total ?? 0,
+  );
+  const moduleStudentCompleted = Number(
+    row.mq_student_completed ?? row.mq_completed ?? 0,
+  );
+  const moduleStudentTotal = Number(row.mq_student_total ?? row.mq_total ?? 0);
   return {
     classroomCompleted,
     classroomTotal,
     moduleCompleted,
     moduleTotal,
-    totalCompleted,
-    totalAssigned,
-    completionPct: pct(totalCompleted, totalAssigned),
+    totalCompleted: classroomCompleted + moduleCompleted,
+    totalAssigned: classroomTotal + moduleTotal,
+    classroomStudentCompleted,
+    classroomStudentTotal,
+    moduleStudentCompleted,
+    moduleStudentTotal,
+    classroomPct: pct(classroomStudentCompleted, classroomStudentTotal),
+    modulePct: pct(moduleStudentCompleted, moduleStudentTotal),
+    completionPct: pct(
+      classroomStudentCompleted + moduleStudentCompleted,
+      classroomStudentTotal + moduleStudentTotal,
+    ),
   };
 }
 
+const SUBJECT_UNIQUE_SELECT = `LEAST(CAST(ROUND(AVG(cq_completed)) AS INT64), CAST(MAX(cq_total) AS INT64)) AS cq_completed,
+        CAST(MAX(cq_total) AS INT64) AS cq_total,
+        LEAST(CAST(ROUND(AVG(mq_completed)) AS INT64), CAST(MAX(mq_total) AS INT64)) AS mq_completed,
+        CAST(MAX(mq_total) AS INT64) AS mq_total,
+        SUM(cq_completed) AS cq_student_completed,
+        SUM(cq_total) AS cq_student_total,
+        SUM(mq_completed) AS mq_student_completed,
+        SUM(mq_total) AS mq_student_total`;
+
+interface AssessmentQueryOpts {
+  campus?: string;
+  semester?: string;
+}
+
+function assessmentScopeSql(
+  scope: SessionScope,
+  opts: AssessmentQueryOpts,
+  params: Record<string, unknown>,
+): { attWhere: string; quizWhere: string } {
+  const attWhere = scopeClause(scope, params, {
+    semester: opts.semester,
+  });
+  const quizWhere = quizScopeClause(scope, params, "q");
+  return { attWhere, quizWhere };
+}
+
+function assessmentEnrolledSql(attWhere: string, extra = ""): string {
+  return `enrolled AS (
+      SELECT DISTINCT
+        institute_name,
+        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+        subject_title
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${attWhere}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+        AND student_user_id IS NOT NULL
+        ${extra}
+    )`;
+}
+
+function assessmentQuizStudentSubjectSql(quizWhere: string): string {
+  return `quiz_student_subject AS (
+      SELECT
+        q.institute_name,
+        ${quizSubjectTitleSql("q")} AS subject_title,
+        q.user_id,
+        ${quizPivotSelect("q")}
+      FROM ${QUIZ_TABLE} q
+      INNER JOIN enrolled e
+        ON e.institute_name = q.institute_name
+       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
+      WHERE ${quizWhere}
+        AND q.institute_name IS NOT NULL
+        AND TRIM(q.institute_name) != ''
+      GROUP BY q.institute_name, subject_title, q.user_id
+    )`;
+}
+
 /**
- * Campus rollup of classroom + module quiz counts.
- * Campus list matches attendance (current semester), so campuses without
- * quiz rows still appear with zero counts — same 34 as the dashboard.
+ * Campus rollup: unique CQ/MQ counts (sum of per-subject typical quizzes)
+ * plus student completion % from all student-quiz assignments.
+ * Semester comes from attendance enrolment — the quiz table has no date.
  */
 export async function getAssessmentCampusSummary(
   scope: SessionScope,
+  opts: AssessmentQueryOpts = {},
 ): Promise<AssessmentCampusItem[]> {
   const params: Record<string, unknown> = {};
-  const attWhere = scopeClause(scope, params);
-  const quizWhere = quizScopeClause(scope, params);
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
+  let extra = "";
+  if (opts.campus) {
+    params["filterCampus"] = opts.campus;
+    extra += " AND institute_name = @filterCampus";
+  }
   const rows = await bqQuery<{
     institute_name: string;
     student_count: string;
@@ -1311,34 +1403,55 @@ export async function getAssessmentCampusSummary(
     cq_total: string;
     mq_completed: string;
     mq_total: string;
+    cq_student_completed: string;
+    cq_student_total: string;
+    mq_student_completed: string;
+    mq_student_total: string;
   }>(
-    `WITH campuses AS (
-      SELECT DISTINCT institute_name
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${attWhere}
-        AND institute_name IS NOT NULL
-        AND TRIM(institute_name) != ''
-    ),
-    quiz AS (
+    `WITH ${assessmentEnrolledSql(attWhere, extra)},
+    ${assessmentQuizStudentSubjectSql(quizWhere)},
+    subject_rollups AS (
       SELECT
         institute_name,
-        COUNT(DISTINCT user_id) AS student_count,
-        ${quizPivotSelect()}
-      FROM ${QUIZ_TABLE}
-      WHERE ${quizWhere}
-        AND institute_name IS NOT NULL
-        AND TRIM(institute_name) != ''
+        subject_title,
+        ${SUBJECT_UNIQUE_SELECT}
+      FROM quiz_student_subject
+      GROUP BY institute_name, subject_title
+    ),
+    campus_quiz AS (
+      SELECT
+        institute_name,
+        SUM(cq_completed) AS cq_completed,
+        SUM(cq_total) AS cq_total,
+        SUM(mq_completed) AS mq_completed,
+        SUM(mq_total) AS mq_total,
+        SUM(cq_student_completed) AS cq_student_completed,
+        SUM(cq_student_total) AS cq_student_total,
+        SUM(mq_student_completed) AS mq_student_completed,
+        SUM(mq_student_total) AS mq_student_total
+      FROM subject_rollups
+      GROUP BY institute_name
+    ),
+    campuses AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT student_key) AS student_count
+      FROM enrolled
       GROUP BY institute_name
     )
     SELECT
       campuses.institute_name,
-      IFNULL(quiz.student_count, 0) AS student_count,
-      IFNULL(quiz.cq_completed, 0) AS cq_completed,
-      IFNULL(quiz.cq_total, 0) AS cq_total,
-      IFNULL(quiz.mq_completed, 0) AS mq_completed,
-      IFNULL(quiz.mq_total, 0) AS mq_total
+      campuses.student_count,
+      IFNULL(campus_quiz.cq_completed, 0) AS cq_completed,
+      IFNULL(campus_quiz.cq_total, 0) AS cq_total,
+      IFNULL(campus_quiz.mq_completed, 0) AS mq_completed,
+      IFNULL(campus_quiz.mq_total, 0) AS mq_total,
+      IFNULL(campus_quiz.cq_student_completed, 0) AS cq_student_completed,
+      IFNULL(campus_quiz.cq_student_total, 0) AS cq_student_total,
+      IFNULL(campus_quiz.mq_student_completed, 0) AS mq_student_completed,
+      IFNULL(campus_quiz.mq_student_total, 0) AS mq_student_total
     FROM campuses
-    LEFT JOIN quiz ON quiz.institute_name = campuses.institute_name
+    LEFT JOIN campus_quiz ON campus_quiz.institute_name = campuses.institute_name
     ORDER BY campuses.institute_name`,
     params,
   );
@@ -1349,14 +1462,14 @@ export async function getAssessmentCampusSummary(
   }));
 }
 
-/** Subject rollup of classroom + module quiz counts at one campus. */
+/** Subject rollup of unique quiz counts and student completion at one campus. */
 export async function getAssessmentSubjects(
   scope: SessionScope,
-  opts: { campus: string },
+  opts: { campus: string; semester?: string },
 ): Promise<AssessmentSubjectItem[]> {
   const params: Record<string, unknown> = { filterCampus: opts.campus };
-  const where = quizScopeClause(scope, params);
-  const subjectTitle = quizSubjectTitleSql();
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
+  const extra = " AND institute_name = @filterCampus";
   const rows = await bqQuery<{
     subject_title: string;
     student_count: string;
@@ -1364,16 +1477,41 @@ export async function getAssessmentSubjects(
     cq_total: string;
     mq_completed: string;
     mq_total: string;
+    cq_student_completed: string;
+    cq_student_total: string;
+    mq_student_completed: string;
+    mq_student_total: string;
   }>(
-    `SELECT
-      ${subjectTitle} AS subject_title,
-      COUNT(DISTINCT user_id) AS student_count,
-      ${quizPivotSelect()}
-    FROM ${QUIZ_TABLE}
-    WHERE ${where}
-      AND institute_name = @filterCampus
-    GROUP BY subject_title
-    ORDER BY subject_title`,
+    `WITH ${assessmentEnrolledSql(attWhere, extra)},
+    ${assessmentQuizStudentSubjectSql(quizWhere)},
+    subjects AS (
+      SELECT
+        subject_title,
+        COUNT(DISTINCT student_key) AS student_count
+      FROM enrolled
+      GROUP BY subject_title
+    ),
+    subject_quiz AS (
+      SELECT
+        subject_title,
+        ${SUBJECT_UNIQUE_SELECT}
+      FROM quiz_student_subject
+      GROUP BY subject_title
+    )
+    SELECT
+      subjects.subject_title,
+      subjects.student_count,
+      IFNULL(subject_quiz.cq_completed, 0) AS cq_completed,
+      IFNULL(subject_quiz.cq_total, 0) AS cq_total,
+      IFNULL(subject_quiz.mq_completed, 0) AS mq_completed,
+      IFNULL(subject_quiz.mq_total, 0) AS mq_total,
+      IFNULL(subject_quiz.cq_student_completed, 0) AS cq_student_completed,
+      IFNULL(subject_quiz.cq_student_total, 0) AS cq_student_total,
+      IFNULL(subject_quiz.mq_student_completed, 0) AS mq_student_completed,
+      IFNULL(subject_quiz.mq_student_total, 0) AS mq_student_total
+    FROM subjects
+    LEFT JOIN subject_quiz ON subject_quiz.subject_title = subjects.subject_title
+    ORDER BY subjects.subject_title`,
     params,
   );
   return rows.map((r) => ({
@@ -1383,18 +1521,19 @@ export async function getAssessmentSubjects(
   }));
 }
 
-/** Per-student classroom + module quiz counts. Names come from attendance. */
+/** Per-student classroom + module quiz counts, scoped to attendance semester. */
 export async function getAssessmentStudents(
   scope: SessionScope,
   opts: {
     campus?: string;
     subject?: string;
+    semester?: string;
     search?: string;
     limit?: number;
   } = {},
 ): Promise<AssessmentStudentItem[]> {
   const params: Record<string, unknown> = {};
-  const where = quizScopeClause(scope, params);
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
   let extra = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
@@ -1402,13 +1541,13 @@ export async function getAssessmentStudents(
   }
   if (opts.subject) {
     params["subject"] = opts.subject;
-    extra += ` AND ${quizMatchesSubjectSql("@subject")}`;
+    extra += " AND subject_title = @subject";
   }
   let searchFilter = "";
   if (opts.search) {
     params["q"] = `%${opts.search}%`;
     searchFilter =
-      "AND (LOWER(COALESCE(names.student_name, '')) LIKE LOWER(@q) OR LOWER(CAST(quiz.user_id AS STRING)) LIKE LOWER(@q))";
+      "AND (LOWER(COALESCE(names.student_name, '')) LIKE LOWER(@q) OR LOWER(CAST(enrolled.student_key AS STRING)) LIKE LOWER(@q))";
   }
   const safeLimit = Math.min(opts.limit ?? 2000, 5000);
   const rows = await bqQuery<{
@@ -1421,43 +1560,53 @@ export async function getAssessmentStudents(
     mq_completed: string;
     mq_total: string;
   }>(
-    `WITH quiz AS (
-      SELECT
-        user_id,
-        ANY_VALUE(institute_name) AS institute_name,
-        ${quizPivotSelect()}
-      FROM ${QUIZ_TABLE}
-      WHERE ${where}${extra}
-      GROUP BY user_id
-    ),
+    `WITH ${assessmentEnrolledSql(attWhere, extra)},
     names AS (
       SELECT
         LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS section_name
       FROM ${ATTENDANCE_TABLE}
-      WHERE student_name IS NOT NULL
+      WHERE ${attWhere}
+        AND student_name IS NOT NULL
         AND TRIM(student_name) != ''
+        ${extra}
       GROUP BY 1
+    ),
+    quiz AS (
+      SELECT
+        q.user_id,
+        ANY_VALUE(q.institute_name) AS institute_name,
+        ${quizPivotSelect("q")}
+      FROM ${QUIZ_TABLE} q
+      INNER JOIN enrolled e
+        ON e.institute_name = q.institute_name
+       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
+      WHERE ${quizWhere}
+      GROUP BY q.user_id
     )
     SELECT
-      CAST(quiz.user_id AS STRING) AS student_user_id,
+      enrolled.student_key AS student_user_id,
       COALESCE(names.student_name, '') AS student_name,
-      quiz.institute_name,
+      enrolled.institute_name,
       names.section_name,
-      quiz.cq_completed,
-      quiz.cq_total,
-      quiz.mq_completed,
-      quiz.mq_total
-    FROM quiz
-    LEFT JOIN names
-      ON names.student_key = LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
+      IFNULL(quiz.cq_completed, 0) AS cq_completed,
+      IFNULL(quiz.cq_total, 0) AS cq_total,
+      IFNULL(quiz.mq_completed, 0) AS mq_completed,
+      IFNULL(quiz.mq_total, 0) AS mq_total
+    FROM (
+      SELECT DISTINCT student_key, institute_name FROM enrolled
+    ) enrolled
+    LEFT JOIN names ON names.student_key = enrolled.student_key
+    LEFT JOIN quiz
+      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', '')) = enrolled.student_key
     WHERE TRUE
       ${searchFilter}
     ORDER BY
       SAFE_DIVIDE(
-        quiz.cq_completed + quiz.mq_completed,
-        quiz.cq_total + quiz.mq_total
+        IFNULL(quiz.cq_completed, 0) + IFNULL(quiz.mq_completed, 0),
+        IFNULL(quiz.cq_total, 0) + IFNULL(quiz.mq_total, 0)
       ) ASC,
       student_name
     LIMIT ${safeLimit}`,
