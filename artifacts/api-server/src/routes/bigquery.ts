@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { requireSession } from "../lib/auth.js";
-import { listDatasets, listTables, getTablePreview } from "../lib/bigquery.js";
+import {
+  listDatasets,
+  listTables,
+  getTablePreview,
+  getDatasetCatalog,
+} from "../lib/bigquery.js";
 
 const router = Router();
 
@@ -33,6 +38,20 @@ router.get("/tables", async (req, res): Promise<void> => {
     res.json(tables);
   } catch {
     res.status(500).json({ error: "Failed to list tables" });
+  }
+});
+
+router.get("/catalog", async (req, res): Promise<void> => {
+  const dataset = req.query["dataset"] as string;
+  if (!dataset) {
+    res.status(400).json({ error: "dataset required" });
+    return;
+  }
+  try {
+    const catalog = await getDatasetCatalog(dataset);
+    res.json(catalog);
+  } catch {
+    res.status(500).json({ error: "Failed to list tables and columns" });
   }
 });
 

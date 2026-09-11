@@ -178,18 +178,113 @@ export async function listTables(
 ): Promise<Array<{ tableId: string; kind: string }>> {
   if (!/^[A-Za-z0-9_]+$/.test(dataset)) throw new Error("Invalid dataset name");
   const token = await getAccessToken();
+  const tables: Array<{ tableId: string; kind: string }> = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_PROJECT_ID}/datasets/${dataset}/tables`,
+    );
+    url.searchParams.set("maxResults", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to list tables");
+    const data = (await res.json()) as {
+      tables?: Array<{ tableReference: { tableId: string }; type: string }>;
+      nextPageToken?: string;
+    };
+    for (const t of data.tables ?? []) {
+      tables.push({
+        tableId: t.tableReference.tableId,
+        kind: t.type ?? "TABLE",
+      });
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return tables.sort((a, b) => a.tableId.localeCompare(b.tableId));
+}
+
+export interface CatalogColumn {
+  name: string;
+  type: string;
+}
+
+export interface CatalogTable {
+  tableId: string;
+  kind: string;
+  columns: CatalogColumn[];
+}
+
+/** Every table/view in a dataset plus every column from INFORMATION_SCHEMA. */
+export async function getDatasetCatalog(dataset: string): Promise<CatalogTable[]> {
+  if (!/^[A-Za-z0-9_]+$/.test(dataset)) throw new Error("Invalid dataset name");
+  const [tables, colRows] = await Promise.all([
+    listTables(dataset),
+    bqQuery<{ table_name: string; column_name: string; data_type: string }>(
+      `SELECT table_name, column_name, data_type
+       FROM \`${BQ_PROJECT_ID}.${dataset}.INFORMATION_SCHEMA.COLUMNS\`
+       ORDER BY table_name, ordinal_position`,
+    ),
+  ]);
+  const colsByTable = new Map<string, CatalogColumn[]>();
+  for (const row of colRows) {
+    const list = colsByTable.get(row.table_name) ?? [];
+    list.push({ name: row.column_name, type: row.data_type });
+    colsByTable.set(row.table_name, list);
+  }
+  return tables.map((t) => ({
+    tableId: t.tableId,
+    kind: t.kind,
+    columns: colsByTable.get(t.tableId) ?? [],
+  }));
+}
+
+interface BqSchemaField {
+  name: string;
+  type?: string;
+  fields?: BqSchemaField[];
+}
+
+function flattenSchemaFields(
+  fields: BqSchemaField[],
+  prefix = "",
+): CatalogColumn[] {
+  const out: CatalogColumn[] = [];
+  for (const field of fields) {
+    const name = prefix ? `${prefix}.${field.name}` : field.name;
+    if (field.type === "RECORD" && field.fields && field.fields.length > 0) {
+      out.push(...flattenSchemaFields(field.fields, name));
+    } else {
+      out.push({ name, type: field.type ?? "STRING" });
+    }
+  }
+  return out;
+}
+
+export async function getTableSchema(
+  dataset: string,
+  table: string,
+  options: { flatten?: boolean } = {},
+): Promise<CatalogColumn[]> {
+  if (!/^[A-Za-z0-9_]+$/.test(dataset) || !/^[A-Za-z0-9_]+$/.test(table)) {
+    throw new Error("Invalid dataset or table name");
+  }
+  const token = await getAccessToken();
   const res = await fetch(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_PROJECT_ID}/datasets/${dataset}/tables`,
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_PROJECT_ID}/datasets/${dataset}/tables/${table}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  if (!res.ok) throw new Error("Failed to list tables");
-  const data = (await res.json()) as {
-    tables?: Array<{ tableReference: { tableId: string }; type: string }>;
-  };
-  return (data.tables ?? []).map((t) => ({
-    tableId: t.tableReference.tableId,
-    kind: t.type ?? "TABLE",
-  }));
+  if (!res.ok) throw new Error("Failed to load table schema");
+  const data = (await res.json()) as { schema?: { fields?: BqSchemaField[] } };
+  const fields = data.schema?.fields ?? [];
+  if (options.flatten === false) {
+    return fields.map((field) => ({
+      name: field.name,
+      type: field.type ?? "STRING",
+    }));
+  }
+  return flattenSchemaFields(fields);
 }
 
 export async function getTablePreview(
@@ -230,7 +325,7 @@ export async function getTablePreview(
     }
   }
 
-  const [rows, countRows] = await Promise.all([
+  const [rows, countRows, schemaCols] = await Promise.all([
     bqQuery(
       `SELECT * FROM ${fqTable} ${whereClause} LIMIT ${safeLimit} OFFSET ${safeOffset}`,
       params,
@@ -239,9 +334,12 @@ export async function getTablePreview(
       `SELECT COUNT(*) AS n FROM ${fqTable} ${whereClause}`,
       params,
     ),
+    getTableSchema(dataset, table, { flatten: false }),
   ]);
 
-  const columns = rows.length > 0 ? Object.keys(rows[0]!) : [];
+  const schemaNames = schemaCols.map((c) => c.name);
+  const rowColumns = rows.length > 0 ? Object.keys(rows[0]!) : [];
+  const columns = schemaNames.length > 0 ? schemaNames : rowColumns;
   const totalRows = Number(countRows[0]?.n ?? rows.length);
   return { columns, rows, totalRows };
 }

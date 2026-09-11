@@ -28,13 +28,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TablePagination } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
+import { ErrorState } from "@/components/PageStates";
 import { exportCsv } from "@/lib/csv";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
-import { cn } from "@/lib/utils";
 import {
   Database,
   GraduationCap,
   BookOpenCheck,
+  ListOrdered,
   ChevronRight,
   SlidersHorizontal,
   Search,
@@ -42,32 +43,51 @@ import {
   Table as TableIcon,
 } from "lucide-react";
 
-/* The only two tables this platform reads from. Both live in the same
- * BigQuery dataset. */
 const DATASET = "niat_post_onboarding_engagement_ai_analytics_workspace";
 
-const TABLES = [
+const TABLE_META: Record<
+  string,
   {
-    key: "attendance",
+    label: string;
+    description: string;
+    icon: typeof TableIcon;
+    tint: string;
+    accent: string;
+  }
+> = {
+  z_niat_student_session_wise_attendance_details: {
     label: "Attendance",
     description: "Session-wise attendance details",
-    table: "z_niat_student_session_wise_attendance_details",
     icon: GraduationCap,
     tint: "#eff6ff",
     accent: "#2563eb",
   },
-  {
-    key: "quizzes",
+  z_niat_students_classroom_and_module_quiz_details: {
     label: "Classroom & Module Quizzes",
     description: "Quiz performance details",
-    table: "z_niat_students_classroom_and_module_quiz_details",
     icon: BookOpenCheck,
     tint: "#fff3ea",
     accent: "#F25C05",
   },
-] as const;
+  niat_schedule_details_as_per_prod_sequence: {
+    label: "Prod Sequence",
+    description: "Scheduled lectures as per production sequence",
+    icon: ListOrdered,
+    tint: "#f0fdf4",
+    accent: "#16a34a",
+  },
+};
 
-type TableDef = (typeof TABLES)[number];
+interface CatalogColumn {
+  name: string;
+  type: string;
+}
+
+interface CatalogTable {
+  tableId: string;
+  kind: string;
+  columns: CatalogColumn[];
+}
 
 interface PreviewResponse {
   columns: string[];
@@ -75,9 +95,6 @@ interface PreviewResponse {
   totalRows: number;
 }
 
-/* A column qualifies for a dropdown (categorical) filter when it has a small
- * number of distinct non-empty values across the previewed rows. Higher
- * cardinality columns get a free-text "contains" filter instead. */
 const CATEGORICAL_MAX_DISTINCT = 25;
 
 function formatColumnLabel(col: string): string {
@@ -88,13 +105,18 @@ function formatColumnLabel(col: string): string {
     .join(" ");
 }
 
+function formatTableLabel(tableId: string): string {
+  return TABLE_META[tableId]?.label ?? formatColumnLabel(tableId);
+}
+
 function cellText(value: unknown): string {
   if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
 export default function BigQueryExplorer() {
-  const [openTable, setOpenTable] = useState<TableDef | null>(null);
+  const [openTable, setOpenTable] = useState<CatalogTable | null>(null);
 
   if (!openTable) {
     return <TableListView onOpen={setOpenTable} />;
@@ -102,97 +124,187 @@ export default function BigQueryExplorer() {
   return <TableDataView table={openTable} onBack={() => setOpenTable(null)} />;
 }
 
-/* ------------------------------------------------------------------ */
-/* List view — single-column list of tables                          */
-/* ------------------------------------------------------------------ */
-function TableListView({ onOpen }: { onOpen: (t: TableDef) => void }) {
+function TableListView({ onOpen }: { onOpen: (t: CatalogTable) => void }) {
+  const [tables, setTables] = useState<CatalogTable[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setError(false);
+    fetch(`/api/bigquery/catalog?dataset=${encodeURIComponent(DATASET)}`, {
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: CatalogTable[]) => {
+        if (alive) setTables(data ?? []);
+      })
+      .catch(() => {
+        if (alive) {
+          setTables([]);
+          setError(true);
+        }
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return tables;
+    return tables.filter(
+      (t) =>
+        t.tableId.toLowerCase().includes(q) ||
+        formatTableLabel(t.tableId).toLowerCase().includes(q) ||
+        t.columns.some((c) => c.name.toLowerCase().includes(q)),
+    );
+  }, [tables, search]);
+
   return (
     <div className="flex flex-col">
       <PageHeader
         badge="Superadmin"
         title="Data Explorer"
-        subtitle="Read-only access to the platform's source data tables."
+        subtitle="Read-only access to every table and column in the BigQuery dataset."
       />
+
+      <div className="mb-3">
+        <div className="relative max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            placeholder="Search tables or columns…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 border-gray-200 pl-9"
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="mb-4">
+          <ErrorState message="Failed to load BigQuery tables." />
+        </div>
+      )}
 
       <div className="overflow-hidden border-y border-slate-200 bg-white">
         <div className="flex items-center gap-2 border-b border-gray-100 px-5 py-3.5">
           <Database className="h-4 w-4 text-gray-500" />
           <h2 className="text-sm font-bold text-gray-900">Tables</h2>
           <span className="ml-auto rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
-            {TABLES.length}
+            {loading ? "…" : filtered.length}
           </span>
         </div>
-        <ul>
-          {TABLES.map((t) => (
-            <li key={t.key}>
-              <button
-                onClick={() => onOpen(t)}
-                className="group flex w-full items-center gap-4 border-b border-gray-100 px-5 py-4 text-left transition-colors last:border-0 hover:bg-gray-50/70"
-              >
-                <span
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-                  style={{ background: t.tint }}
-                >
-                  <t.icon
-                    className="h-[20px] w-[20px]"
-                    style={{ color: t.accent }}
-                  />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-gray-900 group-hover:text-brand-700">
-                    {t.label}
-                  </p>
-                </div>
-                <span className="hidden text-xs text-gray-400 sm:block">
-                  {t.description}
-                </span>
-                <ChevronRight className="h-5 w-5 shrink-0 text-gray-300 transition-colors group-hover:text-brand-500" />
-              </button>
-            </li>
-          ))}
-        </ul>
+        {loading ? (
+          <div className="space-y-3 p-5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="px-5 py-12 text-center text-sm text-gray-500">
+            No tables found in this dataset.
+          </p>
+        ) : (
+          <ul>
+            {filtered.map((t) => {
+              const meta = TABLE_META[t.tableId];
+              const Icon = meta?.icon ?? TableIcon;
+              return (
+                <li key={t.tableId}>
+                  <button
+                    onClick={() => onOpen(t)}
+                    className="group flex w-full items-start gap-4 border-b border-gray-100 px-5 py-4 text-left transition-colors last:border-0 hover:bg-gray-50/70"
+                  >
+                    <span
+                      className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+                      style={{ background: meta?.tint ?? "#f8fafc" }}
+                    >
+                      <Icon
+                        className="h-[20px] w-[20px]"
+                        style={{ color: meta?.accent ?? "#64748b" }}
+                      />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-gray-900 group-hover:text-brand-700">
+                          {formatTableLabel(t.tableId)}
+                        </p>
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                          {t.kind === "VIEW" ? "View" : "Table"}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {t.columns.length} column
+                          {t.columns.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 font-mono text-[11px] text-gray-400">
+                        {t.tableId}
+                      </p>
+                      {t.columns.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {t.columns.map((col) => (
+                            <span
+                              key={col.name}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] text-gray-600"
+                              title={col.type}
+                            >
+                              {col.name}
+                              <span className="text-gray-400">{col.type}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <ChevronRight className="mt-2 h-5 w-5 shrink-0 text-gray-300 transition-colors group-hover:text-brand-500" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Data view — full-page table + right-side filter panel             */
-/* ------------------------------------------------------------------ */
 function TableDataView({
   table,
   onBack,
 }: {
-  table: TableDef;
+  table: CatalogTable;
   onBack: () => void;
 }) {
-  // Pagination — server-side, so we walk the whole table page by page.
+  const label = formatTableLabel(table.tableId);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
-  const [columns, setColumns] = useState<string[]>([]);
+  const [columns, setColumns] = useState<string[]>(
+    table.columns.map((c) => c.name),
+  );
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [totalRows, setTotalRows] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Global text search — server-side across the entire table.
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 350);
 
-  // Reset to page 1 when search changes.
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
 
-  // Fetch the current page from BigQuery (with total count) whenever the
-  // table, page, or page size changes.
   useEffect(() => {
     let alive = true;
     setIsLoading(true);
     const offset = (page - 1) * pageSize;
     const params = new URLSearchParams({
       dataset: DATASET,
-      table: table.table,
+      table: table.tableId,
       limit: String(pageSize),
       offset: String(offset),
     });
@@ -205,13 +317,17 @@ function TableDataView({
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data: PreviewResponse) => {
         if (!alive) return;
-        setColumns(data.columns ?? []);
+        setColumns(
+          data.columns?.length
+            ? data.columns
+            : table.columns.map((c) => c.name),
+        );
         setRows(data.rows ?? []);
         setTotalRows(data.totalRows ?? data.rows?.length ?? 0);
       })
       .catch(() => {
         if (!alive) return;
-        setColumns([]);
+        setColumns(table.columns.map((c) => c.name));
         setRows([]);
         setTotalRows(0);
       })
@@ -221,22 +337,15 @@ function TableDataView({
     return () => {
       alive = false;
     };
-  }, [table.table, page, pageSize, debouncedSearch]);
+  }, [table.tableId, table.columns, page, pageSize, debouncedSearch]);
 
-  // Per-column applied filters. Value "all" = no filter.
-  // Categorical columns store an exact value; free-text columns store a
-  // "contains" substring.
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
-
-  // Draft state edited inside the drawer, committed on Apply.
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftSearch, setDraftSearch] = useState("");
   const [draftColFilters, setDraftColFilters] = useState<
     Record<string, string>
   >({});
 
-  // Classify each column as categorical (dropdown) or free-text, and collect
-  // distinct values for the categorical ones — derived from the loaded rows.
   const columnMeta = useMemo(() => {
     return columns.map((col) => {
       const distinct = new Set<string>();
@@ -277,8 +386,6 @@ function TableDataView({
     });
   }, [rows, colFilters, columnMeta]);
 
-  // Server-side pagination: totalPages spans the whole table. The current
-  // page's rows come from the server; client search/filters narrow within it.
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const currentPage = Math.min(page, totalPages);
   const pagedRows = filteredRows;
@@ -292,7 +399,7 @@ function TableDataView({
   const handleExport = () => {
     if (columns.length === 0 || filteredRows.length === 0) return;
     exportCsv(
-      `${table.key}.csv`,
+      `${table.tableId}.csv`,
       columns,
       filteredRows.map((row: Record<string, unknown>) =>
         columns.map((col: string) => cellText(row[col])),
@@ -326,18 +433,19 @@ function TableDataView({
       <PageBreadcrumb
         items={[
           { label: "Data Explorer", onClick: onBack },
-          { label: table.label, current: true },
+          { label, current: true },
         ]}
       />
 
       <PageHeader
-        title={table.label}
+        title={label}
+        subtitle={`${table.columns.length} column${table.columns.length === 1 ? "" : "s"} · ${table.tableId}`}
         right={
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
-                placeholder="Search name, student ID, user ID…"
+                placeholder="Search across columns…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 border-gray-200 pl-9"
@@ -380,7 +488,21 @@ function TableDataView({
         }
       />
 
-      {/* ===== Full-height data table ===== */}
+      {table.columns.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {table.columns.map((col) => (
+            <span
+              key={col.name}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-gray-600"
+              title={col.type}
+            >
+              {col.name}
+              <span className="text-gray-400">{col.type}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-y border-slate-200 bg-white">
         {isLoading ? (
           <div className="space-y-4 p-4">
@@ -388,7 +510,7 @@ function TableDataView({
               <Skeleton key={i} className="h-8 w-full" />
             ))}
           </div>
-        ) : columns.length === 0 ? (
+        ) : columns.length === 0 && rows.length === 0 ? (
           <div className="flex h-full items-center justify-center p-12 text-center text-gray-500">
             No data found in this table.
           </div>
@@ -400,20 +522,20 @@ function TableDataView({
                   No rows match your filters.
                 </div>
               ) : (
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb]">
-                  <TableRow>
-                    {columns.map((col) => (
-                      <TableHead
-                        key={col}
-                        className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-gray-500"
-                      >
-                        {formatColumnLabel(col)}
-                      </TableHead>
-                    ))}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb]">
+                    <TableRow>
+                      {columns.map((col) => (
+                        <TableHead
+                          key={col}
+                          className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-gray-500"
+                        >
+                          {formatColumnLabel(col)}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {pagedRows.map((row: Record<string, unknown>, i: number) => (
                       <TableRow key={i} className="hover:bg-gray-50/70">
                         {columns.map((col: string) => (
@@ -427,8 +549,8 @@ function TableDataView({
                         ))}
                       </TableRow>
                     ))}
-                </TableBody>
-              </Table>
+                  </TableBody>
+                </Table>
               )}
             </div>
 
@@ -457,20 +579,18 @@ function TableDataView({
         )}
       </div>
 
-      {/* ===== Right-side filter panel ===== */}
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
         <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Filters</SheetTitle>
             <SheetDescription>
               Filter the loaded rows of{" "}
-              <span className="font-medium">{table.label}</span> by any column.
+              <span className="font-medium">{label}</span> by any column.
               Filters apply to the current page only.
             </SheetDescription>
           </SheetHeader>
 
           <div className="flex-1 space-y-5 overflow-y-auto py-6">
-            {/* Global search */}
             <div className="space-y-1.5">
               <Label>Search all columns</Label>
               <div className="relative">
@@ -486,7 +606,6 @@ function TableDataView({
 
             <div className="border-t border-gray-100" />
 
-            {/* Per-column filters */}
             {columnMeta.map((meta) => (
               <div key={meta.col} className="space-y-1.5">
                 <Label className="flex items-center gap-1.5">
