@@ -17,6 +17,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import {
   CalendarPlus,
   CheckCircle2,
@@ -66,6 +67,14 @@ interface RecoveryProgress {
   sessionsCancelled: number;
   lastSession: { date: string; topics: string[] } | null;
   nextScheduled: { date: string; topics: string[] } | null;
+}
+
+interface CampusInstructor {
+  instructorUserId: string;
+  employeeId: string;
+  name: string;
+  category: string;
+  role: string;
 }
 
 interface SubjectProdSequenceItem {
@@ -742,10 +751,56 @@ export default function RecoverySubjectDetail() {
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleStartTime, setScheduleStartTime] = useState("");
   const [scheduleEndTime, setScheduleEndTime] = useState("");
-  const [scheduleInstructor, setScheduleInstructor] = useState("");
+  const [scheduleInstructorUserId, setScheduleInstructorUserId] = useState("");
   const [scheduleStudentsExpected, setScheduleStudentsExpected] = useState("");
   const [scheduleTopics, setScheduleTopics] = useState<Set<string>>(new Set());
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
+
+  const [instructorRoster, setInstructorRoster] = useState<CampusInstructor[] | null>(null);
+  const [instructorRosterLoading, setInstructorRosterLoading] = useState(false);
+  const [instructorRosterError, setInstructorRosterError] = useState("");
+
+  useEffect(() => {
+    if (!campus) return;
+    const controller = new AbortController();
+    let active = true;
+
+    async function fetchInstructors() {
+      setInstructorRosterLoading(true);
+      setInstructorRosterError("");
+      try {
+        const response = await fetch(
+          `/api/dashboard/recovery-instructors?${new URLSearchParams({ campus: campus! })}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error("Failed to load instructor list");
+        const data = (await response.json()) as CampusInstructor[];
+        if (active) setInstructorRoster(data);
+      } catch (err) {
+        if (!active || (err instanceof DOMException && err.name === "AbortError")) return;
+        setInstructorRosterError(
+          err instanceof Error ? err.message : "Failed to load instructor list",
+        );
+      } finally {
+        if (active) setInstructorRosterLoading(false);
+      }
+    }
+
+    fetchInstructors();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [campus]);
+
+  const instructorOptions = useMemo(
+    () =>
+      (instructorRoster ?? []).map((i) => ({
+        value: i.instructorUserId,
+        label: i.employeeId ? `${i.name} — ${i.employeeId}` : i.name,
+      })),
+    [instructorRoster],
+  );
 
   useEffect(() => {
     if (!campus) return;
@@ -954,7 +1009,7 @@ export default function RecoverySubjectDetail() {
     setScheduleDate("");
     setScheduleStartTime("");
     setScheduleEndTime("");
-    setScheduleInstructor("");
+    setScheduleInstructorUserId("");
     setScheduleStudentsExpected("");
     setScheduleTopics(new Set());
   }
@@ -979,8 +1034,11 @@ export default function RecoverySubjectDetail() {
       toast({ variant: "destructive", title: "Pick a date for the session" });
       return;
     }
-    if (!scheduleInstructor.trim()) {
-      toast({ variant: "destructive", title: "Enter an instructor name" });
+    const selectedInstructor = (instructorRoster ?? []).find(
+      (i) => i.instructorUserId === scheduleInstructorUserId,
+    );
+    if (!selectedInstructor) {
+      toast({ variant: "destructive", title: "Select an instructor" });
       return;
     }
     if (scheduleTopics.size === 0) {
@@ -998,7 +1056,9 @@ export default function RecoverySubjectDetail() {
           scheduledDate: scheduleDate,
           startTime: scheduleStartTime || undefined,
           endTime: scheduleEndTime || undefined,
-          instructorName: scheduleInstructor.trim(),
+          instructorName: selectedInstructor.name,
+          instructorUserId: selectedInstructor.instructorUserId,
+          employeeId: selectedInstructor.employeeId || undefined,
           studentsExpected: scheduleStudentsExpected
             ? Number(scheduleStudentsExpected)
             : undefined,
@@ -1574,11 +1634,21 @@ export default function RecoverySubjectDetail() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="schedule-instructor">Instructor</Label>
-                <Input
-                  id="schedule-instructor"
-                  placeholder="Instructor name"
-                  value={scheduleInstructor}
-                  onChange={(e) => setScheduleInstructor(e.target.value)}
+                <SearchableSelect
+                  value={scheduleInstructorUserId}
+                  onValueChange={setScheduleInstructorUserId}
+                  options={instructorOptions}
+                  placeholder={
+                    instructorRosterLoading
+                      ? "Loading instructors…"
+                      : instructorRosterError
+                        ? "Couldn't load instructors"
+                        : "Select instructor…"
+                  }
+                  searchPlaceholder="Search by name or employee ID…"
+                  emptyText="No active instructors found for this campus."
+                  disabled={instructorRosterLoading || !!instructorRosterError}
+                  className="w-full"
                 />
               </div>
               <div className="space-y-1.5">

@@ -173,6 +173,16 @@ export const recoverySessionsTable = pgTable(
     instructorId: uuid("instructor_id").references(() => usersTable.id),
     /** Free text: backup instructors are not always platform users. */
     instructorName: text("instructor_name").notNull().default(""),
+    /**
+     * Identity from BigQuery's `niat_instructor_details` roster (the NxtWave
+     * employee id, e.g. "NW0004304", and that system's own instructor_user_id)
+     * -- populated when the session was booked through the scheduler's
+     * instructor picker, which sources from that roster. Deliberately not a
+     * foreign key: these ids live in a different system than `instructorId`
+     * above, which points at this app's own `users` table.
+     */
+    employeeId: text("employee_id"),
+    bigqueryInstructorUserId: text("bigquery_instructor_user_id"),
     instructorType: recoveryInstructorTypeEnum("instructor_type")
       .notNull()
       .default("unknown"),

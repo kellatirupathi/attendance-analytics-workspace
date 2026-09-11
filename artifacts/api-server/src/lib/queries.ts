@@ -2,6 +2,7 @@ import {
   bqQuery,
   pct,
   PROD_SEQUENCE_TABLE,
+  INSTRUCTOR_DETAILS_TABLE,
   validateStudentId,
   normalizeStudentId,
 } from "./bigquery.js";
@@ -2464,6 +2465,52 @@ export async function getRecoveryProgress(
   };
 }
 
+export interface CampusInstructor {
+  /** instructor_user_id from niat_instructor_details -- a different id space than this app's own users.id. */
+  instructorUserId: string;
+  /** nw_instructor_id, e.g. "NW0004304". */
+  employeeId: string;
+  name: string;
+  category: string;
+  role: string;
+}
+
+/**
+ * Active instructor roster for one campus, from BigQuery's
+ * `niat_instructor_details` -- the same dataset every other recovery/
+ * attendance query already reads from, so no extra access is needed. This is
+ * the authoritative "who's on staff here" list the scheduler's instructor
+ * picker draws from, distinct from `campus_instructors` (a CDU-only, manually
+ * seeded roster used just for classifying historical sessions as campus vs
+ * backup).
+ */
+export async function getCampusInstructorRoster(
+  campus: string,
+): Promise<CampusInstructor[]> {
+  const rows = await bqQuery<{
+    instructor_user_id: string;
+    nw_instructor_id: string;
+    instructor_name: string;
+    instructor_category: string;
+    instructor_role: string;
+  }>(
+    `SELECT instructor_user_id, nw_instructor_id, instructor_name, instructor_category, instructor_role
+     FROM ${INSTRUCTOR_DETAILS_TABLE}
+     WHERE institute_name = @campus AND instructor_status = 'ACTIVE'
+     ORDER BY instructor_name`,
+    { campus },
+  );
+  return rows
+    .filter((row) => row.instructor_user_id && row.instructor_name)
+    .map((row) => ({
+      instructorUserId: row.instructor_user_id,
+      employeeId: row.nw_instructor_id ?? "",
+      name: row.instructor_name,
+      category: row.instructor_category ?? "",
+      role: row.instructor_role ?? "",
+    }));
+}
+
 export interface ScheduleRecoverySessionInput {
   campus: string;
   /** Already resolved to the curriculum/recovery subject, not the raw BigQuery subject_title. */
@@ -2473,6 +2520,9 @@ export interface ScheduleRecoverySessionInput {
   startTime?: string;
   endTime?: string;
   instructorName: string;
+  /** Set when the instructor was chosen from the BigQuery roster picker rather than typed free text. */
+  instructorUserId?: string;
+  employeeId?: string;
   studentsExpected?: number;
   /** Topic titles as shown in the session tracker; matched against recovery_topics. */
   topicTitles: string[];
@@ -2487,6 +2537,7 @@ export interface ScheduledRecoverySession {
   startTime: string;
   endTime: string;
   instructorName: string;
+  employeeId: string | null;
   status: string;
   topicsScheduled: string[];
 }
@@ -2548,6 +2599,8 @@ export async function scheduleRecoverySession(
         subject: input.subject,
         section,
         instructorName: input.instructorName,
+        bigqueryInstructorUserId: input.instructorUserId,
+        employeeId: input.employeeId,
         instructorType: "unknown",
         scheduledDate: input.scheduledDate,
         startTime: input.startTime ?? "",
@@ -2619,6 +2672,7 @@ export async function scheduleRecoverySession(
       startTime: created.startTime,
       endTime: created.endTime,
       instructorName: created.instructorName,
+      employeeId: created.employeeId,
       status: created.status,
       topicsScheduled: uniqueTitles,
     },

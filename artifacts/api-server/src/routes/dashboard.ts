@@ -15,6 +15,7 @@ import {
   getAttendanceBySessionId,
   getProdSequenceSessionTracker,
   scheduleRecoverySession,
+  getCampusInstructorRoster,
   getAssessmentCampusSummary,
   getAssessmentSubjects,
   getAssessmentStudents,
@@ -533,6 +534,50 @@ router.get(
   },
 );
 
+// Active instructor roster for one campus, sourced from BigQuery's
+// niat_instructor_details -- what the scheduler's instructor picker lists.
+router.get(
+  "/recovery-instructors",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    if (session.role === "instructor") {
+      res.status(403).json({
+        error: "Instructors can only view their assigned recovery sessions",
+      });
+      return;
+    }
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const campus = (req.query["campus"] as string | undefined) ?? "";
+    if (!campus) {
+      res.status(400).json({ error: "campus required" });
+      return;
+    }
+    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+      res.status(403).json({ error: "Not permitted for this campus" });
+      return;
+    }
+    const cacheKey = `recovery-instructors:${campus}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const instructors = await getCampusInstructorRoster(campus);
+      cacheSet(cacheKey, instructors, 5 * 60 * 1000);
+      res.json(instructors);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching campus instructor roster");
+      res.status(500).json({ error: "Failed to fetch instructor roster" });
+    }
+  },
+);
+
 // Books a future recovery session for a set of not-yet-recovered topics.
 // campus/subject follow the same conventions as session-tracker above: the
 // caller passes the raw BigQuery subject_title, which is resolved here to
@@ -561,6 +606,8 @@ router.post(
       startTime?: string;
       endTime?: string;
       instructorName?: string;
+      instructorUserId?: string;
+      employeeId?: string;
       studentsExpected?: number;
       topicTitles?: string[];
     };
@@ -616,6 +663,8 @@ router.post(
         startTime: body.startTime,
         endTime: body.endTime,
         instructorName,
+        instructorUserId: body.instructorUserId || undefined,
+        employeeId: body.employeeId || undefined,
         studentsExpected,
         topicTitles,
       });
