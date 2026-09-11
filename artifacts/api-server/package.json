@@ -12,7 +12,8 @@
     "seed": "pnpm run build && node --enable-source-maps ./dist/seed.mjs",
     "seed:recovery": "pnpm run build && node --enable-source-maps ./dist/seed-recovery.mjs",
     "sync:recovery-curriculum": "pnpm run build && node --enable-source-maps ./dist/sync-recovery-curriculum.mjs",
-    "reset:cdu-recovery": "pnpm run build && node --enable-source-maps ./dist/reset-cdu-recovery-data.mjs"
+    "reset:cdu-recovery": "pnpm run build && node --enable-source-maps ./dist/reset-cdu-recovery-data.mjs",
+    "import:recovery-history": "pnpm run build && node --enable-source-maps ./dist/import-historical-recovery-sessions.mjs"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",

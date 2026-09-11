@@ -22,6 +22,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/seed-recovery.ts"),
       path.resolve(artifactDir, "src/sync-recovery-curriculum.ts"),
       path.resolve(artifactDir, "src/reset-cdu-recovery-data.ts"),
+      path.resolve(artifactDir, "src/import-historical-recovery-sessions.ts"),
     ],
     platform: "node",
     bundle: true,
