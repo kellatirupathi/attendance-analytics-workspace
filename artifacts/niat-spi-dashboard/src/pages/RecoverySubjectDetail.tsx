@@ -7,7 +7,6 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  CalendarDays,
   CheckCircle2,
   Clock3,
   Download,
@@ -486,20 +485,8 @@ export default function RecoverySubjectDetail() {
           aria-label="Recovery progress summary"
           className="rounded-xl border border-slate-200 bg-white shadow-sm p-5"
         >
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
-            <div className="flex items-center gap-3 pt-4 lg:pt-0">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
-                <CalendarDays className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Sessions held</p>
-                <p className="text-2xl font-bold text-slate-900 tabular-nums">
-                  {recoveryProgress.sessionsHeld}
-                </p>
-              </div>
-            </div>
-
-            <div className="lg:pl-6 pt-4 lg:pt-0 min-w-0 flex flex-col justify-center">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+            <div className="pt-4 lg:pt-0 min-w-0 flex flex-col justify-center">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
@@ -1104,20 +1091,8 @@ export default function RecoverySubjectDetail() {
           aria-label="Recovery progress summary"
           className="rounded-xl border border-slate-200 bg-white shadow-sm p-5"
         >
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
-            <div className="flex items-center gap-3 pt-4 lg:pt-0">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
-                <CalendarDays className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Sessions held</p>
-                <p className="text-2xl font-bold text-slate-900 tabular-nums">
-                  {recoveryProgress.sessionsHeld}
-                </p>
-              </div>
-            </div>
-
-            <div className="lg:pl-6 pt-4 lg:pt-0 min-w-0 flex flex-col justify-center">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+            <div className="pt-4 lg:pt-0 min-w-0 flex flex-col justify-center">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
