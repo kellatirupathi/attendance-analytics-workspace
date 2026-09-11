@@ -68,6 +68,14 @@ export function attendanceStatsNav(
   ];
 }
 
+export function assessmentsPath(campus?: string, semester?: string): string {
+  const params = new URLSearchParams();
+  if (campus && campus !== "all") params.set("campus", campus);
+  if (semester) params.set("semester", semester);
+  const query = params.toString();
+  return query ? `/dashboard/assessments?${query}` : "/dashboard/assessments";
+}
+
 export function assessmentSubjectsPath(
   campus: string,
   semester?: string,

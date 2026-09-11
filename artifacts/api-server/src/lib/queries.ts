@@ -1262,6 +1262,7 @@ export interface AssessmentCountRow {
 export interface AssessmentCampusItem extends AssessmentCountRow {
   instituteName: string;
   studentCount: number;
+  subjectCount: number;
 }
 
 export interface AssessmentSubjectItem extends AssessmentCountRow {
@@ -1399,6 +1400,7 @@ export async function getAssessmentCampusSummary(
   const rows = await bqQuery<{
     institute_name: string;
     student_count: string;
+    subject_count: string;
     cq_completed: string;
     cq_total: string;
     mq_completed: string;
@@ -1435,13 +1437,15 @@ export async function getAssessmentCampusSummary(
     campuses AS (
       SELECT
         institute_name,
-        COUNT(DISTINCT student_key) AS student_count
+        COUNT(DISTINCT student_key) AS student_count,
+        COUNT(DISTINCT subject_title) AS subject_count
       FROM enrolled
       GROUP BY institute_name
     )
     SELECT
       campuses.institute_name,
       campuses.student_count,
+      campuses.subject_count,
       IFNULL(campus_quiz.cq_completed, 0) AS cq_completed,
       IFNULL(campus_quiz.cq_total, 0) AS cq_total,
       IFNULL(campus_quiz.mq_completed, 0) AS mq_completed,
@@ -1458,6 +1462,7 @@ export async function getAssessmentCampusSummary(
   return rows.map((r) => ({
     instituteName: r.institute_name,
     studentCount: Number(r.student_count),
+    subjectCount: Number(r.subject_count),
     ...mapAssessmentCounts(r),
   }));
 }

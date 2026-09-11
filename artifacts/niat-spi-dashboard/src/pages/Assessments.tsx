@@ -18,6 +18,7 @@ import { TableShell, TablePagination } from "@/components/DataTable";
 import {
   assessmentStudentsPath,
   assessmentSubjectsPath,
+  assessmentsPath,
 } from "@/components/SubNav";
 import {
   SearchableSelect,
@@ -39,6 +40,112 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const PAGE_SIZES = [25, 50, 100];
 const FETCH_LIMIT = 5000;
+const CURRENT_SEMESTER = "current";
+
+function useCampusNames() {
+  const [names, setNames] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/dashboard/filters", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: { campuses?: string[] }) => {
+        if (alive) setNames(data.campuses ?? []);
+      })
+      .catch(() => {
+        if (alive) setNames([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return names;
+}
+
+function withCurrentCampus(names: string[], campus: string) {
+  if (!campus || campus === "all" || names.includes(campus)) return names;
+  return [campus, ...names];
+}
+
+function filterContext(campus: string, semester: string, extras: string[] = []) {
+  const campusLabel = !campus || campus === "all" ? "All campuses" : campus;
+  const semesterLabel = semester || "Current semester";
+  return [campusLabel, semesterLabel, ...extras.filter(Boolean)].join(" · ");
+}
+
+function useSemesters(campus: string) {
+  const [semesters, setSemesters] = useState<string[]>([]);
+  useEffect(() => {
+    if (!campus || campus === "all") {
+      setSemesters([]);
+      return;
+    }
+    let alive = true;
+    fetch(
+      `/api/attendance/recovery/semesters?campus=${encodeURIComponent(campus)}`,
+      { credentials: "include" },
+    )
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: string[]) => {
+        if (alive) setSemesters(data ?? []);
+      })
+      .catch(() => {
+        if (alive) setSemesters([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [campus]);
+  return semesters;
+}
+
+function AssessmentFilters({
+  campus,
+  semester,
+  campusNames,
+  semesters,
+  hideCampus,
+  onCampusChange,
+  onSemesterChange,
+}: {
+  campus: string;
+  semester: string;
+  campusNames: string[];
+  semesters: string[];
+  hideCampus?: boolean;
+  onCampusChange: (campus: string) => void;
+  onSemesterChange: (semester: string) => void;
+}) {
+  const campusAll = !campus || campus === "all";
+  return (
+    <>
+      {!hideCampus && (
+        <SearchableSelect
+          value={campusAll ? "all" : campus}
+          onValueChange={onCampusChange}
+          options={campusSelectOptions(campusNames)}
+          placeholder="All campuses"
+          searchPlaceholder="Search campuses…"
+          className="w-[220px]"
+          disabled={campusNames.length === 0}
+        />
+      )}
+      <SearchableSelect
+        value={semester || CURRENT_SEMESTER}
+        onValueChange={(value) =>
+          onSemesterChange(value === CURRENT_SEMESTER ? "" : value)
+        }
+        options={[
+          { value: CURRENT_SEMESTER, label: "Current semester" },
+          ...semesters.map((s) => ({ value: s, label: s })),
+        ]}
+        placeholder="Current semester"
+        searchPlaceholder="Search semesters…"
+        className="w-[220px]"
+        disabled={campusAll || semesters.length === 0}
+      />
+    </>
+  );
+}
 
 interface AssessmentCounts {
   classroomCompleted: number;
@@ -59,6 +166,7 @@ interface AssessmentCounts {
 interface AssessmentCampus extends AssessmentCounts {
   instituteName: string;
   studentCount: number;
+  subjectCount: number;
 }
 
 interface AssessmentSubject extends AssessmentCounts {
@@ -86,52 +194,25 @@ function CampusList() {
   const { user } = useAuth();
   const isBoa = user?.role === "boa";
   const [, setLocation] = useLocation();
+  const query = useQueryParams();
+  const campusFilter = query.get("campus") || "all";
+  const semester = campusFilter === "all" ? "" : (query.get("semester") ?? "");
+  const campusNames = useCampusNames();
+  const semesters = useSemesters(campusFilter);
   const [rows, setRows] = useState<AssessmentCampus[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
-  const [campusFilter, setCampusFilter] = useState("all");
-  const [campusNames, setCampusNames] = useState<string[]>([]);
-  const [semesters, setSemesters] = useState<string[]>([]);
-  const [semester, setSemester] = useState("");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
 
   useEffect(() => {
     if (isBoa && user?.campuses?.length === 1 && user.campuses[0]) {
-      setLocation(assessmentSubjectsPath(user.campuses[0]));
+      setLocation(
+        assessmentSubjectsPath(user.campuses[0], semester || undefined),
+      );
     }
-  }, [isBoa, user?.campuses, setLocation]);
-
-  useEffect(() => {
-    if (campusFilter === "all") {
-      setSemesters([]);
-      setSemester("");
-      return;
-    }
-    let alive = true;
-    fetch(
-      `/api/attendance/recovery/semesters?campus=${encodeURIComponent(campusFilter)}`,
-      { credentials: "include" },
-    )
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: string[]) => {
-        if (!alive) return;
-        const list = data ?? [];
-        setSemesters(list);
-        setSemester((prev) =>
-          prev && list.includes(prev) ? prev : (list[0] ?? ""),
-        );
-      })
-      .catch(() => {
-        if (alive) {
-          setSemesters([]);
-          setSemester("");
-        }
-      });
-    return () => {
-      alive = false;
-    };
-  }, [campusFilter]);
+  }, [isBoa, user?.campuses, semester, setLocation]);
 
   useEffect(() => {
     let alive = true;
@@ -151,11 +232,7 @@ function CampusList() {
     )
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data: AssessmentCampus[]) => {
-        if (!alive) return;
-        setRows(data ?? []);
-        if (campusFilter === "all") {
-          setCampusNames((data ?? []).map((c) => c.instituteName));
-        }
+        if (alive) setRows(data ?? []);
       })
       .catch(() => {
         if (alive) {
@@ -182,51 +259,52 @@ function CampusList() {
     page,
     pageSize,
   );
+  const selected = campusFilter === "all" ? null : filtered[0];
+  const studentTotal = filtered.reduce((sum, row) => sum + row.studentCount, 0);
+  const names = campusNames.length
+    ? campusNames
+    : rows.map((c) => c.instituteName);
 
   return (
     <div className="flex flex-col">
       <PageHeader
         title="Assessments"
-        subtitle="Unique classroom and module quiz counts by campus. Percentages are overall student completion. Skill and Final are not in the warehouse yet. Pick a campus to filter by semester."
+        subtitle={filterContext(
+          campusFilter,
+          semester,
+          selected
+            ? [
+                `${selected.studentCount.toLocaleString()} students`,
+                `${selected.subjectCount.toLocaleString()} subjects`,
+              ]
+            : campusFilter === "all" && !loading
+              ? [
+                  `${filtered.length.toLocaleString()} campuses`,
+                  `${studentTotal.toLocaleString()} students`,
+                ]
+              : [],
+        )}
       />
       <Toolbar
         showSearch={false}
         extraFilter={
-          <>
-            {!(isBoa && user?.campuses?.length === 1) ? (
-              <SearchableSelect
-                value={campusFilter}
-                onValueChange={(value) => {
-                  setCampusFilter(value);
-                  setPage(1);
-                }}
-                options={campusSelectOptions(
-                  campusNames.length
-                    ? campusNames
-                    : rows.map((c) => c.instituteName),
-                )}
-                placeholder="All campuses"
-                searchPlaceholder="Search campuses…"
-                className="w-[220px]"
-                disabled={loading && campusNames.length === 0}
-              />
-            ) : null}
-            <SearchableSelect
-              value={semester || "current"}
-              onValueChange={(value) => {
-                setSemester(value === "current" ? "" : value);
-                setPage(1);
-              }}
-              options={[
-                { value: "current", label: "Current semester" },
-                ...semesters.map((s) => ({ value: s, label: s })),
-              ]}
-              placeholder="Current semester"
-              searchPlaceholder="Search semesters…"
-              className="w-[220px]"
-              disabled={campusFilter === "all" || semesters.length === 0}
-            />
-          </>
+          <AssessmentFilters
+            campus={campusFilter}
+            semester={semester}
+            campusNames={names}
+            semesters={semesters}
+            hideCampus={hideCampus}
+            onCampusChange={(value) => {
+              setPage(1);
+              setLocation(assessmentsPath(value === "all" ? undefined : value));
+            }}
+            onSemesterChange={(next) => {
+              setPage(1);
+              setLocation(
+                assessmentsPath(campusFilter, next || undefined),
+              );
+            }}
+          />
         }
         loading={loading}
         exportDisabled={filtered.length === 0 || loading}
@@ -236,10 +314,11 @@ function CampusList() {
             [
               "Campus",
               "Students",
-              "Classroom unique completed",
-              "Classroom unique assigned",
-              "Module unique completed",
-              "Module unique assigned",
+              "Subjects",
+              "CQ unique completed",
+              "CQ unique assigned",
+              "MQ unique completed",
+              "MQ unique assigned",
               "CQ student %",
               "MQ student %",
               "Overall student %",
@@ -247,6 +326,7 @@ function CampusList() {
             filtered.map((c) => [
               c.instituteName,
               c.studentCount,
+              c.subjectCount,
               c.classroomCompleted,
               c.classroomTotal,
               c.moduleCompleted,
@@ -279,7 +359,7 @@ function CampusList() {
           setLocation(
             assessmentSubjectsPath(
               c.instituteName,
-              campusFilter === c.instituteName ? semester : undefined,
+              campusFilter === c.instituteName ? semester || undefined : undefined,
             ),
           )
         }
@@ -301,49 +381,28 @@ function CampusList() {
 }
 
 function SubjectList() {
+  const { user } = useAuth();
+  const isBoa = user?.role === "boa";
   const [, setLocation] = useLocation();
   const query = useQueryParams();
   const campus = query.get("campus") ?? "";
-  const semesterParam = query.get("semester") ?? "";
+  const semester = query.get("semester") ?? "";
+  const campusNames = useCampusNames();
+  const semesters = useSemesters(campus);
   const [rows, setRows] = useState<AssessmentSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
   const [search, setSearch] = useState("");
-  const [semesters, setSemesters] = useState<string[]>([]);
-  const [semester, setSemester] = useState(semesterParam);
   const debouncedSearch = useDebounceValue(search, 300);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
 
   useEffect(() => {
     if (!campus) {
-      setLocation("/dashboard/assessments");
+      setLocation(assessmentsPath());
     }
   }, [campus, setLocation]);
-
-  useEffect(() => {
-    if (!campus) return;
-    let alive = true;
-    fetch(
-      `/api/attendance/recovery/semesters?campus=${encodeURIComponent(campus)}`,
-      { credentials: "include" },
-    )
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: string[]) => {
-        if (!alive) return;
-        const list = data ?? [];
-        setSemesters(list);
-        setSemester((prev) =>
-          prev && list.includes(prev) ? prev : (list[0] ?? ""),
-        );
-      })
-      .catch(() => {
-        if (alive) setSemesters([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [campus]);
 
   useEffect(() => {
     if (!campus) return;
@@ -385,6 +444,10 @@ function SubjectList() {
     page,
     pageSize,
   );
+  const studentCount = filtered.reduce(
+    (max, row) => Math.max(max, row.studentCount),
+    0,
+  );
 
   return (
     <div className="flex flex-col">
@@ -392,36 +455,49 @@ function SubjectList() {
         items={[
           {
             label: "Assessments",
-            onClick: () => setLocation("/dashboard/assessments"),
+            onClick: () => setLocation(assessmentsPath()),
           },
           { label: campus, current: true },
         ]}
       />
       <PageHeader
         title={campus || "Subjects"}
-        subtitle="Unique classroom and module quiz counts by subject. Percentages are overall student completion. Total is CQ + MQ only."
+        subtitle={filterContext(
+          campus,
+          semester,
+          loading
+            ? []
+            : [
+                studentCount
+                  ? `${studentCount.toLocaleString()} students`
+                  : "",
+                `${filtered.length.toLocaleString()} subjects`,
+              ],
+        )}
       />
       <Toolbar
         search={search}
         searchPlaceholder="Search subjects…"
         showSearch
         extraFilter={
-          <SearchableSelect
-            value={semester || "current"}
-            onValueChange={(value) => {
-              const next = value === "current" ? "" : value;
-              setSemester(next);
+          <AssessmentFilters
+            campus={campus}
+            semester={semester}
+            campusNames={withCurrentCampus(campusNames, campus)}
+            semesters={semesters}
+            hideCampus={hideCampus}
+            onCampusChange={(value) => {
+              setPage(1);
+              if (value === "all") {
+                setLocation(assessmentsPath());
+                return;
+              }
+              setLocation(assessmentSubjectsPath(value));
+            }}
+            onSemesterChange={(next) => {
               setPage(1);
               setLocation(assessmentSubjectsPath(campus, next || undefined));
             }}
-            options={[
-              { value: "current", label: "Current semester" },
-              ...semesters.map((s) => ({ value: s, label: s })),
-            ]}
-            placeholder="Semester"
-            searchPlaceholder="Search semesters…"
-            className="w-[220px]"
-            disabled={semesters.length === 0}
           />
         }
         loading={loading}
@@ -436,10 +512,10 @@ function SubjectList() {
             [
               "Subject",
               "Students",
-              "Classroom unique completed",
-              "Classroom unique assigned",
-              "Module unique completed",
-              "Module unique assigned",
+              "CQ unique completed",
+              "CQ unique assigned",
+              "MQ unique completed",
+              "MQ unique assigned",
               "CQ student %",
               "MQ student %",
               "Overall student %",
@@ -477,7 +553,11 @@ function SubjectList() {
         studentsOf={(s) => s.studentCount}
         onRowClick={(s) =>
           setLocation(
-            assessmentStudentsPath(campus, s.subjectTitle, semester || undefined),
+            assessmentStudentsPath(
+              campus,
+              s.subjectTitle,
+              semester || undefined,
+            ),
           )
         }
         pagination={{
@@ -498,11 +578,15 @@ function SubjectList() {
 }
 
 function StudentList() {
+  const { user } = useAuth();
+  const isBoa = user?.role === "boa";
   const [, setLocation] = useLocation();
   const query = useQueryParams();
   const campus = query.get("campus") ?? "";
   const subject = query.get("subject") ?? "";
   const semester = query.get("semester") ?? "";
+  const campusNames = useCampusNames();
+  const semesters = useSemesters(campus);
   const [rows, setRows] = useState<AssessmentStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
@@ -510,10 +594,11 @@ function StudentList() {
   const debouncedSearch = useDebounceValue(search, 300);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
 
   useEffect(() => {
     if (!campus) {
-      setLocation("/dashboard/assessments");
+      setLocation(assessmentsPath());
       return;
     }
     if (!subject) {
@@ -577,7 +662,7 @@ function StudentList() {
         items={[
           {
             label: "Assessments",
-            onClick: () => setLocation("/dashboard/assessments"),
+            onClick: () => setLocation(assessmentsPath()),
           },
           {
             label: campus,
@@ -589,12 +674,41 @@ function StudentList() {
       />
       <PageHeader
         title={subject || "Students"}
-        subtitle={`Students in ${campus}${semester ? ` · ${semester}` : ""}. Counts are this student's completed / assigned. Total is CQ + MQ only.`}
+        subtitle={filterContext(
+          campus,
+          semester,
+          loading
+            ? [subject]
+            : [subject, `${filtered.length.toLocaleString()} students`],
+        )}
       />
       <Toolbar
         search={search}
         searchPlaceholder="Search student name or ID…"
         showSearch
+        extraFilter={
+          <AssessmentFilters
+            campus={campus}
+            semester={semester}
+            campusNames={withCurrentCampus(campusNames, campus)}
+            semesters={semesters}
+            hideCampus={hideCampus}
+            onCampusChange={(value) => {
+              setPage(1);
+              if (value === "all") {
+                setLocation(assessmentsPath());
+                return;
+              }
+              setLocation(assessmentSubjectsPath(value));
+            }}
+            onSemesterChange={(next) => {
+              setPage(1);
+              setLocation(
+                assessmentStudentsPath(campus, subject, next || undefined),
+              );
+            }}
+          />
+        }
         loading={loading}
         exportDisabled={filtered.length === 0 || loading}
         onSearch={(value) => {
@@ -608,12 +722,12 @@ function StudentList() {
               "Student name",
               "Student ID",
               "Section",
-              "Classroom completed",
-              "Classroom total",
-              "Module completed",
-              "Module total",
-              "Total completed (CQ + MQ)",
-              "Total assigned (CQ + MQ)",
+              "CQ completed",
+              "CQ assigned",
+              "MQ completed",
+              "MQ assigned",
+              "Total completed",
+              "Total assigned",
               "CQ student %",
               "MQ student %",
               "Overall student %",
@@ -648,7 +762,7 @@ function StudentList() {
           </h2>
           <p className="mt-0.5 text-xs text-gray-500">
             {filtered.length.toLocaleString()} student
-            {filtered.length === 1 ? "" : "s"} · incomplete first
+            {filtered.length === 1 ? "" : "s"} · this student's completed / assigned · incomplete first
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -658,14 +772,12 @@ function StudentList() {
                 <Th>Student name</Th>
                 <Th>Student ID</Th>
                 <Th>Section</Th>
-                <Th className="text-right">Classroom quizzes</Th>
-                <Th className="text-right">Module quizzes</Th>
-                <Th className="text-right">Skills</Th>
-                <Th className="text-right">Final</Th>
-                <Th className="text-right">Total (CQ + MQ)</Th>
+                <Th className="text-right">CQ</Th>
+                <Th className="text-right">MQ</Th>
+                <Th className="text-right">Total</Th>
                 <Th className="text-right">CQ %</Th>
                 <Th className="text-right">MQ %</Th>
-                <Th className="w-[180px] text-right">Overall</Th>
+                <Th className="w-[180px] text-right">Overall %</Th>
                 <Th className="w-20 text-right">SPI</Th>
               </TableRow>
             </TableHeader>
@@ -673,7 +785,7 @@ function StudentList() {
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={12}>
+                    <TableCell colSpan={10}>
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
@@ -681,7 +793,7 @@ function StudentList() {
               ) : paged.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={12}
+                    colSpan={10}
                     className="h-32 text-center text-gray-500"
                   >
                     No students found for this subject.
@@ -717,12 +829,6 @@ function StudentList() {
                         completed={s.moduleCompleted}
                         total={s.moduleTotal}
                       />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <SoonCell />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <SoonCell />
                     </TableCell>
                     <TableCell className="text-right">
                       <CountCell
@@ -935,14 +1041,12 @@ function CountTable<T extends AssessmentCounts>({
             <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
               <Th>{firstColumn}</Th>
               <Th className="text-right">Students</Th>
-              <Th className="text-right">Classroom quizzes</Th>
-              <Th className="text-right">Module quizzes</Th>
-              <Th className="text-right">Skills</Th>
-              <Th className="text-right">Final</Th>
-              <Th className="text-right">Total (CQ + MQ)</Th>
+              <Th className="text-right">CQ</Th>
+              <Th className="text-right">MQ</Th>
+              <Th className="text-right">Total</Th>
               <Th className="text-right">CQ %</Th>
               <Th className="text-right">MQ %</Th>
-              <Th className="w-[160px] text-right">Overall</Th>
+              <Th className="w-[160px] text-right">Overall %</Th>
               <Th className="w-10" />
             </TableRow>
           </TableHeader>
@@ -950,14 +1054,14 @@ function CountTable<T extends AssessmentCounts>({
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={11}>
+                  <TableCell colSpan={9}>
                     <Skeleton className="h-8 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={11} className="h-32 text-center text-gray-500">
+                <TableCell colSpan={9} className="h-32 text-center text-gray-500">
                   {empty}
                 </TableCell>
               </TableRow>
@@ -985,12 +1089,6 @@ function CountTable<T extends AssessmentCounts>({
                       completed={row.moduleCompleted}
                       total={row.moduleTotal}
                     />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <SoonCell />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <SoonCell />
                   </TableCell>
                   <TableCell className="text-right">
                     <CountCell
@@ -1057,6 +1155,13 @@ function SummaryStrip({
         studentPct={totals.modulePct}
         uniqueCounts={uniqueCounts}
       />
+      <Kpi
+        label="Total (CQ + MQ)"
+        completed={totals.totalCompleted}
+        total={totals.totalAssigned}
+        studentPct={totals.completionPct}
+        uniqueCounts={uniqueCounts}
+      />
       <div className="bg-white px-4 py-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
           Skills assessments
@@ -1073,13 +1178,6 @@ function SummaryStrip({
           <Lock className="h-3.5 w-3.5" /> Coming soon
         </p>
       </div>
-      <Kpi
-        label="Total (CQ + MQ)"
-        completed={totals.totalCompleted}
-        total={totals.totalAssigned}
-        studentPct={totals.completionPct}
-        uniqueCounts={uniqueCounts}
-      />
     </div>
   );
 }
@@ -1109,8 +1207,10 @@ function Kpi({
           / {total.toLocaleString()}
         </span>
       </p>
-      {uniqueCounts && (
+      {uniqueCounts ? (
         <p className="mt-0.5 text-[11px] text-gray-400">Unique quizzes</p>
+      ) : (
+        <p className="mt-0.5 text-[11px] text-gray-400">Student work</p>
       )}
       <p
         className="mt-0.5 text-xs font-medium tabular-nums"
@@ -1134,24 +1234,12 @@ function CountCell({
   if (total <= 0) {
     return <span className="text-gray-400">—</span>;
   }
-  const pctVal = Math.round((completed / total) * 1000) / 10;
   return (
     <span className="tabular-nums">
-      <span className="font-semibold" style={{ color: pctTextColor(pctVal) }}>
+      <span className="font-semibold text-gray-900">
         {completed.toLocaleString()}
       </span>
       <span className="text-gray-400"> / {total.toLocaleString()}</span>
-    </span>
-  );
-}
-
-function SoonCell() {
-  return (
-    <span
-      className="text-xs font-medium text-gray-300"
-      title="Not in BigQuery yet"
-    >
-      —
     </span>
   );
 }
