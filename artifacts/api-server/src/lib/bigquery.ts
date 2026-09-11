@@ -162,15 +162,26 @@ export async function bqQuery<T = Record<string, unknown>>(
 
 export async function listDatasets(): Promise<string[]> {
   const token = await getAccessToken();
-  const res = await fetch(
-    `https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_PROJECT_ID}/datasets`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!res.ok) throw new Error("Failed to list datasets");
-  const data = (await res.json()) as {
-    datasets?: Array<{ datasetReference: { datasetId: string } }>;
-  };
-  return (data.datasets ?? []).map((d) => d.datasetReference.datasetId);
+  const ids: string[] = [];
+  let pageToken: string | undefined;
+  do {
+    const url = new URL(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${BQ_PROJECT_ID}/datasets`,
+    );
+    url.searchParams.set("maxResults", "1000");
+    if (pageToken) url.searchParams.set("pageToken", pageToken);
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Failed to list datasets");
+    const data = (await res.json()) as {
+      datasets?: Array<{ datasetReference: { datasetId: string } }>;
+      nextPageToken?: string;
+    };
+    ids.push(...(data.datasets ?? []).map((d) => d.datasetReference.datasetId));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+  return ids;
 }
 
 export async function listTables(
