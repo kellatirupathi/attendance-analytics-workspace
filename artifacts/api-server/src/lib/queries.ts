@@ -2010,10 +2010,9 @@ export async function getSessionTracker(
     const progressStatus = progressByTopic.get(topic.id)?.status;
 
     let status: SessionTrackerStatus;
-    if (!delivered || attendancePct === null) {
+    if (!delivered) {
       status = "not_taught";
-    } else if (attendancePct >= 80) {
-      status = "ok";
+    
     } else if (progressStatus === "completed") {
       status = "recovered";
     } else if (progressStatus === "scheduled") {
@@ -2378,8 +2377,8 @@ export async function getRecoverySessionTracker(
     const progress = progressByTopic.get(topic.id);
 
     let status: SessionTrackerStatus;
-    if (attendancePct === null) status = "not_taught";
-    else if (attendancePct >= 80) status = "ok";
+    if (!delivered) status = "not_taught";
+    
     else if (progress === "completed") status = "recovered";
     else if (progress === "scheduled") status = "recovery_scheduled";
     else status = "needs_recovery";
