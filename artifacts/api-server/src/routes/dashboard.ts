@@ -502,7 +502,7 @@ router.get(
 
     const curriculumSubject =
       BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject];
-    if (!curriculumSubject) {
+    if (!bigQuerySubject) {
       res.status(404).json({
         error: "Recovery curriculum not configured for this subject",
       });
