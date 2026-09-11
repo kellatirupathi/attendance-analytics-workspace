@@ -16,6 +16,7 @@ import {
   getProdSequenceSessionTracker,
   scheduleRecoverySession,
   getCampusInstructorRoster,
+  getAllActiveInstructors,
   getAssessmentCampusSummary,
   getAssessmentSubjects,
   getAssessmentStudents,
@@ -547,28 +548,41 @@ router.get(
       });
       return;
     }
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
+    // `all=true` is the "backup instructor" escape hatch: when a campus's own
+    // roster can't cover a session, the BOA team needs to see every active
+    // instructor, not just this campus's own. Deliberately not scope-checked
+    // against the requester's own campuses -- browsing names for a backup
+    // pick doesn't touch any campus's data, and the session itself (which
+    // *is* scope-checked) still records its own campus separately.
+    const showAll = req.query["all"] === "true";
     const campus = (req.query["campus"] as string | undefined) ?? "";
-    if (!campus) {
-      res.status(400).json({ error: "campus required" });
-      return;
+    if (!showAll) {
+      const scope = scopeForSession({
+        role: session.role as Role,
+        campuses: session.campuses,
+        subjects: session.subjects,
+      });
+      if (!campus) {
+        res.status(400).json({ error: "campus required" });
+        return;
+      }
+      if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+        res.status(403).json({ error: "Not permitted for this campus" });
+        return;
+      }
     }
-    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
-      res.status(403).json({ error: "Not permitted for this campus" });
-      return;
-    }
-    const cacheKey = `recovery-instructors:${campus}`;
+    const cacheKey = showAll
+      ? "recovery-instructors:__all__"
+      : `recovery-instructors:${campus}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
       return;
     }
     try {
-      const instructors = await getCampusInstructorRoster(campus);
+      const instructors = showAll
+        ? await getAllActiveInstructors()
+        : await getCampusInstructorRoster(campus);
       cacheSet(cacheKey, instructors, 5 * 60 * 1000);
       res.json(instructors);
     } catch (err) {
@@ -608,6 +622,7 @@ router.post(
       instructorName?: string;
       instructorUserId?: string;
       employeeId?: string;
+      isBackupInstructor?: boolean;
       studentsExpected?: number;
       topicTitles?: string[];
     };
@@ -665,6 +680,7 @@ router.post(
         instructorName,
         instructorUserId: body.instructorUserId || undefined,
         employeeId: body.employeeId || undefined,
+        isBackupInstructor: !!body.isBackupInstructor,
         studentsExpected,
         topicTitles,
       });

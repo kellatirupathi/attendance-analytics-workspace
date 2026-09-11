@@ -2473,6 +2473,32 @@ export interface CampusInstructor {
   name: string;
   category: string;
   role: string;
+  /** institute_name from niat_instructor_details -- which campus this instructor is on staff at. */
+  institute: string;
+}
+
+const INSTRUCTOR_ROSTER_COLUMNS = `instructor_user_id, nw_instructor_id, instructor_name, instructor_category, instructor_role, institute_name`;
+
+function mapInstructorRosterRows(
+  rows: Array<{
+    instructor_user_id: string;
+    nw_instructor_id: string;
+    instructor_name: string;
+    instructor_category: string;
+    instructor_role: string;
+    institute_name: string;
+  }>,
+): CampusInstructor[] {
+  return rows
+    .filter((row) => row.instructor_user_id && row.instructor_name)
+    .map((row) => ({
+      instructorUserId: row.instructor_user_id,
+      employeeId: row.nw_instructor_id ?? "",
+      name: row.instructor_name,
+      category: row.instructor_category ?? "",
+      role: row.instructor_role ?? "",
+      institute: row.institute_name ?? "",
+    }));
 }
 
 /**
@@ -2493,22 +2519,39 @@ export async function getCampusInstructorRoster(
     instructor_name: string;
     instructor_category: string;
     instructor_role: string;
+    institute_name: string;
   }>(
-    `SELECT instructor_user_id, nw_instructor_id, instructor_name, instructor_category, instructor_role
+    `SELECT ${INSTRUCTOR_ROSTER_COLUMNS}
      FROM ${INSTRUCTOR_DETAILS_TABLE}
      WHERE institute_name = @campus AND instructor_status = 'ACTIVE'
      ORDER BY instructor_name`,
     { campus },
   );
-  return rows
-    .filter((row) => row.instructor_user_id && row.instructor_name)
-    .map((row) => ({
-      instructorUserId: row.instructor_user_id,
-      employeeId: row.nw_instructor_id ?? "",
-      name: row.instructor_name,
-      category: row.instructor_category ?? "",
-      role: row.instructor_role ?? "",
-    }));
+  return mapInstructorRosterRows(rows);
+}
+
+/**
+ * Every active instructor across all campuses, for the "backup instructor"
+ * escape hatch in the scheduler: when a campus's own instructors can't cover
+ * a session, the BOA team picks someone from another campus instead. Each
+ * result carries `institute` so the picker can show which campus a backup
+ * candidate normally belongs to.
+ */
+export async function getAllActiveInstructors(): Promise<CampusInstructor[]> {
+  const rows = await bqQuery<{
+    instructor_user_id: string;
+    nw_instructor_id: string;
+    instructor_name: string;
+    instructor_category: string;
+    instructor_role: string;
+    institute_name: string;
+  }>(
+    `SELECT ${INSTRUCTOR_ROSTER_COLUMNS}
+     FROM ${INSTRUCTOR_DETAILS_TABLE}
+     WHERE instructor_status = 'ACTIVE'
+     ORDER BY institute_name, instructor_name`,
+  );
+  return mapInstructorRosterRows(rows);
 }
 
 export interface ScheduleRecoverySessionInput {
@@ -2523,6 +2566,8 @@ export interface ScheduleRecoverySessionInput {
   /** Set when the instructor was chosen from the BigQuery roster picker rather than typed free text. */
   instructorUserId?: string;
   employeeId?: string;
+  /** True when picked from the "backup instructor" (all-campuses) list rather than this campus's own roster. */
+  isBackupInstructor?: boolean;
   studentsExpected?: number;
   /** Topic titles as shown in the session tracker; matched against recovery_topics. */
   topicTitles: string[];
@@ -2538,6 +2583,7 @@ export interface ScheduledRecoverySession {
   endTime: string;
   instructorName: string;
   employeeId: string | null;
+  instructorType: "campus" | "backup" | "unknown";
   status: string;
   topicsScheduled: string[];
 }
@@ -2601,7 +2647,12 @@ export async function scheduleRecoverySession(
         instructorName: input.instructorName,
         bigqueryInstructorUserId: input.instructorUserId,
         employeeId: input.employeeId,
-        instructorType: "unknown",
+        // Both pickers now source from the same authoritative BigQuery
+        // roster, so this is a confident classification, not a guess: picked
+        // from the campus's own roster -> "campus", picked from the
+        // all-campuses backup list -> "backup".
+        instructorType: input.isBackupInstructor ? "backup" : "campus",
+        isBackupInstructor: !!input.isBackupInstructor,
         scheduledDate: input.scheduledDate,
         startTime: input.startTime ?? "",
         endTime: input.endTime ?? "",
@@ -2673,6 +2724,7 @@ export async function scheduleRecoverySession(
       endTime: created.endTime,
       instructorName: created.instructorName,
       employeeId: created.employeeId,
+      instructorType: created.instructorType,
       status: created.status,
       topicsScheduled: uniqueTitles,
     },

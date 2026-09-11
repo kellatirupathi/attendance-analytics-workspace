@@ -75,6 +75,8 @@ interface CampusInstructor {
   name: string;
   category: string;
   role: string;
+  /** Which campus this instructor is normally on staff at. */
+  institute: string;
 }
 
 interface SubjectProdSequenceItem {
@@ -756,6 +758,7 @@ export default function RecoverySubjectDetail() {
   const [scheduleTopics, setScheduleTopics] = useState<Set<string>>(new Set());
   const [scheduleSubmitting, setScheduleSubmitting] = useState(false);
 
+  const [useBackupInstructor, setUseBackupInstructor] = useState(false);
   const [instructorRoster, setInstructorRoster] = useState<CampusInstructor[] | null>(null);
   const [instructorRosterLoading, setInstructorRosterLoading] = useState(false);
   const [instructorRosterError, setInstructorRosterError] = useState("");
@@ -769,8 +772,11 @@ export default function RecoverySubjectDetail() {
       setInstructorRosterLoading(true);
       setInstructorRosterError("");
       try {
+        const params = useBackupInstructor
+          ? new URLSearchParams({ all: "true" })
+          : new URLSearchParams({ campus: campus! });
         const response = await fetch(
-          `/api/dashboard/recovery-instructors?${new URLSearchParams({ campus: campus! })}`,
+          `/api/dashboard/recovery-instructors?${params}`,
           { signal: controller.signal },
         );
         if (!response.ok) throw new Error("Failed to load instructor list");
@@ -791,16 +797,29 @@ export default function RecoverySubjectDetail() {
       active = false;
       controller.abort();
     };
-  }, [campus]);
+  }, [campus, useBackupInstructor]);
 
   const instructorOptions = useMemo(
     () =>
-      (instructorRoster ?? []).map((i) => ({
-        value: i.instructorUserId,
-        label: i.employeeId ? `${i.name} — ${i.employeeId}` : i.name,
-      })),
-    [instructorRoster],
+      (instructorRoster ?? []).map((i) => {
+        const idSuffix = i.employeeId ? ` — ${i.employeeId}` : "";
+        // In backup mode the list spans every campus, so show where each
+        // instructor is normally based; in normal mode it's redundant since
+        // every option is already this campus's own roster.
+        const campusSuffix = useBackupInstructor && i.institute ? ` (${i.institute})` : "";
+        return {
+          value: i.instructorUserId,
+          label: `${i.name}${idSuffix}${campusSuffix}`,
+        };
+      }),
+    [instructorRoster, useBackupInstructor],
   );
+
+  function toggleBackupInstructor(checked: boolean) {
+    setUseBackupInstructor(checked);
+    // The previously selected instructor may not exist in the new list.
+    setScheduleInstructorUserId("");
+  }
 
   useEffect(() => {
     if (!campus) return;
@@ -1012,6 +1031,7 @@ export default function RecoverySubjectDetail() {
     setScheduleInstructorUserId("");
     setScheduleStudentsExpected("");
     setScheduleTopics(new Set());
+    setUseBackupInstructor(false);
   }
 
   function openScheduleDialog() {
@@ -1059,6 +1079,7 @@ export default function RecoverySubjectDetail() {
           instructorName: selectedInstructor.name,
           instructorUserId: selectedInstructor.instructorUserId,
           employeeId: selectedInstructor.employeeId || undefined,
+          isBackupInstructor: useBackupInstructor,
           studentsExpected: scheduleStudentsExpected
             ? Number(scheduleStudentsExpected)
             : undefined,
@@ -1633,7 +1654,16 @@ export default function RecoverySubjectDetail() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="schedule-instructor">Instructor</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="schedule-instructor">Instructor</Label>
+                  <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none">
+                    <Checkbox
+                      checked={useBackupInstructor}
+                      onCheckedChange={(checked) => toggleBackupInstructor(checked === true)}
+                    />
+                    Backup instructor
+                  </label>
+                </div>
                 <SearchableSelect
                   value={scheduleInstructorUserId}
                   onValueChange={setScheduleInstructorUserId}
@@ -1643,13 +1673,24 @@ export default function RecoverySubjectDetail() {
                       ? "Loading instructors…"
                       : instructorRosterError
                         ? "Couldn't load instructors"
-                        : "Select instructor…"
+                        : useBackupInstructor
+                          ? "Select instructor from any campus…"
+                          : "Select instructor…"
                   }
                   searchPlaceholder="Search by name or employee ID…"
-                  emptyText="No active instructors found for this campus."
+                  emptyText={
+                    useBackupInstructor
+                      ? "No active instructors found."
+                      : "No active instructors found for this campus."
+                  }
                   disabled={instructorRosterLoading || !!instructorRosterError}
                   className="w-full"
                 />
+                {useBackupInstructor && (
+                  <p className="text-xs text-slate-500">
+                    Showing active instructors from all campuses.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="schedule-start">Start time</Label>
