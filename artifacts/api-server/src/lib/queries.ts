@@ -2288,13 +2288,17 @@ export async function getProdSequenceSessionTracker(
   semester?: string,
   recoverySubject?: string,
 ): Promise<SessionTrackerRow[]> {
-  const sequence = await getSubjectProdSequence(
+  const allSessions = await getSubjectProdSequence(
     campus,
     subject,
     semester,
     section,
     "LECTURE",
   );
+  // Only sessions BigQuery has actually marked COMPLETED belong in the
+  // tracker -- future/not-yet-delivered lectures aren't shown at all rather
+  // than listed as "not_taught".
+  const sequence = allSessions.filter((item) => item.completed);
 
   let recoveryByTitle = new Map<string, SessionTrackerRow>();
   if (recoverySubject) {
@@ -2328,10 +2332,11 @@ export async function getProdSequenceSessionTracker(
         : null;
     const recovery = recoveryByTitle.get(item.topicTitle);
 
+    // item.completed is always true here (sequence is pre-filtered above),
+    // so this only ever resolves to needs_recovery / recovery_scheduled /
+    // recovered -- never not_taught.
     let status: SessionTrackerStatus;
-    if (!item.completed) {
-      status = "not_taught";
-    } else if (recovery?.status === "recovered") {
+    if (recovery?.status === "recovered") {
       status = "recovered";
     } else if (recovery?.status === "recovery_scheduled") {
       status = "recovery_scheduled";
@@ -2348,7 +2353,7 @@ export async function getProdSequenceSessionTracker(
       presentCount: attendance?.presentCount ?? null,
       totalCount: attendance?.totalCount ?? null,
       status,
-      prodStatus: item.completed ? "completed" : "pending",
+      prodStatus: "completed",
       completedAt: item.completedAt,
       recoverySession: recovery?.recoverySession ?? null,
     };
@@ -2358,33 +2363,22 @@ export async function getProdSequenceSessionTracker(
 /**
  * Recovery progress for one campus and curriculum subject.
  *
- * The caller supplies the below-threshold topic count from BigQuery so this
- * database query does not repeat a warehouse request on the dashboard path.
+ * The caller supplies `totalTopics`/`topicsRecovered` -- computed from the
+ * live BigQuery-backed session tracker (getProdSequenceSessionTracker), the
+ * same source the session-tracker table itself uses -- rather than this
+ * function deriving them from the Postgres recovery_topics/recovery_progress
+ * cache. That keeps the summary card's counts consistent with the table
+ * below it: "topics recovered" here means completed lecture sessions whose
+ * status came back "recovered" in the tracker, and per the org's no-threshold
+ * recovery policy every completed lecture counts (there is no "below
+ * threshold" subset anymore).
  */
 export async function getRecoveryProgress(
   campus: string,
   subject: string,
-  topicsBelowThreshold: number,
+  totalTopics: number,
+  topicsRecovered: number,
 ): Promise<RecoveryProgressSummary> {
-  const scope = and(
-    eq(recoveryTopicsTable.campus, campus),
-    eq(recoveryTopicsTable.subject, subject),
-    eq(recoveryTopicsTable.isActive, true),
-  );
-
-  const [counts] = await db
-    .select({
-      total: sql<number>`count(*)::int`,
-      recovered:
-        sql<number>`count(*) filter (where ${recoveryProgressTable.status} = 'completed')::int`,
-    })
-    .from(recoveryTopicsTable)
-    .leftJoin(
-      recoveryProgressTable,
-      eq(recoveryProgressTable.topicId, recoveryTopicsTable.id),
-    )
-    .where(scope);
-
   const [sessions] = await db
     .select({
       held:
@@ -2448,17 +2442,16 @@ export async function getRecoveryProgress(
     return rows.map((row) => row.title);
   }
 
-  const recovered = counts?.recovered ?? 0;
   return {
     campus,
     subject,
-    totalTopics: counts?.total ?? 0,
-    topicsBelowThreshold,
-    topicsRecovered: recovered,
-    topicsRemaining: Math.max(topicsBelowThreshold - recovered, 0),
+    totalTopics,
+    topicsBelowThreshold: totalTopics,
+    topicsRecovered,
+    topicsRemaining: Math.max(totalTopics - topicsRecovered, 0),
     recoveryCompletionPct:
-      topicsBelowThreshold > 0
-        ? Math.round((recovered / topicsBelowThreshold) * 1000) / 10
+      totalTopics > 0
+        ? Math.round((topicsRecovered / totalTopics) * 1000) / 10
         : 0,
     sessionsHeld: sessions?.held ?? 0,
     sessionsCancelled: sessions?.cancelled ?? 0,
