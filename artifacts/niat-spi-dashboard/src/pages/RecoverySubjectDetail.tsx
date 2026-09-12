@@ -721,6 +721,12 @@ export default function RecoverySubjectDetail() {
   const { user } = useAuth();
   const params = useParams();
   const [, setLocation] = useLocation();
+  // Instructors get a read-only view of this page: they can browse prod
+  // sequence + session tracker for their own campus/subject, but scheduling
+  // and cancelling sessions stay admin/capability-manager actions, and the
+  // below-80% student list stays out of scope too (its API route is still
+  // blocked for instructors), so we skip fetching it and hide its tab/controls.
+  const isInstructor = user?.role === "instructor";
 
   const rawCampus = params.campus;
   const rawSubject = params.subject;
@@ -841,7 +847,10 @@ export default function RecoverySubjectDetail() {
             signal: controller.signal,
           }),
         ];
-        if (semester && subject) {
+        // Instructors don't have access to the below-80% student list API,
+        // and that tab is hidden for them anyway -- skip fetching it so a
+        // blocked 403 there doesn't fail the whole subject-page load.
+        if (semester && subject && !isInstructor) {
           requests.push(
             fetch(
               `/api/attendance/recovery/students?${new URLSearchParams({
@@ -1124,12 +1133,6 @@ export default function RecoverySubjectDetail() {
 
   const canEditInstructorType =
     user?.role === "admin" || user?.role === "superadmin";
-  // Instructors get a read-only view of this page: they can browse prod
-  // sequence + session tracker for their own campus/subject, but scheduling
-  // and cancelling sessions stay admin/capability-manager actions (the
-  // backend blocks these for instructors too, so hiding them here is just
-  // about not showing controls that would fail on click).
-  const isInstructor = user?.role === "instructor";
 
   async function updateInstructorType(
     sessionId: string,
