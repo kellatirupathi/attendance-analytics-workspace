@@ -1222,8 +1222,9 @@ function quizPivotSelect(quizAlias = ""): string {
 }
 
 /**
- * Quiz table has no `is_current_semester` or date column. Scope by campus
- * and subject only — subject matches either quiz title column.
+ * Quiz table has no `is_current_semester` or date column.
+ * Recovery still scopes quiz rows by campus/subject names.
+ * Assessments do not use this — they join enrolled students by id only.
  */
 function quizScopeClause(
   scope: SessionScope,
@@ -1337,24 +1338,27 @@ interface AssessmentQueryOpts {
   semester?: string;
 }
 
+function assessmentStudentKeySql(column: string): string {
+  return `LOWER(REPLACE(CAST(${column} AS STRING), '-', ''))`;
+}
+
 function assessmentScopeSql(
   scope: SessionScope,
   opts: AssessmentQueryOpts,
   params: Record<string, unknown>,
-): { attWhere: string; quizWhere: string } {
+): { attWhere: string } {
   const attWhere = scopeClause(scope, params, {
     semester: opts.semester,
   });
-  const quizWhere = quizScopeClause(scope, params, "q");
-  return { attWhere, quizWhere };
+  return { attWhere };
 }
 
+/** Students enrolled in the attendance semester. Campus comes from attendance only. */
 function assessmentEnrolledSql(attWhere: string, extra = ""): string {
   return `enrolled AS (
       SELECT DISTINCT
         institute_name,
-        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
-        subject_title
+        ${assessmentStudentKeySql("student_user_id")} AS student_key
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attWhere}
         AND institute_name IS NOT NULL
@@ -1364,22 +1368,22 @@ function assessmentEnrolledSql(attWhere: string, extra = ""): string {
     )`;
 }
 
-function assessmentQuizStudentSubjectSql(quizWhere: string): string {
+/**
+ * Quiz rows for enrolled students. Join is student id only (hyphen-stripped).
+ * Do not join institute_name or subject titles — those strings do not match
+ * across the two tables (e.g. "AI For Finanace" vs "AI For Finance").
+ */
+function assessmentQuizStudentSubjectSql(): string {
   return `quiz_student_subject AS (
       SELECT
-        q.institute_name,
+        e.institute_name,
         ${quizSubjectTitleSql("q")} AS subject_title,
         q.user_id,
         ${quizPivotSelect("q")}
       FROM ${QUIZ_TABLE} q
       INNER JOIN enrolled e
-        ON e.institute_name = q.institute_name
-       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
-       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
-      WHERE ${quizWhere}
-        AND q.institute_name IS NOT NULL
-        AND TRIM(q.institute_name) != ''
-      GROUP BY q.institute_name, subject_title, q.user_id
+        ON e.student_key = ${assessmentStudentKeySql("q.user_id")}
+      GROUP BY e.institute_name, subject_title, q.user_id
     )`;
 }
 
@@ -1393,7 +1397,7 @@ export async function getAssessmentCampusSummary(
   opts: AssessmentQueryOpts = {},
 ): Promise<AssessmentCampusItem[]> {
   const params: Record<string, unknown> = {};
-  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
+  const { attWhere } = assessmentScopeSql(scope, opts, params);
   let extra = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
@@ -1413,7 +1417,7 @@ export async function getAssessmentCampusSummary(
     mq_student_total: string;
   }>(
     `WITH ${assessmentEnrolledSql(attWhere, extra)},
-    ${assessmentQuizStudentSubjectSql(quizWhere)},
+    ${assessmentQuizStudentSubjectSql()},
     subject_rollups AS (
       SELECT
         institute_name,
@@ -1425,6 +1429,7 @@ export async function getAssessmentCampusSummary(
     campus_quiz AS (
       SELECT
         institute_name,
+        COUNT(DISTINCT subject_title) AS subject_count,
         SUM(cq_completed) AS cq_completed,
         SUM(cq_total) AS cq_total,
         SUM(mq_completed) AS mq_completed,
@@ -1439,15 +1444,14 @@ export async function getAssessmentCampusSummary(
     campuses AS (
       SELECT
         institute_name,
-        COUNT(DISTINCT student_key) AS student_count,
-        COUNT(DISTINCT subject_title) AS subject_count
+        COUNT(DISTINCT student_key) AS student_count
       FROM enrolled
       GROUP BY institute_name
     )
     SELECT
       campuses.institute_name,
       campuses.student_count,
-      campuses.subject_count,
+      IFNULL(campus_quiz.subject_count, 0) AS subject_count,
       IFNULL(campus_quiz.cq_completed, 0) AS cq_completed,
       IFNULL(campus_quiz.cq_total, 0) AS cq_total,
       IFNULL(campus_quiz.mq_completed, 0) AS mq_completed,
@@ -1475,7 +1479,7 @@ export async function getAssessmentSubjects(
   opts: { campus: string; semester?: string },
 ): Promise<AssessmentSubjectItem[]> {
   const params: Record<string, unknown> = { filterCampus: opts.campus };
-  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
+  const { attWhere } = assessmentScopeSql(scope, opts, params);
   const extra = " AND institute_name = @filterCampus";
   const rows = await bqQuery<{
     subject_title: string;
@@ -1490,35 +1494,14 @@ export async function getAssessmentSubjects(
     mq_student_total: string;
   }>(
     `WITH ${assessmentEnrolledSql(attWhere, extra)},
-    ${assessmentQuizStudentSubjectSql(quizWhere)},
-    subjects AS (
-      SELECT
-        subject_title,
-        COUNT(DISTINCT student_key) AS student_count
-      FROM enrolled
-      GROUP BY subject_title
-    ),
-    subject_quiz AS (
-      SELECT
-        subject_title,
-        ${SUBJECT_UNIQUE_SELECT}
-      FROM quiz_student_subject
-      GROUP BY subject_title
-    )
+    ${assessmentQuizStudentSubjectSql()}
     SELECT
-      subjects.subject_title,
-      subjects.student_count,
-      IFNULL(subject_quiz.cq_completed, 0) AS cq_completed,
-      IFNULL(subject_quiz.cq_total, 0) AS cq_total,
-      IFNULL(subject_quiz.mq_completed, 0) AS mq_completed,
-      IFNULL(subject_quiz.mq_total, 0) AS mq_total,
-      IFNULL(subject_quiz.cq_student_completed, 0) AS cq_student_completed,
-      IFNULL(subject_quiz.cq_student_total, 0) AS cq_student_total,
-      IFNULL(subject_quiz.mq_student_completed, 0) AS mq_student_completed,
-      IFNULL(subject_quiz.mq_student_total, 0) AS mq_student_total
-    FROM subjects
-    LEFT JOIN subject_quiz ON subject_quiz.subject_title = subjects.subject_title
-    ORDER BY subjects.subject_title`,
+      subject_title,
+      COUNT(DISTINCT ${assessmentStudentKeySql("user_id")}) AS student_count,
+      ${SUBJECT_UNIQUE_SELECT}
+    FROM quiz_student_subject
+    GROUP BY subject_title
+    ORDER BY subject_title`,
     params,
   );
   return rows.map((r) => ({
@@ -1540,15 +1523,16 @@ export async function getAssessmentStudents(
   } = {},
 ): Promise<AssessmentStudentItem[]> {
   const params: Record<string, unknown> = {};
-  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
+  const { attWhere } = assessmentScopeSql(scope, opts, params);
   let extra = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
     extra += " AND institute_name = @filterCampus";
   }
+  let quizSubjectFilter = "";
   if (opts.subject) {
     params["subject"] = opts.subject;
-    extra += " AND subject_title = @subject";
+    quizSubjectFilter = `AND ${quizMatchesSubjectSql("@subject", "q")}`;
   }
   let searchFilter = "";
   if (opts.search) {
@@ -1557,6 +1541,7 @@ export async function getAssessmentStudents(
       "AND (LOWER(COALESCE(names.student_name, '')) LIKE LOWER(@q) OR LOWER(CAST(enrolled.student_key AS STRING)) LIKE LOWER(@q))";
   }
   const safeLimit = Math.min(opts.limit ?? 2000, 5000);
+  const quizJoin = opts.subject ? "INNER JOIN" : "LEFT JOIN";
   const rows = await bqQuery<{
     student_user_id: string;
     student_name: string;
@@ -1570,7 +1555,7 @@ export async function getAssessmentStudents(
     `WITH ${assessmentEnrolledSql(attWhere, extra)},
     names AS (
       SELECT
-        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+        ${assessmentStudentKeySql("student_user_id")} AS student_key,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS section_name
       FROM ${ATTENDANCE_TABLE}
@@ -1587,10 +1572,9 @@ export async function getAssessmentStudents(
         ${quizPivotSelect("q")}
       FROM ${QUIZ_TABLE} q
       INNER JOIN enrolled e
-        ON e.institute_name = q.institute_name
-       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
-       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
-      WHERE ${quizWhere}
+        ON e.student_key = ${assessmentStudentKeySql("q.user_id")}
+      WHERE TRUE
+        ${quizSubjectFilter}
       GROUP BY q.user_id
     )
     SELECT
@@ -1606,8 +1590,8 @@ export async function getAssessmentStudents(
       SELECT DISTINCT student_key, institute_name FROM enrolled
     ) enrolled
     LEFT JOIN names ON names.student_key = enrolled.student_key
-    LEFT JOIN quiz
-      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', '')) = enrolled.student_key
+    ${quizJoin} quiz
+      ON ${assessmentStudentKeySql("quiz.user_id")} = enrolled.student_key
     WHERE TRUE
       ${searchFilter}
     ORDER BY
