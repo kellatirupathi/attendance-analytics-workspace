@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { CheckCircle2, Clock3, Loader2, MapPin, Users } from "lucide-react";
+import { CheckCircle2, Clock3, FileText, Loader2, MapPin, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,12 +8,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
+import { cn } from "@/lib/utils";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+
+type SessionStatus = "conducted" | "partial" | "no_show";
+
+const STATUS_OPTIONS: { value: SessionStatus; label: string }[] = [
+  { value: "conducted", label: "Completed" },
+  { value: "partial", label: "Partially Completed" },
+  { value: "no_show", label: "Not Completed" },
+];
 
 interface RecoveryTopic {
   id: string;
@@ -59,8 +68,9 @@ export default function InstructorRecovery() {
   const [curriculum, setCurriculum] = useState<CurriculumGroup[]>([]);
   const [coveredBySession, setCoveredBySession] = useState<Record<string, Set<string>>>({});
   const [attendanceBySession, setAttendanceBySession] = useState<Record<string, string>>({});
+  const [statusBySession, setStatusBySession] = useState<Record<string, SessionStatus>>({});
   const [remarksBySession, setRemarksBySession] = useState<Record<string, string>>({});
-  const [qaLinksBySession, setQaLinksBySession] = useState<Record<string, string>>({});
+  const [qaReportUrlBySession, setQaReportUrlBySession] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
 
@@ -100,36 +110,19 @@ export default function InstructorRecovery() {
   };
 
   const submit = async (recoverySession: RecoverySession) => {
+    const status = statusBySession[recoverySession.id];
+    if (!status) {
+      toast({ variant: "destructive", title: "Select a session status before submitting" });
+      return;
+    }
     const rawAttendance = attendanceBySession[recoverySession.id] ?? "";
     const studentsAttended = rawAttendance === "" ? undefined : Number(rawAttendance);
     if (studentsAttended != null && (!Number.isInteger(studentsAttended) || studentsAttended < 0)) {
       toast({ variant: "destructive", title: "Enter a valid attendance count" });
       return;
     }
-    const coveredTopicIds = [...(coveredBySession[recoverySession.id] ?? [])];
     const remarks = (remarksBySession[recoverySession.id] ?? "").trim();
-    // Mirrors the server-side check: a session that isn't fully covered
-    // needs a remark on record explaining what happened to the rest.
-    if (coveredTopicIds.length < recoverySession.topics.length && !remarks) {
-      toast({
-        variant: "destructive",
-        title: "Add a remark",
-        description: "Explain what happened to the topic(s) you didn't cover.",
-      });
-      return;
-    }
-    const qaReportUrls = (qaLinksBySession[recoverySession.id] ?? "")
-      .split(/[\n,]/)
-      .map((url) => url.trim())
-      .filter(Boolean);
-    if (qaReportUrls.some((url) => !/^https?:\/\/\S+$/i.test(url))) {
-      toast({
-        variant: "destructive",
-        title: "Invalid QA report link",
-        description: "Links must start with http:// or https://",
-      });
-      return;
-    }
+    const qaReportUrl = (qaReportUrlBySession[recoverySession.id] ?? "").trim();
     setSubmitting(recoverySession.id);
     try {
       const response = await fetch(`/api/recovery/sessions/${recoverySession.id}/report`, {
@@ -137,10 +130,11 @@ export default function InstructorRecovery() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          coveredTopicIds,
-          remarks,
-          qaReportUrls,
+          coveredTopicIds: [...(coveredBySession[recoverySession.id] ?? [])],
+          status,
           ...(studentsAttended == null ? {} : { studentsAttended }),
+          ...(remarks ? { remarks } : {}),
+          ...(qaReportUrl ? { qaReportUrl } : {}),
         }),
       });
       const result = await response.json();
@@ -232,49 +226,68 @@ export default function InstructorRecovery() {
                       className="h-12 text-lg"
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`remarks-${recoverySession.id}`}>
+                  <div>
+                    <Label className="mb-2 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4" /> Session status
+                    </Label>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {STATUS_OPTIONS.map((option) => {
+                        const isSelected = statusBySession[recoverySession.id] === option.value;
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() =>
+                              setStatusBySession((current) => ({
+                                ...current,
+                                [recoverySession.id]: option.value,
+                              }))
+                            }
+                            className={cn(
+                              "min-h-12 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                              isSelected
+                                ? "border-brand-600 bg-brand-50 text-brand-700"
+                                : "border-slate-200 text-slate-600 hover:border-brand-300",
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor={`remarks-${recoverySession.id}`} className="mb-2">
                       Remarks
-                      {selected.size < recoverySession.topics.length && (
-                        <span className="ml-1 font-normal text-slate-400">
-                          (required — explain what wasn't covered)
-                        </span>
-                      )}
                     </Label>
                     <Textarea
                       id={`remarks-${recoverySession.id}`}
-                      placeholder="How did the session go?"
+                      placeholder="Anything worth noting about this session (optional)"
                       value={remarksBySession[recoverySession.id] ?? ""}
                       onChange={(event) =>
-                        setRemarksBySession((current) => ({
-                          ...current,
-                          [recoverySession.id]: event.target.value,
-                        }))
+                        setRemarksBySession((current) => ({ ...current, [recoverySession.id]: event.target.value }))
                       }
                       className="min-h-20"
                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`qa-link-${recoverySession.id}`}>
-                      QA report link{" "}
-                      <span className="font-normal text-slate-400">(optional)</span>
+                  <div>
+                    <Label htmlFor={`qa-report-${recoverySession.id}`} className="mb-2 flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> QA report link
                     </Label>
-                    <Textarea
-                      id={`qa-link-${recoverySession.id}`}
-                      placeholder="Paste the QA report link — one per line if there's more than one"
-                      value={qaLinksBySession[recoverySession.id] ?? ""}
+                    <Input
+                      id={`qa-report-${recoverySession.id}`}
+                      type="url"
+                      placeholder="Paste a link to your QA report (optional)"
+                      value={qaReportUrlBySession[recoverySession.id] ?? ""}
                       onChange={(event) =>
-                        setQaLinksBySession((current) => ({
-                          ...current,
-                          [recoverySession.id]: event.target.value,
-                        }))
+                        setQaReportUrlBySession((current) => ({ ...current, [recoverySession.id]: event.target.value }))
                       }
-                      className="min-h-16"
+                      className="h-12"
                     />
                   </div>
                   <Button
                     className="h-12 w-full text-base"
-                    disabled={submitting === recoverySession.id}
+                    disabled={submitting === recoverySession.id || !statusBySession[recoverySession.id]}
                     onClick={() => void submit(recoverySession)}
                   >
                     {submitting === recoverySession.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

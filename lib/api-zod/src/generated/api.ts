@@ -636,6 +636,31 @@ export const ListInstructorRecoverySessionsResponse = zod.array(ListInstructorRe
 
 
 /**
+ * @summary Fetch one of the authenticated instructor's assigned recovery sessions, regardless of scheduled date
+ */
+export const GetInstructorRecoverySessionParams = zod.object({
+  "id": zod.coerce.string().uuid()
+})
+
+export const GetInstructorRecoverySessionResponse = zod.object({
+  "id": zod.string().uuid(),
+  "campus": zod.string(),
+  "subject": zod.string(),
+  "section": zod.string().nullable(),
+  "scheduledDate": zod.coerce.date(),
+  "startTime": zod.string(),
+  "endTime": zod.string(),
+  "studentsExpected": zod.number().nullable(),
+  "topics": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "sequenceNo": zod.number(),
+  "title": zod.string(),
+  "order": zod.number()
+}))
+})
+
+
+/**
  * @summary List curriculum for the authenticated instructor's scoped subjects
  */
 export const ListInstructorRecoveryCurriculumResponseItem = zod.object({
@@ -664,7 +689,10 @@ export const reportRecoverySessionBodyStudentsAttendedMin = 0;
 
 export const ReportRecoverySessionBody = zod.object({
   "coveredTopicIds": zod.array(zod.string().uuid()),
-  "studentsAttended": zod.number().min(reportRecoverySessionBodyStudentsAttendedMin).optional()
+  "studentsAttended": zod.number().min(reportRecoverySessionBodyStudentsAttendedMin).optional(),
+  "status": zod.enum(['conducted', 'partial', 'no_show']),
+  "remarks": zod.string().max(2000).optional(),
+  "qaReportUrl": zod.string().url().max(2000).optional()
 })
 
 export const ReportRecoverySessionResponse = zod.object({

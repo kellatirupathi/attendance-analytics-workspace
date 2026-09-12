@@ -17,18 +17,20 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import {
   CalendarPlus,
   CheckCircle2,
   Clock3,
   Download,
+  FileText,
   Loader2,
   ChevronLeft,
   Search,
   Trash2,
 } from "lucide-react";
-import { pctTextColor } from "@/lib/utils";
+import { cn, pctTextColor } from "@/lib/utils";
 import { exportCsv } from "@/lib/csv";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -127,8 +129,23 @@ interface SessionTrackerRow {
     instructorName: string;
     instructorType: "campus" | "backup" | "unknown";
     wasCovered: boolean | null;
+    instructorId: string | null;
   } | null;
 }
+
+interface MarkCompleteTopic {
+  id: string;
+  sequenceNo: number;
+  title: string;
+}
+
+type SessionOutcomeStatus = "conducted" | "partial" | "no_show";
+
+const SESSION_STATUS_OPTIONS: { value: SessionOutcomeStatus; label: string }[] = [
+  { value: "conducted", label: "Completed" },
+  { value: "partial", label: "Partially Completed" },
+  { value: "no_show", label: "Not Completed" },
+];
 
 function SessionStatusBadge({ status }: { status: SessionTrackerRow['status'] }) {
   switch (status) {
@@ -721,6 +738,12 @@ export default function RecoverySubjectDetail() {
   const { user } = useAuth();
   const params = useParams();
   const [, setLocation] = useLocation();
+  // Instructors get a read-only view of this page: they can browse prod
+  // sequence + session tracker for their own campus/subject, but scheduling
+  // and cancelling sessions stay admin/capability-manager actions, and the
+  // below-80% student list stays out of scope too (its API route is still
+  // blocked for instructors), so we skip fetching it and hide its tab/controls.
+  const isInstructor = user?.role === "instructor";
 
   const rawCampus = params.campus;
   const rawSubject = params.subject;
@@ -747,6 +770,30 @@ export default function RecoverySubjectDetail() {
   const [trackerError, setTrackerError] = useState("");
   const [updatingInstructorType, setUpdatingInstructorType] = useState<string | null>(null);
   const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
+
+  // "Mark complete" -- lets an instructor report on their own assigned
+  // session right from the Session Tracker row, instead of only from the
+  // separate /instructor page. Reuses the same report endpoint that page
+  // uses; the only difference is where the form lives.
+  const [markCompleteSessionId, setMarkCompleteSessionId] = useState<string | null>(null);
+  const [markCompleteLoading, setMarkCompleteLoading] = useState(false);
+  const [markCompleteError, setMarkCompleteError] = useState("");
+  const [markCompleteMeta, setMarkCompleteMeta] = useState<{
+    subject: string;
+    campus: string;
+    scheduledDate: string;
+    startTime: string;
+    endTime: string;
+    studentsExpected: number | null;
+  } | null>(null);
+  const [markCompleteTopics, setMarkCompleteTopics] = useState<MarkCompleteTopic[]>([]);
+  const [markCoveredTopicIds, setMarkCoveredTopicIds] = useState<Set<string>>(new Set());
+  const [markStudentsAttended, setMarkStudentsAttended] = useState("");
+  const [markStatus, setMarkStatus] = useState<SessionOutcomeStatus | "">("");
+  const [markRemarks, setMarkRemarks] = useState("");
+  const [markQaReportUrl, setMarkQaReportUrl] = useState("");
+  const [markSubmitting, setMarkSubmitting] = useState(false);
+
   const [prodSequence, setProdSequence] = useState<SubjectProdSequenceItem[] | null>(null);
   const [prodSequenceLoading, setProdSequenceLoading] = useState(false);
   const [prodSequenceError, setProdSequenceError] = useState("");
@@ -841,7 +888,10 @@ export default function RecoverySubjectDetail() {
             signal: controller.signal,
           }),
         ];
-        if (semester && subject) {
+        // Instructors don't have access to the below-80% student list API,
+        // and that tab is hidden for them anyway -- skip fetching it so a
+        // blocked 403 there doesn't fail the whole subject-page load.
+        if (semester && subject && !isInstructor) {
           requests.push(
             fetch(
               `/api/attendance/recovery/students?${new URLSearchParams({
@@ -1124,12 +1174,6 @@ export default function RecoverySubjectDetail() {
 
   const canEditInstructorType =
     user?.role === "admin" || user?.role === "superadmin";
-  // Instructors get a read-only view of this page: they can browse prod
-  // sequence + session tracker for their own campus/subject, but scheduling
-  // and cancelling sessions stay admin/capability-manager actions (the
-  // backend blocks these for instructors too, so hiding them here is just
-  // about not showing controls that would fail on click).
-  const isInstructor = user?.role === "instructor";
 
   async function updateInstructorType(
     sessionId: string,
@@ -1221,6 +1265,117 @@ export default function RecoverySubjectDetail() {
       });
     } finally {
       setCancellingSessionId(null);
+    }
+  }
+
+  async function refetchTrackerAndProgress() {
+    if (!campus || !subject) return;
+    const queryParams = new URLSearchParams({ campus, subject });
+    if (semester) queryParams.set("semester", semester);
+    const [trackerResponse, progressResponse] = await Promise.all([
+      fetch(`/api/dashboard/session-tracker?${queryParams}`),
+      fetch(`/api/dashboard/recovery-progress?${queryParams}`),
+    ]);
+    if (trackerResponse.ok) {
+      setTrackerData((await trackerResponse.json()) as SessionTrackerRow[]);
+    }
+    if (progressResponse.ok) {
+      setRecoveryProgress((await progressResponse.json()) as RecoveryProgress);
+    }
+  }
+
+  function closeMarkComplete() {
+    setMarkCompleteSessionId(null);
+    setMarkCompleteMeta(null);
+    setMarkCompleteTopics([]);
+    setMarkCoveredTopicIds(new Set());
+    setMarkStudentsAttended("");
+    setMarkStatus("");
+    setMarkRemarks("");
+    setMarkQaReportUrl("");
+    setMarkCompleteError("");
+  }
+
+  async function openMarkComplete(sessionId: string) {
+    setMarkCompleteSessionId(sessionId);
+    setMarkCompleteLoading(true);
+    setMarkCompleteError("");
+    try {
+      const response = await fetch(
+        `/api/recovery/instructor/sessions/${encodeURIComponent(sessionId)}`,
+        { credentials: "include" },
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error ?? "Could not load this session");
+      setMarkCompleteMeta({
+        subject: result.subject,
+        campus: result.campus,
+        scheduledDate: result.scheduledDate,
+        startTime: result.startTime,
+        endTime: result.endTime,
+        studentsExpected: result.studentsExpected,
+      });
+      setMarkCompleteTopics(result.topics ?? []);
+    } catch (err) {
+      setMarkCompleteError(err instanceof Error ? err.message : "Could not load this session");
+    } finally {
+      setMarkCompleteLoading(false);
+    }
+  }
+
+  function toggleMarkTopic(topicId: string, checked: boolean) {
+    setMarkCoveredTopicIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(topicId);
+      else next.delete(topicId);
+      return next;
+    });
+  }
+
+  async function submitMarkComplete() {
+    if (!markCompleteSessionId) return;
+    if (!markStatus) {
+      toast({ variant: "destructive", title: "Select a session status before submitting" });
+      return;
+    }
+    const rawAttendance = markStudentsAttended.trim();
+    const studentsAttended = rawAttendance === "" ? undefined : Number(rawAttendance);
+    if (studentsAttended != null && (!Number.isInteger(studentsAttended) || studentsAttended < 0)) {
+      toast({ variant: "destructive", title: "Enter a valid attendance count" });
+      return;
+    }
+    const remarks = markRemarks.trim();
+    const qaReportUrl = markQaReportUrl.trim();
+    setMarkSubmitting(true);
+    try {
+      const response = await fetch(
+        `/api/recovery/sessions/${encodeURIComponent(markCompleteSessionId)}/report`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            coveredTopicIds: [...markCoveredTopicIds],
+            status: markStatus,
+            ...(studentsAttended == null ? {} : { studentsAttended }),
+            ...(remarks ? { remarks } : {}),
+            ...(qaReportUrl ? { qaReportUrl } : {}),
+          }),
+        },
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error ?? "Could not submit report");
+      toast({ title: "Report submitted", description: "The session tracker has been updated." });
+      closeMarkComplete();
+      await refetchTrackerAndProgress();
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Report not submitted",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setMarkSubmitting(false);
     }
   }
 
@@ -1594,11 +1749,9 @@ export default function RecoverySubjectDetail() {
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Date</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Instructor</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Instructor Type</th>
-                      {!isInstructor && (
-                        <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">
-                          <span className="sr-only">Actions</span>
-                        </th>
-                      )}
+                      <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1680,28 +1833,42 @@ export default function RecoverySubjectDetail() {
                               <span className="sr-only">No instructor type</span>
                             )}
                           </td>
-                          {!isInstructor && (
-                            <td className="px-5 py-4 text-center align-middle">
-                              {row.status === "recovery_scheduled" && row.recoverySession ? (
-                                <button
-                                  type="button"
-                                  title="Delete this session and reschedule"
-                                  aria-label={`Delete recovery session for ${row.topicTitle}`}
-                                  disabled={cancellingSessionId === row.recoverySession.id}
-                                  onClick={() => cancelSession(row.recoverySession!.id)}
-                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-60"
+                          <td className="px-5 py-4 text-center align-middle">
+                            {isInstructor ? (
+                              row.status === "recovery_scheduled" &&
+                              row.recoverySession &&
+                              row.recoverySession.instructorId === user?.id ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 gap-1.5 px-2.5 text-xs"
+                                  onClick={() => void openMarkComplete(row.recoverySession!.id)}
                                 >
-                                  {cancellingSessionId === row.recoverySession.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="h-4 w-4" />
-                                  )}
-                                </button>
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Mark complete
+                                </Button>
                               ) : (
                                 <span className="sr-only">No action</span>
-                              )}
-                            </td>
-                          )}
+                              )
+                            ) : row.status === "recovery_scheduled" && row.recoverySession ? (
+                              <button
+                                type="button"
+                                title="Delete this session and reschedule"
+                                aria-label={`Delete recovery session for ${row.topicTitle}`}
+                                disabled={cancellingSessionId === row.recoverySession.id}
+                                onClick={() => cancelSession(row.recoverySession!.id)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {cancellingSessionId === row.recoverySession.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className="sr-only">No action</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -1852,6 +2019,146 @@ export default function RecoverySubjectDetail() {
             <Button onClick={submitSchedule} disabled={scheduleSubmitting} className="gap-2">
               {scheduleSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Schedule session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={markCompleteSessionId !== null}
+        onOpenChange={(open) => {
+          if (!open) closeMarkComplete();
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Mark recovery session</DialogTitle>
+            <DialogDescription>
+              {markCompleteMeta
+                ? `${markCompleteMeta.subject} · ${markCompleteMeta.campus} · ${formatRecoveryDate(markCompleteMeta.scheduledDate)}`
+                : "Report what happened in this session."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {markCompleteLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-brand-600" />
+            </div>
+          ) : markCompleteError ? (
+            <div className="py-6 text-center text-sm text-rose-600">{markCompleteError}</div>
+          ) : (
+            <div className="space-y-6 py-2">
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Topics covered</Label>
+                  <span className="text-xs text-slate-500">
+                    {markCoveredTopicIds.size} of {markCompleteTopics.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {markCompleteTopics.map((topic) => (
+                    <label
+                      key={topic.id}
+                      className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 hover:border-brand-300"
+                    >
+                      <Checkbox
+                        checked={markCoveredTopicIds.has(topic.id)}
+                        onCheckedChange={(checked) => toggleMarkTopic(topic.id, checked === true)}
+                        className="h-5 w-5"
+                      />
+                      <span className="flex-1 text-sm font-medium leading-snug text-slate-800">
+                        <span className="mr-2 text-slate-400">#{topic.sequenceNo}</span>
+                        {topic.title}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="mark-students-attended" className="mb-2">
+                  Students attended
+                </Label>
+                <Input
+                  id="mark-students-attended"
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  placeholder={
+                    markCompleteMeta?.studentsExpected
+                      ? `Expected ${markCompleteMeta.studentsExpected}`
+                      : "Enter total"
+                  }
+                  value={markStudentsAttended}
+                  onChange={(event) => setMarkStudentsAttended(event.target.value)}
+                />
+              </div>
+
+              <div>
+                <Label className="mb-2 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4" /> Session status
+                </Label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {SESSION_STATUS_OPTIONS.map((option) => {
+                    const selected = markStatus === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setMarkStatus(option.value)}
+                        className={cn(
+                          "min-h-11 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                          selected
+                            ? "border-brand-600 bg-brand-50 text-brand-700"
+                            : "border-slate-200 text-slate-600 hover:border-brand-300",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="mark-remarks" className="mb-2">
+                  Remarks
+                </Label>
+                <Textarea
+                  id="mark-remarks"
+                  placeholder="Anything worth noting about this session (optional)"
+                  value={markRemarks}
+                  onChange={(event) => setMarkRemarks(event.target.value)}
+                  className="min-h-20"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="mark-qa-report" className="mb-2 flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> QA report link
+                </Label>
+                <Input
+                  id="mark-qa-report"
+                  type="url"
+                  placeholder="Paste a link to your QA report (optional)"
+                  value={markQaReportUrl}
+                  onChange={(event) => setMarkQaReportUrl(event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeMarkComplete} disabled={markSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void submitMarkComplete()}
+              disabled={markSubmitting || markCompleteLoading || !!markCompleteError || !markStatus}
+              className="gap-2"
+            >
+              {markSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Submit report
             </Button>
           </DialogFooter>
         </DialogContent>

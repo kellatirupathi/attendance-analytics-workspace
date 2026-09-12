@@ -131,6 +131,61 @@ router.get("/instructor/sessions", requireSession(), async (req, res): Promise<v
   })));
 });
 
+// Fetch one assigned session's full detail (including its topics), regardless
+// of scheduled date -- unlike GET /instructor/sessions (today only), this
+// backs the "Mark complete" action instructors can now trigger straight from
+// the Recovery tab's Session Tracker, including for an overdue session from
+// a previous day.
+router.get("/instructor/sessions/:id", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  if (session.role !== "instructor") {
+    res.status(403).json({ error: "Instructor access required" });
+    return;
+  }
+  const params = ReportRecoverySessionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+  const id = params.data.id;
+
+  const existing = await db.select().from(recoverySessionsTable)
+    .where(and(eq(recoverySessionsTable.id, id), eq(recoverySessionsTable.instructorId, session.sub))).limit(1);
+  const recoverySession = existing[0];
+  if (!recoverySession || !canAccess(session, recoverySession.campus, recoverySession.subject)) {
+    res.status(403).json({ error: "You can only view your assigned sessions" });
+    return;
+  }
+  if (recoverySession.status !== "planned") {
+    res.status(409).json({ error: "This session has already been reported or is no longer reportable" });
+    return;
+  }
+
+  const topics = await db
+    .select({
+      id: recoveryTopicsTable.id,
+      sequenceNo: recoveryTopicsTable.sequenceNo,
+      title: recoveryTopicsTable.topicTitle,
+      order: sessionTopicsTable.orderInSession,
+    })
+    .from(sessionTopicsTable)
+    .innerJoin(recoveryTopicsTable, eq(recoveryTopicsTable.id, sessionTopicsTable.topicId))
+    .where(eq(sessionTopicsTable.sessionId, id))
+    .orderBy(asc(sessionTopicsTable.orderInSession), asc(recoveryTopicsTable.sequenceNo));
+
+  res.json({
+    id: recoverySession.id,
+    campus: recoverySession.campus,
+    subject: recoverySession.subject,
+    section: recoverySession.section,
+    scheduledDate: recoverySession.scheduledDate,
+    startTime: recoverySession.startTime,
+    endTime: recoverySession.endTime,
+    studentsExpected: recoverySession.studentsExpected,
+    topics,
+  });
+});
+
 router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   if (session.role !== "instructor") {
@@ -154,36 +209,6 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
     !Number.isInteger(body.studentsAttended)
   ) {
     res.status(400).json({ error: "studentsAttended must be an integer" });
-    return;
-  }
-
-  // remarks/qaReportUrls aren't in the generated schema yet -- read them off
-  // the raw body rather than regenerating the OpenAPI client for two extra
-  // fields. zod's default (non-strict) object parse above already dropped
-  // them from `body`, so this is the only place they're visible.
-  const rawBody = req.body as {
-    remarks?: unknown;
-    qaReportUrls?: unknown;
-  };
-  const remarks =
-    typeof rawBody.remarks === "string" ? rawBody.remarks.trim().slice(0, 2000) : "";
-  const rawUrls = Array.isArray(rawBody.qaReportUrls)
-    ? rawBody.qaReportUrls
-    : typeof rawBody.qaReportUrls === "string"
-      ? rawBody.qaReportUrls.split(/[\n,]/)
-      : [];
-  const qaReportUrls = [
-    ...new Set(
-      rawUrls
-        .filter((url): url is string => typeof url === "string")
-        .map((url) => url.trim())
-        .filter(Boolean),
-    ),
-  ];
-  if (qaReportUrls.some((url) => !/^https?:\/\/\S+$/i.test(url))) {
-    res.status(400).json({
-      error: "QA report links must be valid URLs starting with http:// or https://",
-    });
     return;
   }
 
@@ -212,25 +237,19 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
     return;
   }
   const covered = new Set(coveredIds);
-  const status = covered.size === assigned.length
-    ? "conducted"
-    : covered.size === 0 && body.studentsAttended === 0
-      ? "no_show"
-      : "partial";
-  if (status !== "conducted" && !remarks) {
-    res.status(400).json({
-      error: "Add a remark explaining what happened to the topic(s) not covered",
-    });
-    return;
-  }
+  // The instructor now picks the session outcome themselves (Completed /
+  // Partially Completed / Not Completed) rather than having it inferred
+  // from the topic checkboxes -- the checkboxes still drive per-topic
+  // progress tracking below, independently of this status.
+  const status = body.status;
   const now = new Date();
 
   const reported = await db.transaction(async (tx) => {
     const updated = await tx.update(recoverySessionsTable).set({
       status,
-      remarks,
-      qaReportUrls,
       studentsAttended: body.studentsAttended as number | undefined,
+      remarks: body.remarks?.trim() || "",
+      qaReportUrls: body.qaReportUrl?.trim() ? [body.qaReportUrl.trim()] : [],
       reportedBy: session.sub,
       reportedAt: now,
       updatedAt: now,
@@ -278,13 +297,7 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
   }
   cacheDeletePrefix("recovery-progress:");
   cacheDeletePrefix("session-tracker:");
-  res.json({
-    id: reported.id,
-    status: reported.status,
-    reportedAt: reported.reportedAt?.toISOString() ?? now.toISOString(),
-    remarks: reported.remarks,
-    qaReportUrls: reported.qaReportUrls,
-  });
+  res.json({ id: reported.id, status: reported.status, reportedAt: reported.reportedAt?.toISOString() ?? now.toISOString() });
 });
 
 export default router;

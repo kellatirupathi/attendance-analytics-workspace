@@ -12,6 +12,7 @@ import {
   recoverySessionsTable,
   recoveryTopicsTable,
   sessionTopicsTable,
+  usersTable,
 } from "@workspace/db";
 import {
   and,
@@ -20,7 +21,6 @@ import {
   eq,
   gte,
   inArray,
-  isNotNull,
   isNull,
   or,
   sql,
@@ -1222,9 +1222,8 @@ function quizPivotSelect(quizAlias = ""): string {
 }
 
 /**
- * Quiz table has no `is_current_semester` or date column.
- * Recovery still scopes quiz rows by campus/subject names.
- * Assessments do not use this — they join enrolled students by id only.
+ * Quiz table has no `is_current_semester` or date column. Scope by campus
+ * and subject only — subject matches either quiz title column.
  */
 function quizScopeClause(
   scope: SessionScope,
@@ -1338,27 +1337,24 @@ interface AssessmentQueryOpts {
   semester?: string;
 }
 
-function assessmentStudentKeySql(column: string): string {
-  return `LOWER(REPLACE(CAST(${column} AS STRING), '-', ''))`;
-}
-
 function assessmentScopeSql(
   scope: SessionScope,
   opts: AssessmentQueryOpts,
   params: Record<string, unknown>,
-): { attWhere: string } {
+): { attWhere: string; quizWhere: string } {
   const attWhere = scopeClause(scope, params, {
     semester: opts.semester,
   });
-  return { attWhere };
+  const quizWhere = quizScopeClause(scope, params, "q");
+  return { attWhere, quizWhere };
 }
 
-/** Students enrolled in the attendance semester. Campus comes from attendance only. */
 function assessmentEnrolledSql(attWhere: string, extra = ""): string {
   return `enrolled AS (
       SELECT DISTINCT
         institute_name,
-        ${assessmentStudentKeySql("student_user_id")} AS student_key
+        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+        subject_title
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attWhere}
         AND institute_name IS NOT NULL
@@ -1368,22 +1364,22 @@ function assessmentEnrolledSql(attWhere: string, extra = ""): string {
     )`;
 }
 
-/**
- * Quiz rows for enrolled students. Join is student id only (hyphen-stripped).
- * Do not join institute_name or subject titles — those strings do not match
- * across the two tables (e.g. "AI For Finanace" vs "AI For Finance").
- */
-function assessmentQuizStudentSubjectSql(): string {
+function assessmentQuizStudentSubjectSql(quizWhere: string): string {
   return `quiz_student_subject AS (
       SELECT
-        e.institute_name,
+        q.institute_name,
         ${quizSubjectTitleSql("q")} AS subject_title,
         q.user_id,
         ${quizPivotSelect("q")}
       FROM ${QUIZ_TABLE} q
       INNER JOIN enrolled e
-        ON e.student_key = ${assessmentStudentKeySql("q.user_id")}
-      GROUP BY e.institute_name, subject_title, q.user_id
+        ON e.institute_name = q.institute_name
+       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
+      WHERE ${quizWhere}
+        AND q.institute_name IS NOT NULL
+        AND TRIM(q.institute_name) != ''
+      GROUP BY q.institute_name, subject_title, q.user_id
     )`;
 }
 
@@ -1397,7 +1393,7 @@ export async function getAssessmentCampusSummary(
   opts: AssessmentQueryOpts = {},
 ): Promise<AssessmentCampusItem[]> {
   const params: Record<string, unknown> = {};
-  const { attWhere } = assessmentScopeSql(scope, opts, params);
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
   let extra = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
@@ -1417,7 +1413,7 @@ export async function getAssessmentCampusSummary(
     mq_student_total: string;
   }>(
     `WITH ${assessmentEnrolledSql(attWhere, extra)},
-    ${assessmentQuizStudentSubjectSql()},
+    ${assessmentQuizStudentSubjectSql(quizWhere)},
     subject_rollups AS (
       SELECT
         institute_name,
@@ -1429,7 +1425,6 @@ export async function getAssessmentCampusSummary(
     campus_quiz AS (
       SELECT
         institute_name,
-        COUNT(DISTINCT subject_title) AS subject_count,
         SUM(cq_completed) AS cq_completed,
         SUM(cq_total) AS cq_total,
         SUM(mq_completed) AS mq_completed,
@@ -1444,14 +1439,15 @@ export async function getAssessmentCampusSummary(
     campuses AS (
       SELECT
         institute_name,
-        COUNT(DISTINCT student_key) AS student_count
+        COUNT(DISTINCT student_key) AS student_count,
+        COUNT(DISTINCT subject_title) AS subject_count
       FROM enrolled
       GROUP BY institute_name
     )
     SELECT
       campuses.institute_name,
       campuses.student_count,
-      IFNULL(campus_quiz.subject_count, 0) AS subject_count,
+      campuses.subject_count,
       IFNULL(campus_quiz.cq_completed, 0) AS cq_completed,
       IFNULL(campus_quiz.cq_total, 0) AS cq_total,
       IFNULL(campus_quiz.mq_completed, 0) AS mq_completed,
@@ -1479,7 +1475,7 @@ export async function getAssessmentSubjects(
   opts: { campus: string; semester?: string },
 ): Promise<AssessmentSubjectItem[]> {
   const params: Record<string, unknown> = { filterCampus: opts.campus };
-  const { attWhere } = assessmentScopeSql(scope, opts, params);
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
   const extra = " AND institute_name = @filterCampus";
   const rows = await bqQuery<{
     subject_title: string;
@@ -1494,14 +1490,35 @@ export async function getAssessmentSubjects(
     mq_student_total: string;
   }>(
     `WITH ${assessmentEnrolledSql(attWhere, extra)},
-    ${assessmentQuizStudentSubjectSql()}
+    ${assessmentQuizStudentSubjectSql(quizWhere)},
+    subjects AS (
+      SELECT
+        subject_title,
+        COUNT(DISTINCT student_key) AS student_count
+      FROM enrolled
+      GROUP BY subject_title
+    ),
+    subject_quiz AS (
+      SELECT
+        subject_title,
+        ${SUBJECT_UNIQUE_SELECT}
+      FROM quiz_student_subject
+      GROUP BY subject_title
+    )
     SELECT
-      subject_title,
-      COUNT(DISTINCT ${assessmentStudentKeySql("user_id")}) AS student_count,
-      ${SUBJECT_UNIQUE_SELECT}
-    FROM quiz_student_subject
-    GROUP BY subject_title
-    ORDER BY subject_title`,
+      subjects.subject_title,
+      subjects.student_count,
+      IFNULL(subject_quiz.cq_completed, 0) AS cq_completed,
+      IFNULL(subject_quiz.cq_total, 0) AS cq_total,
+      IFNULL(subject_quiz.mq_completed, 0) AS mq_completed,
+      IFNULL(subject_quiz.mq_total, 0) AS mq_total,
+      IFNULL(subject_quiz.cq_student_completed, 0) AS cq_student_completed,
+      IFNULL(subject_quiz.cq_student_total, 0) AS cq_student_total,
+      IFNULL(subject_quiz.mq_student_completed, 0) AS mq_student_completed,
+      IFNULL(subject_quiz.mq_student_total, 0) AS mq_student_total
+    FROM subjects
+    LEFT JOIN subject_quiz ON subject_quiz.subject_title = subjects.subject_title
+    ORDER BY subjects.subject_title`,
     params,
   );
   return rows.map((r) => ({
@@ -1523,16 +1540,15 @@ export async function getAssessmentStudents(
   } = {},
 ): Promise<AssessmentStudentItem[]> {
   const params: Record<string, unknown> = {};
-  const { attWhere } = assessmentScopeSql(scope, opts, params);
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, opts, params);
   let extra = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
     extra += " AND institute_name = @filterCampus";
   }
-  let quizSubjectFilter = "";
   if (opts.subject) {
     params["subject"] = opts.subject;
-    quizSubjectFilter = `AND ${quizMatchesSubjectSql("@subject", "q")}`;
+    extra += " AND subject_title = @subject";
   }
   let searchFilter = "";
   if (opts.search) {
@@ -1541,7 +1557,6 @@ export async function getAssessmentStudents(
       "AND (LOWER(COALESCE(names.student_name, '')) LIKE LOWER(@q) OR LOWER(CAST(enrolled.student_key AS STRING)) LIKE LOWER(@q))";
   }
   const safeLimit = Math.min(opts.limit ?? 2000, 5000);
-  const quizJoin = opts.subject ? "INNER JOIN" : "LEFT JOIN";
   const rows = await bqQuery<{
     student_user_id: string;
     student_name: string;
@@ -1555,7 +1570,7 @@ export async function getAssessmentStudents(
     `WITH ${assessmentEnrolledSql(attWhere, extra)},
     names AS (
       SELECT
-        ${assessmentStudentKeySql("student_user_id")} AS student_key,
+        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS section_name
       FROM ${ATTENDANCE_TABLE}
@@ -1572,9 +1587,10 @@ export async function getAssessmentStudents(
         ${quizPivotSelect("q")}
       FROM ${QUIZ_TABLE} q
       INNER JOIN enrolled e
-        ON e.student_key = ${assessmentStudentKeySql("q.user_id")}
-      WHERE TRUE
-        ${quizSubjectFilter}
+        ON e.institute_name = q.institute_name
+       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
+      WHERE ${quizWhere}
       GROUP BY q.user_id
     )
     SELECT
@@ -1590,8 +1606,8 @@ export async function getAssessmentStudents(
       SELECT DISTINCT student_key, institute_name FROM enrolled
     ) enrolled
     LEFT JOIN names ON names.student_key = enrolled.student_key
-    ${quizJoin} quiz
-      ON ${assessmentStudentKeySql("quiz.user_id")} = enrolled.student_key
+    LEFT JOIN quiz
+      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', '')) = enrolled.student_key
     WHERE TRUE
       ${searchFilter}
     ORDER BY
@@ -1918,6 +1934,10 @@ export interface SessionTrackerRow {
     instructorName: string;
     instructorType: "campus" | "backup" | "unknown";
     wasCovered: boolean | null;
+    // The recovery instructor account this session is assigned to, if any --
+    // lets the frontend tell whether the logged-in instructor may report on
+    // this specific session (matched against their own user id).
+    instructorId: string | null;
   } | null;
 }
 
@@ -2143,6 +2163,7 @@ export async function getSessionTracker(
       date: recoverySessionsTable.scheduledDate,
       instructorName: recoverySessionsTable.instructorName,
       instructorType: recoverySessionsTable.instructorType,
+      instructorId: recoverySessionsTable.instructorId,
       wasCovered: sessionTopicsTable.wasCovered,
       sessionStatus: recoverySessionsTable.status,
       section: recoverySessionsTable.section,
@@ -2244,6 +2265,7 @@ export async function getSessionTracker(
             instructorName: recovery.instructorName,
             instructorType: recovery.instructorType,
             wasCovered: recovery.wasCovered,
+            instructorId: recovery.instructorId,
           }
         : null,
     };
@@ -2450,95 +2472,6 @@ export async function getRecoveryProgress(
   };
 }
 
-export interface CampusInstructor {
-  /** instructor_user_id from niat_instructor_details -- a different id space than this app's own users.id. */
-  instructorUserId: string;
-  /** nw_instructor_id, e.g. "NW0004304". */
-  employeeId: string;
-  name: string;
-  category: string;
-  role: string;
-  /** institute_name from niat_instructor_details -- which campus this instructor is on staff at. */
-  institute: string;
-}
-
-const INSTRUCTOR_ROSTER_COLUMNS = `instructor_user_id, nw_instructor_id, instructor_name, instructor_category, instructor_role, institute_name`;
-
-function mapInstructorRosterRows(
-  rows: Array<{
-    instructor_user_id: string;
-    nw_instructor_id: string;
-    instructor_name: string;
-    instructor_category: string;
-    instructor_role: string;
-    institute_name: string;
-  }>,
-): CampusInstructor[] {
-  return rows
-    .filter((row) => row.instructor_user_id && row.instructor_name)
-    .map((row) => ({
-      instructorUserId: row.instructor_user_id,
-      employeeId: row.nw_instructor_id ?? "",
-      name: row.instructor_name,
-      category: row.instructor_category ?? "",
-      role: row.instructor_role ?? "",
-      institute: row.institute_name ?? "",
-    }));
-}
-
-/**
- * Active instructor roster for one campus, from BigQuery's
- * `niat_instructor_details` -- the same dataset every other recovery/
- * attendance query already reads from, so no extra access is needed. This is
- * the authoritative "who's on staff here" list the scheduler's instructor
- * picker draws from, distinct from `campus_instructors` (a CDU-only, manually
- * seeded roster used just for classifying historical sessions as campus vs
- * backup).
- */
-export async function getCampusInstructorRoster(
-  campus: string,
-): Promise<CampusInstructor[]> {
-  const rows = await bqQuery<{
-    instructor_user_id: string;
-    nw_instructor_id: string;
-    instructor_name: string;
-    instructor_category: string;
-    instructor_role: string;
-    institute_name: string;
-  }>(
-    `SELECT ${INSTRUCTOR_ROSTER_COLUMNS}
-     FROM ${INSTRUCTOR_DETAILS_TABLE}
-     WHERE institute_name = @campus AND instructor_status = 'ACTIVE'
-     ORDER BY instructor_name`,
-    { campus },
-  );
-  return mapInstructorRosterRows(rows);
-}
-
-/**
- * Every active instructor across all campuses, for the "backup instructor"
- * escape hatch in the scheduler: when a campus's own instructors can't cover
- * a session, the BOA team picks someone from another campus instead. Each
- * result carries `institute` so the picker can show which campus a backup
- * candidate normally belongs to.
- */
-export async function getAllActiveInstructors(): Promise<CampusInstructor[]> {
-  const rows = await bqQuery<{
-    instructor_user_id: string;
-    nw_instructor_id: string;
-    instructor_name: string;
-    instructor_category: string;
-    instructor_role: string;
-    institute_name: string;
-  }>(
-    `SELECT ${INSTRUCTOR_ROSTER_COLUMNS}
-     FROM ${INSTRUCTOR_DETAILS_TABLE}
-     WHERE instructor_status = 'ACTIVE'
-     ORDER BY institute_name, instructor_name`,
-  );
-  return mapInstructorRosterRows(rows);
-}
-
 export interface ScheduleRecoverySessionInput {
   campus: string;
   /** Already resolved to the curriculum/recovery subject, not the raw BigQuery subject_title. */
@@ -2548,10 +2481,15 @@ export interface ScheduleRecoverySessionInput {
   startTime?: string;
   endTime?: string;
   instructorName: string;
-  /** Set when the instructor was chosen from the BigQuery roster picker rather than typed free text. */
+  /**
+   * Identity from BigQuery's `niat_instructor_details` roster -- populated
+   * when the instructor was picked from the scheduler's picker (which
+   * sources from that roster), omitted for a freehand name.
+   */
   instructorUserId?: string;
+  /** The NxtWave employee id (e.g. "NW0004304") from the same roster row. */
   employeeId?: string;
-  /** True when picked from the "backup instructor" (all-campuses) list rather than this campus's own roster. */
+  /** True when picked via the "backup instructor" (all-campuses) roster rather than this campus's own. */
   isBackupInstructor?: boolean;
   studentsExpected?: number;
   /** Topic titles as shown in the session tracker; matched against recovery_topics. */
@@ -2567,7 +2505,6 @@ export interface ScheduledRecoverySession {
   startTime: string;
   endTime: string;
   instructorName: string;
-  employeeId: string | null;
   instructorType: "campus" | "backup" | "unknown";
   status: string;
   topicsScheduled: string[];
@@ -2576,6 +2513,150 @@ export interface ScheduledRecoverySession {
 export type ScheduleRecoverySessionOutcome =
   | { ok: true; session: ScheduledRecoverySession }
   | { ok: false; error: string };
+
+export interface CampusInstructorOption {
+  instructorUserId: string;
+  employeeId: string;
+  name: string;
+  category: string;
+  role: string;
+  /** Which campus this instructor is normally on staff at. */
+  institute: string;
+}
+
+interface InstructorDetailsRow {
+  instructor_user_id: string;
+  instructor_category: string | null;
+  instructor_name: string;
+  instructor_role: string | null;
+  nw_instructor_id: string | null;
+  institute_name: string | null;
+}
+
+function toInstructorOption(
+  row: InstructorDetailsRow,
+  fallbackInstitute: string,
+): CampusInstructorOption {
+  return {
+    instructorUserId: row.instructor_user_id,
+    employeeId: row.nw_instructor_id ?? "",
+    name: row.instructor_name,
+    category: row.instructor_category ?? "",
+    role: row.instructor_role ?? "",
+    institute: row.institute_name ?? fallbackInstitute,
+  };
+}
+
+/**
+ * Active instructors on staff at one campus -- what the scheduler's
+ * instructor picker lists by default. Sourced from BigQuery's
+ * `niat_instructor_details`, the real NxtWave staff roster (identified by
+ * `nw_instructor_id` / `instructor_user_id`), not this app's own login
+ * accounts -- most instructors never get a login here, so that table only
+ * ever had the handful who do.
+ */
+export async function getCampusInstructorRoster(
+  campus: string,
+): Promise<CampusInstructorOption[]> {
+  const rows = await bqQuery<InstructorDetailsRow>(
+    `SELECT instructor_user_id, instructor_category, instructor_name, instructor_role, nw_instructor_id, institute_name
+     FROM ${INSTRUCTOR_DETAILS_TABLE}
+     WHERE institute_name = @campus AND instructor_status = 'ACTIVE'
+     ORDER BY instructor_name`,
+    { campus },
+  );
+  return rows.map((row) => toInstructorOption(row, campus));
+}
+
+/**
+ * The "backup instructor" escape hatch: every active instructor in the
+ * roster regardless of campus, so a scheduler can bring in someone from
+ * another campus to cover a session their own campus can't staff.
+ */
+export async function getAllActiveInstructors(): Promise<CampusInstructorOption[]> {
+  const rows = await bqQuery<InstructorDetailsRow>(
+    `SELECT instructor_user_id, instructor_category, instructor_name, instructor_role, nw_instructor_id, institute_name
+     FROM ${INSTRUCTOR_DETAILS_TABLE}
+     WHERE instructor_status = 'ACTIVE'
+     ORDER BY instructor_name`,
+  );
+  return rows.map((row) => toInstructorOption(row, row.institute_name ?? ""));
+}
+
+/** Just the campus/subject a recovery session belongs to -- used for scope checks before deleting one. */
+export async function getRecoverySessionScope(
+  sessionId: string,
+): Promise<{ campus: string; subject: string } | null> {
+  const [row] = await db
+    .select({
+      campus: recoverySessionsTable.campus,
+      subject: recoverySessionsTable.subject,
+    })
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Cancels a mistakenly-booked recovery session -- only while it's still
+ * "planned" (nothing reported on it yet). Any topic this session had pushed
+ * to "scheduled" reverts to "pending" so it re-enters the recovery queue to
+ * be rebooked; a topic already "completed" by some other session is left
+ * alone.
+ */
+export async function cancelRecoverySession(
+  sessionId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const [existing] = await db
+    .select()
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  if (!existing) {
+    return { ok: false, error: "Recovery session not found", status: 404 };
+  }
+  if (existing.status !== "planned") {
+    return {
+      ok: false,
+      error: "Only a planned session can be deleted",
+      status: 409,
+    };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(recoverySessionsTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(recoverySessionsTable.id, sessionId));
+
+    const topics = await tx
+      .select({ topicId: sessionTopicsTable.topicId })
+      .from(sessionTopicsTable)
+      .where(eq(sessionTopicsTable.sessionId, sessionId));
+
+    for (const { topicId } of topics) {
+      const sectionClause =
+        existing.section == null
+          ? isNull(recoveryProgressTable.section)
+          : eq(recoveryProgressTable.section, existing.section);
+      await tx
+        .update(recoveryProgressTable)
+        .set({ status: "pending", updatedAt: new Date() })
+        .where(
+          and(
+            eq(recoveryProgressTable.campus, existing.campus),
+            eq(recoveryProgressTable.subject, existing.subject),
+            eq(recoveryProgressTable.topicId, topicId),
+            sectionClause,
+            eq(recoveryProgressTable.status, "scheduled"),
+          ),
+        );
+    }
+  });
+
+  return { ok: true };
+}
 
 /**
  * Books a future recovery session for a set of curriculum topics. Topics are
@@ -2622,25 +2703,22 @@ export async function scheduleRecoverySession(
 
   const section = input.section || null;
 
-  // An admin confirms the name-to-account link once (the "Recovery instructor
-  // links" screen); after that, every future session booked for the same
-  // instructor name should carry that link automatically, since BigQuery's
-  // instructor_name is now the same exact string every time (unlike the old
-  // free-text era this matching was originally built for). Without this, a
-  // just-confirmed link would only ever apply to the sessions that already
-  // existed at confirmation time.
-  const priorLink = await db
-    .select({ instructorId: recoverySessionsTable.instructorId })
-    .from(recoverySessionsTable)
+  // Best-effort link to a platform login account, purely so that instructor
+  // can later self-report on this session from the "mark complete" button --
+  // there's no shared id between this app's own users and the BigQuery
+  // instructor roster, so an exact (case/whitespace-insensitive) name match
+  // is the only signal available. No match just means only an admin can
+  // mark/cancel the session later, same as before self-service existed.
+  const [matchedUser] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
     .where(
       and(
-        eq(recoverySessionsTable.instructorName, input.instructorName),
-        isNotNull(recoverySessionsTable.instructorId),
+        eq(usersTable.role, "instructor"),
+        sql`LOWER(TRIM(${usersTable.name})) = LOWER(TRIM(${input.instructorName}))`,
       ),
     )
-    .orderBy(desc(recoverySessionsTable.updatedAt))
     .limit(1);
-  const linkedInstructorId = priorLink[0]?.instructorId ?? null;
 
   const created = await db.transaction(async (tx) => {
     const [inserted] = await tx
@@ -2649,16 +2727,15 @@ export async function scheduleRecoverySession(
         campus: input.campus,
         subject: input.subject,
         section,
-        instructorId: linkedInstructorId,
         instructorName: input.instructorName,
-        bigqueryInstructorUserId: input.instructorUserId,
-        employeeId: input.employeeId,
-        // Both pickers now source from the same authoritative BigQuery
-        // roster, so this is a confident classification, not a guess: picked
-        // from the campus's own roster -> "campus", picked from the
-        // all-campuses backup list -> "backup".
-        instructorType: input.isBackupInstructor ? "backup" : "campus",
-        isBackupInstructor: !!input.isBackupInstructor,
+        instructorId: matchedUser?.id ?? null,
+        employeeId: input.employeeId ?? null,
+        bigqueryInstructorUserId: input.instructorUserId ?? null,
+        instructorType: input.isBackupInstructor
+          ? "backup"
+          : input.instructorUserId
+            ? "campus"
+            : "unknown",
         scheduledDate: input.scheduledDate,
         startTime: input.startTime ?? "",
         endTime: input.endTime ?? "",
@@ -2729,100 +2806,11 @@ export async function scheduleRecoverySession(
       startTime: created.startTime,
       endTime: created.endTime,
       instructorName: created.instructorName,
-      employeeId: created.employeeId,
       instructorType: created.instructorType,
       status: created.status,
       topicsScheduled: uniqueTitles,
     },
   };
-}
-
-/** Campus/subject for a session, so the route layer can run its own scope check before deleting. */
-export async function getRecoverySessionScope(
-  sessionId: string,
-): Promise<{ campus: string; subject: string } | null> {
-  const [row] = await db
-    .select({
-      campus: recoverySessionsTable.campus,
-      subject: recoverySessionsTable.subject,
-    })
-    .from(recoverySessionsTable)
-    .where(eq(recoverySessionsTable.id, sessionId))
-    .limit(1);
-  return row ?? null;
-}
-
-export type CancelRecoverySessionOutcome =
-  | { ok: true }
-  | { ok: false; error: string; status: 404 | 409 };
-
-/**
- * Undoes a mistaken booking: a session scheduled by mistake (wrong date,
- * wrong instructor, duplicate) needs to disappear from the tracker and free
- * its topics up to be rescheduled -- not linger as a permanent record. Only
- * "planned" sessions qualify; one that's already been reported on on has real
- * data (attendance, covered topics) that a report already depends on.
- *
- * Reverts each topic's recovery_progress row from "scheduled" back to
- * "pending", but only where it is still "scheduled" -- if another session
- * already completed that topic in the meantime, that stays untouched.
- */
-export async function cancelRecoverySession(
-  sessionId: string,
-): Promise<CancelRecoverySessionOutcome> {
-  const [existing] = await db
-    .select()
-    .from(recoverySessionsTable)
-    .where(eq(recoverySessionsTable.id, sessionId))
-    .limit(1);
-  if (!existing) {
-    return { ok: false, error: "Recovery session not found", status: 404 };
-  }
-  if (existing.status !== "planned") {
-    return {
-      ok: false,
-      error: "Only a planned session can be deleted -- this one has already been reported on",
-      status: 409,
-    };
-  }
-
-  const topicRows = await db
-    .select({ topicId: sessionTopicsTable.topicId })
-    .from(sessionTopicsTable)
-    .where(eq(sessionTopicsTable.sessionId, sessionId));
-
-  const now = new Date();
-  await db.transaction(async (tx) => {
-    await tx
-      .update(recoverySessionsTable)
-      .set({
-        status: "cancelled",
-        cancellationReason: "Deleted by BOA before the session was reported",
-        updatedAt: now,
-      })
-      .where(eq(recoverySessionsTable.id, sessionId));
-
-    for (const { topicId } of topicRows) {
-      const sectionClause =
-        existing.section == null
-          ? isNull(recoveryProgressTable.section)
-          : eq(recoveryProgressTable.section, existing.section);
-      await tx
-        .update(recoveryProgressTable)
-        .set({ status: "pending", updatedAt: now })
-        .where(
-          and(
-            eq(recoveryProgressTable.campus, existing.campus),
-            eq(recoveryProgressTable.subject, existing.subject),
-            eq(recoveryProgressTable.topicId, topicId),
-            eq(recoveryProgressTable.status, "scheduled"),
-            sectionClause,
-          ),
-        );
-    }
-  });
-
-  return { ok: true };
 }
 
 /*
