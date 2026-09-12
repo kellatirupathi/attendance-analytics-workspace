@@ -520,12 +520,11 @@ router.post(
   },
 );
 
+// Instructors can browse this and /recovery/subjects too -- it's what
+// powers the Recovery tab's campus/semester pickers, part of their
+// read-only view into their own campus/subject's recovery curriculum.
 router.get("/recovery/semesters", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
-  if (session.role === "instructor") {
-    res.status(403).json({ error: "Instructors can only view their assigned recovery sessions" });
-    return;
-  }
   const scope = scopeForSession({
     role: session.role as Role,
     campuses: session.campuses,
@@ -547,10 +546,6 @@ router.get("/recovery/semesters", requireSession(), async (req, res): Promise<vo
 // Recovery dashboard - subject-wise attendance below 80% by campus and semester
 router.get("/recovery/subjects", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
-  if (session.role === "instructor") {
-    res.status(403).json({ error: "Instructors can only view their assigned recovery sessions" });
-    return;
-  }
   const scope = scopeForSession({
     role: session.role as Role,
     campuses: session.campuses,

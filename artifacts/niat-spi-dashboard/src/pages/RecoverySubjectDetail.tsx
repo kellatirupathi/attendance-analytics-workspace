@@ -1124,6 +1124,12 @@ export default function RecoverySubjectDetail() {
 
   const canEditInstructorType =
     user?.role === "admin" || user?.role === "superadmin";
+  // Instructors get a read-only view of this page: they can browse prod
+  // sequence + session tracker for their own campus/subject, but scheduling
+  // and cancelling sessions stay admin/capability-manager actions (the
+  // backend blocks these for instructors too, so hiding them here is just
+  // about not showing controls that would fail on click).
+  const isInstructor = user?.role === "instructor";
 
   async function updateInstructorType(
     sessionId: string,
@@ -1399,7 +1405,9 @@ export default function RecoverySubjectDetail() {
       <Tabs defaultValue="prod-sequence" className="mt-2">
         <TabsList className="mb-4">
           <TabsTrigger value="prod-sequence">Prod Sequence</TabsTrigger>
-          <TabsTrigger value="students">Student List</TabsTrigger>
+          {!isInstructor && (
+            <TabsTrigger value="students">Student List</TabsTrigger>
+          )}
           <TabsTrigger value="sessions">Session Tracker</TabsTrigger>
         </TabsList>
 
@@ -1537,15 +1545,17 @@ export default function RecoverySubjectDetail() {
                 ? `${needsRecoveryTopics.length} topic${needsRecoveryTopics.length === 1 ? "" : "s"} still need${needsRecoveryTopics.length === 1 ? "s" : ""} a recovery session.`
                 : "No topics currently need a recovery session."}
             </p>
-            <Button
-              size="sm"
-              className="gap-2"
-              onClick={openScheduleDialog}
-              disabled={needsRecoveryTopics.length === 0}
-            >
-              <CalendarPlus className="h-4 w-4" />
-              Schedule recovery session
-            </Button>
+            {!isInstructor && (
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={openScheduleDialog}
+                disabled={needsRecoveryTopics.length === 0}
+              >
+                <CalendarPlus className="h-4 w-4" />
+                Schedule recovery session
+              </Button>
+            )}
           </div>
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
             {trackerLoading ? (
@@ -1584,9 +1594,11 @@ export default function RecoverySubjectDetail() {
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Date</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Instructor</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Instructor Type</th>
-                      <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">
-                        <span className="sr-only">Actions</span>
-                      </th>
+                      {!isInstructor && (
+                        <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">
+                          <span className="sr-only">Actions</span>
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1668,26 +1680,28 @@ export default function RecoverySubjectDetail() {
                               <span className="sr-only">No instructor type</span>
                             )}
                           </td>
-                          <td className="px-5 py-4 text-center align-middle">
-                            {row.status === "recovery_scheduled" && row.recoverySession ? (
-                              <button
-                                type="button"
-                                title="Delete this session and reschedule"
-                                aria-label={`Delete recovery session for ${row.topicTitle}`}
-                                disabled={cancellingSessionId === row.recoverySession.id}
-                                onClick={() => cancelSession(row.recoverySession!.id)}
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-60"
-                              >
-                                {cancellingSessionId === row.recoverySession.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </button>
-                            ) : (
-                              <span className="sr-only">No action</span>
-                            )}
-                          </td>
+                          {!isInstructor && (
+                            <td className="px-5 py-4 text-center align-middle">
+                              {row.status === "recovery_scheduled" && row.recoverySession ? (
+                                <button
+                                  type="button"
+                                  title="Delete this session and reschedule"
+                                  aria-label={`Delete recovery session for ${row.topicTitle}`}
+                                  disabled={cancellingSessionId === row.recoverySession.id}
+                                  onClick={() => cancelSession(row.recoverySession!.id)}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-60"
+                                >
+                                  {cancellingSessionId === row.recoverySession.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="sr-only">No action</span>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}

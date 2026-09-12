@@ -139,12 +139,12 @@ function Router() {
           </Protected>
         </Route>
         <Route path="/dashboard/recovery/:campus/:subject">
-          <Protected>
+          <Protected allowInstructor>
             <RecoverySubjectDetail />
           </Protected>
         </Route>
         <Route path="/dashboard/recovery">
-          <Protected>
+          <Protected allowInstructor>
             <Recovery />
           </Protected>
         </Route>

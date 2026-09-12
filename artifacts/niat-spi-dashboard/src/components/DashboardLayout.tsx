@@ -175,6 +175,7 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   );
   const instructorNav: NavItem[] = [
     { label: "Report recovery", href: "/instructor", icon: ClipboardCheck },
+    { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
   ];
   const renderedMainNav = user?.role === "instructor" ? instructorNav : visibleMainNav;
 

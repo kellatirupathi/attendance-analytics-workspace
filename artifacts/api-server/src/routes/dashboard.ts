@@ -34,8 +34,25 @@ import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 const router = Router();
 
 router.use(requireSession());
+
+// Instructors get a narrow, read-only slice of this router: enough to browse
+// their own campus/subject's Recovery tab (prod sequence + session tracker,
+// scoped by scopeForSession same as everyone else) so they can see what's
+// scheduled, who it's assigned to, and what's been completed. Everything
+// else here -- student lists, attendance stats, assessments, scheduling,
+// deleting sessions, admin actions -- stays off-limits. A new route is
+// blocked by default; add it to this set deliberately, never by accident.
+const INSTRUCTOR_ALLOWED_PATHS = new Set([
+  "/filters",
+  "/prod-sequence",
+  "/recovery-progress",
+  "/session-tracker",
+]);
 router.use((req, res, next) => {
-  if (req.session?.role === "instructor") {
+  if (
+    req.session?.role === "instructor" &&
+    !INSTRUCTOR_ALLOWED_PATHS.has(req.path)
+  ) {
     res.status(403).json({
       error: "Instructors can only view their assigned recovery sessions",
     });
@@ -398,10 +415,6 @@ router.get(
   requireSession(),
   async (req, res): Promise<void> => {
     const session = req.session!;
-    if (session.role === "instructor") {
-      res.status(403).json({ error: "Instructors can only view their assigned recovery sessions" });
-      return;
-    }
     const scope = scopeForSession({
       role: session.role as Role,
       campuses: session.campuses,
