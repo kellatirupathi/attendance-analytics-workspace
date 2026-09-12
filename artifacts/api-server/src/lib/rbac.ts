@@ -85,8 +85,8 @@ export function scopeForSession(session: {
     return {
       campuses:
         session.campuses.length > 0 ? session.campuses : ["__none__"],
-      subjects:
-        session.subjects.length > 0 ? session.subjects : ["__none__"],
+      // Empty subjects = institute-wide access. Fill later to narrow.
+      subjects: session.subjects,
       instructorId: session.sub ?? "__none__",
     };
   }

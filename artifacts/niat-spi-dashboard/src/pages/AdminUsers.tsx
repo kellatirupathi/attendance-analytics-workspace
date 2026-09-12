@@ -46,7 +46,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MultiSelect } from "@/components/MultiSelect";
-import { Edit2, Trash2, Shield, Plus } from "lucide-react";
+import { Edit2, Trash2, Shield, Plus, Upload } from "lucide-react";
+import { BulkImportUsersDialog } from "@/pages/BulkImportUsersDialog";
 
 const CAMPUS_ROLES = ["capability_manager", "boa", "instructor"];
 const SUBJECT_ROLES = ["capability_manager", "instructor"];
@@ -56,6 +57,7 @@ export default function AdminUsers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
 
   const { data: users, isLoading } = useListUsers({
@@ -97,17 +99,29 @@ export default function AdminUsers() {
     <div className="flex flex-col">
       <PageHeader
         title="User Access"
-        subtitle="Add, update, and manage access for staff members."
+        subtitle="Add, update, and manage access for staff members. Use Bulk import to create many campus logins at once."
         right={
-          <Button
-            onClick={() => setIsCreateOpen(true)}
-            disabled={!meta}
-            size="sm"
-            className="gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Create user
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsImportOpen(true)}
+              disabled={!meta}
+              size="sm"
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Bulk import
+            </Button>
+            <Button
+              onClick={() => setIsCreateOpen(true)}
+              disabled={!meta}
+              size="sm"
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Create user
+            </Button>
+          </div>
         }
       />
 
@@ -251,6 +265,13 @@ export default function AdminUsers() {
         </div>
       </TableShell>
 
+      {isImportOpen && (
+        <BulkImportUsersDialog
+          open={isImportOpen}
+          onOpenChange={setIsImportOpen}
+          meta={meta}
+        />
+      )}
       {isCreateOpen && (
         <UserFormDialog
           mode="create"
@@ -513,7 +534,7 @@ function UserFormDialog({
 
             {showSubjects && (
               <div className="space-y-1.5">
-                <Label>Subjects</Label>
+                <Label>Subjects <span className="font-normal text-gray-400">(optional)</span></Label>
                 <MultiSelect
                   options={subjectOptions}
                   value={subjects}

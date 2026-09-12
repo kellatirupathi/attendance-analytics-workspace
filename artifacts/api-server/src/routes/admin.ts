@@ -6,7 +6,7 @@ import {
   campusesTable,
   recoverySessionsTable,
 } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { requireSession } from "../lib/auth.js";
 import { invalidateSessionCache } from "../lib/sessionCache.js";
 import { manageableRoles, ROLE_META, SUBJECTS } from "../lib/rbac.js";
@@ -15,6 +15,34 @@ import { getInstitutions, getSubjectList } from "../lib/queries.js";
 import { cacheDeletePrefix } from "../lib/cache.js";
 
 const router = Router();
+
+const BULK_USER_LIMIT = 200;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SCOPED_ROLES: Role[] = ["capability_manager", "boa", "instructor"];
+
+function toUserDto(u: typeof usersTable.$inferSelect) {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role,
+    campuses: u.campuses,
+    subjects: u.subjects,
+    isActive: u.isActive,
+    createdBy: u.createdBy,
+    lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
+    createdAt: u.createdAt.toISOString(),
+  };
+}
+
+function normalizeRole(role: string): string {
+  return role.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function cleanList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return values.map((value) => String(value ?? "").trim()).filter(Boolean);
+}
 
 // All admin routes require manage permission
 router.use(requireSession({ manage: true }));
@@ -81,19 +109,171 @@ router.post("/users", async (req, res): Promise<void> => {
       createdBy: session.email,
     })
     .returning();
-  const u = inserted[0]!;
-  res.status(201).json({
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    role: u.role,
-    campuses: u.campuses,
-    subjects: u.subjects,
-    isActive: u.isActive,
-    createdBy: u.createdBy,
-    lastLoginAt: null,
-    createdAt: u.createdAt.toISOString(),
+  res.status(201).json(toUserDto(inserted[0]!));
+});
+
+router.post("/users/bulk", async (req, res): Promise<void> => {
+  const session = req.session!;
+  const body = req.body as {
+    password?: string;
+    users?: Array<{
+      name?: string;
+      email?: string;
+      role?: string;
+      password?: string;
+      campuses?: string[];
+      subjects?: string[];
+    }>;
+  };
+
+  const incoming = Array.isArray(body.users) ? body.users : [];
+  if (incoming.length === 0) {
+    res.status(400).json({ error: "users required" });
+    return;
+  }
+  if (incoming.length > BULK_USER_LIMIT) {
+    res.status(400).json({
+      error: `Maximum ${BULK_USER_LIMIT} users per import`,
+    });
+    return;
+  }
+
+  const defaultPassword =
+    typeof body.password === "string" ? body.password.trim() : "";
+  const allowedRoles = manageableRoles(session.role as Role);
+  const skipped: Array<{ row: number; email: string; reason: string }> = [];
+  const errors: Array<{ row: number; email: string; reason: string }> = [];
+
+  type Prepared = {
+    row: number;
+    name: string;
+    email: string;
+    role: Role;
+    campuses: string[];
+    subjects: string[];
+    password: string;
+  };
+  const prepared: Prepared[] = [];
+  const seen = new Set<string>();
+
+  incoming.forEach((raw, index) => {
+    const row = index + 1;
+    const name = String(raw.name ?? "").trim();
+    const email = String(raw.email ?? "").trim().toLowerCase();
+    const role = normalizeRole(String(raw.role ?? ""));
+    const campuses = cleanList(raw.campuses);
+    const subjects = cleanList(raw.subjects);
+    const password =
+      (typeof raw.password === "string" && raw.password.trim()) ||
+      defaultPassword;
+
+    if (!name || !email || !role) {
+      errors.push({ row, email, reason: "name, email, and role are required" });
+      return;
+    }
+    if (!EMAIL_RE.test(email)) {
+      errors.push({ row, email, reason: "Invalid email" });
+      return;
+    }
+    if (!allowedRoles.includes(role as Role)) {
+      errors.push({ row, email, reason: "Cannot assign this role" });
+      return;
+    }
+    if (password.length < 6) {
+      errors.push({
+        row,
+        email,
+        reason: "Password must be at least 6 characters",
+      });
+      return;
+    }
+    if (SCOPED_ROLES.includes(role as Role) && campuses.length === 0) {
+      errors.push({ row, email, reason: "Campus is required for this role" });
+      return;
+    }
+    if (seen.has(email)) {
+      errors.push({ row, email, reason: "Duplicate email in this import" });
+      return;
+    }
+    seen.add(email);
+    prepared.push({
+      row,
+      name,
+      email,
+      role: role as Role,
+      campuses,
+      subjects,
+      password,
+    });
   });
+
+  if (prepared.length === 0) {
+    res.json({ created: [], skipped, errors });
+    return;
+  }
+
+  const existing = await db
+    .select({ email: usersTable.email })
+    .from(usersTable)
+    .where(
+      inArray(
+        usersTable.email,
+        prepared.map((user) => user.email),
+      ),
+    );
+  const existingEmails = new Set(existing.map((user) => user.email));
+  const toCreate = prepared.filter((user) => {
+    if (existingEmails.has(user.email)) {
+      skipped.push({
+        row: user.row,
+        email: user.email,
+        reason: "Email already exists",
+      });
+      return false;
+    }
+    return true;
+  });
+
+  const created: ReturnType<typeof toUserDto>[] = [];
+  if (toCreate.length > 0) {
+    const passwordHashes = new Map<string, string>();
+    for (const user of toCreate) {
+      if (!passwordHashes.has(user.password)) {
+        passwordHashes.set(user.password, await bcrypt.hash(user.password, 10));
+      }
+    }
+
+    const inserted = await db
+      .insert(usersTable)
+      .values(
+        toCreate.map((user) => ({
+          name: user.name,
+          email: user.email,
+          passwordHash: passwordHashes.get(user.password)!,
+          role: user.role,
+          campuses: user.campuses,
+          subjects: user.subjects,
+          isActive: true,
+          createdBy: session.email,
+        })),
+      )
+      .onConflictDoNothing({ target: usersTable.email })
+      .returning();
+
+    const insertedEmails = new Set(inserted.map((user) => user.email));
+    for (const user of toCreate) {
+      if (!insertedEmails.has(user.email)) {
+        skipped.push({
+          row: user.row,
+          email: user.email,
+          reason: "Email already exists",
+        });
+      }
+    }
+    created.push(...inserted.map(toUserDto));
+  }
+
+  res.json({ created, skipped, errors });
 });
 
 router.patch("/users/:id", async (req, res): Promise<void> => {

@@ -564,6 +564,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/User"
 
+  /admin/users/bulk:
+    post:
+      operationId: bulkCreateUsers
+      tags: [admin]
+      summary: Create many users at once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUserInput"
+      responses:
+        "200":
+          description: Bulk create result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkUserResult"
+
   /admin/users/{id}:
     patch:
       operationId: updateUser
@@ -1454,6 +1473,67 @@ components:
             type: string
         isActive:
           type: boolean
+
+    BulkUserRow:
+      type: object
+      required: [name, email, role]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        password:
+          type: string
+        campuses:
+          type: array
+          items:
+            type: string
+        subjects:
+          type: array
+          items:
+            type: string
+
+    BulkUserInput:
+      type: object
+      required: [users]
+      properties:
+        password:
+          type: string
+          description: Default password for rows that omit one
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkUserRow"
+
+    BulkUserIssue:
+      type: object
+      required: [row, email, reason]
+      properties:
+        row:
+          type: integer
+        email:
+          type: string
+        reason:
+          type: string
+
+    BulkUserResult:
+      type: object
+      required: [created, skipped, errors]
+      properties:
+        created:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkUserIssue"
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkUserIssue"
 
     UserUpdate:
       type: object

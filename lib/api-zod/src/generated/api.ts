@@ -419,6 +419,74 @@ export const GetDashboardStudentsResponse = zod.array(GetDashboardStudentsRespon
 
 
 /**
+ * @summary Campus-wise classroom and module quiz counts
+ */
+export const GetAssessmentCampusesResponseItem = zod.object({
+  "classroomCompleted": zod.number(),
+  "classroomTotal": zod.number(),
+  "moduleCompleted": zod.number(),
+  "moduleTotal": zod.number(),
+  "totalCompleted": zod.number().describe('Classroom + module completed (Skill and Final are not in BigQuery yet)'),
+  "totalAssigned": zod.number().describe('Classroom + module assigned'),
+  "completionPct": zod.number()
+}).and(zod.object({
+  "instituteName": zod.string(),
+  "studentCount": zod.number()
+}))
+export const GetAssessmentCampusesResponse = zod.array(GetAssessmentCampusesResponseItem)
+
+
+/**
+ * @summary Subject-wise classroom and module quiz counts for one campus
+ */
+export const GetAssessmentSubjectsQueryParams = zod.object({
+  "campus": zod.coerce.string()
+})
+
+export const GetAssessmentSubjectsResponseItem = zod.object({
+  "classroomCompleted": zod.number(),
+  "classroomTotal": zod.number(),
+  "moduleCompleted": zod.number(),
+  "moduleTotal": zod.number(),
+  "totalCompleted": zod.number().describe('Classroom + module completed (Skill and Final are not in BigQuery yet)'),
+  "totalAssigned": zod.number().describe('Classroom + module assigned'),
+  "completionPct": zod.number()
+}).and(zod.object({
+  "subjectTitle": zod.string(),
+  "studentCount": zod.number()
+}))
+export const GetAssessmentSubjectsResponse = zod.array(GetAssessmentSubjectsResponseItem)
+
+
+/**
+ * @summary Student-wise classroom and module quiz counts
+ */
+export const GetAssessmentStudentsQueryParams = zod.object({
+  "campus": zod.coerce.string().optional(),
+  "subject": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const GetAssessmentStudentsResponseItem = zod.object({
+  "classroomCompleted": zod.number(),
+  "classroomTotal": zod.number(),
+  "moduleCompleted": zod.number(),
+  "moduleTotal": zod.number(),
+  "totalCompleted": zod.number().describe('Classroom + module completed (Skill and Final are not in BigQuery yet)'),
+  "totalAssigned": zod.number().describe('Classroom + module assigned'),
+  "completionPct": zod.number()
+}).and(zod.object({
+  "studentId": zod.string(),
+  "studentName": zod.string(),
+  "instituteName": zod.string(),
+  "sectionName": zod.string().nullable(),
+  "spiPath": zod.string()
+}))
+export const GetAssessmentStudentsResponse = zod.array(GetAssessmentStudentsResponseItem)
+
+
+/**
  * @summary List all users
  */
 export const ListUsersResponseItem = zod.object({
@@ -460,6 +528,47 @@ export const CreateUserResponse = zod.object({
   "createdBy": zod.string().nullish(),
   "lastLoginAt": zod.string().nullish(),
   "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Create many users at once
+ */
+export const BulkCreateUsersBody = zod.object({
+  "password": zod.string().optional().describe('Default password for rows that omit one'),
+  "users": zod.array(zod.object({
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.string(),
+  "password": zod.string().optional(),
+  "campuses": zod.array(zod.string()).optional(),
+  "subjects": zod.array(zod.string()).optional()
+}))
+})
+
+export const BulkCreateUsersResponse = zod.object({
+  "created": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.string(),
+  "campuses": zod.array(zod.string()),
+  "subjects": zod.array(zod.string()),
+  "isActive": zod.boolean(),
+  "createdBy": zod.string().nullish(),
+  "lastLoginAt": zod.string().nullish(),
+  "createdAt": zod.string()
+})),
+  "skipped": zod.array(zod.object({
+  "row": zod.number(),
+  "email": zod.string(),
+  "reason": zod.string()
+})),
+  "errors": zod.array(zod.object({
+  "row": zod.number(),
+  "email": zod.string(),
+  "reason": zod.string()
+}))
 })
 
 
@@ -636,6 +745,7 @@ export const ListInstructorRecoverySessionsResponse = zod.array(ListInstructorRe
 
 
 /**
+ * Backs the "Mark complete" action in the Recovery tab's Session Tracker, including for a session from a previous day that was never reported.
  * @summary Fetch one of the authenticated instructor's assigned recovery sessions, regardless of scheduled date
  */
 export const GetInstructorRecoverySessionParams = zod.object({
@@ -685,14 +795,18 @@ export const ReportRecoverySessionParams = zod.object({
 
 export const reportRecoverySessionBodyStudentsAttendedMin = 0;
 
+export const reportRecoverySessionBodyRemarksMax = 2000;
+
+export const reportRecoverySessionBodyQaReportUrlMax = 2000;
+
 
 
 export const ReportRecoverySessionBody = zod.object({
   "coveredTopicIds": zod.array(zod.string().uuid()),
   "studentsAttended": zod.number().min(reportRecoverySessionBodyStudentsAttendedMin).optional(),
-  "status": zod.enum(['conducted', 'partial', 'no_show']),
-  "remarks": zod.string().max(2000).optional(),
-  "qaReportUrl": zod.string().url().max(2000).optional()
+  "status": zod.enum(['conducted', 'partial', 'no_show']).describe('The instructor\'s own assessment of the session outcome (Completed \/ Partially Completed \/ Not Completed).'),
+  "remarks": zod.string().max(reportRecoverySessionBodyRemarksMax).optional(),
+  "qaReportUrl": zod.string().url().max(reportRecoverySessionBodyQaReportUrlMax).optional()
 })
 
 export const ReportRecoverySessionResponse = zod.object({
