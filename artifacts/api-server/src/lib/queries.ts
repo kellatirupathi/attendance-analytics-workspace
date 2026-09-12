@@ -11,6 +11,7 @@ import {
   recoverySessionsTable,
   recoveryTopicsTable,
   sessionTopicsTable,
+  usersTable,
 } from "@workspace/db";
 import {
   and,
@@ -2479,6 +2480,10 @@ export interface ScheduleRecoverySessionInput {
   startTime?: string;
   endTime?: string;
   instructorName: string;
+  /** A usersTable id when the instructor was picked from the roster; omitted for a freehand name. */
+  instructorUserId?: string;
+  /** True when picked via the "backup instructor" (all-campuses) roster rather than this campus's own. */
+  isBackupInstructor?: boolean;
   studentsExpected?: number;
   /** Topic titles as shown in the session tracker; matched against recovery_topics. */
   topicTitles: string[];
@@ -2493,6 +2498,7 @@ export interface ScheduledRecoverySession {
   startTime: string;
   endTime: string;
   instructorName: string;
+  instructorType: "campus" | "backup" | "unknown";
   status: string;
   topicsScheduled: string[];
 }
@@ -2500,6 +2506,152 @@ export interface ScheduledRecoverySession {
 export type ScheduleRecoverySessionOutcome =
   | { ok: true; session: ScheduledRecoverySession }
   | { ok: false; error: string };
+
+export interface CampusInstructorOption {
+  instructorUserId: string;
+  employeeId: string;
+  name: string;
+  category: string;
+  role: string;
+  /** Which campus this instructor is normally on staff at. */
+  institute: string;
+}
+
+function toInstructorOption(
+  row: { id: string; name: string; campuses: string[] },
+  institute: string,
+): CampusInstructorOption {
+  return {
+    instructorUserId: row.id,
+    // Not tracked as a separate field in this app -- instructors here are
+    // platform user accounts, identified by their own id.
+    employeeId: "",
+    name: row.name,
+    category: "Instructor",
+    role: "instructor",
+    institute,
+  };
+}
+
+/**
+ * Active instructor accounts on staff at one campus -- what the scheduler's
+ * instructor picker lists by default. Sourced from this app's own user
+ * accounts (role "instructor"), not an external roster, so every id returned
+ * here safely resolves as recovery_sessions.instructor_id.
+ */
+export async function getCampusInstructorRoster(
+  campus: string,
+): Promise<CampusInstructorOption[]> {
+  const rows = await db
+    .select({
+      id: usersTable.id,
+      name: usersTable.name,
+      campuses: usersTable.campuses,
+    })
+    .from(usersTable)
+    .where(
+      and(
+        eq(usersTable.role, "instructor"),
+        eq(usersTable.isActive, true),
+        sql`${campus} = ANY(${usersTable.campuses})`,
+      ),
+    )
+    .orderBy(asc(usersTable.name));
+  return rows.map((row) => toInstructorOption(row, campus));
+}
+
+/**
+ * The "backup instructor" escape hatch: every active instructor account
+ * regardless of campus, so a scheduler can bring in someone from another
+ * campus to cover a session their own campus can't staff.
+ */
+export async function getAllActiveInstructors(): Promise<CampusInstructorOption[]> {
+  const rows = await db
+    .select({
+      id: usersTable.id,
+      name: usersTable.name,
+      campuses: usersTable.campuses,
+    })
+    .from(usersTable)
+    .where(and(eq(usersTable.role, "instructor"), eq(usersTable.isActive, true)))
+    .orderBy(asc(usersTable.name));
+  return rows.map((row) => toInstructorOption(row, row.campuses[0] ?? ""));
+}
+
+/** Just the campus/subject a recovery session belongs to -- used for scope checks before deleting one. */
+export async function getRecoverySessionScope(
+  sessionId: string,
+): Promise<{ campus: string; subject: string } | null> {
+  const [row] = await db
+    .select({
+      campus: recoverySessionsTable.campus,
+      subject: recoverySessionsTable.subject,
+    })
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Cancels a mistakenly-booked recovery session -- only while it's still
+ * "planned" (nothing reported on it yet). Any topic this session had pushed
+ * to "scheduled" reverts to "pending" so it re-enters the recovery queue to
+ * be rebooked; a topic already "completed" by some other session is left
+ * alone.
+ */
+export async function cancelRecoverySession(
+  sessionId: string,
+): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const [existing] = await db
+    .select()
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  if (!existing) {
+    return { ok: false, error: "Recovery session not found", status: 404 };
+  }
+  if (existing.status !== "planned") {
+    return {
+      ok: false,
+      error: "Only a planned session can be deleted",
+      status: 409,
+    };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(recoverySessionsTable)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(recoverySessionsTable.id, sessionId));
+
+    const topics = await tx
+      .select({ topicId: sessionTopicsTable.topicId })
+      .from(sessionTopicsTable)
+      .where(eq(sessionTopicsTable.sessionId, sessionId));
+
+    for (const { topicId } of topics) {
+      const sectionClause =
+        existing.section == null
+          ? isNull(recoveryProgressTable.section)
+          : eq(recoveryProgressTable.section, existing.section);
+      await tx
+        .update(recoveryProgressTable)
+        .set({ status: "pending", updatedAt: new Date() })
+        .where(
+          and(
+            eq(recoveryProgressTable.campus, existing.campus),
+            eq(recoveryProgressTable.subject, existing.subject),
+            eq(recoveryProgressTable.topicId, topicId),
+            sectionClause,
+            eq(recoveryProgressTable.status, "scheduled"),
+          ),
+        );
+    }
+  });
+
+  return { ok: true };
+}
 
 /**
  * Books a future recovery session for a set of curriculum topics. Topics are
@@ -2554,7 +2706,12 @@ export async function scheduleRecoverySession(
         subject: input.subject,
         section,
         instructorName: input.instructorName,
-        instructorType: "unknown",
+        instructorId: input.instructorUserId ?? null,
+        instructorType: input.isBackupInstructor
+          ? "backup"
+          : input.instructorUserId
+            ? "campus"
+            : "unknown",
         scheduledDate: input.scheduledDate,
         startTime: input.startTime ?? "",
         endTime: input.endTime ?? "",
@@ -2625,6 +2782,7 @@ export async function scheduleRecoverySession(
       startTime: created.startTime,
       endTime: created.endTime,
       instructorName: created.instructorName,
+      instructorType: created.instructorType,
       status: created.status,
       topicsScheduled: uniqueTitles,
     },
