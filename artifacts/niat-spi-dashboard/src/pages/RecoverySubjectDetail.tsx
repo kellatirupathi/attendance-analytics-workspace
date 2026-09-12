@@ -26,6 +26,7 @@ import {
   Loader2,
   ChevronLeft,
   Search,
+  Trash2,
 } from "lucide-react";
 import { pctTextColor } from "@/lib/utils";
 import { exportCsv } from "@/lib/csv";
@@ -745,6 +746,7 @@ export default function RecoverySubjectDetail() {
   const [trackerLoading, setTrackerLoading] = useState(false);
   const [trackerError, setTrackerError] = useState("");
   const [updatingInstructorType, setUpdatingInstructorType] = useState<string | null>(null);
+  const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
   const [prodSequence, setProdSequence] = useState<SubjectProdSequenceItem[] | null>(null);
   const [prodSequenceLoading, setProdSequenceLoading] = useState(false);
   const [prodSequenceError, setProdSequenceError] = useState("");
@@ -1169,6 +1171,53 @@ export default function RecoverySubjectDetail() {
     }
   }
 
+  async function cancelSession(sessionId: string) {
+    if (
+      !confirm(
+        "Delete this recovery session? Its topic(s) will return to the queue so you can reschedule them.",
+      )
+    ) {
+      return;
+    }
+    setCancellingSessionId(sessionId);
+    try {
+      const response = await fetch(
+        `/api/dashboard/recovery-sessions/${encodeURIComponent(sessionId)}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error ?? "Failed to delete session");
+      }
+      toast({
+        title: "Session deleted",
+        description: "Its topics are back in the queue to reschedule.",
+      });
+      if (campus && subject) {
+        const queryParams = new URLSearchParams({ campus, subject });
+        if (semester) queryParams.set("semester", semester);
+        const [trackerResponse, progressResponse] = await Promise.all([
+          fetch(`/api/dashboard/session-tracker?${queryParams}`),
+          fetch(`/api/dashboard/recovery-progress?${queryParams}`),
+        ]);
+        if (trackerResponse.ok) {
+          setTrackerData((await trackerResponse.json()) as SessionTrackerRow[]);
+        }
+        if (progressResponse.ok) {
+          setRecoveryProgress((await progressResponse.json()) as RecoveryProgress);
+        }
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not delete session",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setCancellingSessionId(null);
+    }
+  }
+
   const handleExport = () => {
     if (!selectedSubjectData || !campus) {
       toast({ variant: "destructive", title: "No subject data available" });
@@ -1535,6 +1584,9 @@ export default function RecoverySubjectDetail() {
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Date</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Instructor</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Instructor Type</th>
+                      <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1614,6 +1666,26 @@ export default function RecoverySubjectDetail() {
                               )
                             ) : (
                               <span className="sr-only">No instructor type</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-center align-middle">
+                            {row.status === "recovery_scheduled" && row.recoverySession ? (
+                              <button
+                                type="button"
+                                title="Delete this session and reschedule"
+                                aria-label={`Delete recovery session for ${row.topicTitle}`}
+                                disabled={cancellingSessionId === row.recoverySession.id}
+                                onClick={() => cancelSession(row.recoverySession!.id)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {cancellingSessionId === row.recoverySession.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className="sr-only">No action</span>
                             )}
                           </td>
                         </tr>

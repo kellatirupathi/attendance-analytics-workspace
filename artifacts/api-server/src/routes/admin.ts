@@ -318,6 +318,125 @@ router.patch(
   },
 );
 
+// Recovery instructor links -- connects the instructor name recorded on a
+// recovery_sessions row to a real platform account, so that instructor can
+// log in and see/report their own sessions (see scopeForSession's
+// instructorId scoping). Distinct instructorId values already seen for the
+// same name (from before a link was confirmed) resolve to whichever one is
+// most common; instructors[] is sorted by most recently touched name first.
+router.get("/recovery-instructor-links", async (_req, res): Promise<void> => {
+  const sessions = await db
+    .select({
+      instructorName: recoverySessionsTable.instructorName,
+      instructorId: recoverySessionsTable.instructorId,
+      updatedAt: recoverySessionsTable.updatedAt,
+    })
+    .from(recoverySessionsTable);
+
+  const byName = new Map<
+    string,
+    { count: number; idCounts: Map<string, number>; latestAt: Date }
+  >();
+  for (const row of sessions) {
+    const name = row.instructorName || "";
+    const entry = byName.get(name) ?? {
+      count: 0,
+      idCounts: new Map<string, number>(),
+      latestAt: row.updatedAt,
+    };
+    entry.count += 1;
+    if (row.instructorId) {
+      entry.idCounts.set(
+        row.instructorId,
+        (entry.idCounts.get(row.instructorId) ?? 0) + 1,
+      );
+    }
+    if (row.updatedAt > entry.latestAt) entry.latestAt = row.updatedAt;
+    byName.set(name, entry);
+  }
+
+  const instructors = [...byName.entries()]
+    .map(([instructorName, entry]) => {
+      let bestId: string | null = null;
+      let bestCount = 0;
+      for (const [id, count] of entry.idCounts) {
+        if (count > bestCount) {
+          bestId = id;
+          bestCount = count;
+        }
+      }
+      return {
+        instructorName,
+        count: entry.count,
+        instructorId: bestId,
+        latestAt: entry.latestAt,
+      };
+    })
+    .sort((a, b) => b.latestAt.getTime() - a.latestAt.getTime())
+    .map(({ instructorName, count, instructorId }) => ({
+      instructorName,
+      count,
+      instructorId,
+    }));
+
+  const instructorUsers = await db
+    .select({
+      id: usersTable.id,
+      name: usersTable.name,
+      role: usersTable.role,
+      isActive: usersTable.isActive,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.role, "instructor"))
+    .orderBy(usersTable.name);
+
+  res.json({ instructors, users: instructorUsers });
+});
+
+router.put("/recovery-instructor-links", async (req, res): Promise<void> => {
+  const { instructorName, userId } = req.body as {
+    instructorName?: string;
+    userId?: string | null;
+  };
+  if (!instructorName || !instructorName.trim()) {
+    res.status(400).json({ error: "instructorName required" });
+    return;
+  }
+
+  let resolvedUserId: string | null = null;
+  if (userId) {
+    const [target] = await db
+      .select({ id: usersTable.id, role: usersTable.role })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId))
+      .limit(1);
+    if (!target) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    if (target.role !== "instructor") {
+      res
+        .status(400)
+        .json({ error: "Selected user must have the instructor role" });
+      return;
+    }
+    resolvedUserId = target.id;
+  }
+
+  const updated = await db
+    .update(recoverySessionsTable)
+    .set({ instructorId: resolvedUserId, updatedAt: new Date() })
+    .where(eq(recoverySessionsTable.instructorName, instructorName))
+    .returning({ id: recoverySessionsTable.id });
+
+  cacheDeletePrefix("session-tracker:");
+  res.json({
+    instructorName,
+    linkedCount: updated.length,
+    instructorId: resolvedUserId,
+  });
+});
+
 // Meta — campuses and subjects come live from BigQuery so the assignable
 // options exactly match the institutions/subjects present in the data
 // warehouse. institute_name is what scope filtering matches on, so that is

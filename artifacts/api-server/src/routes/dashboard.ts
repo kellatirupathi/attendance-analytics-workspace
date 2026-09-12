@@ -15,6 +15,8 @@ import {
   getAttendanceBySessionId,
   getProdSequenceSessionTracker,
   scheduleRecoverySession,
+  cancelRecoverySession,
+  getRecoverySessionScope,
   getCampusInstructorRoster,
   getAllActiveInstructors,
   getAssessmentCampusSummary,
@@ -694,6 +696,70 @@ router.post(
     } catch (err) {
       req.log.error({ err }, "Error scheduling recovery session");
       res.status(500).json({ error: "Failed to schedule recovery session" });
+    }
+  },
+);
+
+// Deletes a mistakenly-booked recovery session -- only while it's still
+// "planned" (nothing reported on it yet). Its topics revert to "pending" so
+// they show back up in the tracker to be rescheduled.
+router.delete(
+  "/recovery-sessions/:id",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    if (session.role === "instructor") {
+      res.status(403).json({
+        error: "Instructors can only view their assigned recovery sessions",
+      });
+      return;
+    }
+    const id = req.params["id"] ?? "";
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(id)) {
+      res.status(400).json({ error: "Invalid recovery session id" });
+      return;
+    }
+    const target = await getRecoverySessionScope(id);
+    if (!target) {
+      res.status(404).json({ error: "Recovery session not found" });
+      return;
+    }
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    if (scope.campuses?.length && !scope.campuses.includes(target.campus)) {
+      res.status(403).json({ error: "Not permitted for this campus" });
+      return;
+    }
+    // scope.subjects carries raw BigQuery subject names (how it's assigned on
+    // the user), while a stored session's subject is already resolved to the
+    // curriculum code -- map before comparing, same as session-tracker does.
+    if (scope.subjects?.length) {
+      const allowedCurriculumSubjects = scope.subjects.map(
+        (subject) => BIGQUERY_TO_CURRICULUM_SUBJECT[subject] ?? subject,
+      );
+      if (!allowedCurriculumSubjects.includes(target.subject)) {
+        res.status(403).json({ error: "Not permitted for this subject" });
+        return;
+      }
+    }
+
+    try {
+      const result = await cancelRecoverySession(id);
+      if (!result.ok) {
+        res.status(result.status).json({ error: result.error });
+        return;
+      }
+      cacheDeletePrefix("session-tracker:");
+      cacheDeletePrefix("recovery-progress:");
+      res.status(204).send();
+    } catch (err) {
+      req.log.error({ err }, "Error deleting recovery session");
+      res.status(500).json({ error: "Failed to delete recovery session" });
     }
   },
 );

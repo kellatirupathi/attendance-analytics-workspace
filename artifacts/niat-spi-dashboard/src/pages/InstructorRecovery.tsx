@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/PageHeader";
 import {
   Accordion,
@@ -58,6 +59,8 @@ export default function InstructorRecovery() {
   const [curriculum, setCurriculum] = useState<CurriculumGroup[]>([]);
   const [coveredBySession, setCoveredBySession] = useState<Record<string, Set<string>>>({});
   const [attendanceBySession, setAttendanceBySession] = useState<Record<string, string>>({});
+  const [remarksBySession, setRemarksBySession] = useState<Record<string, string>>({});
+  const [qaLinksBySession, setQaLinksBySession] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
 
@@ -103,6 +106,30 @@ export default function InstructorRecovery() {
       toast({ variant: "destructive", title: "Enter a valid attendance count" });
       return;
     }
+    const coveredTopicIds = [...(coveredBySession[recoverySession.id] ?? [])];
+    const remarks = (remarksBySession[recoverySession.id] ?? "").trim();
+    // Mirrors the server-side check: a session that isn't fully covered
+    // needs a remark on record explaining what happened to the rest.
+    if (coveredTopicIds.length < recoverySession.topics.length && !remarks) {
+      toast({
+        variant: "destructive",
+        title: "Add a remark",
+        description: "Explain what happened to the topic(s) you didn't cover.",
+      });
+      return;
+    }
+    const qaReportUrls = (qaLinksBySession[recoverySession.id] ?? "")
+      .split(/[\n,]/)
+      .map((url) => url.trim())
+      .filter(Boolean);
+    if (qaReportUrls.some((url) => !/^https?:\/\/\S+$/i.test(url))) {
+      toast({
+        variant: "destructive",
+        title: "Invalid QA report link",
+        description: "Links must start with http:// or https://",
+      });
+      return;
+    }
     setSubmitting(recoverySession.id);
     try {
       const response = await fetch(`/api/recovery/sessions/${recoverySession.id}/report`, {
@@ -110,7 +137,9 @@ export default function InstructorRecovery() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          coveredTopicIds: [...(coveredBySession[recoverySession.id] ?? [])],
+          coveredTopicIds,
+          remarks,
+          qaReportUrls,
           ...(studentsAttended == null ? {} : { studentsAttended }),
         }),
       });
@@ -201,6 +230,46 @@ export default function InstructorRecovery() {
                       value={attendanceBySession[recoverySession.id] ?? ""}
                       onChange={(event) => setAttendanceBySession((current) => ({ ...current, [recoverySession.id]: event.target.value }))}
                       className="h-12 text-lg"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`remarks-${recoverySession.id}`}>
+                      Remarks
+                      {selected.size < recoverySession.topics.length && (
+                        <span className="ml-1 font-normal text-slate-400">
+                          (required — explain what wasn't covered)
+                        </span>
+                      )}
+                    </Label>
+                    <Textarea
+                      id={`remarks-${recoverySession.id}`}
+                      placeholder="How did the session go?"
+                      value={remarksBySession[recoverySession.id] ?? ""}
+                      onChange={(event) =>
+                        setRemarksBySession((current) => ({
+                          ...current,
+                          [recoverySession.id]: event.target.value,
+                        }))
+                      }
+                      className="min-h-20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`qa-link-${recoverySession.id}`}>
+                      QA report link{" "}
+                      <span className="font-normal text-slate-400">(optional)</span>
+                    </Label>
+                    <Textarea
+                      id={`qa-link-${recoverySession.id}`}
+                      placeholder="Paste the QA report link — one per line if there's more than one"
+                      value={qaLinksBySession[recoverySession.id] ?? ""}
+                      onChange={(event) =>
+                        setQaLinksBySession((current) => ({
+                          ...current,
+                          [recoverySession.id]: event.target.value,
+                        }))
+                      }
+                      className="min-h-16"
                     />
                   </div>
                   <Button

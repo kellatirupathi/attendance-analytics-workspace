@@ -20,6 +20,7 @@ import {
   eq,
   gte,
   inArray,
+  isNotNull,
   isNull,
   or,
   sql,
@@ -2637,6 +2638,26 @@ export async function scheduleRecoverySession(
 
   const section = input.section || null;
 
+  // An admin confirms the name-to-account link once (the "Recovery instructor
+  // links" screen); after that, every future session booked for the same
+  // instructor name should carry that link automatically, since BigQuery's
+  // instructor_name is now the same exact string every time (unlike the old
+  // free-text era this matching was originally built for). Without this, a
+  // just-confirmed link would only ever apply to the sessions that already
+  // existed at confirmation time.
+  const priorLink = await db
+    .select({ instructorId: recoverySessionsTable.instructorId })
+    .from(recoverySessionsTable)
+    .where(
+      and(
+        eq(recoverySessionsTable.instructorName, input.instructorName),
+        isNotNull(recoverySessionsTable.instructorId),
+      ),
+    )
+    .orderBy(desc(recoverySessionsTable.updatedAt))
+    .limit(1);
+  const linkedInstructorId = priorLink[0]?.instructorId ?? null;
+
   const created = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(recoverySessionsTable)
@@ -2644,6 +2665,7 @@ export async function scheduleRecoverySession(
         campus: input.campus,
         subject: input.subject,
         section,
+        instructorId: linkedInstructorId,
         instructorName: input.instructorName,
         bigqueryInstructorUserId: input.instructorUserId,
         employeeId: input.employeeId,
@@ -2729,6 +2751,94 @@ export async function scheduleRecoverySession(
       topicsScheduled: uniqueTitles,
     },
   };
+}
+
+/** Campus/subject for a session, so the route layer can run its own scope check before deleting. */
+export async function getRecoverySessionScope(
+  sessionId: string,
+): Promise<{ campus: string; subject: string } | null> {
+  const [row] = await db
+    .select({
+      campus: recoverySessionsTable.campus,
+      subject: recoverySessionsTable.subject,
+    })
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  return row ?? null;
+}
+
+export type CancelRecoverySessionOutcome =
+  | { ok: true }
+  | { ok: false; error: string; status: 404 | 409 };
+
+/**
+ * Undoes a mistaken booking: a session scheduled by mistake (wrong date,
+ * wrong instructor, duplicate) needs to disappear from the tracker and free
+ * its topics up to be rescheduled -- not linger as a permanent record. Only
+ * "planned" sessions qualify; one that's already been reported on on has real
+ * data (attendance, covered topics) that a report already depends on.
+ *
+ * Reverts each topic's recovery_progress row from "scheduled" back to
+ * "pending", but only where it is still "scheduled" -- if another session
+ * already completed that topic in the meantime, that stays untouched.
+ */
+export async function cancelRecoverySession(
+  sessionId: string,
+): Promise<CancelRecoverySessionOutcome> {
+  const [existing] = await db
+    .select()
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  if (!existing) {
+    return { ok: false, error: "Recovery session not found", status: 404 };
+  }
+  if (existing.status !== "planned") {
+    return {
+      ok: false,
+      error: "Only a planned session can be deleted -- this one has already been reported on",
+      status: 409,
+    };
+  }
+
+  const topicRows = await db
+    .select({ topicId: sessionTopicsTable.topicId })
+    .from(sessionTopicsTable)
+    .where(eq(sessionTopicsTable.sessionId, sessionId));
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(recoverySessionsTable)
+      .set({
+        status: "cancelled",
+        cancellationReason: "Deleted by BOA before the session was reported",
+        updatedAt: now,
+      })
+      .where(eq(recoverySessionsTable.id, sessionId));
+
+    for (const { topicId } of topicRows) {
+      const sectionClause =
+        existing.section == null
+          ? isNull(recoveryProgressTable.section)
+          : eq(recoveryProgressTable.section, existing.section);
+      await tx
+        .update(recoveryProgressTable)
+        .set({ status: "pending", updatedAt: now })
+        .where(
+          and(
+            eq(recoveryProgressTable.campus, existing.campus),
+            eq(recoveryProgressTable.subject, existing.subject),
+            eq(recoveryProgressTable.topicId, topicId),
+            eq(recoveryProgressTable.status, "scheduled"),
+            sectionClause,
+          ),
+        );
+    }
+  });
+
+  return { ok: true };
 }
 
 /*
