@@ -35,7 +35,26 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Download, Loader2, Upload } from "lucide-react";
 
-const TEMPLATE_HEADERS = ["name", "email", "role", "campuses", "subjects"];
+const DUMMY_PASSWORD = "Niat@2026";
+const TEMPLATE_HEADERS = [
+  "name",
+  "email",
+  "role",
+  "campuses",
+  "subjects",
+  "password",
+];
+
+function campusLoginRow(campus: string): string[] {
+  return [
+    `${campus} Instructor`,
+    campusInstructorEmail(campus),
+    "instructor",
+    campus,
+    "",
+    DUMMY_PASSWORD,
+  ];
+}
 
 interface BulkImportUsersDialogProps {
   open: boolean;
@@ -53,7 +72,7 @@ export function BulkImportUsersDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const bulkCreate = useBulkCreateUsers();
 
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(DUMMY_PASSWORD);
   const [csvText, setCsvText] = useState("");
   const [result, setResult] = useState<BulkUserResult | null>(null);
 
@@ -63,7 +82,7 @@ export function BulkImportUsersDialog({
   }, [csvText]);
 
   const reset = () => {
-    setPassword("");
+    setPassword(DUMMY_PASSWORD);
     setCsvText("");
     setResult(null);
     if (fileRef.current) fileRef.current.value = "";
@@ -78,13 +97,7 @@ export function BulkImportUsersDialog({
     const campuses = meta?.campuses ?? [];
     const rows =
       campuses.length > 0
-        ? campuses.map((campus) => [
-            `${campus} Instructor`,
-            campusInstructorEmail(campus),
-            "instructor",
-            campus,
-            "",
-          ])
+        ? campuses.map((campus) => campusLoginRow(campus))
         : [
             [
               "CDU Instructor",
@@ -92,6 +105,7 @@ export function BulkImportUsersDialog({
               "instructor",
               "Chaitanya Deemed-to-be University",
               "",
+              DUMMY_PASSWORD,
             ],
           ];
     exportCsv("staff-login-template.csv", TEMPLATE_HEADERS, rows);
@@ -108,15 +122,18 @@ export function BulkImportUsersDialog({
       return;
     }
     const header = TEMPLATE_HEADERS.join(",");
-    const lines = campuses.map((campus) =>
-      [
-        `${campus} Instructor`,
-        campusInstructorEmail(campus),
-        "instructor",
-        `"${campus.replace(/"/g, '""')}"`,
-        "",
-      ].join(","),
-    );
+    const lines = campuses.map((campus) => {
+      const [name, email, role, campusName, subjects, rowPassword] =
+        campusLoginRow(campus);
+      return [
+        name,
+        email,
+        role,
+        `"${String(campusName).replace(/"/g, '""')}"`,
+        subjects,
+        rowPassword,
+      ].join(",");
+    });
     setCsvText([header, ...lines].join("\n"));
     setResult(null);
   };
@@ -211,14 +228,16 @@ export function BulkImportUsersDialog({
               <Label htmlFor="bulk-password">Shared password</Label>
               <Input
                 id="bulk-password"
-                type="password"
+                type="text"
+                autoComplete="off"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="e.g. Niat@2026"
+                placeholder={DUMMY_PASSWORD}
               />
               <p className="text-xs text-gray-400">
-                Every new account uses this password unless the CSV has its own
-                password column.
+                Default dummy password is {DUMMY_PASSWORD}. The generated sheet
+                includes this in the password column. A row password overrides
+                the shared one.
               </p>
             </div>
 
@@ -292,6 +311,7 @@ export function BulkImportUsersDialog({
                         <TableHead>Email</TableHead>
                         <TableHead>Role</TableHead>
                         <TableHead>Campus</TableHead>
+                        <TableHead>Password</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -304,6 +324,9 @@ export function BulkImportUsersDialog({
                           </TableCell>
                           <TableCell className="text-xs text-gray-500">
                             {row.campuses.join(", ") || "—"}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.password || password || "—"}
                           </TableCell>
                         </TableRow>
                       ))}
