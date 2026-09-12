@@ -694,6 +694,7 @@ router.post(
         endTime: body.endTime,
         instructorName,
         instructorUserId: body.instructorUserId || undefined,
+        employeeId: body.employeeId || undefined,
         isBackupInstructor: !!body.isBackupInstructor,
         studentsExpected,
         topicTitles,

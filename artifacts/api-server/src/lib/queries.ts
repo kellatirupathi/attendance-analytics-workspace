@@ -2,6 +2,7 @@ import {
   bqQuery,
   pct,
   PROD_SEQUENCE_TABLE,
+  INSTRUCTOR_DETAILS_TABLE,
   validateStudentId,
   normalizeStudentId,
 } from "./bigquery.js";
@@ -2480,8 +2481,14 @@ export interface ScheduleRecoverySessionInput {
   startTime?: string;
   endTime?: string;
   instructorName: string;
-  /** A usersTable id when the instructor was picked from the roster; omitted for a freehand name. */
+  /**
+   * Identity from BigQuery's `niat_instructor_details` roster -- populated
+   * when the instructor was picked from the scheduler's picker (which
+   * sources from that roster), omitted for a freehand name.
+   */
   instructorUserId?: string;
+  /** The NxtWave employee id (e.g. "NW0004304") from the same roster row. */
+  employeeId?: string;
   /** True when picked via the "backup instructor" (all-campuses) roster rather than this campus's own. */
   isBackupInstructor?: boolean;
   studentsExpected?: number;
@@ -2517,65 +2524,63 @@ export interface CampusInstructorOption {
   institute: string;
 }
 
+interface InstructorDetailsRow {
+  instructor_user_id: string;
+  instructor_category: string | null;
+  instructor_name: string;
+  instructor_role: string | null;
+  nw_instructor_id: string | null;
+  institute_name: string | null;
+}
+
 function toInstructorOption(
-  row: { id: string; name: string; campuses: string[] },
-  institute: string,
+  row: InstructorDetailsRow,
+  fallbackInstitute: string,
 ): CampusInstructorOption {
   return {
-    instructorUserId: row.id,
-    // Not tracked as a separate field in this app -- instructors here are
-    // platform user accounts, identified by their own id.
-    employeeId: "",
-    name: row.name,
-    category: "Instructor",
-    role: "instructor",
-    institute,
+    instructorUserId: row.instructor_user_id,
+    employeeId: row.nw_instructor_id ?? "",
+    name: row.instructor_name,
+    category: row.instructor_category ?? "",
+    role: row.instructor_role ?? "",
+    institute: row.institute_name ?? fallbackInstitute,
   };
 }
 
 /**
- * Active instructor accounts on staff at one campus -- what the scheduler's
- * instructor picker lists by default. Sourced from this app's own user
- * accounts (role "instructor"), not an external roster, so every id returned
- * here safely resolves as recovery_sessions.instructor_id.
+ * Active instructors on staff at one campus -- what the scheduler's
+ * instructor picker lists by default. Sourced from BigQuery's
+ * `niat_instructor_details`, the real NxtWave staff roster (identified by
+ * `nw_instructor_id` / `instructor_user_id`), not this app's own login
+ * accounts -- most instructors never get a login here, so that table only
+ * ever had the handful who do.
  */
 export async function getCampusInstructorRoster(
   campus: string,
 ): Promise<CampusInstructorOption[]> {
-  const rows = await db
-    .select({
-      id: usersTable.id,
-      name: usersTable.name,
-      campuses: usersTable.campuses,
-    })
-    .from(usersTable)
-    .where(
-      and(
-        eq(usersTable.role, "instructor"),
-        eq(usersTable.isActive, true),
-        sql`${campus} = ANY(${usersTable.campuses})`,
-      ),
-    )
-    .orderBy(asc(usersTable.name));
+  const rows = await bqQuery<InstructorDetailsRow>(
+    `SELECT instructor_user_id, instructor_category, instructor_name, instructor_role, nw_instructor_id, institute_name
+     FROM ${INSTRUCTOR_DETAILS_TABLE}
+     WHERE institute_name = @campus AND instructor_status = 'ACTIVE'
+     ORDER BY instructor_name`,
+    { campus },
+  );
   return rows.map((row) => toInstructorOption(row, campus));
 }
 
 /**
- * The "backup instructor" escape hatch: every active instructor account
- * regardless of campus, so a scheduler can bring in someone from another
- * campus to cover a session their own campus can't staff.
+ * The "backup instructor" escape hatch: every active instructor in the
+ * roster regardless of campus, so a scheduler can bring in someone from
+ * another campus to cover a session their own campus can't staff.
  */
 export async function getAllActiveInstructors(): Promise<CampusInstructorOption[]> {
-  const rows = await db
-    .select({
-      id: usersTable.id,
-      name: usersTable.name,
-      campuses: usersTable.campuses,
-    })
-    .from(usersTable)
-    .where(and(eq(usersTable.role, "instructor"), eq(usersTable.isActive, true)))
-    .orderBy(asc(usersTable.name));
-  return rows.map((row) => toInstructorOption(row, row.campuses[0] ?? ""));
+  const rows = await bqQuery<InstructorDetailsRow>(
+    `SELECT instructor_user_id, instructor_category, instructor_name, instructor_role, nw_instructor_id, institute_name
+     FROM ${INSTRUCTOR_DETAILS_TABLE}
+     WHERE instructor_status = 'ACTIVE'
+     ORDER BY instructor_name`,
+  );
+  return rows.map((row) => toInstructorOption(row, row.institute_name ?? ""));
 }
 
 /** Just the campus/subject a recovery session belongs to -- used for scope checks before deleting one. */
@@ -2698,6 +2703,23 @@ export async function scheduleRecoverySession(
 
   const section = input.section || null;
 
+  // Best-effort link to a platform login account, purely so that instructor
+  // can later self-report on this session from the "mark complete" button --
+  // there's no shared id between this app's own users and the BigQuery
+  // instructor roster, so an exact (case/whitespace-insensitive) name match
+  // is the only signal available. No match just means only an admin can
+  // mark/cancel the session later, same as before self-service existed.
+  const [matchedUser] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(
+      and(
+        eq(usersTable.role, "instructor"),
+        sql`LOWER(TRIM(${usersTable.name})) = LOWER(TRIM(${input.instructorName}))`,
+      ),
+    )
+    .limit(1);
+
   const created = await db.transaction(async (tx) => {
     const [inserted] = await tx
       .insert(recoverySessionsTable)
@@ -2706,7 +2728,9 @@ export async function scheduleRecoverySession(
         subject: input.subject,
         section,
         instructorName: input.instructorName,
-        instructorId: input.instructorUserId ?? null,
+        instructorId: matchedUser?.id ?? null,
+        employeeId: input.employeeId ?? null,
+        bigqueryInstructorUserId: input.instructorUserId ?? null,
         instructorType: input.isBackupInstructor
           ? "backup"
           : input.instructorUserId
