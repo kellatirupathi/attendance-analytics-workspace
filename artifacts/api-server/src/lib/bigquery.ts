@@ -117,13 +117,14 @@ export async function bqQuery<T = Record<string, unknown>>(
   sql: string,
   params: Record<string, unknown> = {},
   location: string = BQ_LOCATION,
+  timeoutMs: number = 30000,
 ): Promise<T[]> {
   const token = await getAccessToken();
   const queryParams = Object.entries(params).map(([k, v]) => buildParam(k, v));
   const body = {
     query: sql,
     useLegacySql: false,
-    timeoutMs: 30000,
+    timeoutMs,
     location,
     queryParameters: queryParams,
     parameterMode: queryParams.length > 0 ? "NAMED" : undefined,
@@ -301,61 +302,218 @@ export async function getTableSchema(
   return flattenSchemaFields(fields);
 }
 
+export interface TableColumnFilter {
+  column: string;
+  op: "eq" | "contains";
+  value: string;
+}
+
+export interface TableColumnFilterOption {
+  column: string;
+  categorical: boolean;
+  values: string[];
+}
+
+const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const CATEGORICAL_MAX = 200;
+const SKIP_DISTINCT_TYPES = new Set([
+  "RECORD",
+  "STRUCT",
+  "ARRAY",
+  "BYTES",
+  "GEOGRAPHY",
+  "JSON",
+]);
+
+function assertIdent(name: string): string {
+  if (!SAFE_IDENT.test(name)) throw new Error("Invalid identifier");
+  return name;
+}
+
+function quoteIdent(name: string): string {
+  return `\`${assertIdent(name)}\``;
+}
+
+function parseColumnFilters(raw: unknown): TableColumnFilter[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TableColumnFilter[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const column = typeof rec.column === "string" ? rec.column.trim() : "";
+    const value = typeof rec.value === "string" ? rec.value.trim() : "";
+    const op = rec.op === "eq" ? "eq" : "contains";
+    if (!column || !SAFE_IDENT.test(column) || !value || value === "all") {
+      continue;
+    }
+    out.push({ column, op, value });
+  }
+  return out;
+}
+
+export function parseExplorerFilters(
+  raw: string | undefined,
+): TableColumnFilter[] {
+  if (!raw?.trim()) return [];
+  try {
+    return parseColumnFilters(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+async function buildExplorerWhere(
+  columns: string[],
+  search?: string,
+  filters: TableColumnFilter[] = [],
+): Promise<{ where: string; params: Record<string, unknown> }> {
+  const allowed = new Set(columns.filter((c) => SAFE_IDENT.test(c)));
+  const clauses: string[] = [];
+  const params: Record<string, unknown> = {};
+  const q = search?.trim();
+  if (q) {
+    params["search"] = `%${q.toLowerCase()}%`;
+    const ors = [...allowed].map(
+      (col) =>
+        `LOWER(COALESCE(CAST(${quoteIdent(col)} AS STRING), '')) LIKE @search`,
+    );
+    if (ors.length > 0) clauses.push(`(${ors.join(" OR ")})`);
+  }
+  filters.forEach((filter, i) => {
+    if (!allowed.has(filter.column)) return;
+    const key = `f${i}`;
+    const col = quoteIdent(filter.column);
+    if (filter.op === "eq") {
+      params[key] = filter.value;
+      clauses.push(`CAST(${col} AS STRING) = @${key}`);
+    } else {
+      params[key] = `%${filter.value.toLowerCase()}%`;
+      clauses.push(
+        `LOWER(COALESCE(CAST(${col} AS STRING), '')) LIKE @${key}`,
+      );
+    }
+  });
+  return {
+    where: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
+    params,
+  };
+}
+
+async function mapPool<T, R>(
+  items: T[],
+  size: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(size, Math.max(items.length, 1)) }, worker),
+  );
+  return out;
+}
+
+export async function getTableFilterOptions(
+  dataset: string,
+  table: string,
+): Promise<TableColumnFilterOption[]> {
+  if (!SAFE_IDENT.test(dataset) || !SAFE_IDENT.test(table)) {
+    throw new Error("Invalid dataset or table name");
+  }
+  const schemaCols = await getTableSchema(dataset, table, { flatten: false });
+  const fqTable = `\`${BQ_PROJECT_ID}.${dataset}.${table}\``;
+  return mapPool(schemaCols, 6, async (col) => {
+    if (
+      !SAFE_IDENT.test(col.name) ||
+      SKIP_DISTINCT_TYPES.has((col.type ?? "").toUpperCase())
+    ) {
+      return { column: col.name, categorical: false, values: [] };
+    }
+    try {
+      const rows = await bqQuery<{ v: string }>(
+        `SELECT DISTINCT CAST(${quoteIdent(col.name)} AS STRING) AS v
+         FROM ${fqTable}
+         WHERE ${quoteIdent(col.name)} IS NOT NULL
+           AND TRIM(CAST(${quoteIdent(col.name)} AS STRING)) != ''
+         ORDER BY v
+         LIMIT ${CATEGORICAL_MAX + 1}`,
+      );
+      const values = rows
+        .map((r) => String(r.v ?? "").trim())
+        .filter(Boolean);
+      const categorical = values.length > 0 && values.length <= CATEGORICAL_MAX;
+      return {
+        column: col.name,
+        categorical,
+        values: categorical ? values : [],
+      };
+    } catch {
+      return { column: col.name, categorical: false, values: [] };
+    }
+  });
+}
+
 export async function getTablePreview(
   dataset: string,
   table: string,
-  limit: number = 20,
-  offset: number = 0,
-  search?: string,
+  opts: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    filters?: TableColumnFilter[];
+    maxLimit?: number;
+    timeoutMs?: number;
+  } = {},
 ): Promise<{
   columns: string[];
   rows: Record<string, unknown>[];
   totalRows: number;
+  truncated: boolean;
 }> {
-  if (!/^[A-Za-z0-9_]+$/.test(dataset) || !/^[A-Za-z0-9_]+$/.test(table)) {
+  if (!SAFE_IDENT.test(dataset) || !SAFE_IDENT.test(table)) {
     throw new Error("Invalid dataset or table name");
   }
-  const safeLimit = Math.min(Math.max(1, limit), 200);
-  const safeOffset = Math.max(0, Math.floor(offset));
+  const maxLimit = Math.min(Math.max(1, opts.maxLimit ?? 200), 10000);
+  const safeLimit = Math.min(Math.max(1, opts.limit ?? 20), maxLimit);
+  const safeOffset = Math.max(0, Math.floor(opts.offset ?? 0));
   const fqTable = `\`${BQ_PROJECT_ID}.${dataset}.${table}\``;
+  const schemaCols = await getTableSchema(dataset, table, { flatten: false });
+  const columns = schemaCols.map((c) => c.name);
+  const { where, params } = await buildExplorerWhere(
+    columns,
+    opts.search,
+    opts.filters,
+  );
+  const timeoutMs = opts.timeoutMs ?? 30000;
 
-  let whereClause = "";
-  const params: Record<string, unknown> = {};
-  const q = search?.trim();
-  if (q) {
-    const sample = await bqQuery<Record<string, unknown>>(
-      `SELECT * FROM ${fqTable} LIMIT 1`,
-    );
-    if (sample.length > 0) {
-      params["search"] = `%${q.toLowerCase()}%`;
-      const cols = Object.keys(sample[0]!);
-      const ors = cols
-        .map((col) => {
-          const safe = col.replace(/`/g, "");
-          return `LOWER(COALESCE(CAST(\`${safe}\` AS STRING), '')) LIKE @search`;
-        })
-        .join(" OR ");
-      whereClause = `WHERE (${ors})`;
-    }
-  }
-
-  const [rows, countRows, schemaCols] = await Promise.all([
+  const [rows, countRows] = await Promise.all([
     bqQuery(
-      `SELECT * FROM ${fqTable} ${whereClause} LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      `SELECT * FROM ${fqTable} ${where} LIMIT ${safeLimit} OFFSET ${safeOffset}`,
       params,
+      BQ_LOCATION,
+      timeoutMs,
     ),
     bqQuery<{ n: string }>(
-      `SELECT COUNT(*) AS n FROM ${fqTable} ${whereClause}`,
+      `SELECT COUNT(*) AS n FROM ${fqTable} ${where}`,
       params,
+      BQ_LOCATION,
+      timeoutMs,
     ),
-    getTableSchema(dataset, table, { flatten: false }),
   ]);
 
-  const schemaNames = schemaCols.map((c) => c.name);
   const rowColumns = rows.length > 0 ? Object.keys(rows[0]!) : [];
-  const columns = schemaNames.length > 0 ? schemaNames : rowColumns;
   const totalRows = Number(countRows[0]?.n ?? rows.length);
-  return { columns, rows, totalRows };
+  return {
+    columns: columns.length > 0 ? columns : rowColumns,
+    rows,
+    totalRows,
+    truncated: safeOffset + rows.length < totalRows,
+  };
 }
 
 export const validateStudentId = /^[a-zA-Z0-9_\-]{4,64}$/;

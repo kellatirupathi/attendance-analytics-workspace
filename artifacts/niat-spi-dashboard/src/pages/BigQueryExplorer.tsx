@@ -31,6 +31,7 @@ import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { ErrorState } from "@/components/PageStates";
 import { exportCsv } from "@/lib/csv";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { useToast } from "@/hooks/use-toast";
 import {
   Database,
   GraduationCap,
@@ -40,6 +41,7 @@ import {
   SlidersHorizontal,
   Search,
   Download,
+  Loader2,
   Table as TableIcon,
 } from "lucide-react";
 
@@ -95,7 +97,19 @@ interface PreviewResponse {
   totalRows: number;
 }
 
-const CATEGORICAL_MAX_DISTINCT = 25;
+const EXPORT_MAX_ROWS = 10000;
+
+interface ColumnFilterOption {
+  column: string;
+  categorical: boolean;
+  values: string[];
+}
+
+interface ColumnFilter {
+  column: string;
+  op: "eq" | "contains";
+  value: string;
+}
 
 function formatColumnLabel(col: string): string {
   return col
@@ -273,6 +287,21 @@ function TableListView({ onOpen }: { onOpen: (t: CatalogTable) => void }) {
   );
 }
 
+function serializeFilters(
+  colFilters: Record<string, string>,
+  options: ColumnFilterOption[],
+): ColumnFilter[] {
+  return Object.entries(colFilters)
+    .filter(([, value]) => value && value !== "all")
+    .map(([column, value]) => ({
+      column,
+      op: options.find((o) => o.column === column)?.categorical
+        ? "eq"
+        : "contains",
+      value,
+    }));
+}
+
 function TableDataView({
   table,
   onBack,
@@ -280,6 +309,7 @@ function TableDataView({
   table: CatalogTable;
   onBack: () => void;
 }) {
+  const { toast } = useToast();
   const label = formatTableLabel(table.tableId);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
@@ -290,13 +320,54 @@ function TableDataView({
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [totalRows, setTotalRows] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const [search, setSearch] = useState("");
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const debouncedSearch = useDebounceValue(search, 350);
+  const [filterOptions, setFilterOptions] = useState<ColumnFilterOption[]>([]);
+  const [filterOptionsLoading, setFilterOptionsLoading] = useState(true);
+
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [draftSearch, setDraftSearch] = useState("");
+  const [draftColFilters, setDraftColFilters] = useState<
+    Record<string, string>
+  >({});
+
+  const appliedFilters = useMemo(
+    () => serializeFilters(colFilters, filterOptions),
+    [colFilters, filterOptions],
+  );
+  const filtersKey = useMemo(
+    () => JSON.stringify(appliedFilters),
+    [appliedFilters],
+  );
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, filtersKey]);
+
+  useEffect(() => {
+    let alive = true;
+    setFilterOptionsLoading(true);
+    fetch(
+      `/api/bigquery/filter-options?dataset=${encodeURIComponent(DATASET)}&table=${encodeURIComponent(table.tableId)}`,
+      { credentials: "include" },
+    )
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: ColumnFilterOption[]) => {
+        if (alive) setFilterOptions(data ?? []);
+      })
+      .catch(() => {
+        if (alive) setFilterOptions([]);
+      })
+      .finally(() => {
+        if (alive) setFilterOptionsLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [table.tableId]);
 
   useEffect(() => {
     let alive = true;
@@ -310,6 +381,9 @@ function TableDataView({
     });
     if (debouncedSearch.trim()) {
       params.set("search", debouncedSearch.trim());
+    }
+    if (appliedFilters.length > 0) {
+      params.set("filters", JSON.stringify(appliedFilters));
     }
     fetch(`/api/bigquery/preview?${params.toString()}`, {
       credentials: "include",
@@ -337,58 +411,29 @@ function TableDataView({
     return () => {
       alive = false;
     };
-  }, [table.tableId, table.columns, page, pageSize, debouncedSearch]);
-
-  const [colFilters, setColFilters] = useState<Record<string, string>>({});
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [draftSearch, setDraftSearch] = useState("");
-  const [draftColFilters, setDraftColFilters] = useState<
-    Record<string, string>
-  >({});
+  }, [
+    table.tableId,
+    table.columns,
+    page,
+    pageSize,
+    debouncedSearch,
+    filtersKey,
+  ]);
 
   const columnMeta = useMemo(() => {
+    const byName = new Map(filterOptions.map((o) => [o.column, o]));
     return columns.map((col) => {
-      const distinct = new Set<string>();
-      let overflow = false;
-      for (const r of rows) {
-        const v = cellText(r[col]).trim();
-        if (v === "") continue;
-        distinct.add(v);
-        if (distinct.size > CATEGORICAL_MAX_DISTINCT) {
-          overflow = true;
-          break;
-        }
-      }
+      const option = byName.get(col);
       return {
         col,
-        categorical: !overflow && distinct.size > 0,
-        values: Array.from(distinct).sort((a, b) => a.localeCompare(b)),
+        categorical: option?.categorical ?? false,
+        values: option?.values ?? [],
       };
     });
-  }, [columns, rows]);
-
-  const filteredRows = useMemo(() => {
-    return rows.filter((row) => {
-      for (const col of Object.keys(colFilters)) {
-        const val = colFilters[col] ?? "";
-        const meta = columnMeta.find((m) => m.col === col);
-        if (meta?.categorical) {
-          if (!val || val === "all") continue;
-          if (cellText(row[col]) !== val) return false;
-        } else {
-          const needle = val.trim();
-          if (!needle) continue;
-          if (!cellText(row[col]).toLowerCase().includes(needle.toLowerCase()))
-            return false;
-        }
-      }
-      return true;
-    });
-  }, [rows, colFilters, columnMeta]);
+  }, [columns, filterOptions]);
 
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pagedRows = filteredRows;
 
   const activeFilterCount =
     (search.trim() ? 1 : 0) +
@@ -397,14 +442,58 @@ function TableDataView({
   const resetPage = () => setPage(1);
 
   const handleExport = () => {
-    if (columns.length === 0 || filteredRows.length === 0) return;
-    exportCsv(
-      `${table.tableId}.csv`,
-      columns,
-      filteredRows.map((row: Record<string, unknown>) =>
-        columns.map((col: string) => cellText(row[col])),
-      ),
-    );
+    if (columns.length === 0 || totalRows === 0 || exporting) return;
+    setExporting(true);
+    const params = new URLSearchParams({
+      dataset: DATASET,
+      table: table.tableId,
+      limit: String(EXPORT_MAX_ROWS),
+    });
+    if (search.trim()) params.set("search", search.trim());
+    if (appliedFilters.length > 0) {
+      params.set("filters", JSON.stringify(appliedFilters));
+    }
+    fetch(`/api/bigquery/export?${params.toString()}`, {
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: PreviewResponse & { truncated?: boolean }) => {
+        const exportRows = data.rows ?? [];
+        if (exportRows.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "Nothing to export",
+            description: "No rows match the current filters.",
+          });
+          return;
+        }
+        const cols = data.columns?.length ? data.columns : columns;
+        exportCsv(
+          `${table.tableId}.csv`,
+          cols,
+          exportRows.map((row) => cols.map((col) => cellText(row[col]))),
+        );
+        const matchCount = data.totalRows ?? exportRows.length;
+        if (matchCount > exportRows.length) {
+          toast({
+            title: "Export capped",
+            description: `Downloaded ${exportRows.length.toLocaleString()} of ${matchCount.toLocaleString()} matching rows.`,
+          });
+        } else {
+          toast({
+            title: "Export ready",
+            description: `${exportRows.length.toLocaleString()} matching row${exportRows.length === 1 ? "" : "s"} downloaded.`,
+          });
+        }
+      })
+      .catch(() => {
+        toast({
+          variant: "destructive",
+          title: "Export failed",
+          description: "Could not load the filtered table from BigQuery.",
+        });
+      })
+      .finally(() => setExporting(false));
   };
 
   const openFilters = () => {
@@ -416,6 +505,7 @@ function TableDataView({
     setSearch(draftSearch);
     setColFilters({ ...draftColFilters });
     setFiltersOpen(false);
+    setPage(1);
   };
   const clearDraft = () => {
     setDraftSearch("");
@@ -424,6 +514,7 @@ function TableDataView({
   const clearAll = () => {
     setSearch("");
     setColFilters({});
+    setPage(1);
   };
   const setDraftCol = (col: string, val: string) =>
     setDraftColFilters((prev) => ({ ...prev, [col]: val }));
@@ -439,7 +530,7 @@ function TableDataView({
 
       <PageHeader
         title={label}
-        subtitle={`${table.columns.length} column${table.columns.length === 1 ? "" : "s"} · ${table.tableId}`}
+        subtitle={`${table.columns.length} column${table.columns.length === 1 ? "" : "s"} · ${table.tableId} · filters and export apply to the full table`}
         right={
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative w-full sm:w-64">
@@ -480,9 +571,14 @@ function TableDataView({
               variant="outline"
               className="h-9 gap-2 border-gray-200"
               onClick={handleExport}
-              disabled={filteredRows.length === 0}
+              disabled={totalRows === 0 || isLoading || exporting}
             >
-              <Download className="h-4 w-4" /> Export
+              {exporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              {exporting ? "Exporting…" : "Export"}
             </Button>
           </div>
         }
@@ -517,9 +613,11 @@ function TableDataView({
         ) : (
           <>
             <div className="relative min-h-0 flex-1 overflow-auto">
-              {filteredRows.length === 0 ? (
+              {rows.length === 0 ? (
                 <div className="flex min-h-[280px] items-center justify-center p-12 text-center text-gray-500">
-                  No rows match your filters.
+                  {activeFilterCount > 0
+                    ? "No rows match your filters."
+                    : "No data found in this table."}
                 </div>
               ) : (
                 <Table>
@@ -536,7 +634,7 @@ function TableDataView({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pagedRows.map((row: Record<string, unknown>, i: number) => (
+                    {rows.map((row: Record<string, unknown>, i: number) => (
                       <TableRow key={i} className="hover:bg-gray-50/70">
                         {columns.map((col: string) => (
                           <TableCell
@@ -557,11 +655,7 @@ function TableDataView({
             <TablePagination
               page={currentPage}
               totalPages={totalPages}
-              totalItems={
-                filteredRows.length !== rows.length
-                  ? filteredRows.length
-                  : totalRows
-              }
+              totalItems={totalRows}
               pageSize={pageSize}
               pageSizeOptions={[25, 50, 100, 200]}
               onPageChange={setPage}
@@ -569,11 +663,7 @@ function TableDataView({
                 setPageSize(s);
                 resetPage();
               }}
-              itemLabel={
-                filteredRows.length !== rows.length
-                  ? "filtered rows on this page"
-                  : "rows"
-              }
+              itemLabel="matching rows"
             />
           </>
         )}
@@ -584,9 +674,11 @@ function TableDataView({
           <SheetHeader>
             <SheetTitle>Filters</SheetTitle>
             <SheetDescription>
-              Filter the loaded rows of{" "}
+              Filter every row in{" "}
               <span className="font-medium">{label}</span> by any column.
-              Filters apply to the current page only.
+              Dropdowns list distinct values from the full table. Export
+              downloads all matching rows (up to{" "}
+              {EXPORT_MAX_ROWS.toLocaleString()}).
             </SheetDescription>
           </SheetHeader>
 
@@ -605,6 +697,12 @@ function TableDataView({
             </div>
 
             <div className="border-t border-gray-100" />
+
+            {filterOptionsLoading && (
+              <p className="text-xs text-gray-500">
+                Loading distinct values from BigQuery…
+              </p>
+            )}
 
             {columnMeta.map((meta) => (
               <div key={meta.col} className="space-y-1.5">

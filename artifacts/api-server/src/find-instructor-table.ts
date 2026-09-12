@@ -61,7 +61,7 @@ async function main() {
     try {
       const [schema, preview] = await Promise.all([
         getTableSchema(hit.dataset, hit.table, { flatten: false }),
-        getTablePreview(hit.dataset, hit.table, 3),
+        getTablePreview(hit.dataset, hit.table, { limit: 3 }),
       ]);
       logger.info(
         {
