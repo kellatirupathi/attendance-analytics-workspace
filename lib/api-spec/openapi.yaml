@@ -1544,7 +1544,7 @@ components:
 
     RecoverySessionReportInput:
       type: object
-      required: [coveredTopicIds]
+      required: [coveredTopicIds, status]
       properties:
         coveredTopicIds:
           type: array
@@ -1555,6 +1555,17 @@ components:
         studentsAttended:
           type: integer
           minimum: 0
+        status:
+          type: string
+          enum: [conducted, partial, no_show]
+          description: The instructor's own assessment of the session outcome (Completed / Partially Completed / Not Completed).
+        remarks:
+          type: string
+          maxLength: 2000
+        qaReportUrl:
+          type: string
+          format: uri
+          maxLength: 2000
 
     RecoverySessionReportResult:
       type: object

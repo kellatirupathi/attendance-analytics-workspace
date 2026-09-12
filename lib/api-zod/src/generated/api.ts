@@ -664,7 +664,10 @@ export const reportRecoverySessionBodyStudentsAttendedMin = 0;
 
 export const ReportRecoverySessionBody = zod.object({
   "coveredTopicIds": zod.array(zod.string().uuid()),
-  "studentsAttended": zod.number().min(reportRecoverySessionBodyStudentsAttendedMin).optional()
+  "studentsAttended": zod.number().min(reportRecoverySessionBodyStudentsAttendedMin).optional(),
+  "status": zod.enum(['conducted', 'partial', 'no_show']),
+  "remarks": zod.string().max(2000).optional(),
+  "qaReportUrl": zod.string().url().max(2000).optional()
 })
 
 export const ReportRecoverySessionResponse = zod.object({

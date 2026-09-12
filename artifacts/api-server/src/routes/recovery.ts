@@ -157,36 +157,6 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
     return;
   }
 
-  // remarks/qaReportUrls aren't in the generated schema yet -- read them off
-  // the raw body rather than regenerating the OpenAPI client for two extra
-  // fields. zod's default (non-strict) object parse above already dropped
-  // them from `body`, so this is the only place they're visible.
-  const rawBody = req.body as {
-    remarks?: unknown;
-    qaReportUrls?: unknown;
-  };
-  const remarks =
-    typeof rawBody.remarks === "string" ? rawBody.remarks.trim().slice(0, 2000) : "";
-  const rawUrls = Array.isArray(rawBody.qaReportUrls)
-    ? rawBody.qaReportUrls
-    : typeof rawBody.qaReportUrls === "string"
-      ? rawBody.qaReportUrls.split(/[\n,]/)
-      : [];
-  const qaReportUrls = [
-    ...new Set(
-      rawUrls
-        .filter((url): url is string => typeof url === "string")
-        .map((url) => url.trim())
-        .filter(Boolean),
-    ),
-  ];
-  if (qaReportUrls.some((url) => !/^https?:\/\/\S+$/i.test(url))) {
-    res.status(400).json({
-      error: "QA report links must be valid URLs starting with http:// or https://",
-    });
-    return;
-  }
-
   const existing = await db.select().from(recoverySessionsTable)
     .where(and(eq(recoverySessionsTable.id, id), eq(recoverySessionsTable.instructorId, session.sub))).limit(1);
   const recoverySession = existing[0];
@@ -212,25 +182,19 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
     return;
   }
   const covered = new Set(coveredIds);
-  const status = covered.size === assigned.length
-    ? "conducted"
-    : covered.size === 0 && body.studentsAttended === 0
-      ? "no_show"
-      : "partial";
-  if (status !== "conducted" && !remarks) {
-    res.status(400).json({
-      error: "Add a remark explaining what happened to the topic(s) not covered",
-    });
-    return;
-  }
+  // The instructor now picks the session outcome themselves (Completed /
+  // Partially Completed / Not Completed) rather than having it inferred
+  // from the topic checkboxes -- the checkboxes still drive per-topic
+  // progress tracking below, independently of this status.
+  const status = body.status;
   const now = new Date();
 
   const reported = await db.transaction(async (tx) => {
     const updated = await tx.update(recoverySessionsTable).set({
       status,
-      remarks,
-      qaReportUrls,
       studentsAttended: body.studentsAttended as number | undefined,
+      remarks: body.remarks?.trim() || "",
+      qaReportUrls: body.qaReportUrl?.trim() ? [body.qaReportUrl.trim()] : [],
       reportedBy: session.sub,
       reportedAt: now,
       updatedAt: now,
@@ -278,13 +242,7 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
   }
   cacheDeletePrefix("recovery-progress:");
   cacheDeletePrefix("session-tracker:");
-  res.json({
-    id: reported.id,
-    status: reported.status,
-    reportedAt: reported.reportedAt?.toISOString() ?? now.toISOString(),
-    remarks: reported.remarks,
-    qaReportUrls: reported.qaReportUrls,
-  });
+  res.json({ id: reported.id, status: reported.status, reportedAt: reported.reportedAt?.toISOString() ?? now.toISOString() });
 });
 
 export default router;
