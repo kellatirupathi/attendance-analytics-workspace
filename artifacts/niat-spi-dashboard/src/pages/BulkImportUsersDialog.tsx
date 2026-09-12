@@ -44,6 +44,7 @@ const TEMPLATE_HEADERS = [
   "subjects",
   "password",
 ];
+const EMPTY_CSV = TEMPLATE_HEADERS.join(",");
 
 function campusLoginRow(campus: string): string[] {
   return [
@@ -73,7 +74,7 @@ export function BulkImportUsersDialog({
   const bulkCreate = useBulkCreateUsers();
 
   const [password, setPassword] = useState(DUMMY_PASSWORD);
-  const [csvText, setCsvText] = useState("");
+  const [csvText, setCsvText] = useState(EMPTY_CSV);
   const [result, setResult] = useState<BulkUserResult | null>(null);
 
   const parsed = useMemo(() => {
@@ -83,7 +84,7 @@ export function BulkImportUsersDialog({
 
   const reset = () => {
     setPassword(DUMMY_PASSWORD);
-    setCsvText("");
+    setCsvText(EMPTY_CSV);
     setResult(null);
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -289,7 +290,7 @@ export function BulkImportUsersDialog({
                   setCsvText(e.target.value);
                   setResult(null);
                 }}
-                placeholder="name,email,role,campuses,subjects"
+                placeholder={EMPTY_CSV}
                 className="min-h-[140px] font-mono text-xs"
               />
               {parsed.error && (
