@@ -24,11 +24,11 @@ function curriculumSubjects(subjects: string[]): string[] {
 
 function canAccess(session: NonNullable<Express.Request["session"]>, campus: string, subject: string): boolean {
   const scope = scopeForSession(session);
-  return Boolean(
-    scope.instructorId === session.sub &&
-    scope.campuses?.includes(campus) &&
-    curriculumSubjects(scope.subjects ?? []).includes(subject),
-  );
+  if (scope.instructorId !== session.sub) return false;
+  if (!scope.campuses?.includes(campus)) return false;
+  const assigned = scope.subjects ?? [];
+  if (assigned.length === 0) return true;
+  return curriculumSubjects(assigned).includes(subject);
 }
 
 router.get("/instructor/curriculum", requireSession(), async (req, res): Promise<void> => {
@@ -38,8 +38,20 @@ router.get("/instructor/curriculum", requireSession(), async (req, res): Promise
     return;
   }
   const scope = scopeForSession(session);
-  const campuses = scope.campuses ?? ["__none__"];
-  const subjects = curriculumSubjects(scope.subjects ?? ["__none__"]);
+  const campuses = scope.campuses?.length ? scope.campuses : ["__none__"];
+  const assignedSubjects = scope.subjects ?? [];
+  const topicFilters = [
+    inArray(recoveryTopicsTable.campus, campuses),
+    eq(recoveryTopicsTable.isActive, true),
+  ];
+  if (assignedSubjects.length > 0) {
+    topicFilters.push(
+      inArray(
+        recoveryTopicsTable.subject,
+        curriculumSubjects(assignedSubjects),
+      ),
+    );
+  }
   const topics = await db.select({
     id: recoveryTopicsTable.id,
     campus: recoveryTopicsTable.campus,
@@ -47,11 +59,7 @@ router.get("/instructor/curriculum", requireSession(), async (req, res): Promise
     sequenceNo: recoveryTopicsTable.sequenceNo,
     weekNo: recoveryTopicsTable.weekNo,
     title: recoveryTopicsTable.topicTitle,
-  }).from(recoveryTopicsTable).where(and(
-    inArray(recoveryTopicsTable.campus, campuses),
-    inArray(recoveryTopicsTable.subject, subjects),
-    eq(recoveryTopicsTable.isActive, true),
-  )).orderBy(
+  }).from(recoveryTopicsTable).where(and(...topicFilters)).orderBy(
     asc(recoveryTopicsTable.campus),
     asc(recoveryTopicsTable.subject),
     asc(recoveryTopicsTable.sequenceNo),

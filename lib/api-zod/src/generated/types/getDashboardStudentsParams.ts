@@ -22,9 +22,9 @@ attendanceBand?: string;
 /**
  * Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.
  */
-dateFrom?: string;
+dateFrom?: Date;
 /**
  * Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today / end of semester.
  */
-dateTo?: string;
+dateTo?: Date;
 };

@@ -5,9 +5,16 @@
  * NIAT SPI Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { RecoverySessionReportInputStatus } from './recoverySessionReportInputStatus';
 
 export interface RecoverySessionReportInput {
   coveredTopicIds: string[];
   /** @minimum 0 */
   studentsAttended?: number;
+  /** The instructor's own assessment of the session outcome (Completed / Partially Completed / Not Completed). */
+  status: RecoverySessionReportInputStatus;
+  /** @maxLength 2000 */
+  remarks?: string;
+  /** @maxLength 2000 */
+  qaReportUrl?: string;
 }
