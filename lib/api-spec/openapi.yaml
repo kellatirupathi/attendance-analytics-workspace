@@ -739,6 +739,31 @@ paths:
         "403":
           description: Instructor access required
 
+  /recovery/instructor/sessions/{id}:
+    get:
+      operationId: getInstructorRecoverySession
+      tags: [recovery]
+      summary: Fetch one of the authenticated instructor's assigned recovery sessions, regardless of scheduled date
+      description: Backs the "Mark complete" action in the Recovery tab's Session Tracker, including for a session from a previous day that was never reported.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Assigned recovery session detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstructorRecoverySession"
+        "403":
+          description: Instructor access required, or session not assigned to the caller
+        "409":
+          description: Session is no longer reportable
+
   /recovery/instructor/curriculum:
     get:
       operationId: listInstructorRecoveryCurriculum

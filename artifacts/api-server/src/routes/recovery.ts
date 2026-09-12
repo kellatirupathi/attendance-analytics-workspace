@@ -131,6 +131,61 @@ router.get("/instructor/sessions", requireSession(), async (req, res): Promise<v
   })));
 });
 
+// Fetch one assigned session's full detail (including its topics), regardless
+// of scheduled date -- unlike GET /instructor/sessions (today only), this
+// backs the "Mark complete" action instructors can now trigger straight from
+// the Recovery tab's Session Tracker, including for an overdue session from
+// a previous day.
+router.get("/instructor/sessions/:id", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  if (session.role !== "instructor") {
+    res.status(403).json({ error: "Instructor access required" });
+    return;
+  }
+  const params = ReportRecoverySessionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+  const id = params.data.id;
+
+  const existing = await db.select().from(recoverySessionsTable)
+    .where(and(eq(recoverySessionsTable.id, id), eq(recoverySessionsTable.instructorId, session.sub))).limit(1);
+  const recoverySession = existing[0];
+  if (!recoverySession || !canAccess(session, recoverySession.campus, recoverySession.subject)) {
+    res.status(403).json({ error: "You can only view your assigned sessions" });
+    return;
+  }
+  if (recoverySession.status !== "planned") {
+    res.status(409).json({ error: "This session has already been reported or is no longer reportable" });
+    return;
+  }
+
+  const topics = await db
+    .select({
+      id: recoveryTopicsTable.id,
+      sequenceNo: recoveryTopicsTable.sequenceNo,
+      title: recoveryTopicsTable.topicTitle,
+      order: sessionTopicsTable.orderInSession,
+    })
+    .from(sessionTopicsTable)
+    .innerJoin(recoveryTopicsTable, eq(recoveryTopicsTable.id, sessionTopicsTable.topicId))
+    .where(eq(sessionTopicsTable.sessionId, id))
+    .orderBy(asc(sessionTopicsTable.orderInSession), asc(recoveryTopicsTable.sequenceNo));
+
+  res.json({
+    id: recoverySession.id,
+    campus: recoverySession.campus,
+    subject: recoverySession.subject,
+    section: recoverySession.section,
+    scheduledDate: recoverySession.scheduledDate,
+    startTime: recoverySession.startTime,
+    endTime: recoverySession.endTime,
+    studentsExpected: recoverySession.studentsExpected,
+    topics,
+  });
+});
+
 router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   if (session.role !== "instructor") {
