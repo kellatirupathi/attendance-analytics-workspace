@@ -1835,9 +1835,14 @@ export default function RecoverySubjectDetail() {
                           </td>
                           <td className="px-5 py-4 text-center align-middle">
                             {isInstructor ? (
+                              // Access to this page is already scoped by campus/subject on
+                              // the server (a shared campus login such as
+                              // cdu.instructor@nxtwave.co.in covers every subject at that
+                              // campus), so any instructor who can see this row is allowed
+                              // to mark it complete -- not just one whose name happens to
+                              // match the session's stored instructorId.
                               row.status === "recovery_scheduled" &&
-                              row.recoverySession &&
-                              row.recoverySession.instructorId === user?.id ? (
+                              row.recoverySession ? (
                                 <Button
                                   size="sm"
                                   variant="outline"
