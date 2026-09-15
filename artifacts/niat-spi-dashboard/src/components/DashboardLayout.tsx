@@ -71,7 +71,7 @@ function NavItemLink({
         )}
       >
         <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
-        <span className="flex-1 truncate">{item.label}</span>
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
         {badge != null && badge > 0 && (
           <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
             {badge > 99 ? "99+" : badge}
@@ -180,7 +180,7 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   const renderedMainNav = user?.role === "instructor" ? instructorNav : visibleMainNav;
 
   return (
-    <div className="flex h-full flex-col bg-slate-900">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-900">
       <div className="border-b border-slate-700/80 px-4 py-4">
         <Logo inverted className="gap-3" />
       </div>
@@ -246,7 +246,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-[100dvh] bg-slate-100">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100">
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-[240px] md:flex">
         <SidebarInner />
       </aside>
@@ -284,8 +284,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="flex min-h-[100dvh] flex-col overflow-y-auto bg-white pt-14 md:h-[100dvh] md:pl-[240px] md:pt-0">
-        <div className="flex min-h-0 w-full flex-1 flex-col pl-2 pr-8 sm:pl-3 sm:pr-10 lg:pr-12">
+      <main className="flex min-h-[100dvh] flex-col overflow-x-hidden overflow-y-auto bg-white pt-14 md:h-[100dvh] md:pl-[240px] md:pt-0">
+        <div className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden pl-2 pr-8 sm:pl-3 sm:pr-10 lg:pr-12">
           {children}
         </div>
       </main>
