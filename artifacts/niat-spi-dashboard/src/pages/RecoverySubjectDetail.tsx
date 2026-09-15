@@ -28,6 +28,7 @@ import {
   FileText,
   Loader2,
   ChevronLeft,
+  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -773,6 +774,7 @@ export default function RecoverySubjectDetail() {
   const [trackerError, setTrackerError] = useState("");
   const [updatingInstructorType, setUpdatingInstructorType] = useState<string | null>(null);
   const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null);
+  const [revertingSessionId, setRevertingSessionId] = useState<string | null>(null);
 
   // "Mark complete" -- lets an instructor report on their own assigned
   // session right from the Session Tracker row, instead of only from the
@@ -1268,6 +1270,43 @@ export default function RecoverySubjectDetail() {
       });
     } finally {
       setCancellingSessionId(null);
+    }
+  }
+
+  // Admin-only: undoes a session that was wrongly marked Completed/Partially
+  // Completed (e.g. a test entry, or an instructor mistake) -- puts its
+  // topic(s) back to "needs recovery" rather than deleting the session
+  // outright. Clears the stored remarks/QA report link, since they no longer
+  // describe anything that actually happened.
+  async function revertToNeedsRecovery(sessionId: string) {
+    if (
+      !confirm(
+        'Revert this session to "needs recovery"? Its remarks and QA report link will be cleared, and the topic will show as not yet recovered.',
+      )
+    ) {
+      return;
+    }
+    setRevertingSessionId(sessionId);
+    try {
+      const response = await fetch(
+        `/api/admin/recovery-sessions/${encodeURIComponent(sessionId)}/revert`,
+        { method: "POST", credentials: "include" },
+      );
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(result?.error ?? "Failed to revert session");
+      toast({
+        title: "Session reverted",
+        description: "The topic now shows as needing recovery.",
+      });
+      await refetchTrackerAndProgress();
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Could not revert session",
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setRevertingSessionId(null);
     }
   }
 
@@ -1896,6 +1935,21 @@ export default function RecoverySubjectDetail() {
                               ) : (
                                 <span className="sr-only">No action</span>
                               )
+                            ) : canEditInstructorType && row.status === "recovered" && row.recoverySession ? (
+                              <button
+                                type="button"
+                                title="Revert to needs recovery"
+                                aria-label={`Revert recovery session for ${row.topicTitle} to needs recovery`}
+                                disabled={revertingSessionId === row.recoverySession.id}
+                                onClick={() => void revertToNeedsRecovery(row.recoverySession!.id)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-amber-50 hover:text-amber-600 disabled:cursor-wait disabled:opacity-60"
+                              >
+                                {revertingSessionId === row.recoverySession.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="h-4 w-4" />
+                                )}
+                              </button>
                             ) : row.status === "recovery_scheduled" && row.recoverySession ? (
                               <button
                                 type="button"

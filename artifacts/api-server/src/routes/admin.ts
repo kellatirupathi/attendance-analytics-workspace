@@ -5,8 +5,10 @@ import {
   usersTable,
   campusesTable,
   recoverySessionsTable,
+  recoveryProgressTable,
+  sessionTopicsTable,
 } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { requireSession } from "../lib/auth.js";
 import { invalidateSessionCache } from "../lib/sessionCache.js";
 import { manageableRoles, ROLE_META, SUBJECTS } from "../lib/rbac.js";
@@ -495,6 +497,141 @@ router.patch(
 
     cacheDeletePrefix("session-tracker:");
     res.json(updated);
+  },
+);
+
+// Reopens a session an admin has determined was wrongly marked
+// Completed/Partially Completed (e.g. a test entry, or an instructor error) --
+// puts its topic(s) back into "needs recovery" on the tracker rather than
+// deleting history. The session itself is kept (status -> "cancelled", so it
+// drops out of the tracker's candidate list for that topic) with its
+// remarks/QA report link cleared; per-topic recovery_progress is reset to
+// "pending" unless some other still-valid conducted/partial session also
+// covers that topic, in which case that topic is left alone.
+router.post(
+  "/recovery-sessions/:id/revert",
+  async (req, res): Promise<void> => {
+    const id = String(req.params["id"] ?? "");
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(id)) {
+      res.status(400).json({ error: "Invalid recovery session id" });
+      return;
+    }
+
+    const existing = await db
+      .select()
+      .from(recoverySessionsTable)
+      .where(eq(recoverySessionsTable.id, id))
+      .limit(1);
+    const session = existing[0];
+    if (!session) {
+      res.status(404).json({ error: "Recovery session not found" });
+      return;
+    }
+    if (session.status !== "conducted" && session.status !== "partial") {
+      res.status(409).json({
+        error: "Only a Completed or Partially Completed session can be reverted",
+      });
+      return;
+    }
+
+    const admin = req.session!;
+    const now = new Date();
+
+    const reverted = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(recoverySessionsTable)
+        .set({
+          status: "cancelled",
+          cancellationReason:
+            `Reverted from ${session.status === "conducted" ? "Completed" : "Partially Completed"}` +
+            ` by ${admin.email} -- marked as not actually delivered`,
+          remarks: "",
+          qaReportUrls: [],
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(recoverySessionsTable.id, id),
+            inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+          ),
+        )
+        .returning();
+      if (!updated[0]) return null;
+
+      const assignedTopics = await tx
+        .select({
+          topicId: sessionTopicsTable.topicId,
+          wasCovered: sessionTopicsTable.wasCovered,
+        })
+        .from(sessionTopicsTable)
+        .where(eq(sessionTopicsTable.sessionId, id));
+
+      for (const { topicId, wasCovered } of assignedTopics) {
+        if (wasCovered) {
+          await tx
+            .update(sessionTopicsTable)
+            .set({ wasCovered: false })
+            .where(
+              and(
+                eq(sessionTopicsTable.sessionId, id),
+                eq(sessionTopicsTable.topicId, topicId),
+              ),
+            );
+        }
+
+        // If some other completed/partial session still validly covers this
+        // topic, leave its progress alone -- only fall back to "pending"
+        // when this reverted session was the one carrying it.
+        const otherCoverage = await tx
+          .select({ sessionId: sessionTopicsTable.sessionId })
+          .from(sessionTopicsTable)
+          .innerJoin(
+            recoverySessionsTable,
+            eq(recoverySessionsTable.id, sessionTopicsTable.sessionId),
+          )
+          .where(
+            and(
+              eq(sessionTopicsTable.topicId, topicId),
+              eq(sessionTopicsTable.wasCovered, true),
+              inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+              ne(sessionTopicsTable.sessionId, id),
+            ),
+          )
+          .limit(1);
+        if (otherCoverage.length > 0) continue;
+
+        const sectionClause =
+          session.section == null
+            ? isNull(recoveryProgressTable.section)
+            : eq(recoveryProgressTable.section, session.section);
+        await tx
+          .update(recoveryProgressTable)
+          .set({ status: "pending", completedAt: null, updatedAt: now })
+          .where(
+            and(
+              eq(recoveryProgressTable.campus, session.campus),
+              eq(recoveryProgressTable.subject, session.subject),
+              eq(recoveryProgressTable.topicId, topicId),
+              sectionClause,
+            ),
+          );
+      }
+
+      return updated[0];
+    });
+
+    if (!reverted) {
+      res.status(409).json({
+        error: "This session was already changed by another request",
+      });
+      return;
+    }
+
+    cacheDeletePrefix("recovery-progress:");
+    cacheDeletePrefix("session-tracker:");
+    res.json({ id: reverted.id, status: reverted.status });
   },
 );
 
