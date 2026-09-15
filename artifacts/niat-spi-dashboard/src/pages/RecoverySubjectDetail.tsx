@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   Clock3,
   Download,
+  ExternalLink,
   FileText,
   Loader2,
   ChevronLeft,
@@ -130,6 +131,8 @@ interface SessionTrackerRow {
     instructorType: "campus" | "backup" | "unknown";
     wasCovered: boolean | null;
     instructorId: string | null;
+    remarks: string;
+    qaReportUrls: string[];
   } | null;
 }
 
@@ -1346,6 +1349,10 @@ export default function RecoverySubjectDetail() {
     }
     const remarks = markRemarks.trim();
     const qaReportUrl = markQaReportUrl.trim();
+    if ((markStatus === "conducted" || markStatus === "partial") && !qaReportUrl) {
+      toast({ variant: "destructive", title: "Upload the QA report link before submitting" });
+      return;
+    }
     setMarkSubmitting(true);
     try {
       const response = await fetch(
@@ -1749,6 +1756,8 @@ export default function RecoverySubjectDetail() {
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Date</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Recovery Instructor</th>
                       <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">Instructor Type</th>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-600 min-w-[180px]">Remarks</th>
+                      <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-28">QA Report</th>
                       <th className="px-5 py-3 text-center text-xs font-semibold uppercase tracking-wider text-slate-600 w-16">
                         <span className="sr-only">Actions</span>
                       </th>
@@ -1831,6 +1840,38 @@ export default function RecoverySubjectDetail() {
                               )
                             ) : (
                               <span className="sr-only">No instructor type</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 max-w-[220px]">
+                            {row.recoverySession?.remarks ? (
+                              <span
+                                className="block truncate text-slate-600"
+                                title={row.recoverySession.remarks}
+                              >
+                                {row.recoverySession.remarks}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-center align-middle">
+                            {row.recoverySession?.qaReportUrls?.length ? (
+                              <div className="flex flex-col items-center gap-1">
+                                {row.recoverySession.qaReportUrls.map((url, i) => (
+                                  <a
+                                    key={url}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-700 hover:underline"
+                                  >
+                                    <ExternalLink className="h-3 w-3" />
+                                    {row.recoverySession!.qaReportUrls.length > 1 ? `Report ${i + 1}` : "Report"}
+                                  </a>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300">-</span>
                             )}
                           </td>
                           <td className="px-5 py-4 text-center align-middle">
@@ -2141,11 +2182,14 @@ export default function RecoverySubjectDetail() {
               <div>
                 <Label htmlFor="mark-qa-report" className="mb-2 flex items-center gap-2">
                   <FileText className="h-4 w-4" /> QA report link
+                  {(markStatus === "conducted" || markStatus === "partial") && (
+                    <span className="text-red-600">*</span>
+                  )}
                 </Label>
                 <Input
                   id="mark-qa-report"
                   type="url"
-                  placeholder="Paste a link to your QA report (optional)"
+                  placeholder="Paste a link to your QA report"
                   value={markQaReportUrl}
                   onChange={(event) => setMarkQaReportUrl(event.target.value)}
                 />
@@ -2159,7 +2203,13 @@ export default function RecoverySubjectDetail() {
             </Button>
             <Button
               onClick={() => void submitMarkComplete()}
-              disabled={markSubmitting || markCompleteLoading || !!markCompleteError || !markStatus}
+              disabled={
+                markSubmitting ||
+                markCompleteLoading ||
+                !!markCompleteError ||
+                !markStatus ||
+                ((markStatus === "conducted" || markStatus === "partial") && !markQaReportUrl.trim())
+              }
               className="gap-2"
             >
               {markSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}

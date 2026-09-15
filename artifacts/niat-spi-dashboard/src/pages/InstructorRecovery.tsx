@@ -123,6 +123,10 @@ export default function InstructorRecovery() {
     }
     const remarks = (remarksBySession[recoverySession.id] ?? "").trim();
     const qaReportUrl = (qaReportUrlBySession[recoverySession.id] ?? "").trim();
+    if ((status === "conducted" || status === "partial") && !qaReportUrl) {
+      toast({ variant: "destructive", title: "Upload the QA report link before submitting" });
+      return;
+    }
     setSubmitting(recoverySession.id);
     try {
       const response = await fetch(`/api/recovery/sessions/${recoverySession.id}/report`, {
@@ -273,11 +277,14 @@ export default function InstructorRecovery() {
                   <div>
                     <Label htmlFor={`qa-report-${recoverySession.id}`} className="mb-2 flex items-center gap-2">
                       <FileText className="h-4 w-4" /> QA report link
+                      {(statusBySession[recoverySession.id] === "conducted" || statusBySession[recoverySession.id] === "partial") && (
+                        <span className="text-red-600">*</span>
+                      )}
                     </Label>
                     <Input
                       id={`qa-report-${recoverySession.id}`}
                       type="url"
-                      placeholder="Paste a link to your QA report (optional)"
+                      placeholder="Paste a link to your QA report"
                       value={qaReportUrlBySession[recoverySession.id] ?? ""}
                       onChange={(event) =>
                         setQaReportUrlBySession((current) => ({ ...current, [recoverySession.id]: event.target.value }))
@@ -287,7 +294,13 @@ export default function InstructorRecovery() {
                   </div>
                   <Button
                     className="h-12 w-full text-base"
-                    disabled={submitting === recoverySession.id || !statusBySession[recoverySession.id]}
+                    disabled={
+                      submitting === recoverySession.id ||
+                      !statusBySession[recoverySession.id] ||
+                      ((statusBySession[recoverySession.id] === "conducted" ||
+                        statusBySession[recoverySession.id] === "partial") &&
+                        !(qaReportUrlBySession[recoverySession.id] ?? "").trim())
+                    }
                     onClick={() => void submit(recoverySession)}
                   >
                     {submitting === recoverySession.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

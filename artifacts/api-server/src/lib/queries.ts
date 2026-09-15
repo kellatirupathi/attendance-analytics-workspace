@@ -1938,6 +1938,10 @@ export interface SessionTrackerRow {
     // lets the frontend tell whether the logged-in instructor may report on
     // this specific session (matched against their own user id).
     instructorId: string | null;
+    // Instructor's own notes from filing the recovery report, and any QA
+    // report links they attached -- surfaced in the session tracker table.
+    remarks: string;
+    qaReportUrls: string[];
   } | null;
 }
 
@@ -2167,6 +2171,8 @@ export async function getSessionTracker(
       wasCovered: sessionTopicsTable.wasCovered,
       sessionStatus: recoverySessionsTable.status,
       section: recoverySessionsTable.section,
+      remarks: recoverySessionsTable.remarks,
+      qaReportUrls: recoverySessionsTable.qaReportUrls,
     })
     .from(sessionTopicsTable)
     .innerJoin(
@@ -2266,6 +2272,8 @@ export async function getSessionTracker(
             instructorType: recovery.instructorType,
             wasCovered: recovery.wasCovered,
             instructorId: recovery.instructorId,
+            remarks: recovery.remarks,
+            qaReportUrls: recovery.qaReportUrls,
           }
         : null,
     };
