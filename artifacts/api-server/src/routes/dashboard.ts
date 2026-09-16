@@ -68,7 +68,10 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
     campuses: session.campuses,
     subjects: session.subjects,
   });
-  const cacheKey = `summary:${session.role}:${JSON.stringify(scope)}`;
+  const dateRange = parseDateRange(
+    req.query as Record<string, string | undefined>,
+  );
+  const cacheKey = `summary:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -77,10 +80,10 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   try {
     const [campusBreakdown, sectionBreakdown, subjectBreakdown, worstStudents] =
       await Promise.all([
-        getCampusSummary(scope),
-        getSectionSummary(scope),
-        getSubjectSummary(scope),
-        getStudentsList(scope, { limit: 5 }),
+        getCampusSummary(scope, { dateRange }),
+        getSectionSummary(scope, { dateRange }),
+        getSubjectSummary(scope, { dateRange }),
+        getStudentsList(scope, { limit: 5, dateRange }),
       ]);
     const totalStudents = campusBreakdown.reduce(
       (s, c) => s + c.studentCount,

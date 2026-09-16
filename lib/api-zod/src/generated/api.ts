@@ -310,6 +310,11 @@ export const ListQuizRecoveryStudentsResponse = zod.array(ListQuizRecoveryStuden
 /**
  * @summary Get scoped dashboard summary
  */
+export const GetDashboardSummaryQueryParams = zod.object({
+  "dateFrom": zod.date().optional().describe('Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.'),
+  "dateTo": zod.date().optional().describe('Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today \/ end of semester.')
+})
+
 export const GetDashboardSummaryResponse = zod.object({
   "totalStudents": zod.number(),
   "totalCampuses": zod.number(),

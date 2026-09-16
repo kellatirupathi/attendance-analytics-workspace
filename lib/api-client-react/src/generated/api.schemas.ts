@@ -474,6 +474,17 @@ export type GetDashboardFiltersParams = {
 campus?: string;
 };
 
+export type GetDashboardSummaryParams = {
+/**
+ * Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.
+ */
+dateFrom?: string;
+/**
+ * Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today / end of semester.
+ */
+dateTo?: string;
+};
+
 export type GetDashboardStudentsParams = {
 search?: string;
 limit?: number;

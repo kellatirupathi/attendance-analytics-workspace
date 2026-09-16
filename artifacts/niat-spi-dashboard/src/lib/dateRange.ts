@@ -101,3 +101,7 @@ export function campusWisePath(range: DateRange, campus?: string): string {
     campus: campus || undefined,
   });
 }
+
+export function campusAnalyticsPath(range: DateRange): string {
+  return withDateRange("/dashboard/campuses", range);
+}

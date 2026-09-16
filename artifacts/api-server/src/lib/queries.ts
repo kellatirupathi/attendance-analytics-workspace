@@ -584,9 +584,10 @@ export async function getCampusSummary(
 
 export async function getSectionSummary(
   scope: SessionScope,
+  opts: { dateRange?: DateRangeFilter } = {},
 ): Promise<SectionSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params);
+  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
   const rows = await bqQuery<{
     institute_name: string;
     batch_section_name: string;

@@ -66,9 +66,12 @@ export default function StudentAttendanceStats() {
     return "all";
   }, [urlCampus, isBoa, user?.campuses]);
 
-  const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey() },
-  });
+  const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary(
+    undefined,
+    {
+      query: { queryKey: getGetDashboardSummaryQueryKey() },
+    },
+  );
 
   const { data: filterOptions } = useGetDashboardFilters(undefined, {
     query: {

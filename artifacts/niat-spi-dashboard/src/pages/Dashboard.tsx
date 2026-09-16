@@ -846,9 +846,12 @@ export default function Dashboard() {
   const canSeeRequests = ["superadmin", "admin", "boa", "hod"].includes(role);
   const unreadRequests = useUnreadNotificationCount(canSeeRequests);
 
-  const { data: summary, isLoading, isError, refetch } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey() },
-  });
+  const { data: summary, isLoading, isError, refetch } = useGetDashboardSummary(
+    undefined,
+    {
+      query: { queryKey: getGetDashboardSummaryQueryKey() },
+    },
+  );
 
   const { data: students, isLoading: studentsLoading } =
     useGetDashboardStudents(

@@ -351,6 +351,19 @@ paths:
       operationId: getDashboardSummary
       tags: [dashboard]
       summary: Get scoped dashboard summary
+      parameters:
+        - name: dateFrom
+          in: query
+          description: Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          description: Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today / end of semester.
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: Dashboard summary

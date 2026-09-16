@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import {
   useGetDashboardSummary,
   getGetDashboardSummaryQueryKey,
@@ -41,10 +42,18 @@ import {
   SearchableSelect,
   campusSelectOptions,
 } from "@/components/SearchableSelect";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Search, Download, SlidersHorizontal, Loader2 } from "lucide-react";
-import { pctColor, pctTextColor, cn } from "@/lib/utils";
+import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
+import {
+  campusAnalyticsPath,
+  dateRangeLabel,
+  readDateRange,
+  type DateRange,
+} from "@/lib/dateRange";
 
 type Drill = "campus" | "section" | "students";
 
@@ -70,6 +79,10 @@ function matchesBand(pct: number, band: string): boolean {
 }
 
 export default function Campuses() {
+  const [, setLocation] = useLocation();
+  const query = useQueryParams();
+  const range = useMemo(() => readDateRange(query), [query]);
+
   const [drill, setDrill] = useState<Drill>("campus");
   const [selectedCampus, setSelectedCampus] = useState<string | null>(null);
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
@@ -88,9 +101,26 @@ export default function Campuses() {
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
 
-  const { data: summary, isLoading } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey() },
-  });
+  const setRange = (next: DateRange) => {
+    setLocation(campusAnalyticsPath(next));
+    setPage(1);
+  };
+
+  const summaryQuery = {
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
+  };
+
+  const { data: summary, isLoading, isFetching } = useGetDashboardSummary(
+    summaryQuery,
+    {
+      query: {
+        queryKey: getGetDashboardSummaryQueryKey(summaryQuery),
+        staleTime: 30_000,
+        placeholderData: (previousData) => previousData,
+      },
+    },
+  );
 
   const { data: filterOptions, isLoading: filtersLoading } =
     useGetDashboardFilters(undefined, {
@@ -113,6 +143,8 @@ export default function Campuses() {
         ? selectedSection
         : undefined,
     search: debouncedSearch || undefined,
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
   };
 
   const { data: students, isLoading: studentsLoading } = useGetDashboardStudents(
@@ -122,6 +154,7 @@ export default function Campuses() {
         queryKey: getGetDashboardStudentsQueryKey(studentQuery),
         enabled: drill === "students" && !!selectedCampus,
         staleTime: 30_000,
+        placeholderData: (previousData) => previousData,
       },
     },
   );
@@ -268,9 +301,10 @@ export default function Campuses() {
 
       <PageHeader
         title="Campus Analytics"
-        subtitle="Drill from campus → section → students."
+        subtitle={`Drill from campus → section → students · ${dateRangeLabel(range)}`}
         right={
           <div className="flex flex-wrap items-center gap-2">
+            <DateRangeFilter value={range} onChange={setRange} />
             <div className="relative min-w-[200px] flex-1 sm:w-56 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
@@ -315,6 +349,9 @@ export default function Campuses() {
             >
               <Download className="h-4 w-4" /> Export
             </Button>
+            {isFetching && (
+              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+            )}
 
             {activeFilterCount > 0 && (
               <button
@@ -363,6 +400,9 @@ export default function Campuses() {
                 : showAllStudents
                   ? `All students · ${selectedCampus}`
                   : `Students · ${selectedSection}`}
+            <span className="ml-2 font-normal text-gray-500">
+              · {dateRangeLabel(range)}
+            </span>
           </h2>
         </div>
         <div className="overflow-x-auto">
@@ -408,7 +448,7 @@ export default function Campuses() {
                     colSpan={drill === "campus" ? 5 : drill === "section" ? 3 : 4}
                     className="h-24 text-center text-gray-500"
                   >
-                    No data matches your filters.
+                    No data matches your filters for {dateRangeLabel(range)}.
                   </TableCell>
                 </TableRow>
               ) : drill === "campus" ? (
