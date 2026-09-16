@@ -19,7 +19,6 @@ import {
   BarChart3,
   AlertTriangle,
   ClipboardCheck,
-  Link2,
   BookOpenCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,7 +45,6 @@ const mainNav: NavItem[] = [
 const adminNav: NavItem[] = [
   { label: "User Access", href: "/admin/users", icon: Shield },
   { label: "Campus Setup", href: "/admin/campuses", icon: Building },
-  { label: "Recovery instructors", href: "/admin/recovery-instructors", icon: Link2 },
 ];
 
 function NavItemLink({

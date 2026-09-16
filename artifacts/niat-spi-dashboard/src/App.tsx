@@ -35,9 +35,6 @@ const RecoveryQuizSubjectDetail = lazy(
   () => import("@/pages/RecoveryQuizSubjectDetail"),
 );
 const InstructorRecovery = lazy(() => import("@/pages/InstructorRecovery"));
-const AdminRecoveryInstructors = lazy(
-  () => import("@/pages/AdminRecoveryInstructors"),
-);
 
 const queryClient = new QueryClient();
 
@@ -178,11 +175,6 @@ function Router() {
         <Route path="/admin/campuses">
           <Protected adminOnly>
             <AdminCampuses />
-          </Protected>
-        </Route>
-        <Route path="/admin/recovery-instructors">
-          <Protected adminOnly>
-            <AdminRecoveryInstructors />
           </Protected>
         </Route>
 
