@@ -184,7 +184,7 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   const campus = q["campus"] || undefined;
   const dateRange = parseDateRange(q);
   const semester = parseSemester(q);
-  const cacheKey = `subjects:v2:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `subjects:v3:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -255,7 +255,7 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
   });
   const dateRange = parseDateRange(req.query as Record<string, string | undefined>);
   const semester = parseSemester(req.query as Record<string, string | undefined>);
-  const cacheKey = `campuses:v2:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `campuses:v3:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
