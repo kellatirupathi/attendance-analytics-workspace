@@ -87,18 +87,41 @@ export function matchPreset(range: DateRange): DatePreset {
   return "custom";
 }
 
+export function applySemester(
+  params: URLSearchParams,
+  semester?: string,
+): void {
+  if (semester) params.set("semester", semester);
+  else params.delete("semester");
+}
+
+export function readSemester(params: URLSearchParams): string {
+  return params.get("semester")?.trim() || "";
+}
+
+export function semesterLabel(semester?: string): string {
+  return semester?.trim() || "Current semester";
+}
+
 export function attendanceStatsPath(
   range: DateRange,
   campus?: string,
+  semester?: string,
 ): string {
   return withDateRange("/dashboard/attendance-stats", range, {
     campus: campus && campus !== "all" ? campus : undefined,
+    semester: semester || undefined,
   });
 }
 
-export function campusWisePath(range: DateRange, campus?: string): string {
+export function campusWisePath(
+  range: DateRange,
+  campus?: string,
+  semester?: string,
+): string {
   return withDateRange("/dashboard/attendance-stats/campuses", range, {
     campus: campus || undefined,
+    semester: semester || undefined,
   });
 }
 
