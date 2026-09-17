@@ -242,7 +242,7 @@ export default function StudentAttendanceStats() {
 
       <PageHeader
         title="Student Attendance Stats"
-        subtitle="Present = unique students who showed up at least once. Total sessions = classes held, not attendance rows."
+        subtitle="Students = full semester roster. Present and sessions follow the selected date range."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter

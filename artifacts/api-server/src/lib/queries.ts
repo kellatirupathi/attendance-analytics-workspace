@@ -583,10 +583,11 @@ export async function getStudentsList(
 
 export interface CampusSummaryItem {
   instituteName: string;
+  /** Distinct students in the selected semester (not the date window). */
   studentCount: number;
   sectionCount: number;
   subjectCount: number;
-  /** Distinct students with at least one present row. */
+  /** Distinct students with at least one present row in the date window. */
   presentCount: number;
   /** Distinct classes held, not attendance row count. */
   totalCount: number;
@@ -612,9 +613,8 @@ export async function getCampusSummary(
   opts: { dateRange?: DateRangeFilter; semester?: string } = {},
 ): Promise<CampusSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where =
-    scopeClause(scope, params, { semester: opts.semester }) +
-    dateRangeClause(opts.dateRange, params);
+  const rosterWhere = scopeClause(scope, params, { semester: opts.semester });
+  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
   const rows = await bqQuery<
     AttendanceRollupRow & {
       institute_name: string;
@@ -622,19 +622,39 @@ export async function getCampusSummary(
       subject_count: string;
     }
   >(
-    `SELECT
-      institute_name,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNT(DISTINCT batch_section_name) AS section_count,
-      COUNT(DISTINCT subject_title) AS subject_count,
-      COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
-      COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
-      COUNT(*) AS total_record_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}
-    GROUP BY institute_name
-    ORDER BY institute_name`,
+    `WITH roster AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT student_user_id) AS student_count,
+        COUNT(DISTINCT batch_section_name) AS section_count,
+        COUNT(DISTINCT subject_title) AS subject_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${rosterWhere}
+      GROUP BY institute_name
+    ),
+    windowed AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
+        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+        COUNT(*) AS total_record_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${windowWhere}
+      GROUP BY institute_name
+    )
+    SELECT
+      roster.institute_name,
+      roster.student_count,
+      roster.section_count,
+      roster.subject_count,
+      COALESCE(windowed.present_student_count, 0) AS present_student_count,
+      COALESCE(windowed.session_count, 0) AS session_count,
+      COALESCE(windowed.present_record_count, 0) AS present_record_count,
+      COALESCE(windowed.total_record_count, 0) AS total_record_count
+    FROM roster
+    LEFT JOIN windowed USING (institute_name)
+    ORDER BY roster.institute_name`,
     params,
   );
   return rows.map((r) => ({
@@ -686,8 +706,9 @@ export async function getSectionSummary(
 
 export interface SubjectSummaryItem {
   subjectTitle: string;
+  /** Distinct students in the selected semester (not the date window). */
   studentCount: number;
-  /** Distinct students with at least one present row. */
+  /** Distinct students with at least one present row in the date window. */
   presentCount: number;
   /** Distinct classes held, not attendance row count. */
   totalCount: number;
@@ -704,28 +725,46 @@ export async function getSubjectSummary(
   opts: { campus?: string; dateRange?: DateRangeFilter; semester?: string } = {},
 ): Promise<SubjectSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where =
-    scopeClause(scope, params, { semester: opts.semester }) +
-    dateRangeClause(opts.dateRange, params);
   let campusFilter = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
     campusFilter = " AND institute_name = @filterCampus";
   }
+  const rosterWhere =
+    scopeClause(scope, params, { semester: opts.semester }) + campusFilter;
+  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
   const rows = await bqQuery<AttendanceRollupRow & { subject_title: string }>(
-    `SELECT
-      subject_title,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
-      COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
-      COUNT(*) AS total_record_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}${campusFilter}
-    GROUP BY subject_title
+    `WITH roster AS (
+      SELECT
+        subject_title,
+        COUNT(DISTINCT student_user_id) AS student_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${rosterWhere}
+      GROUP BY subject_title
+    ),
+    windowed AS (
+      SELECT
+        subject_title,
+        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
+        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+        COUNT(*) AS total_record_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${windowWhere}
+      GROUP BY subject_title
+    )
+    SELECT
+      roster.subject_title,
+      roster.student_count,
+      COALESCE(windowed.present_student_count, 0) AS present_student_count,
+      COALESCE(windowed.session_count, 0) AS session_count,
+      COALESCE(windowed.present_record_count, 0) AS present_record_count,
+      COALESCE(windowed.total_record_count, 0) AS total_record_count
+    FROM roster
+    LEFT JOIN windowed USING (subject_title)
     ORDER BY SAFE_DIVIDE(
-      COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)),
-      COUNT(DISTINCT student_user_id)
+      COALESCE(windowed.present_student_count, 0),
+      roster.student_count
     ) ASC`,
     params,
   );
