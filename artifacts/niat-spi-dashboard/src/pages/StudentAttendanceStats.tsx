@@ -42,14 +42,19 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import {
   applyDateRange,
+  applySemester,
   attendanceStatsPath,
   campusWisePath,
   dateRangeLabel,
   readDateRange,
+  readSemester,
+  semesterLabel,
   type DateRange,
 } from "@/lib/dateRange";
+import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
 
 const PAGE_SIZES = [25, 50, 100];
+const CURRENT_SEMESTER = "current";
 
 export default function StudentAttendanceStats() {
   const { user } = useAuth();
@@ -59,6 +64,7 @@ export default function StudentAttendanceStats() {
 
   const urlCampus = query.get("campus");
   const range = useMemo(() => readDateRange(query), [query]);
+  const semester = useMemo(() => readSemester(query), [query]);
 
   const campus = useMemo(() => {
     if (urlCampus) return urlCampus;
@@ -85,6 +91,8 @@ export default function StudentAttendanceStats() {
     return filterOptions?.campuses ?? summary?.campusBreakdown.map((c) => c.instituteName) ?? [];
   }, [filterOptions, summary, isBoa, user?.campuses]);
 
+  const semesters = useAttendanceSemesters(campus);
+
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
   const [subjects, setSubjects] = useState<SubjectSummary[]>([]);
@@ -95,12 +103,27 @@ export default function StudentAttendanceStats() {
 
   const setRange = (next: DateRange) => {
     setPage(1);
-    setLocation(attendanceStatsPath(next, campus === "all" ? undefined : campus));
+    setLocation(
+      attendanceStatsPath(next, campus === "all" ? undefined : campus, semester),
+    );
   };
 
   const setCampusFilter = (value: string) => {
     setPage(1);
-    setLocation(attendanceStatsPath(range, value === "all" ? undefined : value));
+    setLocation(
+      attendanceStatsPath(range, value === "all" ? undefined : value, semester),
+    );
+  };
+
+  const setSemesterFilter = (value: string) => {
+    setPage(1);
+    setLocation(
+      attendanceStatsPath(
+        range,
+        campus === "all" ? undefined : campus,
+        value,
+      ),
+    );
   };
 
   useEffect(() => {
@@ -109,6 +132,7 @@ export default function StudentAttendanceStats() {
     setFetchError(false);
     const params = new URLSearchParams();
     if (campus !== "all") params.set("campus", campus);
+    applySemester(params, semester);
     applyDateRange(params, range);
     fetch(`/api/dashboard/subjects?${params.toString()}`, {
       credentials: "include",
@@ -129,7 +153,7 @@ export default function StudentAttendanceStats() {
     return () => {
       alive = false;
     };
-  }, [campus, range.dateFrom, range.dateTo]);
+  }, [campus, semester, range.dateFrom, range.dateTo]);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
@@ -181,6 +205,7 @@ export default function StudentAttendanceStats() {
       pct: String(s.pct),
     });
     if (campus !== "all") params.set("campus", campus);
+    applySemester(params, semester);
     applyDateRange(params, range);
     setLocation(`/dashboard/attendance-stats/students?${params.toString()}`);
   };
@@ -188,6 +213,7 @@ export default function StudentAttendanceStats() {
   const openSessions = (s: SubjectSummary) => {
     const params = new URLSearchParams({ subject: s.subjectTitle });
     if (campus !== "all") params.set("campus", campus);
+    applySemester(params, semester);
     applyDateRange(params, range);
     setLocation(`/dashboard/attendance-stats/sessions?${params.toString()}`);
   };
@@ -196,8 +222,8 @@ export default function StudentAttendanceStats() {
     <div className="flex flex-col">
       <SubNav
         items={attendanceStatsNav(
-          attendanceStatsPath(range),
-          campusWisePath(range),
+          attendanceStatsPath(range, undefined, semester),
+          campusWisePath(range, undefined, semester),
         )}
       />
 
@@ -206,7 +232,8 @@ export default function StudentAttendanceStats() {
           items={[
             {
               label: "Student Attendance Stats",
-              onClick: () => setLocation(attendanceStatsPath(range)),
+              onClick: () =>
+                setLocation(attendanceStatsPath(range, undefined, semester)),
             },
             { label: campus, current: true },
           ]}
@@ -218,7 +245,28 @@ export default function StudentAttendanceStats() {
         subtitle="Present = unique students who showed up at least once. Total sessions = classes held, not attendance rows."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <DateRangeFilter value={range} onChange={setRange} />
+        <DateRangeFilter
+          value={range}
+          onChange={setRange}
+          allDatesLabel="All dates"
+        />
+        <SearchableSelect
+          value={semester || CURRENT_SEMESTER}
+          onValueChange={(value) =>
+            setSemesterFilter(value === CURRENT_SEMESTER ? "" : value)
+          }
+          options={[
+            { value: CURRENT_SEMESTER, label: "Current semester" },
+            ...semesters.map((s) => ({ value: s, label: s })),
+            ...(semester && !semesters.includes(semester)
+              ? [{ value: semester, label: semester }]
+              : []),
+          ]}
+          placeholder="Current semester"
+          searchPlaceholder="Search semesters…"
+          className="w-[220px]"
+          disabled={semesters.length === 0 && !semester}
+        />
         {!(isBoa && user?.campuses?.length === 1) && campusOptions.length > 0 && (
           <SearchableSelect
             value={campus}
@@ -267,7 +315,8 @@ export default function StudentAttendanceStats() {
           <p className="mt-0.5 text-xs text-gray-500">
             {filtered.length.toLocaleString()} subject{filtered.length === 1 ? "" : "s"}
             {" · "}
-            {dateRangeLabel(range)}
+            {semesterLabel(semester)}
+            {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
             {" · "}
             Student attendance = present students ÷ students. Record attendance =
             present rows ÷ all rows.

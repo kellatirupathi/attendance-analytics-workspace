@@ -28,10 +28,13 @@ import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import {
   applyDateRange,
+  applySemester,
   attendanceStatsPath,
   campusWisePath,
   dateRangeLabel,
   readDateRange,
+  readSemester,
+  semesterLabel,
   type DateRange,
 } from "@/lib/dateRange";
 
@@ -77,6 +80,7 @@ export default function SubjectSessions() {
   const from = p.get("from") ?? "";
   const viaCampuses = from === "campuses";
   const range = useMemo(() => readDateRange(p), [p]);
+  const semester = useMemo(() => readSemester(p), [p]);
 
   // Trail back through whichever tab the user drilled in from.
   const baseTrail = useMemo(() => {
@@ -84,13 +88,13 @@ export default function SubjectSessions() {
       ? [
           {
             label: "Campus-wise Stats",
-            onClick: () => setLocation(campusWisePath(range)),
+            onClick: () => setLocation(campusWisePath(range, undefined, semester)),
           },
         ]
       : [
           {
             label: "Student Attendance Stats",
-            onClick: () => setLocation(attendanceStatsPath(range)),
+            onClick: () => setLocation(attendanceStatsPath(range, undefined, semester)),
           },
         ];
     if (campus) {
@@ -99,21 +103,22 @@ export default function SubjectSessions() {
         onClick: () =>
           setLocation(
             viaCampuses
-              ? campusWisePath(range, campus)
-              : attendanceStatsPath(range, campus),
+              ? campusWisePath(range, campus, semester)
+              : attendanceStatsPath(range, campus, semester),
           ),
       });
     }
     return trail;
-  }, [viaCampuses, campus, range, setLocation]);
+  }, [viaCampuses, campus, range, semester, setLocation]);
 
   const subjectQs = useMemo(() => {
     const p = new URLSearchParams({ subject });
     if (campus) p.set("campus", campus);
     if (from) p.set("from", from);
+    applySemester(p, semester);
     applyDateRange(p, range);
     return p.toString();
-  }, [subject, campus, from, range]);
+  }, [subject, campus, from, range, semester]);
 
   if (!subject) {
     return (
@@ -125,8 +130,8 @@ export default function SubjectSessions() {
           onClick={() =>
             setLocation(
               viaCampuses
-                ? campusWisePath(range)
-                : attendanceStatsPath(range),
+                ? campusWisePath(range, undefined, semester)
+                : attendanceStatsPath(range, undefined, semester),
             )
           }
         >
@@ -145,6 +150,7 @@ export default function SubjectSessions() {
         campus={campus}
         sessionTitle={session}
         date={date}
+        semester={semester}
         trail={[
           ...baseTrail,
           {
@@ -164,12 +170,14 @@ export default function SubjectSessions() {
       subject={subject}
       campus={campus}
       range={range}
+      semester={semester}
       trail={baseTrail}
       onOpenSession={(s) => {
         const p = new URLSearchParams({ subject, session: s.sessionTitle });
         if (campus) p.set("campus", campus);
         if (s.date) p.set("date", s.date);
         if (from) p.set("from", from);
+        applySemester(p, semester);
         applyDateRange(p, range);
         setLocation(`/dashboard/attendance-stats/sessions?${p.toString()}`);
       }}
@@ -181,12 +189,14 @@ function SessionList({
   subject,
   campus,
   range,
+  semester,
   trail,
   onOpenSession,
 }: {
   subject: string;
   campus: string;
   range: DateRange;
+  semester: string;
   trail: { label: string; onClick: () => void }[];
   onOpenSession: (s: SessionSummary) => void;
 }) {
@@ -201,7 +211,7 @@ function SessionList({
   useEffect(() => {
     setPage(1);
     setSearch("");
-  }, [subject, campus, range.dateFrom, range.dateTo]);
+  }, [subject, campus, range.dateFrom, range.dateTo, semester]);
 
   useEffect(() => {
     let alive = true;
@@ -209,6 +219,7 @@ function SessionList({
     setFetchError(false);
     const p = new URLSearchParams({ subject });
     if (campus) p.set("campus", campus);
+    applySemester(p, semester);
     applyDateRange(p, range);
     fetch(`/api/dashboard/sessions?${p.toString()}`, {
       credentials: "include",
@@ -229,7 +240,7 @@ function SessionList({
     return () => {
       alive = false;
     };
-  }, [subject, campus, range.dateFrom, range.dateTo]);
+  }, [subject, campus, range.dateFrom, range.dateTo, semester]);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
@@ -272,8 +283,8 @@ function SessionList({
         title={subject}
         subtitle={
           campus
-            ? `Unit-wise attendance at ${campus} · ${dateRangeLabel(range)} — click a session to see who attended.`
-            : `Unit-wise attendance · ${dateRangeLabel(range)} — click a session to see who attended.`
+            ? `Unit-wise attendance at ${campus} · ${semesterLabel(semester)}${range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""} — click a session to see who attended.`
+            : `Unit-wise attendance · ${semesterLabel(semester)}${range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""} — click a session to see who attended.`
         }
         right={
           <div className="flex flex-wrap items-center gap-2">
@@ -317,7 +328,8 @@ function SessionList({
             {filtered.length.toLocaleString()} session
             {filtered.length === 1 ? "" : "s"}
             {" · "}
-            {dateRangeLabel(range)}
+            {semesterLabel(semester)}
+            {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -424,12 +436,14 @@ function SessionStudents({
   campus,
   sessionTitle,
   date,
+  semester,
   trail,
 }: {
   subject: string;
   campus: string;
   sessionTitle: string;
   date: string;
+  semester: string;
   trail: { label: string; onClick: () => void }[];
 }) {
   const [rows, setRows] = useState<SessionStudent[]>([]);
@@ -447,7 +461,7 @@ function SessionStudents({
     setPage(1);
     setSearch("");
     setStatusFilter("all");
-  }, [subject, campus, sessionTitle, date]);
+  }, [subject, campus, sessionTitle, date, semester]);
 
   useEffect(() => {
     let alive = true;
@@ -456,6 +470,7 @@ function SessionStudents({
     const p = new URLSearchParams({ subject, sessionTitle });
     if (campus) p.set("campus", campus);
     if (date) p.set("date", date);
+    applySemester(p, semester);
     fetch(`/api/dashboard/session-students?${p.toString()}`, {
       credentials: "include",
     })
@@ -475,7 +490,7 @@ function SessionStudents({
     return () => {
       alive = false;
     };
-  }, [subject, campus, sessionTitle, date]);
+  }, [subject, campus, sessionTitle, date, semester]);
 
   const presentCount = useMemo(
     () => rows.filter((s) => isPresent(s.attendanceStatus)).length,

@@ -106,13 +106,25 @@ export async function getRecoverySemesters(
   campus: string,
   scope: SessionScope,
 ): Promise<string[]> {
-  const params: Record<string, unknown> = { campus };
+  return getAttendanceSemesters(scope, campus);
+}
+
+/** Distinct academic semesters in attendance data. Campus is optional. */
+export async function getAttendanceSemesters(
+  scope: SessionScope,
+  campus?: string,
+): Promise<string[]> {
+  const params: Record<string, unknown> = {};
   const where = scopeClause(scope, params, { currentSemester: false });
+  let campusFilter = "";
+  if (campus) {
+    params["campus"] = campus;
+    campusFilter = " AND institute_name = @campus";
+  }
   const rows = await bqQuery<{ semester: string }>(
     `SELECT DISTINCT TRIM(derived_semester_title) AS semester
      FROM ${ATTENDANCE_TABLE}
-     WHERE ${where}
-       AND institute_name = @campus
+     WHERE ${where}${campusFilter}
        AND derived_semester_title IS NOT NULL
        AND TRIM(derived_semester_title) != ''
      ORDER BY semester`,
@@ -124,6 +136,13 @@ export async function getRecoverySemesters(
     .sort((left, right) =>
       right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" }),
     );
+}
+
+export function parseSemester(
+  q: Record<string, string | undefined>,
+): string | undefined {
+  const value = q["semester"]?.trim();
+  return value || undefined;
 }
 
 export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -460,10 +479,13 @@ export async function getStudentsList(
     subject?: string;
     attendanceBand?: string;
     dateRange?: DateRangeFilter;
+    semester?: string;
   } = {},
 ): Promise<StudentSearchResult[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    dateRangeClause(opts.dateRange, params);
   const safeLimit = Math.min(opts.limit ?? 1000, 5000);
   let searchFilter = "";
   if (opts.search) {
@@ -587,10 +609,12 @@ export interface SectionSummaryItem {
 
 export async function getCampusSummary(
   scope: SessionScope,
-  opts: { dateRange?: DateRangeFilter } = {},
+  opts: { dateRange?: DateRangeFilter; semester?: string } = {},
 ): Promise<CampusSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    dateRangeClause(opts.dateRange, params);
   const rows = await bqQuery<
     AttendanceRollupRow & {
       institute_name: string;
@@ -677,10 +701,12 @@ export interface SubjectSummaryItem {
 
 export async function getSubjectSummary(
   scope: SessionScope,
-  opts: { campus?: string; dateRange?: DateRangeFilter } = {},
+  opts: { campus?: string; dateRange?: DateRangeFilter; semester?: string } = {},
 ): Promise<SubjectSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    dateRangeClause(opts.dateRange, params);
   let campusFilter = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
@@ -797,10 +823,17 @@ export interface CampusSessionRow {
  */
 export async function getCampusSessions(
   scope: SessionScope,
-  opts: { campus: string; section?: string; dateRange?: DateRangeFilter },
+  opts: {
+    campus: string;
+    section?: string;
+    dateRange?: DateRangeFilter;
+    semester?: string;
+  },
 ): Promise<CampusSessionRow[]> {
   const params: Record<string, unknown> = { campus: opts.campus };
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    dateRangeClause(opts.dateRange, params);
   let extra = " AND institute_name = @campus";
   if (opts.section) {
     params["section"] = opts.section;
@@ -870,13 +903,14 @@ export async function getSessionStudents(
     campus?: string;
     section?: string;
     limit?: number;
+    semester?: string;
   },
 ): Promise<SessionStudentItem[]> {
   const params: Record<string, unknown> = {
     subject: opts.subject,
     sessionTitle: opts.sessionTitle,
   };
-  const where = scopeClause(scope, params);
+  const where = scopeClause(scope, params, { semester: opts.semester });
   let extra =
     " AND subject_title = @subject" +
     " AND COALESCE(session_title, 'Untitled session') = @sessionTitle";

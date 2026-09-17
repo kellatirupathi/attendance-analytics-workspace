@@ -512,6 +512,10 @@ dateFrom?: string;
  * Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today / end of semester.
  */
 dateTo?: string;
+/**
+ * Academic semester title. Empty means current semester.
+ */
+semester?: string;
 };
 
 export type ListInstructorRecoverySessionsParams = {

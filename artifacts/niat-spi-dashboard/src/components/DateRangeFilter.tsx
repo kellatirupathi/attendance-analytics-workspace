@@ -18,9 +18,11 @@ import {
 export function DateRangeFilter({
   value,
   onChange,
+  allDatesLabel = "Current semester",
 }: {
   value: DateRange;
   onChange: (next: DateRange) => void;
+  allDatesLabel?: string;
 }) {
   const preset = matchPreset(value);
   const [showCustom, setShowCustom] = useState(preset === "custom");
@@ -57,7 +59,7 @@ export function DateRangeFilter({
           </span>
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">Current semester</SelectItem>
+          <SelectItem value="all">{allDatesLabel}</SelectItem>
           <SelectItem value="7d">Last 7 days</SelectItem>
           <SelectItem value="30d">Last 30 days</SelectItem>
           <SelectItem value="month">This month</SelectItem>
