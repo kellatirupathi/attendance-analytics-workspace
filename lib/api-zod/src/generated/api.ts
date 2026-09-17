@@ -325,7 +325,10 @@ export const GetDashboardSummaryResponse = zod.object({
   "studentCount": zod.number(),
   "presentCount": zod.number(),
   "totalCount": zod.number(),
-  "pct": zod.number()
+  "pct": zod.number(),
+  "presentRecordCount": zod.number(),
+  "totalRecordCount": zod.number(),
+  "recordPct": zod.number()
 })),
   "campusBreakdown": zod.array(zod.object({
   "instituteName": zod.string(),
@@ -334,7 +337,10 @@ export const GetDashboardSummaryResponse = zod.object({
   "subjectCount": zod.number(),
   "presentCount": zod.number(),
   "totalCount": zod.number(),
-  "pct": zod.number()
+  "pct": zod.number(),
+  "presentRecordCount": zod.number(),
+  "totalRecordCount": zod.number(),
+  "recordPct": zod.number()
 })),
   "sectionBreakdown": zod.array(zod.object({
   "instituteName": zod.string(),

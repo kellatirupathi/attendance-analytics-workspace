@@ -152,13 +152,25 @@ export default function StudentAttendanceStats() {
         : "all-campuses";
     exportCsv(
       `attendance-stats-${safeCampus}.csv`,
-      ["Subject", "Students", "Present", "Total sessions", "Attendance %"],
+      [
+        "Subject",
+        "Students",
+        "Present students",
+        "Total sessions",
+        "Student attendance %",
+        "Present records",
+        "Total records",
+        "Record attendance %",
+      ],
       filtered.map((s) => [
         s.subjectTitle,
         s.studentCount,
         s.presentCount,
         s.totalCount,
         s.pct,
+        s.presentRecordCount,
+        s.totalRecordCount,
+        s.recordPct,
       ]),
     );
   };
@@ -203,7 +215,7 @@ export default function StudentAttendanceStats() {
 
       <PageHeader
         title="Student Attendance Stats"
-        subtitle="Subject-wise attendance — click a row to view students in that subject."
+        subtitle="Present = unique students who showed up at least once. Total sessions = classes held, not attendance rows."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter value={range} onChange={setRange} />
@@ -256,6 +268,9 @@ export default function StudentAttendanceStats() {
             {filtered.length.toLocaleString()} subject{filtered.length === 1 ? "" : "s"}
             {" · "}
             {dateRangeLabel(range)}
+            {" · "}
+            Student attendance = present students ÷ students. Record attendance =
+            present rows ÷ all rows.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -266,7 +281,7 @@ export default function StudentAttendanceStats() {
                 <Th className="text-right">Students</Th>
                 <Th className="text-right">Present</Th>
                 <Th className="text-right">Total sessions</Th>
-                <Th className="w-[220px] text-right">Attendance</Th>
+                <Th className="w-[240px] text-right">Student attendance</Th>
                 <Th className="w-24 text-right">Sessions</Th>
                 <Th className="w-10" />
               </TableRow>
@@ -306,23 +321,7 @@ export default function StudentAttendanceStats() {
                       {s.totalCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.min(100, s.pct)}%`,
-                              backgroundColor: pctColor(s.pct),
-                            }}
-                          />
-                        </div>
-                        <span
-                          className="w-14 font-bold tabular-nums"
-                          style={{ color: pctTextColor(s.pct) }}
-                        >
-                          {s.pct}%
-                        </span>
-                      </div>
+                      <AttendanceCell pct={s.pct} recordPct={s.recordPct} />
                     </TableCell>
                     <TableCell className="text-right">
                       <button
@@ -362,6 +361,39 @@ export default function StudentAttendanceStats() {
           />
         )}
       </TableShell>
+    </div>
+  );
+}
+
+function AttendanceCell({
+  pct,
+  recordPct,
+}: {
+  pct: number;
+  recordPct: number;
+}) {
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center justify-end gap-3">
+        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              backgroundColor: pctColor(pct),
+            }}
+          />
+        </div>
+        <span
+          className="w-14 font-bold tabular-nums"
+          style={{ color: pctTextColor(pct) }}
+        >
+          {pct}%
+        </span>
+      </div>
+      <span className="text-[10px] tabular-nums text-gray-400">
+        Record {recordPct}%
+      </span>
     </div>
   );
 }

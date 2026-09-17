@@ -172,6 +172,9 @@ export interface SubjectSummary {
   presentCount: number;
   totalCount: number;
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  recordPct: number;
 }
 
 export interface CampusSummaryItem {
@@ -182,6 +185,9 @@ export interface CampusSummaryItem {
   presentCount: number;
   totalCount: number;
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  recordPct: number;
 }
 
 export interface SectionSummaryItem {

@@ -1247,37 +1247,63 @@ components:
 
     SubjectSummary:
       type: object
-      required: [subjectTitle, studentCount, presentCount, totalCount, pct]
+      required: [subjectTitle, studentCount, presentCount, totalCount, pct, presentRecordCount, totalRecordCount, recordPct]
       properties:
         subjectTitle:
           type: string
         studentCount:
           type: integer
+          description: Distinct students with an attendance row
         presentCount:
           type: integer
+          description: Distinct students with at least one present row (a student in two sessions counts once)
         totalCount:
           type: integer
+          description: Distinct classes held (session_id or title+date), not attendance row count
         pct:
           type: number
+          description: Student attendance — presentCount / studentCount
+        presentRecordCount:
+          type: integer
+          description: Present attendance rows (a student in two sessions counts twice)
+        totalRecordCount:
+          type: integer
+          description: All attendance rows (present + absent)
+        recordPct:
+          type: number
+          description: Record attendance — presentRecordCount / totalRecordCount
 
     CampusSummaryItem:
       type: object
-      required: [instituteName, studentCount, sectionCount, subjectCount, presentCount, totalCount, pct]
+      required: [instituteName, studentCount, sectionCount, subjectCount, presentCount, totalCount, pct, presentRecordCount, totalRecordCount, recordPct]
       properties:
         instituteName:
           type: string
         studentCount:
           type: integer
+          description: Distinct students with an attendance row
         sectionCount:
           type: integer
         subjectCount:
           type: integer
         presentCount:
           type: integer
+          description: Distinct students with at least one present row (a student in two sessions counts once)
         totalCount:
           type: integer
+          description: Distinct classes held (session_id or title+date), not attendance row count
         pct:
           type: number
+          description: Student attendance — presentCount / studentCount
+        presentRecordCount:
+          type: integer
+          description: Present attendance rows (a student in two sessions counts twice)
+        totalRecordCount:
+          type: integer
+          description: All attendance rows (present + absent)
+        recordPct:
+          type: number
+          description: Record attendance — presentRecordCount / totalRecordCount
 
     SectionSummaryItem:
       type: object
@@ -1322,6 +1348,7 @@ components:
           type: integer
         avgAttendancePct:
           type: number
+          description: Student attendance across campuses — distinct present students / distinct students
         subjectsBelow80:
           type: integer
         subjectBreakdown:

@@ -246,7 +246,7 @@ function AttendanceKpi({ pct }: { pct: number }) {
   const h = healthMeta(pct);
   return (
     <KpiCard
-      label="Avg Attendance"
+      label="Student attendance"
       value={
         <span className="flex items-baseline gap-2">
           <span style={{ color: pctTextColor(pct) }}>{pct}%</span>

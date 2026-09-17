@@ -71,7 +71,7 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   const dateRange = parseDateRange(
     req.query as Record<string, string | undefined>,
   );
-  const cacheKey = `summary:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `summary:v2:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -93,10 +93,9 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
       (s, c) => s + c.presentCount,
       0,
     );
-    const totalSessions = campusBreakdown.reduce((s, c) => s + c.totalCount, 0);
     const avgPct =
-      totalSessions > 0
-        ? Math.round((totalPresent / totalSessions) * 1000) / 10
+      totalStudents > 0
+        ? Math.round((totalPresent / totalStudents) * 1000) / 10
         : 0;
     const subjectsBelow80 = subjectBreakdown.filter((s) => s.pct < 80).length;
     const summary = {
@@ -154,7 +153,7 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   const q = req.query as Record<string, string | undefined>;
   const campus = q["campus"] || undefined;
   const dateRange = parseDateRange(q);
-  const cacheKey = `subjects:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `subjects:v2:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -224,7 +223,7 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
     subjects: session.subjects,
   });
   const dateRange = parseDateRange(req.query as Record<string, string | undefined>);
-  const cacheKey = `campuses:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `campuses:v2:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

@@ -41,6 +41,44 @@ const ATTENDANCE_TABLE =
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 
+/**
+ * One class held: session_id when present, otherwise title, plus date, scoped
+ * by subject so campus rollups do not collapse two subjects into one session.
+ * Never use COUNT(*) for "total sessions" — that is student×session rows.
+ */
+const SESSION_IDENTITY_SQL = `CONCAT(
+  COALESCE(subject_title, ''),
+  '|',
+  COALESCE(NULLIF(CAST(session_id AS STRING), ''), COALESCE(session_title, '')),
+  '|',
+  COALESCE(CAST(DATE(date) AS STRING), '')
+)`;
+
+interface AttendanceRollupRow {
+  student_count: string;
+  present_student_count: string;
+  session_count: string;
+  present_record_count: string;
+  total_record_count: string;
+}
+
+function mapAttendanceRollup(r: AttendanceRollupRow) {
+  const studentCount = Number(r.student_count);
+  const presentCount = Number(r.present_student_count);
+  const sessionCount = Number(r.session_count);
+  const presentRecordCount = Number(r.present_record_count);
+  const totalRecordCount = Number(r.total_record_count);
+  return {
+    studentCount,
+    presentCount,
+    totalCount: sessionCount,
+    pct: pct(presentCount, studentCount),
+    presentRecordCount,
+    totalRecordCount,
+    recordPct: pct(presentRecordCount, totalRecordCount),
+  };
+}
+
 function scopeClause(
   scope: SessionScope,
   params: Record<string, unknown>,
@@ -526,9 +564,16 @@ export interface CampusSummaryItem {
   studentCount: number;
   sectionCount: number;
   subjectCount: number;
+  /** Distinct students with at least one present row. */
   presentCount: number;
+  /** Distinct classes held, not attendance row count. */
   totalCount: number;
+  /** Student attendance: presentCount / studentCount. */
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  /** Record attendance: present rows / all rows. */
+  recordPct: number;
 }
 
 export interface SectionSummaryItem {
@@ -546,40 +591,34 @@ export async function getCampusSummary(
 ): Promise<CampusSummaryItem[]> {
   const params: Record<string, unknown> = {};
   const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
-  const rows = await bqQuery<{
-    institute_name: string;
-    student_count: string;
-    section_count: string;
-    subject_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
+  const rows = await bqQuery<
+    AttendanceRollupRow & {
+      institute_name: string;
+      section_count: string;
+      subject_count: string;
+    }
+  >(
     `SELECT
       institute_name,
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNT(DISTINCT batch_section_name) AS section_count,
       COUNT(DISTINCT subject_title) AS subject_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
+      COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+      COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+      COUNT(*) AS total_record_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
     GROUP BY institute_name
     ORDER BY institute_name`,
     params,
   );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      instituteName: r.institute_name,
-      studentCount: Number(r.student_count),
-      sectionCount: Number(r.section_count),
-      subjectCount: Number(r.subject_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
+  return rows.map((r) => ({
+    instituteName: r.institute_name,
+    sectionCount: Number(r.section_count),
+    subjectCount: Number(r.subject_count),
+    ...mapAttendanceRollup(r),
+  }));
 }
 
 export async function getSectionSummary(
@@ -624,9 +663,16 @@ export async function getSectionSummary(
 export interface SubjectSummaryItem {
   subjectTitle: string;
   studentCount: number;
+  /** Distinct students with at least one present row. */
   presentCount: number;
+  /** Distinct classes held, not attendance row count. */
   totalCount: number;
+  /** Student attendance: presentCount / studentCount. */
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  /** Record attendance: present rows / all rows. */
+  recordPct: number;
 }
 
 export async function getSubjectSummary(
@@ -640,34 +686,27 @@ export async function getSubjectSummary(
     params["filterCampus"] = opts.campus;
     campusFilter = " AND institute_name = @filterCampus";
   }
-  const rows = await bqQuery<{
-    subject_title: string;
-    student_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
+  const rows = await bqQuery<AttendanceRollupRow & { subject_title: string }>(
     `SELECT
       subject_title,
       COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
+      COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+      COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+      COUNT(*) AS total_record_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}${campusFilter}
     GROUP BY subject_title
-    ORDER BY SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) ASC`,
+    ORDER BY SAFE_DIVIDE(
+      COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)),
+      COUNT(DISTINCT student_user_id)
+    ) ASC`,
     params,
   );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      subjectTitle: r.subject_title,
-      studentCount: Number(r.student_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
+  return rows.map((r) => ({
+    subjectTitle: r.subject_title,
+    ...mapAttendanceRollup(r),
+  }));
 }
 
 export interface SessionSummaryItem {

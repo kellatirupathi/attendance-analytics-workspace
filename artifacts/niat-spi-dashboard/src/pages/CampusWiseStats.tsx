@@ -43,6 +43,9 @@ interface CampusStat {
   presentCount: number;
   totalCount: number;
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  recordPct: number;
 }
 
 interface CampusSessionRow {
@@ -162,7 +165,18 @@ function CampusList({
     if (filtered.length === 0) return;
     exportCsv(
       "campus-wise-stats.csv",
-      ["Campus", "Students", "Sections", "Subjects", "Present", "Total sessions", "Attendance %"],
+      [
+        "Campus",
+        "Students",
+        "Sections",
+        "Subjects",
+        "Present students",
+        "Total sessions",
+        "Student attendance %",
+        "Present records",
+        "Total records",
+        "Record attendance %",
+      ],
       filtered.map((c) => [
         c.instituteName,
         c.studentCount,
@@ -171,6 +185,9 @@ function CampusList({
         c.presentCount,
         c.totalCount,
         c.pct,
+        c.presentRecordCount,
+        c.totalRecordCount,
+        c.recordPct,
       ]),
     );
   };
@@ -179,7 +196,7 @@ function CampusList({
     <>
       <PageHeader
         title="Campus-wise Stats"
-        subtitle="Attendance rolled up by campus — click a row to view its subjects."
+        subtitle="Present = unique students who showed up at least once. Total sessions = classes held, not attendance rows."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter value={range} onChange={onRangeChange} />
@@ -222,6 +239,9 @@ function CampusList({
             {filtered.length === 1 ? "" : "es"}
             {" · "}
             {dateRangeLabel(range)}
+            {" · "}
+            Student attendance = present students ÷ students. Record attendance =
+            present rows ÷ all rows.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -234,7 +254,7 @@ function CampusList({
                 <Th className="text-right">Subjects</Th>
                 <Th className="text-right">Present</Th>
                 <Th className="text-right">Total sessions</Th>
-                <Th className="w-[220px] text-right">Attendance</Th>
+                <Th className="w-[240px] text-right">Student attendance</Th>
                 <Th className="w-10" />
               </TableRow>
             </TableHeader>
@@ -281,7 +301,7 @@ function CampusList({
                       {c.totalCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <PctBar pct={c.pct} />
+                      <PctBar pct={c.pct} recordPct={c.recordPct} />
                     </TableCell>
                     <TableCell className="text-right text-gray-300">
                       <ChevronRight className="ml-auto h-4 w-4" />
@@ -645,24 +665,31 @@ function CampusSubjects({
     </>
   );
 }
-function PctBar({ pct }: { pct: number }) {
+function PctBar({ pct, recordPct }: { pct: number; recordPct?: number }) {
   return (
-    <div className="flex items-center justify-end gap-3">
-      <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${Math.min(100, pct)}%`,
-            backgroundColor: pctColor(pct),
-          }}
-        />
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center justify-end gap-3">
+        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              backgroundColor: pctColor(pct),
+            }}
+          />
+        </div>
+        <span
+          className="w-14 font-bold tabular-nums"
+          style={{ color: pctTextColor(pct) }}
+        >
+          {pct}%
+        </span>
       </div>
-      <span
-        className="w-14 font-bold tabular-nums"
-        style={{ color: pctTextColor(pct) }}
-      >
-        {pct}%
-      </span>
+      {recordPct != null && (
+        <span className="text-[10px] tabular-nums text-gray-400">
+          Record {recordPct}%
+        </span>
+      )}
     </div>
   );
 }
