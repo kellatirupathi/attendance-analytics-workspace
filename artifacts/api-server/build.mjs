@@ -26,6 +26,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/diagnose-recovery-topic-dates.ts"),
       path.resolve(artifactDir, "src/find-instructor-table.ts"),
       path.resolve(artifactDir, "src/backfill-recovery-instructor-identity.ts"),
+      path.resolve(artifactDir, "src/list-campus-instructor-roster.ts"),
     ],
     platform: "node",
     bundle: true,
