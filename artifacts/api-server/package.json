@@ -17,7 +17,9 @@
     "diagnose:recovery-dates": "pnpm run build && node --enable-source-maps ./dist/diagnose-recovery-topic-dates.mjs",
     "find:instructor-table": "pnpm run build && node --enable-source-maps ./dist/find-instructor-table.mjs",
     "backfill:instructor-identity": "pnpm run build && node --enable-source-maps ./dist/backfill-recovery-instructor-identity.mjs",
-    "list:instructor-roster": "pnpm run build && node --enable-source-maps ./dist/list-campus-instructor-roster.mjs"
+    "list:instructor-roster": "pnpm run build && node --enable-source-maps ./dist/list-campus-instructor-roster.mjs",
+    "apply:confirmed-instructor-fixes": "pnpm run build && node --enable-source-maps ./dist/apply-confirmed-instructor-fixes.mjs",
+    "search:instructor": "pnpm run build && node --enable-source-maps ./dist/search-instructor-by-name.mjs"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
