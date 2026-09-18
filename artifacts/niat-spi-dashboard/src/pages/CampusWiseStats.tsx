@@ -26,14 +26,19 @@ import { exportCsv } from "@/lib/csv";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import {
   applyDateRange,
+  applySemester,
   attendanceStatsPath,
   campusWisePath,
   dateRangeLabel,
   readDateRange,
+  readSemester,
+  semesterLabel,
   type DateRange,
 } from "@/lib/dateRange";
+import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
 
 const PAGE_SIZES = [25, 50, 100];
+const CURRENT_SEMESTER = "current";
 
 interface CampusStat {
   instituteName: string;
@@ -43,6 +48,9 @@ interface CampusStat {
   presentCount: number;
   totalCount: number;
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  recordPct: number;
 }
 
 interface CampusSessionRow {
@@ -67,30 +75,39 @@ export default function CampusWiseStats() {
   // the subject breakdown for that campus.
   const campus = query.get("campus") ?? "";
   const range = useMemo(() => readDateRange(query), [query]);
+  const semester = useMemo(() => readSemester(query), [query]);
 
   const setRange = (next: DateRange) => {
-    setLocation(campusWisePath(next, campus || undefined));
+    setLocation(campusWisePath(next, campus || undefined, semester));
+  };
+
+  const setSemester = (next: string) => {
+    setLocation(campusWisePath(range, campus || undefined, next));
   };
 
   return (
     <div className="flex flex-col">
       <SubNav
         items={attendanceStatsNav(
-          attendanceStatsPath(range),
-          campusWisePath(range),
+          attendanceStatsPath(range, undefined, semester),
+          campusWisePath(range, undefined, semester),
         )}
       />
       {campus ? (
         <CampusSubjects
           campus={campus}
           range={range}
+          semester={semester}
           onRangeChange={setRange}
+          onSemesterChange={setSemester}
           setLocation={setLocation}
         />
       ) : (
         <CampusList
           range={range}
+          semester={semester}
           onRangeChange={setRange}
+          onSemesterChange={setSemester}
           setLocation={setLocation}
         />
       )}
@@ -100,11 +117,15 @@ export default function CampusWiseStats() {
 
 function CampusList({
   range,
+  semester,
   onRangeChange,
+  onSemesterChange,
   setLocation,
 }: {
   range: DateRange;
+  semester: string;
   onRangeChange: (next: DateRange) => void;
+  onSemesterChange: (next: string) => void;
   setLocation: (to: string) => void;
 }) {
   const [rows, setRows] = useState<CampusStat[]>([]);
@@ -114,16 +135,18 @@ function CampusList({
   const debouncedSearch = useDebounceValue(search, 300);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const semesters = useAttendanceSemesters();
 
   useEffect(() => {
     setPage(1);
-  }, [range.dateFrom, range.dateTo]);
+  }, [range.dateFrom, range.dateTo, semester]);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setFetchError(false);
     const params = new URLSearchParams();
+    applySemester(params, semester);
     applyDateRange(params, range);
     const qs = params.toString();
     fetch(`/api/dashboard/campuses${qs ? `?${qs}` : ""}`, { credentials: "include" })
@@ -143,7 +166,7 @@ function CampusList({
     return () => {
       alive = false;
     };
-  }, [range.dateFrom, range.dateTo]);
+  }, [range.dateFrom, range.dateTo, semester]);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
@@ -162,7 +185,18 @@ function CampusList({
     if (filtered.length === 0) return;
     exportCsv(
       "campus-wise-stats.csv",
-      ["Campus", "Students", "Sections", "Subjects", "Present", "Total sessions", "Attendance %"],
+      [
+        "Campus",
+        "Students",
+        "Sections",
+        "Subjects",
+        "Present students",
+        "Total sessions",
+        "Student attendance %",
+        "Present records",
+        "Total records",
+        "Record attendance %",
+      ],
       filtered.map((c) => [
         c.instituteName,
         c.studentCount,
@@ -171,6 +205,9 @@ function CampusList({
         c.presentCount,
         c.totalCount,
         c.pct,
+        c.presentRecordCount,
+        c.totalRecordCount,
+        c.recordPct,
       ]),
     );
   };
@@ -179,10 +216,25 @@ function CampusList({
     <>
       <PageHeader
         title="Campus-wise Stats"
-        subtitle="Attendance rolled up by campus — click a row to view its subjects."
+        subtitle="Students = full semester roster. Present and sessions follow the selected date range."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <DateRangeFilter value={range} onChange={onRangeChange} />
+        <DateRangeFilter
+          value={range}
+          onChange={onRangeChange}
+          allDatesLabel="All dates"
+        />
+        <SearchableSelect
+          value={semester || CURRENT_SEMESTER}
+          onValueChange={(value) =>
+            onSemesterChange(value === CURRENT_SEMESTER ? "" : value)
+          }
+          options={semesterOptions(semesters, semester)}
+          placeholder="Current semester"
+          searchPlaceholder="Search semesters…"
+          className="w-[220px]"
+          disabled={semesters.length === 0 && !semester}
+        />
         <div className="relative min-w-[200px] sm:w-64">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
@@ -221,7 +273,11 @@ function CampusList({
             {filtered.length.toLocaleString()} campus
             {filtered.length === 1 ? "" : "es"}
             {" · "}
-            {dateRangeLabel(range)}
+            {semesterLabel(semester)}
+            {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
+            {" · "}
+            Student attendance = present students ÷ students. Record attendance =
+            present rows ÷ all rows.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -234,7 +290,7 @@ function CampusList({
                 <Th className="text-right">Subjects</Th>
                 <Th className="text-right">Present</Th>
                 <Th className="text-right">Total sessions</Th>
-                <Th className="w-[220px] text-right">Attendance</Th>
+                <Th className="w-[240px] text-right">Student attendance</Th>
                 <Th className="w-10" />
               </TableRow>
             </TableHeader>
@@ -259,7 +315,9 @@ function CampusList({
                     key={c.instituteName}
                     className="cursor-pointer border-b border-gray-200 hover:bg-brand-50/40"
                     onClick={() =>
-                      setLocation(campusWisePath(range, c.instituteName))
+                      setLocation(
+                        campusWisePath(range, c.instituteName, semester),
+                      )
                     }
                   >
                     <TableCell className="py-3 font-medium text-gray-900">
@@ -281,7 +339,7 @@ function CampusList({
                       {c.totalCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <PctBar pct={c.pct} />
+                      <PctBar pct={c.pct} recordPct={c.recordPct} />
                     </TableCell>
                     <TableCell className="text-right text-gray-300">
                       <ChevronRight className="ml-auto h-4 w-4" />
@@ -316,12 +374,16 @@ function CampusList({
 function CampusSubjects({
   campus,
   range,
+  semester,
   onRangeChange,
+  onSemesterChange,
   setLocation,
 }: {
   campus: string;
   range: DateRange;
+  semester: string;
   onRangeChange: (next: DateRange) => void;
+  onSemesterChange: (next: string) => void;
   setLocation: (to: string) => void;
 }) {
   const [rows, setRows] = useState<CampusSessionRow[]>([]);
@@ -332,18 +394,20 @@ function CampusSubjects({
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
+  const semesters = useAttendanceSemesters(campus);
 
   useEffect(() => {
     setPage(1);
     setSearch("");
     setSubjectFilter("all");
-  }, [campus, range.dateFrom, range.dateTo]);
+  }, [campus, range.dateFrom, range.dateTo, semester]);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setFetchError(false);
     const params = new URLSearchParams({ campus });
+    applySemester(params, semester);
     applyDateRange(params, range);
     fetch(`/api/dashboard/campus-sessions?${params.toString()}`, {
       credentials: "include",
@@ -364,7 +428,7 @@ function CampusSubjects({
     return () => {
       alive = false;
     };
-  }, [campus, range.dateFrom, range.dateTo]);
+  }, [campus, range.dateFrom, range.dateTo, semester]);
 
   const subjectOptions = useMemo(() => {
     const seen = new Set(rows.map((r) => r.subjectTitle));
@@ -437,6 +501,7 @@ function CampusSubjects({
       from: "campuses",
     });
     if (r.date) p.set("date", r.date);
+    applySemester(p, semester);
     applyDateRange(p, range);
     setLocation(`/dashboard/attendance-stats/sessions?${p.toString()}`);
   };
@@ -447,7 +512,7 @@ function CampusSubjects({
         items={[
           {
             label: "Campus-wise Stats",
-            onClick: () => setLocation(campusWisePath(range)),
+            onClick: () => setLocation(campusWisePath(range, undefined, semester)),
           },
           { label: campus, current: true },
         ]}
@@ -455,10 +520,25 @@ function CampusSubjects({
 
       <PageHeader
         title={campus}
-        subtitle="Session-wise attendance by subject — click a row to see which students missed it."
+        subtitle={`${semesterLabel(semester)} · session-wise attendance by subject — click a row to see which students missed it.`}
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <DateRangeFilter value={range} onChange={onRangeChange} />
+        <DateRangeFilter
+          value={range}
+          onChange={onRangeChange}
+          allDatesLabel="All dates"
+        />
+        <SearchableSelect
+          value={semester || CURRENT_SEMESTER}
+          onValueChange={(value) =>
+            onSemesterChange(value === CURRENT_SEMESTER ? "" : value)
+          }
+          options={semesterOptions(semesters, semester)}
+          placeholder="Current semester"
+          searchPlaceholder="Search semesters…"
+          className="w-[220px]"
+          disabled={semesters.length === 0 && !semester}
+        />
         {subjectOptions.length > 0 && (
           <SearchableSelect
             value={subjectFilter}
@@ -535,7 +615,8 @@ function CampusSubjects({
           <p className="mt-0.5 text-xs text-gray-500">
             {filtered.length.toLocaleString()} session
             {filtered.length === 1 ? "" : "s"} · lowest attendance first within
-            each subject · {dateRangeLabel(range)}
+            each subject · {semesterLabel(semester)}
+            {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -645,24 +726,41 @@ function CampusSubjects({
     </>
   );
 }
-function PctBar({ pct }: { pct: number }) {
+function semesterOptions(semesters: string[], selected: string) {
+  return [
+    { value: CURRENT_SEMESTER, label: "Current semester" },
+    ...semesters.map((s) => ({ value: s, label: s })),
+    ...(selected && !semesters.includes(selected)
+      ? [{ value: selected, label: selected }]
+      : []),
+  ];
+}
+
+function PctBar({ pct, recordPct }: { pct: number; recordPct?: number }) {
   return (
-    <div className="flex items-center justify-end gap-3">
-      <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${Math.min(100, pct)}%`,
-            backgroundColor: pctColor(pct),
-          }}
-        />
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center justify-end gap-3">
+        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              backgroundColor: pctColor(pct),
+            }}
+          />
+        </div>
+        <span
+          className="w-14 font-bold tabular-nums"
+          style={{ color: pctTextColor(pct) }}
+        >
+          {pct}%
+        </span>
       </div>
-      <span
-        className="w-14 font-bold tabular-nums"
-        style={{ color: pctTextColor(pct) }}
-      >
-        {pct}%
-      </span>
+      {recordPct != null && (
+        <span className="text-[10px] tabular-nums text-gray-400">
+          Record {recordPct}%
+        </span>
+      )}
     </div>
   );
 }

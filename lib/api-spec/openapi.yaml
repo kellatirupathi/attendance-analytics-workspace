@@ -351,6 +351,19 @@ paths:
       operationId: getDashboardSummary
       tags: [dashboard]
       summary: Get scoped dashboard summary
+      parameters:
+        - name: dateFrom
+          in: query
+          description: Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          description: Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today / end of semester.
+          schema:
+            type: string
+            format: date
       responses:
         "200":
           description: Dashboard summary
@@ -454,6 +467,11 @@ paths:
           schema:
             type: string
             format: date
+        - name: semester
+          in: query
+          description: Academic semester title. Empty means current semester (is_current_semester = 1).
+          schema:
+            type: string
       responses:
         "200":
           description: Student list
@@ -1234,37 +1252,63 @@ components:
 
     SubjectSummary:
       type: object
-      required: [subjectTitle, studentCount, presentCount, totalCount, pct]
+      required: [subjectTitle, studentCount, presentCount, totalCount, pct, presentRecordCount, totalRecordCount, recordPct]
       properties:
         subjectTitle:
           type: string
         studentCount:
           type: integer
+          description: Distinct students with an attendance row
         presentCount:
           type: integer
+          description: Distinct students with at least one present row (a student in two sessions counts once)
         totalCount:
           type: integer
+          description: Distinct classes held (session_id or title+date), not attendance row count
         pct:
           type: number
+          description: Student attendance — presentCount / studentCount
+        presentRecordCount:
+          type: integer
+          description: Present attendance rows (a student in two sessions counts twice)
+        totalRecordCount:
+          type: integer
+          description: All attendance rows (present + absent)
+        recordPct:
+          type: number
+          description: Record attendance — presentRecordCount / totalRecordCount
 
     CampusSummaryItem:
       type: object
-      required: [instituteName, studentCount, sectionCount, subjectCount, presentCount, totalCount, pct]
+      required: [instituteName, studentCount, sectionCount, subjectCount, presentCount, totalCount, pct, presentRecordCount, totalRecordCount, recordPct]
       properties:
         instituteName:
           type: string
         studentCount:
           type: integer
+          description: Distinct students with an attendance row
         sectionCount:
           type: integer
         subjectCount:
           type: integer
         presentCount:
           type: integer
+          description: Distinct students with at least one present row (a student in two sessions counts once)
         totalCount:
           type: integer
+          description: Distinct classes held (session_id or title+date), not attendance row count
         pct:
           type: number
+          description: Student attendance — presentCount / studentCount
+        presentRecordCount:
+          type: integer
+          description: Present attendance rows (a student in two sessions counts twice)
+        totalRecordCount:
+          type: integer
+          description: All attendance rows (present + absent)
+        recordPct:
+          type: number
+          description: Record attendance — presentRecordCount / totalRecordCount
 
     SectionSummaryItem:
       type: object
@@ -1309,6 +1353,7 @@ components:
           type: integer
         avgAttendancePct:
           type: number
+          description: Student attendance across campuses — distinct present students / distinct students
         subjectsBelow80:
           type: integer
         subjectBreakdown:

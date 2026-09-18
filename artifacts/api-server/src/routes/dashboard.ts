@@ -23,7 +23,9 @@ import {
   getAssessmentSubjects,
   getAssessmentStudents,
   parseDateRange,
+  parseSemester,
   dateRangeCacheKey,
+  getAttendanceSemesters,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
@@ -68,7 +70,10 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
     campuses: session.campuses,
     subjects: session.subjects,
   });
-  const cacheKey = `summary:${session.role}:${JSON.stringify(scope)}`;
+  const dateRange = parseDateRange(
+    req.query as Record<string, string | undefined>,
+  );
+  const cacheKey = `summary:v2:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -77,10 +82,10 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   try {
     const [campusBreakdown, sectionBreakdown, subjectBreakdown, worstStudents] =
       await Promise.all([
-        getCampusSummary(scope),
-        getSectionSummary(scope),
-        getSubjectSummary(scope),
-        getStudentsList(scope, { limit: 5 }),
+        getCampusSummary(scope, { dateRange }),
+        getSectionSummary(scope, { dateRange }),
+        getSubjectSummary(scope, { dateRange }),
+        getStudentsList(scope, { limit: 5, dateRange }),
       ]);
     const totalStudents = campusBreakdown.reduce(
       (s, c) => s + c.studentCount,
@@ -90,10 +95,9 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
       (s, c) => s + c.presentCount,
       0,
     );
-    const totalSessions = campusBreakdown.reduce((s, c) => s + c.totalCount, 0);
     const avgPct =
-      totalSessions > 0
-        ? Math.round((totalPresent / totalSessions) * 1000) / 10
+      totalStudents > 0
+        ? Math.round((totalPresent / totalStudents) * 1000) / 10
         : 0;
     const subjectsBelow80 = subjectBreakdown.filter((s) => s.pct < 80).length;
     const summary = {
@@ -141,6 +145,34 @@ router.get("/filters", requireSession(), async (req, res): Promise<void> => {
   }
 });
 
+router.get("/semesters", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const campus = String(req.query["campus"] ?? "").trim() || undefined;
+  if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const cacheKey = `semesters:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+  const cached = cacheGet<string[]>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const semesters = await getAttendanceSemesters(scope, campus);
+    cacheSet(cacheKey, semesters, 60 * 1000);
+    res.json(semesters);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching attendance semesters");
+    res.status(500).json({ error: "Failed to fetch semesters" });
+  }
+});
+
 router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({
@@ -151,14 +183,15 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   const q = req.query as Record<string, string | undefined>;
   const campus = q["campus"] || undefined;
   const dateRange = parseDateRange(q);
-  const cacheKey = `subjects:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const semester = parseSemester(q);
+  const cacheKey = `subjects:v3:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
     return;
   }
   try {
-    const subjects = await getSubjectSummary(scope, { campus, dateRange });
+    const subjects = await getSubjectSummary(scope, { campus, dateRange, semester });
     cacheSet(cacheKey, subjects, 60 * 1000);
     res.json(subjects);
   } catch (err) {
@@ -221,14 +254,15 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
     subjects: session.subjects,
   });
   const dateRange = parseDateRange(req.query as Record<string, string | undefined>);
-  const cacheKey = `campuses:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  const semester = parseSemester(req.query as Record<string, string | undefined>);
+  const cacheKey = `campuses:v3:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
     return;
   }
   try {
-    const campuses = await getCampusSummary(scope, { dateRange });
+    const campuses = await getCampusSummary(scope, { dateRange, semester });
     const payload = campuses.map((c) => ({
       ...c,
       belowRequirement: c.pct < REQUIRED_PCT,
@@ -265,14 +299,15 @@ router.get(
     }
     const section = q["section"] || undefined;
     const dateRange = parseDateRange(q);
-    const cacheKey = `campus-sessions:${session.role}:${JSON.stringify(scope)}:${campus}:${section ?? ""}:${dateRangeCacheKey(dateRange)}`;
+    const semester = parseSemester(q);
+    const cacheKey = `campus-sessions:${session.role}:${JSON.stringify(scope)}:${campus}:${section ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
       return;
     }
     try {
-      const rows = await getCampusSessions(scope, { campus, section, dateRange });
+      const rows = await getCampusSessions(scope, { campus, section, dateRange, semester });
       cacheSet(cacheKey, rows, 60 * 1000);
       res.json(rows);
     } catch (err) {
@@ -299,7 +334,8 @@ router.get("/sessions", requireSession(), async (req, res): Promise<void> => {
   const campus = q["campus"] || undefined;
   const section = q["section"] || undefined;
   const dateRange = parseDateRange(q);
-  const cacheKey = `sessions:${session.role}:${JSON.stringify(scope)}:${subject}:${campus ?? ""}:${section ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const semester = parseSemester(q);
+  const cacheKey = `sessions:${session.role}:${JSON.stringify(scope)}:${subject}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -311,6 +347,7 @@ router.get("/sessions", requireSession(), async (req, res): Promise<void> => {
       campus,
       section,
       dateRange,
+      semester,
     });
     cacheSet(cacheKey, sessions, 60 * 1000);
     res.json(sessions);
@@ -349,6 +386,7 @@ router.get(
         date: q["date"] || undefined,
         campus: q["campus"] || undefined,
         section: q["section"] || undefined,
+        semester: parseSemester(q),
       });
       const withPaths = students.map((s) => ({
         ...s,
@@ -380,6 +418,7 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
   const subject = q["subject"] || undefined;
   const attendanceBand = q["attendanceBand"] || undefined;
   const dateRange = parseDateRange(q);
+  const semester = parseSemester(q);
   try {
     const students = await getStudentsList(scope, {
       search,
@@ -389,6 +428,7 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
       subject,
       attendanceBand,
       dateRange,
+      semester,
     });
     const withPaths = students.map((s) => ({
       studentId: s.studentId,

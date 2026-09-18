@@ -42,14 +42,19 @@ import { useAuth } from "@/contexts/AuthContext";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import {
   applyDateRange,
+  applySemester,
   attendanceStatsPath,
   campusWisePath,
   dateRangeLabel,
   readDateRange,
+  readSemester,
+  semesterLabel,
   type DateRange,
 } from "@/lib/dateRange";
+import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
 
 const PAGE_SIZES = [25, 50, 100];
+const CURRENT_SEMESTER = "current";
 
 export default function StudentAttendanceStats() {
   const { user } = useAuth();
@@ -59,6 +64,7 @@ export default function StudentAttendanceStats() {
 
   const urlCampus = query.get("campus");
   const range = useMemo(() => readDateRange(query), [query]);
+  const semester = useMemo(() => readSemester(query), [query]);
 
   const campus = useMemo(() => {
     if (urlCampus) return urlCampus;
@@ -66,9 +72,12 @@ export default function StudentAttendanceStats() {
     return "all";
   }, [urlCampus, isBoa, user?.campuses]);
 
-  const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey() },
-  });
+  const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary(
+    undefined,
+    {
+      query: { queryKey: getGetDashboardSummaryQueryKey() },
+    },
+  );
 
   const { data: filterOptions } = useGetDashboardFilters(undefined, {
     query: {
@@ -82,6 +91,8 @@ export default function StudentAttendanceStats() {
     return filterOptions?.campuses ?? summary?.campusBreakdown.map((c) => c.instituteName) ?? [];
   }, [filterOptions, summary, isBoa, user?.campuses]);
 
+  const semesters = useAttendanceSemesters(campus);
+
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
   const [subjects, setSubjects] = useState<SubjectSummary[]>([]);
@@ -92,12 +103,27 @@ export default function StudentAttendanceStats() {
 
   const setRange = (next: DateRange) => {
     setPage(1);
-    setLocation(attendanceStatsPath(next, campus === "all" ? undefined : campus));
+    setLocation(
+      attendanceStatsPath(next, campus === "all" ? undefined : campus, semester),
+    );
   };
 
   const setCampusFilter = (value: string) => {
     setPage(1);
-    setLocation(attendanceStatsPath(range, value === "all" ? undefined : value));
+    setLocation(
+      attendanceStatsPath(range, value === "all" ? undefined : value, semester),
+    );
+  };
+
+  const setSemesterFilter = (value: string) => {
+    setPage(1);
+    setLocation(
+      attendanceStatsPath(
+        range,
+        campus === "all" ? undefined : campus,
+        value,
+      ),
+    );
   };
 
   useEffect(() => {
@@ -106,6 +132,7 @@ export default function StudentAttendanceStats() {
     setFetchError(false);
     const params = new URLSearchParams();
     if (campus !== "all") params.set("campus", campus);
+    applySemester(params, semester);
     applyDateRange(params, range);
     fetch(`/api/dashboard/subjects?${params.toString()}`, {
       credentials: "include",
@@ -126,7 +153,7 @@ export default function StudentAttendanceStats() {
     return () => {
       alive = false;
     };
-  }, [campus, range.dateFrom, range.dateTo]);
+  }, [campus, semester, range.dateFrom, range.dateTo]);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
@@ -149,13 +176,25 @@ export default function StudentAttendanceStats() {
         : "all-campuses";
     exportCsv(
       `attendance-stats-${safeCampus}.csv`,
-      ["Subject", "Students", "Present", "Total sessions", "Attendance %"],
+      [
+        "Subject",
+        "Students",
+        "Present students",
+        "Total sessions",
+        "Student attendance %",
+        "Present records",
+        "Total records",
+        "Record attendance %",
+      ],
       filtered.map((s) => [
         s.subjectTitle,
         s.studentCount,
         s.presentCount,
         s.totalCount,
         s.pct,
+        s.presentRecordCount,
+        s.totalRecordCount,
+        s.recordPct,
       ]),
     );
   };
@@ -166,6 +205,7 @@ export default function StudentAttendanceStats() {
       pct: String(s.pct),
     });
     if (campus !== "all") params.set("campus", campus);
+    applySemester(params, semester);
     applyDateRange(params, range);
     setLocation(`/dashboard/attendance-stats/students?${params.toString()}`);
   };
@@ -173,6 +213,7 @@ export default function StudentAttendanceStats() {
   const openSessions = (s: SubjectSummary) => {
     const params = new URLSearchParams({ subject: s.subjectTitle });
     if (campus !== "all") params.set("campus", campus);
+    applySemester(params, semester);
     applyDateRange(params, range);
     setLocation(`/dashboard/attendance-stats/sessions?${params.toString()}`);
   };
@@ -181,8 +222,8 @@ export default function StudentAttendanceStats() {
     <div className="flex flex-col">
       <SubNav
         items={attendanceStatsNav(
-          attendanceStatsPath(range),
-          campusWisePath(range),
+          attendanceStatsPath(range, undefined, semester),
+          campusWisePath(range, undefined, semester),
         )}
       />
 
@@ -191,7 +232,8 @@ export default function StudentAttendanceStats() {
           items={[
             {
               label: "Student Attendance Stats",
-              onClick: () => setLocation(attendanceStatsPath(range)),
+              onClick: () =>
+                setLocation(attendanceStatsPath(range, undefined, semester)),
             },
             { label: campus, current: true },
           ]}
@@ -200,10 +242,31 @@ export default function StudentAttendanceStats() {
 
       <PageHeader
         title="Student Attendance Stats"
-        subtitle="Subject-wise attendance — click a row to view students in that subject."
+        subtitle="Students = full semester roster. Present and sessions follow the selected date range."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <DateRangeFilter value={range} onChange={setRange} />
+        <DateRangeFilter
+          value={range}
+          onChange={setRange}
+          allDatesLabel="All dates"
+        />
+        <SearchableSelect
+          value={semester || CURRENT_SEMESTER}
+          onValueChange={(value) =>
+            setSemesterFilter(value === CURRENT_SEMESTER ? "" : value)
+          }
+          options={[
+            { value: CURRENT_SEMESTER, label: "Current semester" },
+            ...semesters.map((s) => ({ value: s, label: s })),
+            ...(semester && !semesters.includes(semester)
+              ? [{ value: semester, label: semester }]
+              : []),
+          ]}
+          placeholder="Current semester"
+          searchPlaceholder="Search semesters…"
+          className="w-[220px]"
+          disabled={semesters.length === 0 && !semester}
+        />
         {!(isBoa && user?.campuses?.length === 1) && campusOptions.length > 0 && (
           <SearchableSelect
             value={campus}
@@ -252,7 +315,11 @@ export default function StudentAttendanceStats() {
           <p className="mt-0.5 text-xs text-gray-500">
             {filtered.length.toLocaleString()} subject{filtered.length === 1 ? "" : "s"}
             {" · "}
-            {dateRangeLabel(range)}
+            {semesterLabel(semester)}
+            {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
+            {" · "}
+            Student attendance = present students ÷ students. Record attendance =
+            present rows ÷ all rows.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -263,7 +330,7 @@ export default function StudentAttendanceStats() {
                 <Th className="text-right">Students</Th>
                 <Th className="text-right">Present</Th>
                 <Th className="text-right">Total sessions</Th>
-                <Th className="w-[220px] text-right">Attendance</Th>
+                <Th className="w-[240px] text-right">Student attendance</Th>
                 <Th className="w-24 text-right">Sessions</Th>
                 <Th className="w-10" />
               </TableRow>
@@ -303,23 +370,7 @@ export default function StudentAttendanceStats() {
                       {s.totalCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${Math.min(100, s.pct)}%`,
-                              backgroundColor: pctColor(s.pct),
-                            }}
-                          />
-                        </div>
-                        <span
-                          className="w-14 font-bold tabular-nums"
-                          style={{ color: pctTextColor(s.pct) }}
-                        >
-                          {s.pct}%
-                        </span>
-                      </div>
+                      <AttendanceCell pct={s.pct} recordPct={s.recordPct} />
                     </TableCell>
                     <TableCell className="text-right">
                       <button
@@ -359,6 +410,39 @@ export default function StudentAttendanceStats() {
           />
         )}
       </TableShell>
+    </div>
+  );
+}
+
+function AttendanceCell({
+  pct,
+  recordPct,
+}: {
+  pct: number;
+  recordPct: number;
+}) {
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="flex items-center justify-end gap-3">
+        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              backgroundColor: pctColor(pct),
+            }}
+          />
+        </div>
+        <span
+          className="w-14 font-bold tabular-nums"
+          style={{ color: pctTextColor(pct) }}
+        >
+          {pct}%
+        </span>
+      </div>
+      <span className="text-[10px] tabular-nums text-gray-400">
+        Record {recordPct}%
+      </span>
     </div>
   );
 }

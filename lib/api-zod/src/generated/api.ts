@@ -310,6 +310,11 @@ export const ListQuizRecoveryStudentsResponse = zod.array(ListQuizRecoveryStuden
 /**
  * @summary Get scoped dashboard summary
  */
+export const GetDashboardSummaryQueryParams = zod.object({
+  "dateFrom": zod.date().optional().describe('Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.'),
+  "dateTo": zod.date().optional().describe('Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today \/ end of semester.')
+})
+
 export const GetDashboardSummaryResponse = zod.object({
   "totalStudents": zod.number(),
   "totalCampuses": zod.number(),
@@ -320,7 +325,10 @@ export const GetDashboardSummaryResponse = zod.object({
   "studentCount": zod.number(),
   "presentCount": zod.number(),
   "totalCount": zod.number(),
-  "pct": zod.number()
+  "pct": zod.number(),
+  "presentRecordCount": zod.number(),
+  "totalRecordCount": zod.number(),
+  "recordPct": zod.number()
 })),
   "campusBreakdown": zod.array(zod.object({
   "instituteName": zod.string(),
@@ -329,7 +337,10 @@ export const GetDashboardSummaryResponse = zod.object({
   "subjectCount": zod.number(),
   "presentCount": zod.number(),
   "totalCount": zod.number(),
-  "pct": zod.number()
+  "pct": zod.number(),
+  "presentRecordCount": zod.number(),
+  "totalRecordCount": zod.number(),
+  "recordPct": zod.number()
 })),
   "sectionBreakdown": zod.array(zod.object({
   "instituteName": zod.string(),
@@ -400,7 +411,8 @@ export const GetDashboardStudentsQueryParams = zod.object({
   "subject": zod.coerce.string().optional().describe('Filter by subject title (subject-wise attendance)'),
   "attendanceBand": zod.coerce.string().optional().describe('all | below50 | below80 | above80'),
   "dateFrom": zod.date().optional().describe('Inclusive start date (YYYY-MM-DD) for attendance stats. Empty means start of current semester.'),
-  "dateTo": zod.date().optional().describe('Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today \/ end of semester.')
+  "dateTo": zod.date().optional().describe('Inclusive end date (YYYY-MM-DD) for attendance stats. Empty means today \/ end of semester.'),
+  "semester": zod.coerce.string().optional().describe('Academic semester title. Empty means current semester.')
 })
 
 export const GetDashboardStudentsResponseItem = zod.object({

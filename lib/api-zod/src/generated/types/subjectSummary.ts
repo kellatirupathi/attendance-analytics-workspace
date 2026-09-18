@@ -12,4 +12,7 @@ export interface SubjectSummary {
   presentCount: number;
   totalCount: number;
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  recordPct: number;
 }
