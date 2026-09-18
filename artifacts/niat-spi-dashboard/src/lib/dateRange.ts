@@ -132,3 +132,47 @@ export function campusAnalyticsPath(range: DateRange): string {
 export function studentsDirectoryPath(range: DateRange): string {
   return withDateRange("/dashboard/students", range);
 }
+
+export function dashboardPath(range: DateRange): string {
+  return withDateRange("/dashboard", range);
+}
+
+export function subjectAttendanceStudentsPath(
+  range: DateRange,
+  extra: {
+    subject: string;
+    campus?: string;
+    pct?: string;
+    from?: string;
+    semester?: string;
+  },
+): string {
+  return withDateRange("/dashboard/attendance-stats/students", range, {
+    subject: extra.subject,
+    campus: extra.campus && extra.campus !== "all" ? extra.campus : undefined,
+    pct: extra.pct || undefined,
+    from: extra.from || undefined,
+    semester: extra.semester || undefined,
+  });
+}
+
+export function subjectSessionsPath(
+  range: DateRange,
+  extra: {
+    subject: string;
+    campus?: string;
+    from?: string;
+    semester?: string;
+    session?: string;
+    date?: string;
+  },
+): string {
+  return withDateRange("/dashboard/attendance-stats/sessions", range, {
+    subject: extra.subject,
+    campus: extra.campus || undefined,
+    from: extra.from || undefined,
+    semester: extra.semester || undefined,
+    session: extra.session || undefined,
+    date: extra.date || undefined,
+  });
+}

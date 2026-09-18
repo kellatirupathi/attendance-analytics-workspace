@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "wouter";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useGetDashboardSummary,
@@ -17,7 +17,18 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { pctColor, pctTextColor } from "@/lib/utils";
+import { useQueryParams } from "@/hooks/useQueryParams";
+import {
+  applyDateRange,
+  campusAnalyticsPath,
+  dashboardPath,
+  dateRangeLabel,
+  readDateRange,
+  studentsDirectoryPath,
+  type DateRange,
+} from "@/lib/dateRange";
 import { roleLabel } from "@/lib/roleLabels";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import {
@@ -83,6 +94,7 @@ interface DashCtx {
   academics: AcademicAggregate | null;
   academicsLoading: boolean;
   updated: string | null;
+  range: DateRange;
 }
 
 /* ------------------------------------------------------------------ */
@@ -132,16 +144,16 @@ const ROLE_THEME: Record<Role, RoleTheme> = {
   },
 };
 
-function quickActions(role: Role): QuickAction[] {
+function quickActions(role: Role, range: DateRange): QuickAction[] {
   const students: QuickAction = {
     label: "Student Directory",
-    href: "/dashboard/students",
+    href: studentsDirectoryPath(range),
     icon: Users,
     primary: true,
   };
   const campuses: QuickAction = {
     label: "Campus Analytics",
-    href: "/dashboard/campuses",
+    href: campusAnalyticsPath(range),
     icon: Building2,
   };
   const requests: QuickAction = {
@@ -193,16 +205,21 @@ function DashboardHeader({
   theme,
   updated,
   unreadRequests,
+  range,
+  onRangeChange,
 }: {
   role: Role;
   name: string;
   theme: RoleTheme;
   updated: string | null;
   unreadRequests: number;
+  range: DateRange;
+  onRangeChange: (next: DateRange) => void;
 }) {
-  const actions = quickActions(role);
+  const actions = quickActions(role, range);
   const meta = [
     `Signed in as ${name}`,
+    dateRangeLabel(range),
     updated ? `Updated ${updated}` : null,
   ]
     .filter(Boolean)
@@ -214,9 +231,10 @@ function DashboardHeader({
       title={theme.title}
       subtitle={`${theme.subtitle} ${meta}`}
       right={
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <DateRangeFilter value={range} onChange={onRangeChange} />
           {actions.map((a) => (
-            <Link key={a.href} href={a.href}>
+            <Link key={a.label} href={a.href}>
               <Button
                 variant={a.primary ? "default" : "outline"}
                 size="sm"
@@ -308,7 +326,7 @@ function ScoreKpi({
       icon={Icon}
       tint={tint}
       accent={accent}
-      footer={<span>Average best-attempt score</span>}
+      footer={<span>Overall quiz average · not date-filtered</span>}
     />
   );
 }
@@ -413,11 +431,11 @@ function AcademicPanel({ ctx }: { ctx: DashCtx }) {
     <Panel>
       <PanelHead
         title="Academic Performance"
-        subtitle="Classroom & module quiz averages across your scope"
+        subtitle="Overall classroom & module quiz averages · quiz data is not date-filtered"
         icon={Sparkles}
         tint="#eff6ff"
         accent="#2563eb"
-        action={<ViewAllLink href="/dashboard/students" label="By student" />}
+        action={<ViewAllLink href={studentsDirectoryPath(ctx.range)} label="By student" />}
       />
       <AcademicPerformance
         data={ctx.academics}
@@ -429,9 +447,11 @@ function AcademicPanel({ ctx }: { ctx: DashCtx }) {
 
 function SubjectChartPanel({
   summary,
+  range,
   span,
 }: {
   summary: DashboardSummary;
+  range: DateRange;
   span?: boolean;
 }) {
   const campuses = summary.campusBreakdown.map((c) => c.instituteName);
@@ -448,7 +468,9 @@ function SubjectChartPanel({
     }
     let alive = true;
     setLoading(true);
-    fetch(`/api/dashboard/subjects?campus=${encodeURIComponent(campus)}`, {
+    const params = new URLSearchParams({ campus });
+    applyDateRange(params, range);
+    fetch(`/api/dashboard/subjects?${params.toString()}`, {
       credentials: "include",
     })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
@@ -464,7 +486,7 @@ function SubjectChartPanel({
     return () => {
       alive = false;
     };
-  }, [campus, summary.subjectBreakdown]);
+  }, [campus, summary.subjectBreakdown, range.dateFrom, range.dateTo]);
 
   return (
     <Panel className={span ? "lg:col-span-2" : undefined}>
@@ -519,7 +541,13 @@ function HealthPanel({ summary }: { summary: DashboardSummary }) {
   );
 }
 
-function NeedsAttentionPanel({ summary }: { summary: DashboardSummary }) {
+function NeedsAttentionPanel({
+  summary,
+  range,
+}: {
+  summary: DashboardSummary;
+  range: DateRange;
+}) {
   return (
     <Panel>
       <PanelHead
@@ -528,7 +556,7 @@ function NeedsAttentionPanel({ summary }: { summary: DashboardSummary }) {
         icon={AlertTriangle}
         tint="#fef2f2"
         accent="#dc2626"
-        action={<ViewAllLink href="/dashboard/students" />}
+        action={<ViewAllLink href={studentsDirectoryPath(range)} />}
       />
       <CardContent className="p-0">
         <NeedsAttentionList students={summary.needsAttention} />
@@ -537,7 +565,13 @@ function NeedsAttentionPanel({ summary }: { summary: DashboardSummary }) {
   );
 }
 
-function CampusPanel({ summary }: { summary: DashboardSummary }) {
+function CampusPanel({
+  summary,
+  range,
+}: {
+  summary: DashboardSummary;
+  range: DateRange;
+}) {
   return (
     <Panel>
       <PanelHead
@@ -546,7 +580,7 @@ function CampusPanel({ summary }: { summary: DashboardSummary }) {
         icon={Building2}
         tint="#f5f3ff"
         accent="#7c3aed"
-        action={<ViewAllLink href="/dashboard/campuses" label="Details" />}
+        action={<ViewAllLink href={campusAnalyticsPath(range)} label="Details" />}
       />
       <CardContent className="p-0">
         <CampusLeaderboard campuses={summary.campusBreakdown} />
@@ -572,7 +606,13 @@ function SubjectListPanel({ summary }: { summary: DashboardSummary }) {
   );
 }
 
-function SectionsPanel({ summary }: { summary: DashboardSummary }) {
+function SectionsPanel({
+  summary,
+  range,
+}: {
+  summary: DashboardSummary;
+  range: DateRange;
+}) {
   if (summary.sectionBreakdown.length === 0) return null;
   return (
     <Panel>
@@ -584,7 +624,7 @@ function SectionsPanel({ summary }: { summary: DashboardSummary }) {
         accent="#d97706"
         action={
           <Link
-            href="/dashboard/campuses"
+            href={campusAnalyticsPath(range)}
             className="hidden items-center gap-0.5 text-sm font-semibold text-brand-600 hover:text-brand-700 sm:inline-flex"
           >
             All sections <ArrowRight className="h-4 w-4" />
@@ -636,14 +676,14 @@ function SuperAdminBody({ ctx }: { ctx: DashCtx }) {
       </div>
       <AcademicPanel ctx={ctx} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SubjectChartPanel summary={s} span />
+        <SubjectChartPanel summary={s} range={ctx.range} span />
         <HealthPanel summary={s} />
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <NeedsAttentionPanel summary={s} />
-        <CampusPanel summary={s} />
+        <NeedsAttentionPanel summary={s} range={ctx.range} />
+        <CampusPanel summary={s} range={ctx.range} />
       </div>
-      <SectionsPanel summary={s} />
+      <SectionsPanel summary={s} range={ctx.range} />
     </>
   );
 }
@@ -660,12 +700,12 @@ function AdminBody({ ctx }: { ctx: DashCtx }) {
       </div>
       <RequestsCta />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <CampusPanel summary={s} />
+        <CampusPanel summary={s} range={ctx.range} />
         <HealthPanel summary={s} />
-        <NeedsAttentionPanel summary={s} />
+        <NeedsAttentionPanel summary={s} range={ctx.range} />
       </div>
       <AcademicPanel ctx={ctx} />
-      <SectionsPanel summary={s} />
+      <SectionsPanel summary={s} range={ctx.range} />
     </>
   );
 }
@@ -695,12 +735,12 @@ function HodBody({ ctx }: { ctx: DashCtx }) {
       </div>
       <AcademicPanel ctx={ctx} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SubjectChartPanel summary={s} span />
+        <SubjectChartPanel summary={s} range={ctx.range} span />
         <HealthPanel summary={s} />
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SubjectListPanel summary={s} />
-        <NeedsAttentionPanel summary={s} />
+        <NeedsAttentionPanel summary={s} range={ctx.range} />
       </div>
     </>
   );
@@ -730,15 +770,15 @@ function CapabilityManagerBody({ ctx }: { ctx: DashCtx }) {
         />
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SubjectChartPanel summary={s} span />
+        <SubjectChartPanel summary={s} range={ctx.range} span />
         <HealthPanel summary={s} />
       </div>
       <AcademicPanel ctx={ctx} />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <SubjectListPanel summary={s} />
-        <NeedsAttentionPanel summary={s} />
+        <NeedsAttentionPanel summary={s} range={ctx.range} />
       </div>
-      <SectionsPanel summary={s} />
+      <SectionsPanel summary={s} range={ctx.range} />
     </>
   );
 }
@@ -755,11 +795,11 @@ function BoaBody({ ctx }: { ctx: DashCtx }) {
       </div>
       <RequestsCta />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <CampusPanel summary={s} />
+        <CampusPanel summary={s} range={ctx.range} />
         <HealthPanel summary={s} />
-        <NeedsAttentionPanel summary={s} />
+        <NeedsAttentionPanel summary={s} range={ctx.range} />
       </div>
-      <SectionsPanel summary={s} />
+      <SectionsPanel summary={s} range={ctx.range} />
     </>
   );
 }
@@ -782,7 +822,7 @@ function InstructorBody({ ctx }: { ctx: DashCtx }) {
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
         <div className="lg:col-span-3">
-          <NeedsAttentionPanel summary={s} />
+          <NeedsAttentionPanel summary={s} range={ctx.range} />
         </div>
         <div className="lg:col-span-2">
           <HealthPanel summary={s} />
@@ -819,7 +859,6 @@ function renderBody(role: Role, ctx: DashCtx): React.ReactNode {
 function LoadingState() {
   return (
     <div className="space-y-6">
-      <Skeleton className="h-24 w-full" />
       <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <Skeleton key={i} className="h-24 rounded-none bg-white" />
@@ -841,58 +880,57 @@ const ACADEMIC_LIMIT = 5000;
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const query = useQueryParams();
+  const range = useMemo(() => readDateRange(query), [query]);
   const role = (user?.role as Role) ?? "instructor";
   const theme = ROLE_THEME[role] ?? ROLE_THEME.instructor;
   const canSeeRequests = ["superadmin", "admin", "boa", "hod"].includes(role);
   const unreadRequests = useUnreadNotificationCount(canSeeRequests);
 
+  const summaryQuery = {
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
+  };
+  const studentQuery = {
+    limit: ACADEMIC_LIMIT,
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
+  };
+
   const { data: summary, isLoading, isError, refetch } = useGetDashboardSummary(
-    undefined,
+    summaryQuery,
     {
-      query: { queryKey: getGetDashboardSummaryQueryKey() },
+      query: {
+        queryKey: getGetDashboardSummaryQueryKey(summaryQuery),
+        staleTime: 30_000,
+        placeholderData: (previousData) => previousData,
+      },
     },
   );
 
   const { data: students, isLoading: studentsLoading } =
-    useGetDashboardStudents(
-      { limit: ACADEMIC_LIMIT },
-      {
-        query: {
-          enabled: theme.academics,
-          queryKey: getGetDashboardStudentsQueryKey({ limit: ACADEMIC_LIMIT }),
-        },
+    useGetDashboardStudents(studentQuery, {
+      query: {
+        enabled: theme.academics,
+        queryKey: getGetDashboardStudentsQueryKey(studentQuery),
+        staleTime: 30_000,
+        placeholderData: (previousData) => previousData,
       },
-    );
+    });
 
   const academics = React.useMemo<AcademicAggregate | null>(
     () => (students ? aggregateAcademics(students) : null),
     [students],
   );
 
-  if (isLoading) return <LoadingState />;
-  if (isError || !summary) {
-    return (
-      <ErrorState
-        message="Failed to load dashboard summary."
-        onRetry={() => refetch()}
-      />
-    );
-  }
-
   const updated =
-    summary.updatedAt != null
+    summary?.updatedAt != null
       ? new Date(summary.updatedAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         })
       : null;
-
-  const ctx: DashCtx = {
-    summary,
-    academics,
-    academicsLoading: theme.academics && studentsLoading,
-    updated,
-  };
 
   return (
     <div className="flex flex-col">
@@ -902,8 +940,27 @@ export default function Dashboard() {
         theme={theme}
         updated={updated}
         unreadRequests={unreadRequests}
+        range={range}
+        onRangeChange={(next) => setLocation(dashboardPath(next))}
       />
-      <div className="space-y-6">{renderBody(role, ctx)}</div>
+      {isLoading ? (
+        <LoadingState />
+      ) : isError || !summary ? (
+        <ErrorState
+          message="Failed to load dashboard summary."
+          onRetry={() => refetch()}
+        />
+      ) : (
+        <div className="space-y-6">
+          {renderBody(role, {
+            summary,
+            academics,
+            academicsLoading: theme.academics && studentsLoading,
+            updated,
+            range,
+          })}
+        </div>
+      )}
     </div>
   );
 }

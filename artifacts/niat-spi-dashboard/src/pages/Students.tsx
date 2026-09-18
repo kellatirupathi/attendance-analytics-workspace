@@ -363,8 +363,22 @@ export default function Students() {
                 <Th className="min-w-[220px]">Campus</Th>
                 <Th className="min-w-[200px]">Section</Th>
                 <Th className="min-w-[148px] text-right">Attendance</Th>
-                <Th className="min-w-[120px] text-right">Classroom Quiz</Th>
-                <Th className="min-w-[120px] text-right">Module Quiz</Th>
+                <Th className="min-w-[120px] text-right">
+                  Classroom Quiz
+                  {(range.dateFrom || range.dateTo) && (
+                    <span className="block normal-case tracking-normal text-[10px] font-medium text-gray-400">
+                      overall
+                    </span>
+                  )}
+                </Th>
+                <Th className="min-w-[120px] text-right">
+                  Module Quiz
+                  {(range.dateFrom || range.dateTo) && (
+                    <span className="block normal-case tracking-normal text-[10px] font-medium text-gray-400">
+                      overall
+                    </span>
+                  )}
+                </Th>
                 <Th className="min-w-[90px] text-right">Report</Th>
               </TableRow>
             </TableHeader>

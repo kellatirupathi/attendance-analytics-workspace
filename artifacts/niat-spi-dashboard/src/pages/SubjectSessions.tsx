@@ -26,6 +26,7 @@ import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 import {
   applyDateRange,
   applySemester,
@@ -35,6 +36,7 @@ import {
   readDateRange,
   readSemester,
   semesterLabel,
+  subjectSessionsPath,
   type DateRange,
 } from "@/lib/dateRange";
 
@@ -172,14 +174,27 @@ export default function SubjectSessions() {
       range={range}
       semester={semester}
       trail={baseTrail}
+      onRangeChange={(next) =>
+        setLocation(
+          subjectSessionsPath(next, {
+            subject,
+            campus,
+            from,
+            semester,
+          }),
+        )
+      }
       onOpenSession={(s) => {
-        const p = new URLSearchParams({ subject, session: s.sessionTitle });
-        if (campus) p.set("campus", campus);
-        if (s.date) p.set("date", s.date);
-        if (from) p.set("from", from);
-        applySemester(p, semester);
-        applyDateRange(p, range);
-        setLocation(`/dashboard/attendance-stats/sessions?${p.toString()}`);
+        setLocation(
+          subjectSessionsPath(range, {
+            subject,
+            campus,
+            from,
+            semester,
+            session: s.sessionTitle,
+            date: s.date ?? undefined,
+          }),
+        );
       }}
     />
   );
@@ -191,6 +206,7 @@ function SessionList({
   range,
   semester,
   trail,
+  onRangeChange,
   onOpenSession,
 }: {
   subject: string;
@@ -198,6 +214,7 @@ function SessionList({
   range: DateRange;
   semester: string;
   trail: { label: string; onClick: () => void }[];
+  onRangeChange: (next: DateRange) => void;
   onOpenSession: (s: SessionSummary) => void;
 }) {
   const [rows, setRows] = useState<SessionSummary[]>([]);
@@ -288,6 +305,7 @@ function SessionList({
         }
         right={
           <div className="flex flex-wrap items-center gap-2">
+            <DateRangeFilter value={range} onChange={onRangeChange} />
             <div className="relative min-w-[200px] sm:w-64">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
