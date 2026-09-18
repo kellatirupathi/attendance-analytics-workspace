@@ -13,7 +13,12 @@ import { requireSession } from "../lib/auth.js";
 import { invalidateSessionCache } from "../lib/sessionCache.js";
 import { manageableRoles, ROLE_META, SUBJECTS } from "../lib/rbac.js";
 import type { Role } from "../lib/rbac.js";
-import { getInstitutions, getSubjectList } from "../lib/queries.js";
+import {
+  getInstitutions,
+  getSubjectList,
+  setRecoverySessionInstructorIdentity,
+  setRecoverySessionIncentivePaid,
+} from "../lib/queries.js";
 import { cacheDeletePrefix } from "../lib/cache.js";
 
 const router = Router();
@@ -632,6 +637,110 @@ router.post(
     cacheDeletePrefix("recovery-progress:");
     cacheDeletePrefix("session-tracker:");
     res.json({ id: reverted.id, status: reverted.status });
+  },
+);
+
+// Admin-only correction for the Incentive Tracker / Session Tracker: rewrites
+// one session's stored instructor identity, e.g. to attach the canonical
+// BigQuery employee id to a historical session that only ever had a
+// free-text name, or to fix an outright mistake. Deliberately per-session
+// rather than bulk -- the one-time historical reconciliation is handled by
+// the backfill-recovery-instructor-identity script; this is for the
+// stragglers it couldn't match, or for one-off corrections afterward.
+router.patch(
+  "/recovery-sessions/:id/instructor-identity",
+  async (req, res): Promise<void> => {
+    const id = String(req.params["id"] ?? "");
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(id)) {
+      res.status(400).json({ error: "Invalid recovery session id" });
+      return;
+    }
+
+    const body = req.body as {
+      instructorName?: unknown;
+      employeeId?: unknown;
+      bigqueryInstructorUserId?: unknown;
+      instructorType?: unknown;
+    };
+    const instructorName =
+      typeof body.instructorName === "string" ? body.instructorName.trim() : "";
+    if (!instructorName) {
+      res.status(400).json({ error: "instructorName is required" });
+      return;
+    }
+    const instructorType = body.instructorType;
+    if (
+      instructorType !== "campus" &&
+      instructorType !== "backup" &&
+      instructorType !== "unknown"
+    ) {
+      res.status(400).json({ error: "Invalid instructor type" });
+      return;
+    }
+    const employeeId =
+      typeof body.employeeId === "string" && body.employeeId.trim()
+        ? body.employeeId.trim()
+        : null;
+    const bigqueryInstructorUserId =
+      typeof body.bigqueryInstructorUserId === "string" &&
+      body.bigqueryInstructorUserId.trim()
+        ? body.bigqueryInstructorUserId.trim()
+        : null;
+
+    const updated = await setRecoverySessionInstructorIdentity(id, {
+      instructorName,
+      employeeId,
+      bigqueryInstructorUserId,
+      instructorType,
+    });
+    if (!updated) {
+      res.status(404).json({ error: "Recovery session not found" });
+      return;
+    }
+
+    cacheDeletePrefix("session-tracker:");
+    res.json({
+      id: updated.id,
+      instructorName: updated.instructorName,
+      employeeId: updated.employeeId,
+      bigqueryInstructorUserId: updated.bigqueryInstructorUserId,
+      instructorType: updated.instructorType,
+    });
+  },
+);
+
+// Admin/superadmin-only: marks an already-approved session's incentive as
+// actually paid out. Kept separate from BOA approval (which only confirms
+// the session happened) so "owed" and "already paid" are tracked distinctly.
+router.patch(
+  "/recovery-sessions/:id/incentive-paid",
+  async (req, res): Promise<void> => {
+    const id = String(req.params["id"] ?? "");
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(id)) {
+      res.status(400).json({ error: "Invalid recovery session id" });
+      return;
+    }
+    const paid = (req.body as { paid?: unknown }).paid;
+    if (typeof paid !== "boolean") {
+      res.status(400).json({ error: "paid must be a boolean" });
+      return;
+    }
+
+    const session = req.session!;
+    const result = await setRecoverySessionIncentivePaid(id, paid, session.sub);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json({
+      id: result.session.id,
+      incentiveApproved: result.session.incentiveApproved,
+      incentivePaid: result.session.incentivePaid,
+    });
   },
 );
 

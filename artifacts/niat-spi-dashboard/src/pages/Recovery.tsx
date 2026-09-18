@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import { pctTextColor } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+
+const INCENTIVE_TRACKER_ROLES = ["superadmin", "admin", "boa", "hod"];
 
 interface RecoveryStudent {
   studentId: string;
@@ -58,6 +61,8 @@ interface QuizRecoveryCampusData {
 
 export default function Recovery() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const showIncentives = Boolean(user && INCENTIVE_TRACKER_ROLES.includes(user.role));
   const [location, setLocation] = useLocation();
   const query = useQueryParams();
   const path = location.split("?")[0] ?? location;
@@ -185,7 +190,7 @@ export default function Recovery() {
 
   return (
     <div className="flex flex-col">
-      <SubNav items={recoveryNav(selectedCampus, selectedSemester)} />
+      <SubNav items={recoveryNav(selectedCampus, selectedSemester, showIncentives)} />
       <div className="flex flex-col gap-6 p-6 animate-in fade-in duration-300">
         <PageHeader
           title="Recovery Dashboard"

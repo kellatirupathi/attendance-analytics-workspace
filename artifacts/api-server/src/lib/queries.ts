@@ -13,6 +13,7 @@ import {
   recoveryTopicsTable,
   sessionTopicsTable,
   usersTable,
+  type RecoverySession,
 } from "@workspace/db";
 import {
   and,
@@ -2819,6 +2820,339 @@ export async function scheduleRecoverySession(
       topicsScheduled: uniqueTitles,
     },
   };
+}
+
+/**
+ * Fixed, hardcoded per-session incentive rate for recovery-session
+ * instructors (₹500). Not admin-configurable by design -- see the Incentive
+ * Tracker feature.
+ */
+export const RECOVERY_INCENTIVE_PER_SESSION = 500;
+
+export interface IncentiveSessionRow {
+  id: string;
+  campus: string;
+  subject: string;
+  scheduledDate: string;
+  status: "conducted" | "partial";
+  instructorName: string;
+  employeeId: string | null;
+  bigqueryInstructorUserId: string | null;
+  instructorType: "campus" | "backup" | "unknown";
+  amount: number;
+  incentiveApproved: boolean;
+  incentiveApprovedByName: string | null;
+  incentiveApprovedAt: string | null;
+  incentivePaid: boolean;
+  incentivePaidByName: string | null;
+  incentivePaidAt: string | null;
+}
+
+export interface IncentiveInstructorSummary {
+  /** employeeId when known, else a normalized-name fallback key. */
+  key: string;
+  employeeId: string | null;
+  bigqueryInstructorUserId: string | null;
+  instructorName: string;
+  instructorType: "campus" | "backup" | "unknown";
+  /** True when this instructor has no canonical employee id yet -- the
+   * historical/free-text-name case the "Fix instructor" action resolves. */
+  needsIdentityReview: boolean;
+  sessionsCompleted: number;
+  sessionsApproved: number;
+  sessionsPaid: number;
+  amountPendingApproval: number;
+  amountOwed: number;
+  amountPaid: number;
+  sessions: IncentiveSessionRow[];
+}
+
+export interface IncentiveCampusGroup {
+  campus: string;
+  instructors: IncentiveInstructorSummary[];
+  totals: {
+    sessionsCompleted: number;
+    amountPendingApproval: number;
+    amountOwed: number;
+    amountPaid: number;
+  };
+}
+
+/**
+ * Every Completed/Partially Completed recovery session, grouped first by
+ * campus and then by instructor (keyed on the BigQuery employee id when the
+ * session has one, since that's the canonical identity money should be owed
+ * against; sessions still carrying only a free-text name are grouped by that
+ * normalized name instead and flagged `needsIdentityReview`).
+ *
+ * `campuses` scopes the result the same way every other recovery query does:
+ * `undefined` (superadmin/admin/hod) means every campus, an array (BOA)
+ * restricts to just those.
+ */
+export async function getIncentiveTracker(
+  campuses?: string[],
+): Promise<IncentiveCampusGroup[]> {
+  const filters = [
+    inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+  ];
+  if (campuses && campuses.length > 0) {
+    filters.push(inArray(recoverySessionsTable.campus, campuses));
+  }
+
+  const rows = await db
+    .select({
+      id: recoverySessionsTable.id,
+      campus: recoverySessionsTable.campus,
+      subject: recoverySessionsTable.subject,
+      scheduledDate: recoverySessionsTable.scheduledDate,
+      status: recoverySessionsTable.status,
+      instructorName: recoverySessionsTable.instructorName,
+      employeeId: recoverySessionsTable.employeeId,
+      bigqueryInstructorUserId: recoverySessionsTable.bigqueryInstructorUserId,
+      instructorType: recoverySessionsTable.instructorType,
+      incentiveApproved: recoverySessionsTable.incentiveApproved,
+      incentiveApprovedBy: recoverySessionsTable.incentiveApprovedBy,
+      incentiveApprovedAt: recoverySessionsTable.incentiveApprovedAt,
+      incentivePaid: recoverySessionsTable.incentivePaid,
+      incentivePaidBy: recoverySessionsTable.incentivePaidBy,
+      incentivePaidAt: recoverySessionsTable.incentivePaidAt,
+    })
+    .from(recoverySessionsTable)
+    .where(and(...filters))
+    .orderBy(desc(recoverySessionsTable.scheduledDate));
+
+  const approverIds = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.incentiveApprovedBy, r.incentivePaidBy])
+        .filter((v): v is string => Boolean(v)),
+    ),
+  ];
+  const userNames = new Map<string, string>();
+  if (approverIds.length > 0) {
+    const users = await db
+      .select({ id: usersTable.id, name: usersTable.name })
+      .from(usersTable)
+      .where(inArray(usersTable.id, approverIds));
+    for (const u of users) userNames.set(u.id, u.name);
+  }
+
+  const campusGroups = new Map<
+    string,
+    Map<string, IncentiveInstructorSummary>
+  >();
+
+  for (const row of rows) {
+    const campusGroup =
+      campusGroups.get(row.campus) ??
+      new Map<string, IncentiveInstructorSummary>();
+    campusGroups.set(row.campus, campusGroup);
+
+    const key = row.employeeId
+      ? `emp:${row.employeeId}`
+      : `name:${row.instructorName.trim().toLowerCase()}`;
+    const summary = campusGroup.get(key) ?? {
+      key,
+      employeeId: row.employeeId,
+      bigqueryInstructorUserId: row.bigqueryInstructorUserId,
+      instructorName: row.instructorName,
+      instructorType: row.instructorType,
+      needsIdentityReview: !row.employeeId,
+      sessionsCompleted: 0,
+      sessionsApproved: 0,
+      sessionsPaid: 0,
+      amountPendingApproval: 0,
+      amountOwed: 0,
+      amountPaid: 0,
+      sessions: [],
+    };
+
+    const amount = RECOVERY_INCENTIVE_PER_SESSION;
+    summary.sessionsCompleted += 1;
+    if (row.incentiveApproved) {
+      summary.sessionsApproved += 1;
+      if (row.incentivePaid) {
+        summary.sessionsPaid += 1;
+        summary.amountPaid += amount;
+      } else {
+        summary.amountOwed += amount;
+      }
+    } else {
+      summary.amountPendingApproval += amount;
+    }
+
+    summary.sessions.push({
+      id: row.id,
+      campus: row.campus,
+      subject: row.subject,
+      scheduledDate: row.scheduledDate,
+      status: row.status as "conducted" | "partial",
+      instructorName: row.instructorName,
+      employeeId: row.employeeId,
+      bigqueryInstructorUserId: row.bigqueryInstructorUserId,
+      instructorType: row.instructorType,
+      amount,
+      incentiveApproved: row.incentiveApproved,
+      incentiveApprovedByName: row.incentiveApprovedBy
+        ? (userNames.get(row.incentiveApprovedBy) ?? null)
+        : null,
+      incentiveApprovedAt: row.incentiveApprovedAt?.toISOString() ?? null,
+      incentivePaid: row.incentivePaid,
+      incentivePaidByName: row.incentivePaidBy
+        ? (userNames.get(row.incentivePaidBy) ?? null)
+        : null,
+      incentivePaidAt: row.incentivePaidAt?.toISOString() ?? null,
+    });
+
+    campusGroup.set(key, summary);
+  }
+
+  return [...campusGroups.entries()]
+    .map(([campus, instructorMap]) => {
+      const instructors = [...instructorMap.values()].sort((a, b) =>
+        a.instructorName.localeCompare(b.instructorName),
+      );
+      const totals = instructors.reduce(
+        (acc, i) => ({
+          sessionsCompleted: acc.sessionsCompleted + i.sessionsCompleted,
+          amountPendingApproval:
+            acc.amountPendingApproval + i.amountPendingApproval,
+          amountOwed: acc.amountOwed + i.amountOwed,
+          amountPaid: acc.amountPaid + i.amountPaid,
+        }),
+        {
+          sessionsCompleted: 0,
+          amountPendingApproval: 0,
+          amountOwed: 0,
+          amountPaid: 0,
+        },
+      );
+      return { campus, instructors, totals };
+    })
+    .sort((a, b) => a.campus.localeCompare(b.campus));
+}
+
+/**
+ * Admin-only correction: rewrites one session's stored instructor identity
+ * (e.g. to fix a historical free-text name that never got matched to the
+ * BigQuery roster, or to correct an outright mistake). Used both by the
+ * Incentive Tracker's "Fix instructor" action and, indirectly, informs the
+ * one-time backfill script's approach for bulk historical corrections.
+ */
+export async function setRecoverySessionInstructorIdentity(
+  sessionId: string,
+  identity: {
+    instructorName: string;
+    employeeId: string | null;
+    bigqueryInstructorUserId: string | null;
+    instructorType: "campus" | "backup" | "unknown";
+  },
+): Promise<RecoverySession | null> {
+  const now = new Date();
+  const [updated] = await db
+    .update(recoverySessionsTable)
+    .set({
+      instructorName: identity.instructorName,
+      employeeId: identity.employeeId,
+      bigqueryInstructorUserId: identity.bigqueryInstructorUserId,
+      instructorType: identity.instructorType,
+      instructorTypeReviewedAt: now,
+      updatedAt: now,
+    })
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .returning();
+  return updated ?? null;
+}
+
+/**
+ * The BOA (or admin/superadmin) confirmation step: "yes, this session was
+ * actually delivered, pay the instructor for it." Only a Completed/Partially
+ * Completed session is eligible. Revoking approval also clears `paid` --
+ * paid can never be true while approved is false.
+ */
+export async function setRecoverySessionIncentiveApproval(
+  sessionId: string,
+  approved: boolean,
+  approvedBy: string,
+): Promise<
+  | { ok: true; session: RecoverySession }
+  | { ok: false; error: string; status: number }
+> {
+  const [existing] = await db
+    .select()
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  if (!existing) {
+    return { ok: false, error: "Recovery session not found", status: 404 };
+  }
+  if (existing.status !== "conducted" && existing.status !== "partial") {
+    return {
+      ok: false,
+      error:
+        "Only a Completed or Partially Completed session can have its incentive approved",
+      status: 409,
+    };
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(recoverySessionsTable)
+    .set({
+      incentiveApproved: approved,
+      incentiveApprovedBy: approved ? approvedBy : null,
+      incentiveApprovedAt: approved ? now : null,
+      ...(approved
+        ? {}
+        : { incentivePaid: false, incentivePaidBy: null, incentivePaidAt: null }),
+      updatedAt: now,
+    })
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .returning();
+  return { ok: true, session: updated! };
+}
+
+/**
+ * Admin/superadmin-only: records that an already-approved session's
+ * incentive has actually been paid out. Cannot be set on a session whose
+ * incentive was never approved.
+ */
+export async function setRecoverySessionIncentivePaid(
+  sessionId: string,
+  paid: boolean,
+  paidBy: string,
+): Promise<
+  | { ok: true; session: RecoverySession }
+  | { ok: false; error: string; status: number }
+> {
+  const [existing] = await db
+    .select()
+    .from(recoverySessionsTable)
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .limit(1);
+  if (!existing) {
+    return { ok: false, error: "Recovery session not found", status: 404 };
+  }
+  if (paid && !existing.incentiveApproved) {
+    return {
+      ok: false,
+      error: "Approve this session's incentive before marking it paid",
+      status: 409,
+    };
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(recoverySessionsTable)
+    .set({
+      incentivePaid: paid,
+      incentivePaidBy: paid ? paidBy : null,
+      incentivePaidAt: paid ? now : null,
+      updatedAt: now,
+    })
+    .where(eq(recoverySessionsTable.id, sessionId))
+    .returning();
+  return { ok: true, session: updated! };
 }
 
 /*

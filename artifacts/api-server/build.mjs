@@ -25,6 +25,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/import-historical-recovery-sessions.ts"),
       path.resolve(artifactDir, "src/diagnose-recovery-topic-dates.ts"),
       path.resolve(artifactDir, "src/find-instructor-table.ts"),
+      path.resolve(artifactDir, "src/backfill-recovery-instructor-identity.ts"),
     ],
     platform: "node",
     bundle: true,

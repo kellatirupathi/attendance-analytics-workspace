@@ -108,9 +108,19 @@ export function recoveryListPath(
   return query ? `${path}?${query}` : path;
 }
 
-export function recoveryNav(campus?: string, semester?: string): SubNavItem[] {
-  return [
+export const RECOVERY_INCENTIVES_PATH = "/dashboard/recovery/incentives";
+
+export function recoveryNav(
+  campus?: string,
+  semester?: string,
+  showIncentives?: boolean,
+): SubNavItem[] {
+  const items: SubNavItem[] = [
     { label: "Attendance", href: recoveryListPath("attendance", campus, semester) },
     { label: "Quizzes", href: recoveryListPath("quiz", campus, semester) },
   ];
+  if (showIncentives) {
+    items.push({ label: "Incentives", href: RECOVERY_INCENTIVES_PATH });
+  }
+  return items;
 }

@@ -15,8 +15,20 @@ import { requireSession } from "../lib/auth.js";
 import { cacheDeletePrefix } from "../lib/cache.js";
 import { scopeForSession, type Role } from "../lib/rbac.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
+import {
+  getIncentiveTracker,
+  getRecoverySessionScope,
+  setRecoverySessionIncentiveApproval,
+  RECOVERY_INCENTIVE_PER_SESSION,
+} from "../lib/queries.js";
 
 const router: IRouter = Router();
+
+// View: superadmin/admin/hod see every campus; boa is scope-limited to their
+// own (enforced below via scopeForSession, same as the rest of this router).
+const INCENTIVE_VIEW_ROLES: Role[] = ["superadmin", "admin", "boa", "hod"];
+// Approve/reject is the BOA's actual job here -- hod stays read-only.
+const INCENTIVE_APPROVE_ROLES: Role[] = ["superadmin", "admin", "boa"];
 
 function curriculumSubjects(subjects: string[]): string[] {
   return subjects.map((subject) => BIGQUERY_TO_CURRICULUM_SUBJECT[subject] ?? subject);
@@ -332,5 +344,74 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
   cacheDeletePrefix("session-tracker:");
   res.json({ id: reported.id, status: reported.status, reportedAt: reported.reportedAt?.toISOString() ?? now.toISOString() });
 });
+
+// The Incentive Tracker: every Completed/Partially Completed session, grouped
+// by campus then instructor, with sessions-completed / approved / paid counts
+// and the money owed at the fixed per-session rate. A BOA sees only their own
+// campus(es); superadmin/admin/hod see every campus.
+router.get("/incentives", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  if (!INCENTIVE_VIEW_ROLES.includes(session.role as Role)) {
+    res.status(403).json({ error: "Not permitted to view the incentive tracker" });
+    return;
+  }
+  const scope = scopeForSession(session);
+  // scope.campuses is undefined for superadmin/admin/hod (see all), or an
+  // array for boa -- including the ["__none__"] sentinel for a boa with no
+  // assigned campuses, which getIncentiveTracker's inArray filter naturally
+  // resolves to zero rows since no real campus is named "__none__".
+  const tracker = await getIncentiveTracker(scope.campuses);
+  res.json({ ratePerSession: RECOVERY_INCENTIVE_PER_SESSION, campuses: tracker });
+});
+
+// The BOA's "yes/no, was this session actually delivered" confirmation.
+// Approving is what makes a session's incentive count as money owed;
+// revoking approval also un-pays it (enforced in setRecoverySessionIncentiveApproval).
+router.patch(
+  "/sessions/:id/incentive-approval",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    if (!INCENTIVE_APPROVE_ROLES.includes(session.role as Role)) {
+      res.status(403).json({ error: "Not permitted to approve incentives" });
+      return;
+    }
+    const id = String(req.params["id"] ?? "");
+    const uuidPattern =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidPattern.test(id)) {
+      res.status(400).json({ error: "Invalid recovery session id" });
+      return;
+    }
+    const approved = (req.body as { approved?: unknown }).approved;
+    if (typeof approved !== "boolean") {
+      res.status(400).json({ error: "approved must be a boolean" });
+      return;
+    }
+
+    // BOA is scope-limited to their own campus(es); admin/superadmin/hod
+    // (who never hit this route per INCENTIVE_APPROVE_ROLES, but kept
+    // symmetric with the rest of the router) pass through unchecked.
+    const scopeCampuses = scopeForSession(session).campuses;
+    if (scopeCampuses) {
+      const scoped = await getRecoverySessionScope(id);
+      if (!scoped || !scopeCampuses.includes(scoped.campus)) {
+        res.status(403).json({ error: "Not permitted for this campus" });
+        return;
+      }
+    }
+
+    const result = await setRecoverySessionIncentiveApproval(id, approved, session.sub);
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+    res.json({
+      id: result.session.id,
+      incentiveApproved: result.session.incentiveApproved,
+      incentivePaid: result.session.incentivePaid,
+    });
+  },
+);
 
 export default router;

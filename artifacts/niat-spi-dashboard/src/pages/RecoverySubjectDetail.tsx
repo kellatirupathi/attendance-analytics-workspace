@@ -31,6 +31,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { cn, pctTextColor } from "@/lib/utils";
 import { exportCsv } from "@/lib/csv";
@@ -748,6 +749,14 @@ export default function RecoverySubjectDetail() {
   // below-80% student list stays out of scope too (its API route is still
   // blocked for instructors), so we skip fetching it and hide its tab/controls.
   const isInstructor = user?.role === "instructor";
+  // The Incentive Tracker lives on its own page (it spans every subject, not
+  // just this one) -- this banner is the "beside the session tracker" link
+  // to it, for the same roles that can see it there.
+  const canSeeIncentives =
+    user?.role === "superadmin" ||
+    user?.role === "admin" ||
+    user?.role === "boa" ||
+    user?.role === "hod";
 
   const rawCampus = params.campus;
   const rawSubject = params.subject;
@@ -1601,6 +1610,20 @@ export default function RecoverySubjectDetail() {
             </div>
           </div>
         </section>
+      )}
+
+      {canSeeIncentives && (
+        <button
+          type="button"
+          onClick={() => setLocation("/dashboard/recovery/incentives")}
+          className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-left transition-colors hover:bg-emerald-50"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-emerald-800">
+            <Wallet className="h-4 w-4" />
+            Incentive Tracker — see what every recovery instructor is owed for sessions marked Completed or Partially Completed below
+          </span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Open →</span>
+        </button>
       )}
 
       <Tabs defaultValue="prod-sequence" className="mt-2">

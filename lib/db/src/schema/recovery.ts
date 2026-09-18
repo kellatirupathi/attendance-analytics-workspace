@@ -203,6 +203,28 @@ export const recoverySessionsTable = pgTable(
     studentsAttended: integer("students_attended"),
     reportedBy: uuid("reported_by").references(() => usersTable.id),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
+    /**
+     * Incentive tracking. Every Completed/Partially Completed session earns
+     * the instructor a fixed per-session incentive (see
+     * RECOVERY_INCENTIVE_PER_SESSION in the api-server's queries.ts) once the
+     * BOA for that session's campus confirms it was actually delivered.
+     * `incentiveApproved` is that confirmation; `incentivePaid` is a separate,
+     * later step (an admin/superadmin marking the money as actually handed
+     * over) so "owed" and "already paid" stay distinct. Paid can never be
+     * true while approved is false -- the approval routes enforce that.
+     */
+    incentiveApproved: boolean("incentive_approved").notNull().default(false),
+    incentiveApprovedBy: uuid("incentive_approved_by").references(
+      () => usersTable.id,
+    ),
+    incentiveApprovedAt: timestamp("incentive_approved_at", {
+      withTimezone: true,
+    }),
+    incentivePaid: boolean("incentive_paid").notNull().default(false),
+    incentivePaidBy: uuid("incentive_paid_by").references(
+      () => usersTable.id,
+    ),
+    incentivePaidAt: timestamp("incentive_paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -217,6 +239,7 @@ export const recoverySessionsTable = pgTable(
     ),
     index("recovery_sessions_date_idx").on(table.scheduledDate),
     index("recovery_sessions_status_idx").on(table.status),
+    index("recovery_sessions_employee_idx").on(table.employeeId),
   ],
 );
 

@@ -15,7 +15,8 @@
     "reset:cdu-recovery": "pnpm run build && node --enable-source-maps ./dist/reset-cdu-recovery-data.mjs",
     "import:recovery-history": "pnpm run build && node --enable-source-maps ./dist/import-historical-recovery-sessions.mjs",
     "diagnose:recovery-dates": "pnpm run build && node --enable-source-maps ./dist/diagnose-recovery-topic-dates.mjs",
-    "find:instructor-table": "pnpm run build && node --enable-source-maps ./dist/find-instructor-table.mjs"
+    "find:instructor-table": "pnpm run build && node --enable-source-maps ./dist/find-instructor-table.mjs",
+    "backfill:instructor-identity": "pnpm run build && node --enable-source-maps ./dist/backfill-recovery-instructor-identity.mjs"
   },
   "dependencies": {
     "@workspace/api-zod": "workspace:*",
