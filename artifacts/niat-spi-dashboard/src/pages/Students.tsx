@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import {
   useGetDashboardStudents,
   getGetDashboardStudentsQueryKey,
@@ -48,9 +49,17 @@ import {
 } from "lucide-react";
 import { pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
+import {
+  dateRangeLabel,
+  readDateRange,
+  studentsDirectoryPath,
+  type DateRange,
+} from "@/lib/dateRange";
 
 const FETCH_LIMIT = 5000;
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -88,6 +97,9 @@ export default function Students() {
   const { user } = useAuth();
   const { toast } = useToast();
   const isBoa = user?.role === "boa";
+  const [, setLocation] = useLocation();
+  const query = useQueryParams();
+  const range = useMemo(() => readDateRange(query), [query]);
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 350);
@@ -146,6 +158,8 @@ export default function Students() {
     campus: campusFilter !== "all" ? campusFilter : undefined,
     section: sectionFilter !== "all" ? sectionFilter : undefined,
     attendanceBand: attFilter !== "all" ? attFilter : undefined,
+    dateFrom: range.dateFrom,
+    dateTo: range.dateTo,
   };
 
   const { data: students, isLoading, isFetching } = useGetDashboardStudents(
@@ -154,6 +168,7 @@ export default function Students() {
       query: {
         queryKey: getGetDashboardStudentsQueryKey(studentQuery),
         staleTime: 30_000,
+        placeholderData: (previousData) => previousData,
       },
     },
   );
@@ -185,6 +200,11 @@ export default function Students() {
   );
 
   const resetPage = () => setPage(1);
+
+  const setRange = (next: DateRange) => {
+    setLocation(studentsDirectoryPath(next));
+    resetPage();
+  };
 
   const activeFilterCount =
     (!isBoa && campusFilter !== "all" ? 1 : 0) +
@@ -267,9 +287,10 @@ export default function Students() {
     <div className="flex flex-col">
       <PageHeader
         title="Student Directory"
-        subtitle="Search and review student attendance standing across campuses."
+        subtitle={`Search and review student attendance standing across campuses · ${dateRangeLabel(range)}`}
         right={
           <div className="flex flex-wrap items-center gap-2">
+            <DateRangeFilter value={range} onChange={setRange} />
             <div className="relative min-w-[200px] flex-1 sm:w-64 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
@@ -383,7 +404,8 @@ export default function Students() {
                     colSpan={8}
                     className="h-24 text-center text-gray-500"
                   >
-                    No students found matching your criteria.
+                    No students found matching your criteria for{" "}
+                    {dateRangeLabel(range)}.
                   </TableCell>
                 </TableRow>
               ) : (

@@ -128,3 +128,7 @@ export function campusWisePath(
 export function campusAnalyticsPath(range: DateRange): string {
   return withDateRange("/dashboard/campuses", range);
 }
+
+export function studentsDirectoryPath(range: DateRange): string {
+  return withDateRange("/dashboard/students", range);
+}
