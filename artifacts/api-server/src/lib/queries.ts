@@ -472,6 +472,125 @@ export async function getDashboardFilterOptions(
   };
 }
 
+export interface InstituteSemesterRow {
+  semesterTitle: string;
+  isCurrent: boolean;
+  subjectCount: number;
+  sectionCount: number;
+  studentCount: number;
+  subjects: string[];
+  sections: string[];
+}
+
+export interface InstituteDirectoryItem {
+  instituteName: string;
+  currentSemesters: string[];
+  semesterCount: number;
+  subjectCount: number;
+  sectionCount: number;
+  studentCount: number;
+  semesters: InstituteSemesterRow[];
+}
+
+function splitPackedList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split("|||")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Staff directory of institutes: which semesters are running, and per
+ * semester the subject list, sections, and distinct student count.
+ * Includes every semester in attendance data (not only current).
+ */
+export async function getInstituteDirectory(
+  scope: SessionScope,
+  opts: { campus?: string } = {},
+): Promise<InstituteDirectoryItem[]> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params, { currentSemester: false });
+  let campusFilter = "";
+  if (opts.campus) {
+    params["filterCampus"] = opts.campus;
+    campusFilter = " AND institute_name = @filterCampus";
+  }
+  const rows = await bqQuery<{
+    institute_name: string;
+    semester: string;
+    is_current: string;
+    subject_count: string;
+    section_count: string;
+    student_count: string;
+    subjects: string | null;
+    sections: string | null;
+  }>(
+    `SELECT
+      institute_name,
+      TRIM(CAST(derived_semester_title AS STRING)) AS semester,
+      CAST(MAX(is_current_semester) AS INT64) AS is_current,
+      COUNT(DISTINCT subject_title) AS subject_count,
+      COUNT(DISTINCT batch_section_name) AS section_count,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      ARRAY_TO_STRING(
+        ARRAY_AGG(DISTINCT subject_title IGNORE NULLS ORDER BY subject_title),
+        '|||'
+      ) AS subjects,
+      ARRAY_TO_STRING(
+        ARRAY_AGG(DISTINCT batch_section_name IGNORE NULLS ORDER BY batch_section_name),
+        '|||'
+      ) AS sections
+     FROM ${ATTENDANCE_TABLE}
+     WHERE ${where}${campusFilter}
+       AND institute_name IS NOT NULL
+       AND TRIM(institute_name) != ''
+       AND derived_semester_title IS NOT NULL
+       AND TRIM(CAST(derived_semester_title AS STRING)) != ''
+     GROUP BY institute_name, semester
+     ORDER BY institute_name, semester`,
+    params,
+  );
+
+  const byInstitute = new Map<string, InstituteSemesterRow[]>();
+  for (const row of rows) {
+    const semester: InstituteSemesterRow = {
+      semesterTitle: row.semester,
+      isCurrent: Number(row.is_current) === 1,
+      subjectCount: Number(row.subject_count),
+      sectionCount: Number(row.section_count),
+      studentCount: Number(row.student_count),
+      subjects: splitPackedList(row.subjects),
+      sections: splitPackedList(row.sections),
+    };
+    const list = byInstitute.get(row.institute_name) ?? [];
+    list.push(semester);
+    byInstitute.set(row.institute_name, list);
+  }
+
+  return [...byInstitute.entries()].map(([instituteName, semesters]) => {
+    const subjects = new Set<string>();
+    const sections = new Set<string>();
+    let studentCount = 0;
+    for (const semester of semesters) {
+      semester.subjects.forEach((title) => subjects.add(title));
+      semester.sections.forEach((name) => sections.add(name));
+      studentCount += semester.studentCount;
+    }
+    return {
+      instituteName,
+      currentSemesters: semesters
+        .filter((semester) => semester.isCurrent)
+        .map((semester) => semester.semesterTitle),
+      semesterCount: semesters.length,
+      subjectCount: subjects.size,
+      sectionCount: sections.size,
+      studentCount,
+      semesters,
+    };
+  });
+}
+
 export async function getStudentsList(
   scope: SessionScope,
   opts: {
