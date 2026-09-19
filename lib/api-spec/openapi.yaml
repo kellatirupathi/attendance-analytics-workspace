@@ -423,6 +423,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardFilters"
 
+  /dashboard/institute-directory:
+    get:
+      operationId: getInstituteDirectory
+      tags: [dashboard]
+      summary: Staff directory of institutes, running semesters, subjects, sections, and student counts
+      parameters:
+        - name: campus
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Institute directory
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InstituteDirectoryItem"
+
   /dashboard/students:
     get:
       operationId: getDashboardStudents
@@ -1277,6 +1298,52 @@ components:
         recordPct:
           type: number
           description: Record attendance — presentRecordCount / totalRecordCount
+
+    InstituteSemesterRow:
+      type: object
+      required: [semesterTitle, isCurrent, subjectCount, sectionCount, studentCount, subjects, sections]
+      properties:
+        semesterTitle:
+          type: string
+        isCurrent:
+          type: boolean
+        subjectCount:
+          type: integer
+        sectionCount:
+          type: integer
+        studentCount:
+          type: integer
+        subjects:
+          type: array
+          items:
+            type: string
+        sections:
+          type: array
+          items:
+            type: string
+
+    InstituteDirectoryItem:
+      type: object
+      required: [instituteName, currentSemesters, semesterCount, subjectCount, sectionCount, studentCount, semesters]
+      properties:
+        instituteName:
+          type: string
+        currentSemesters:
+          type: array
+          items:
+            type: string
+        semesterCount:
+          type: integer
+        subjectCount:
+          type: integer
+        sectionCount:
+          type: integer
+        studentCount:
+          type: integer
+        semesters:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstituteSemesterRow"
 
     CampusSummaryItem:
       type: object

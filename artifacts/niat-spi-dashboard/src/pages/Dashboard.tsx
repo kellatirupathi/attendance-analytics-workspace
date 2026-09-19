@@ -156,6 +156,11 @@ function quickActions(role: Role, range: DateRange): QuickAction[] {
     href: campusAnalyticsPath(range),
     icon: Building2,
   };
+  const institutes: QuickAction = {
+    label: "Institute Directory",
+    href: "/dashboard/institutes",
+    icon: GraduationCap,
+  };
   const requests: QuickAction = {
     label: "Request Inbox",
     href: "/dashboard/requests",
@@ -179,15 +184,15 @@ function quickActions(role: Role, range: DateRange): QuickAction[] {
 
   switch (role) {
     case "superadmin":
-      return [students, manageUsers, campuses, bigquery];
+      return [students, manageUsers, campuses, institutes, bigquery];
     case "admin":
-      return [students, manageUsers, manageCampuses, requests];
+      return [students, manageUsers, manageCampuses, institutes, requests];
     case "hod":
-      return [students, campuses, requests];
+      return [students, campuses, institutes, requests];
     case "capability_manager":
-      return [students, campuses];
+      return [students, campuses, institutes];
     case "boa":
-      return [{ ...requests, primary: true }, students, campuses];
+      return [{ ...requests, primary: true }, students, institutes];
     case "instructor":
       return [students];
     default:

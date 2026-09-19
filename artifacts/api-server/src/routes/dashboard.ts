@@ -26,6 +26,7 @@ import {
   parseSemester,
   dateRangeCacheKey,
   getAttendanceSemesters,
+  getInstituteDirectory,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
@@ -244,6 +245,37 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching subject prod sequence");
       res.status(500).json({ error: "Failed to fetch subject prod sequence" });
+    }
+  },
+);
+
+// Staff-only institute directory: running semesters, subjects, sections,
+// and student counts. Scope-filtered so a BOA only sees their campuses.
+router.get(
+  "/institute-directory",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const campus =
+      (req.query as Record<string, string | undefined>)["campus"] || undefined;
+    const cacheKey = `institute-directory:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const rows = await getInstituteDirectory(scope, { campus });
+      cacheSet(cacheKey, rows, 60 * 1000);
+      res.json(rows);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching institute directory");
+      res.status(500).json({ error: "Failed to fetch institute directory" });
     }
   },
 );
