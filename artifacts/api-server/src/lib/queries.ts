@@ -69,14 +69,16 @@ function mapAttendanceRollup(r: AttendanceRollupRow) {
   const sessionCount = Number(r.session_count);
   const presentRecordCount = Number(r.present_record_count);
   const totalRecordCount = Number(r.total_record_count);
+  // SPI attendance: present marks ÷ scheduled marks (student×session rows).
+  const spiPct = pct(presentRecordCount, totalRecordCount);
   return {
     studentCount,
     presentCount,
     totalCount: sessionCount,
-    pct: pct(presentCount, studentCount),
+    pct: spiPct,
     presentRecordCount,
     totalRecordCount,
-    recordPct: pct(presentRecordCount, totalRecordCount),
+    recordPct: spiPct,
   };
 }
 
@@ -592,11 +594,11 @@ export interface CampusSummaryItem {
   presentCount: number;
   /** Distinct classes held, not attendance row count. */
   totalCount: number;
-  /** Student attendance: presentCount / studentCount. */
+  /** SPI attendance: present marks / scheduled marks. */
   pct: number;
   presentRecordCount: number;
   totalRecordCount: number;
-  /** Record attendance: present rows / all rows. */
+  /** Same as pct — kept so existing clients keep working. */
   recordPct: number;
 }
 
@@ -713,11 +715,11 @@ export interface SubjectSummaryItem {
   presentCount: number;
   /** Distinct classes held, not attendance row count. */
   totalCount: number;
-  /** Student attendance: presentCount / studentCount. */
+  /** SPI attendance: present marks / scheduled marks. */
   pct: number;
   presentRecordCount: number;
   totalRecordCount: number;
-  /** Record attendance: present rows / all rows. */
+  /** Same as pct — kept so existing clients keep working. */
   recordPct: number;
 }
 
@@ -764,8 +766,8 @@ export async function getSubjectSummary(
     FROM roster
     LEFT JOIN windowed USING (subject_title)
     ORDER BY SAFE_DIVIDE(
-      COALESCE(windowed.present_student_count, 0),
-      roster.student_count
+      COALESCE(windowed.present_record_count, 0),
+      COALESCE(windowed.total_record_count, 0)
     ) ASC`,
     params,
   );

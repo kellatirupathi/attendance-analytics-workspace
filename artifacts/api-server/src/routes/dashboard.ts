@@ -73,7 +73,7 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   const dateRange = parseDateRange(
     req.query as Record<string, string | undefined>,
   );
-  const cacheKey = `summary:v2:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `summary:v3:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -91,13 +91,17 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
       (s, c) => s + c.studentCount,
       0,
     );
-    const totalPresent = campusBreakdown.reduce(
-      (s, c) => s + c.presentCount,
+    const totalPresentRecords = campusBreakdown.reduce(
+      (s, c) => s + c.presentRecordCount,
+      0,
+    );
+    const totalRecords = campusBreakdown.reduce(
+      (s, c) => s + c.totalRecordCount,
       0,
     );
     const avgPct =
-      totalStudents > 0
-        ? Math.round((totalPresent / totalStudents) * 1000) / 10
+      totalRecords > 0
+        ? Math.round((totalPresentRecords / totalRecords) * 1000) / 10
         : 0;
     const subjectsBelow80 = subjectBreakdown.filter((s) => s.pct < 80).length;
     const summary = {
@@ -184,7 +188,7 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   const campus = q["campus"] || undefined;
   const dateRange = parseDateRange(q);
   const semester = parseSemester(q);
-  const cacheKey = `subjects:v3:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `subjects:v4:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -255,7 +259,7 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
   });
   const dateRange = parseDateRange(req.query as Record<string, string | undefined>);
   const semester = parseSemester(req.query as Record<string, string | undefined>);
-  const cacheKey = `campuses:v3:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `campuses:v4:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

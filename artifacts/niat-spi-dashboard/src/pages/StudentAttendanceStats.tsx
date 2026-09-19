@@ -179,22 +179,16 @@ export default function StudentAttendanceStats() {
       [
         "Subject",
         "Students",
-        "Present students",
-        "Total sessions",
-        "Student attendance %",
-        "Present records",
-        "Total records",
-        "Record attendance %",
+        "Present marks",
+        "Scheduled marks",
+        "Attendance %",
       ],
       filtered.map((s) => [
         s.subjectTitle,
         s.studentCount,
-        s.presentCount,
-        s.totalCount,
-        s.pct,
         s.presentRecordCount,
         s.totalRecordCount,
-        s.recordPct,
+        s.pct,
       ]),
     );
   };
@@ -242,7 +236,7 @@ export default function StudentAttendanceStats() {
 
       <PageHeader
         title="Student Attendance Stats"
-        subtitle="Students = full semester roster. Present and sessions follow the selected date range."
+        subtitle="Attendance = present marks ÷ scheduled marks (same formula as SPI)."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter
@@ -318,8 +312,7 @@ export default function StudentAttendanceStats() {
             {semesterLabel(semester)}
             {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
             {" · "}
-            Student attendance = present students ÷ students. Record attendance =
-            present rows ÷ all rows.
+            Attendance = present marks ÷ scheduled marks.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -329,8 +322,8 @@ export default function StudentAttendanceStats() {
                 <Th>Subject</Th>
                 <Th className="text-right">Students</Th>
                 <Th className="text-right">Present</Th>
-                <Th className="text-right">Total sessions</Th>
-                <Th className="w-[240px] text-right">Student attendance</Th>
+                <Th className="text-right">Scheduled</Th>
+                <Th className="w-[240px] text-right">Attendance</Th>
                 <Th className="w-24 text-right">Sessions</Th>
                 <Th className="w-10" />
               </TableRow>
@@ -364,13 +357,13 @@ export default function StudentAttendanceStats() {
                       {s.studentCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-gray-600">
-                      {s.presentCount.toLocaleString()}
+                      {s.presentRecordCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-gray-600">
-                      {s.totalCount.toLocaleString()}
+                      {s.totalRecordCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <AttendanceCell pct={s.pct} recordPct={s.recordPct} />
+                      <AttendanceCell pct={s.pct} />
                     </TableCell>
                     <TableCell className="text-right">
                       <button
@@ -414,34 +407,23 @@ export default function StudentAttendanceStats() {
   );
 }
 
-function AttendanceCell({
-  pct,
-  recordPct,
-}: {
-  pct: number;
-  recordPct: number;
-}) {
+function AttendanceCell({ pct }: { pct: number }) {
   return (
-    <div className="flex flex-col items-end gap-0.5">
-      <div className="flex items-center justify-end gap-3">
-        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${Math.min(100, pct)}%`,
-              backgroundColor: pctColor(pct),
-            }}
-          />
-        </div>
-        <span
-          className="w-14 font-bold tabular-nums"
-          style={{ color: pctTextColor(pct) }}
-        >
-          {pct}%
-        </span>
+    <div className="flex items-center justify-end gap-3">
+      <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.min(100, pct)}%`,
+            backgroundColor: pctColor(pct),
+          }}
+        />
       </div>
-      <span className="text-[10px] tabular-nums text-gray-400">
-        Record {recordPct}%
+      <span
+        className="w-14 font-bold tabular-nums"
+        style={{ color: pctTextColor(pct) }}
+      >
+        {pct}%
       </span>
     </div>
   );
