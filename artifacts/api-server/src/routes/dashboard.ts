@@ -26,6 +26,7 @@ import {
   parseSemester,
   dateRangeCacheKey,
   getAttendanceSemesters,
+  getInstituteDirectory,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
@@ -73,7 +74,7 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   const dateRange = parseDateRange(
     req.query as Record<string, string | undefined>,
   );
-  const cacheKey = `summary:v2:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `summary:v3:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -91,13 +92,17 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
       (s, c) => s + c.studentCount,
       0,
     );
-    const totalPresent = campusBreakdown.reduce(
-      (s, c) => s + c.presentCount,
+    const totalPresentRecords = campusBreakdown.reduce(
+      (s, c) => s + c.presentRecordCount,
+      0,
+    );
+    const totalRecords = campusBreakdown.reduce(
+      (s, c) => s + c.totalRecordCount,
       0,
     );
     const avgPct =
-      totalStudents > 0
-        ? Math.round((totalPresent / totalStudents) * 1000) / 10
+      totalRecords > 0
+        ? Math.round((totalPresentRecords / totalRecords) * 1000) / 10
         : 0;
     const subjectsBelow80 = subjectBreakdown.filter((s) => s.pct < 80).length;
     const summary = {
@@ -184,7 +189,7 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   const campus = q["campus"] || undefined;
   const dateRange = parseDateRange(q);
   const semester = parseSemester(q);
-  const cacheKey = `subjects:v3:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `subjects:v4:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -244,6 +249,37 @@ router.get(
   },
 );
 
+// Staff-only institute directory: running semesters, subjects, sections,
+// and student counts. Scope-filtered so a BOA only sees their campuses.
+router.get(
+  "/institute-directory",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const campus =
+      (req.query as Record<string, string | undefined>)["campus"] || undefined;
+    const cacheKey = `institute-directory:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const rows = await getInstituteDirectory(scope, { campus });
+      cacheSet(cacheKey, rows, 60 * 1000);
+      res.json(rows);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching institute directory");
+      res.status(500).json({ error: "Failed to fetch institute directory" });
+    }
+  },
+);
+
 // Campus rollup for the Campus-wise Stats view. Scope-filtered like every
 // other dashboard route, so a BOA only ever sees their own campuses.
 router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
@@ -255,7 +291,7 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
   });
   const dateRange = parseDateRange(req.query as Record<string, string | undefined>);
   const semester = parseSemester(req.query as Record<string, string | undefined>);
-  const cacheKey = `campuses:v3:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `campuses:v4:${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

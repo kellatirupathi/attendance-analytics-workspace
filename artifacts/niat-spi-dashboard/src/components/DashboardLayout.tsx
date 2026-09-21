@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   ClipboardCheck,
   BookOpenCheck,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
@@ -39,6 +40,7 @@ const mainNav: NavItem[] = [
   { label: "Student Attendance Stats", href: "/dashboard/attendance-stats", icon: BarChart3 },
   { label: "Assessments", href: "/dashboard/assessments", icon: BookOpenCheck },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
+  { label: "Institute Directory", href: "/dashboard/institutes", icon: GraduationCap },
   { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
 ];
 

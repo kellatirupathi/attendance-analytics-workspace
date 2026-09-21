@@ -190,24 +190,18 @@ function CampusList({
         "Students",
         "Sections",
         "Subjects",
-        "Present students",
-        "Total sessions",
-        "Student attendance %",
-        "Present records",
-        "Total records",
-        "Record attendance %",
+        "Present marks",
+        "Scheduled marks",
+        "Attendance %",
       ],
       filtered.map((c) => [
         c.instituteName,
         c.studentCount,
         c.sectionCount,
         c.subjectCount,
-        c.presentCount,
-        c.totalCount,
-        c.pct,
         c.presentRecordCount,
         c.totalRecordCount,
-        c.recordPct,
+        c.pct,
       ]),
     );
   };
@@ -216,7 +210,7 @@ function CampusList({
     <>
       <PageHeader
         title="Campus-wise Stats"
-        subtitle="Students = full semester roster. Present and sessions follow the selected date range."
+        subtitle="Attendance = present marks ÷ scheduled marks (same formula as SPI)."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter
@@ -276,8 +270,7 @@ function CampusList({
             {semesterLabel(semester)}
             {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
             {" · "}
-            Student attendance = present students ÷ students. Record attendance =
-            present rows ÷ all rows.
+            Attendance = present marks ÷ scheduled marks.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -289,8 +282,8 @@ function CampusList({
                 <Th className="text-right">Sections</Th>
                 <Th className="text-right">Subjects</Th>
                 <Th className="text-right">Present</Th>
-                <Th className="text-right">Total sessions</Th>
-                <Th className="w-[240px] text-right">Student attendance</Th>
+                <Th className="text-right">Scheduled</Th>
+                <Th className="w-[240px] text-right">Attendance</Th>
                 <Th className="w-10" />
               </TableRow>
             </TableHeader>
@@ -333,13 +326,13 @@ function CampusList({
                       {c.subjectCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-gray-600">
-                      {c.presentCount.toLocaleString()}
+                      {c.presentRecordCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-gray-600">
-                      {c.totalCount.toLocaleString()}
+                      {c.totalRecordCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <PctBar pct={c.pct} recordPct={c.recordPct} />
+                      <PctBar pct={c.pct} />
                     </TableCell>
                     <TableCell className="text-right text-gray-300">
                       <ChevronRight className="ml-auto h-4 w-4" />
@@ -736,31 +729,24 @@ function semesterOptions(semesters: string[], selected: string) {
   ];
 }
 
-function PctBar({ pct, recordPct }: { pct: number; recordPct?: number }) {
+function PctBar({ pct }: { pct: number }) {
   return (
-    <div className="flex flex-col items-end gap-0.5">
-      <div className="flex items-center justify-end gap-3">
-        <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${Math.min(100, pct)}%`,
-              backgroundColor: pctColor(pct),
-            }}
-          />
-        </div>
-        <span
-          className="w-14 font-bold tabular-nums"
-          style={{ color: pctTextColor(pct) }}
-        >
-          {pct}%
-        </span>
+    <div className="flex items-center justify-end gap-3">
+      <div className="hidden h-2 w-28 overflow-hidden rounded-full bg-gray-200 sm:block">
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${Math.min(100, pct)}%`,
+            backgroundColor: pctColor(pct),
+          }}
+        />
       </div>
-      {recordPct != null && (
-        <span className="text-[10px] tabular-nums text-gray-400">
-          Record {recordPct}%
-        </span>
-      )}
+      <span
+        className="w-14 font-bold tabular-nums"
+        style={{ color: pctTextColor(pct) }}
+      >
+        {pct}%
+      </span>
     </div>
   );
 }

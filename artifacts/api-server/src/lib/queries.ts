@@ -42,6 +42,46 @@ const ATTENDANCE_TABLE =
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 
+/**
+ * One class held: session_id when present, otherwise title, plus date, scoped
+ * by subject so campus rollups do not collapse two subjects into one session.
+ * Never use COUNT(*) for "total sessions" — that is student×session rows.
+ */
+const SESSION_IDENTITY_SQL = `CONCAT(
+  COALESCE(subject_title, ''),
+  '|',
+  COALESCE(NULLIF(CAST(session_id AS STRING), ''), COALESCE(session_title, '')),
+  '|',
+  COALESCE(CAST(DATE(date) AS STRING), '')
+)`;
+
+interface AttendanceRollupRow {
+  student_count: string;
+  present_student_count: string;
+  session_count: string;
+  present_record_count: string;
+  total_record_count: string;
+}
+
+function mapAttendanceRollup(r: AttendanceRollupRow) {
+  const studentCount = Number(r.student_count);
+  const presentCount = Number(r.present_student_count);
+  const sessionCount = Number(r.session_count);
+  const presentRecordCount = Number(r.present_record_count);
+  const totalRecordCount = Number(r.total_record_count);
+  // SPI attendance: present marks ÷ scheduled marks (student×session rows).
+  const spiPct = pct(presentRecordCount, totalRecordCount);
+  return {
+    studentCount,
+    presentCount,
+    totalCount: sessionCount,
+    pct: spiPct,
+    presentRecordCount,
+    totalRecordCount,
+    recordPct: spiPct,
+  };
+}
+
 function scopeClause(
   scope: SessionScope,
   params: Record<string, unknown>,
@@ -413,6 +453,125 @@ export async function getDashboardFilterOptions(
   };
 }
 
+export interface InstituteSemesterRow {
+  semesterTitle: string;
+  isCurrent: boolean;
+  subjectCount: number;
+  sectionCount: number;
+  studentCount: number;
+  subjects: string[];
+  sections: string[];
+}
+
+export interface InstituteDirectoryItem {
+  instituteName: string;
+  currentSemesters: string[];
+  semesterCount: number;
+  subjectCount: number;
+  sectionCount: number;
+  studentCount: number;
+  semesters: InstituteSemesterRow[];
+}
+
+function splitPackedList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split("|||")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Staff directory of institutes: which semesters are running, and per
+ * semester the subject list, sections, and distinct student count.
+ * Includes every semester in attendance data (not only current).
+ */
+export async function getInstituteDirectory(
+  scope: SessionScope,
+  opts: { campus?: string } = {},
+): Promise<InstituteDirectoryItem[]> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params, { currentSemester: false });
+  let campusFilter = "";
+  if (opts.campus) {
+    params["filterCampus"] = opts.campus;
+    campusFilter = " AND institute_name = @filterCampus";
+  }
+  const rows = await bqQuery<{
+    institute_name: string;
+    semester: string;
+    is_current: string;
+    subject_count: string;
+    section_count: string;
+    student_count: string;
+    subjects: string | null;
+    sections: string | null;
+  }>(
+    `SELECT
+      institute_name,
+      TRIM(CAST(derived_semester_title AS STRING)) AS semester,
+      CAST(MAX(is_current_semester) AS INT64) AS is_current,
+      COUNT(DISTINCT subject_title) AS subject_count,
+      COUNT(DISTINCT batch_section_name) AS section_count,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      ARRAY_TO_STRING(
+        ARRAY_AGG(DISTINCT subject_title IGNORE NULLS ORDER BY subject_title),
+        '|||'
+      ) AS subjects,
+      ARRAY_TO_STRING(
+        ARRAY_AGG(DISTINCT batch_section_name IGNORE NULLS ORDER BY batch_section_name),
+        '|||'
+      ) AS sections
+     FROM ${ATTENDANCE_TABLE}
+     WHERE ${where}${campusFilter}
+       AND institute_name IS NOT NULL
+       AND TRIM(institute_name) != ''
+       AND derived_semester_title IS NOT NULL
+       AND TRIM(CAST(derived_semester_title AS STRING)) != ''
+     GROUP BY institute_name, semester
+     ORDER BY institute_name, semester`,
+    params,
+  );
+
+  const byInstitute = new Map<string, InstituteSemesterRow[]>();
+  for (const row of rows) {
+    const semester: InstituteSemesterRow = {
+      semesterTitle: row.semester,
+      isCurrent: Number(row.is_current) === 1,
+      subjectCount: Number(row.subject_count),
+      sectionCount: Number(row.section_count),
+      studentCount: Number(row.student_count),
+      subjects: splitPackedList(row.subjects),
+      sections: splitPackedList(row.sections),
+    };
+    const list = byInstitute.get(row.institute_name) ?? [];
+    list.push(semester);
+    byInstitute.set(row.institute_name, list);
+  }
+
+  return [...byInstitute.entries()].map(([instituteName, semesters]) => {
+    const subjects = new Set<string>();
+    const sections = new Set<string>();
+    let studentCount = 0;
+    for (const semester of semesters) {
+      semester.subjects.forEach((title) => subjects.add(title));
+      semester.sections.forEach((name) => sections.add(name));
+      studentCount += semester.studentCount;
+    }
+    return {
+      instituteName,
+      currentSemesters: semesters
+        .filter((semester) => semester.isCurrent)
+        .map((semester) => semester.semesterTitle),
+      semesterCount: semesters.length,
+      subjectCount: subjects.size,
+      sectionCount: sections.size,
+      studentCount,
+      semesters,
+    };
+  });
+}
+
 export async function getStudentsList(
   scope: SessionScope,
   opts: {
@@ -524,12 +683,20 @@ export async function getStudentsList(
 
 export interface CampusSummaryItem {
   instituteName: string;
+  /** Distinct students in the selected semester (not the date window). */
   studentCount: number;
   sectionCount: number;
   subjectCount: number;
+  /** Distinct students with at least one present row in the date window. */
   presentCount: number;
+  /** Distinct classes held, not attendance row count. */
   totalCount: number;
+  /** SPI attendance: present marks / scheduled marks. */
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  /** Same as pct — kept so existing clients keep working. */
+  recordPct: number;
 }
 
 export interface SectionSummaryItem {
@@ -543,44 +710,59 @@ export interface SectionSummaryItem {
 
 export async function getCampusSummary(
   scope: SessionScope,
-  opts: { dateRange?: DateRangeFilter } = {},
+  opts: { dateRange?: DateRangeFilter; semester?: string } = {},
 ): Promise<CampusSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
-  const rows = await bqQuery<{
-    institute_name: string;
-    student_count: string;
-    section_count: string;
-    subject_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
-    `SELECT
-      institute_name,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNT(DISTINCT batch_section_name) AS section_count,
-      COUNT(DISTINCT subject_title) AS subject_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}
-    GROUP BY institute_name
-    ORDER BY institute_name`,
+  const rosterWhere = scopeClause(scope, params, { semester: opts.semester });
+  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
+  const rows = await bqQuery<
+    AttendanceRollupRow & {
+      institute_name: string;
+      section_count: string;
+      subject_count: string;
+    }
+  >(
+    `WITH roster AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT student_user_id) AS student_count,
+        COUNT(DISTINCT batch_section_name) AS section_count,
+        COUNT(DISTINCT subject_title) AS subject_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${rosterWhere}
+      GROUP BY institute_name
+    ),
+    windowed AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
+        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+        COUNT(*) AS total_record_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${windowWhere}
+      GROUP BY institute_name
+    )
+    SELECT
+      roster.institute_name,
+      roster.student_count,
+      roster.section_count,
+      roster.subject_count,
+      COALESCE(windowed.present_student_count, 0) AS present_student_count,
+      COALESCE(windowed.session_count, 0) AS session_count,
+      COALESCE(windowed.present_record_count, 0) AS present_record_count,
+      COALESCE(windowed.total_record_count, 0) AS total_record_count
+    FROM roster
+    LEFT JOIN windowed USING (institute_name)
+    ORDER BY roster.institute_name`,
     params,
   );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      instituteName: r.institute_name,
-      studentCount: Number(r.student_count),
-      sectionCount: Number(r.section_count),
-      subjectCount: Number(r.subject_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
+  return rows.map((r) => ({
+    instituteName: r.institute_name,
+    sectionCount: Number(r.section_count),
+    subjectCount: Number(r.subject_count),
+    ...mapAttendanceRollup(r),
+  }));
 }
 
 export async function getSectionSummary(
@@ -623,51 +805,72 @@ export async function getSectionSummary(
 
 export interface SubjectSummaryItem {
   subjectTitle: string;
+  /** Distinct students in the selected semester (not the date window). */
   studentCount: number;
+  /** Distinct students with at least one present row in the date window. */
   presentCount: number;
+  /** Distinct classes held, not attendance row count. */
   totalCount: number;
+  /** SPI attendance: present marks / scheduled marks. */
   pct: number;
+  presentRecordCount: number;
+  totalRecordCount: number;
+  /** Same as pct — kept so existing clients keep working. */
+  recordPct: number;
 }
 
 export async function getSubjectSummary(
   scope: SessionScope,
-  opts: { campus?: string; dateRange?: DateRangeFilter } = {},
+  opts: { campus?: string; dateRange?: DateRangeFilter; semester?: string } = {},
 ): Promise<SubjectSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
   let campusFilter = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
     campusFilter = " AND institute_name = @filterCampus";
   }
-  const rows = await bqQuery<{
-    subject_title: string;
-    student_count: string;
-    present_count: string;
-    total_count: string;
-  }>(
-    `SELECT
-      subject_title,
-      COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
-      COUNT(*) AS total_count
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${where}${campusFilter}
-    GROUP BY subject_title
-    ORDER BY SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) ASC`,
+  const rosterWhere =
+    scopeClause(scope, params, { semester: opts.semester }) + campusFilter;
+  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
+  const rows = await bqQuery<AttendanceRollupRow & { subject_title: string }>(
+    `WITH roster AS (
+      SELECT
+        subject_title,
+        COUNT(DISTINCT student_user_id) AS student_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${rosterWhere}
+      GROUP BY subject_title
+    ),
+    windowed AS (
+      SELECT
+        subject_title,
+        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
+        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+        COUNT(*) AS total_record_count
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${windowWhere}
+      GROUP BY subject_title
+    )
+    SELECT
+      roster.subject_title,
+      roster.student_count,
+      COALESCE(windowed.present_student_count, 0) AS present_student_count,
+      COALESCE(windowed.session_count, 0) AS session_count,
+      COALESCE(windowed.present_record_count, 0) AS present_record_count,
+      COALESCE(windowed.total_record_count, 0) AS total_record_count
+    FROM roster
+    LEFT JOIN windowed USING (subject_title)
+    ORDER BY SAFE_DIVIDE(
+      COALESCE(windowed.present_record_count, 0),
+      COALESCE(windowed.total_record_count, 0)
+    ) ASC`,
     params,
   );
-  return rows.map((r) => {
-    const p = Number(r.present_count);
-    const t = Number(r.total_count);
-    return {
-      subjectTitle: r.subject_title,
-      studentCount: Number(r.student_count),
-      presentCount: p,
-      totalCount: t,
-      pct: pct(p, t),
-    };
-  });
+  return rows.map((r) => ({
+    subjectTitle: r.subject_title,
+    ...mapAttendanceRollup(r),
+  }));
 }
 
 export interface SessionSummaryItem {

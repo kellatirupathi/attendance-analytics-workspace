@@ -35,7 +35,10 @@ import {
   readDateRange,
   readSemester,
   semesterLabel,
+  subjectAttendanceStudentsPath,
+  type DateRange,
 } from "@/lib/dateRange";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 
 const PAGE_SIZES = [25, 50, 100];
 
@@ -53,6 +56,18 @@ export default function SubjectAttendanceStudents() {
   const semester = useMemo(() => readSemester(params), [params]);
 
   const viaCampuses = from === "campuses";
+
+  const setRange = (next: DateRange) => {
+    setLocation(
+      subjectAttendanceStudentsPath(next, {
+        subject,
+        campus,
+        pct,
+        from,
+        semester,
+      }),
+    );
+  };
 
   const backTrail = viaCampuses
     ? [
@@ -176,6 +191,7 @@ export default function SubjectAttendanceStudents() {
         }
         right={
           <div className="flex flex-wrap items-center gap-2">
+            <DateRangeFilter value={range} onChange={setRange} />
             <div className="relative min-w-[200px] sm:w-64">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <Input
