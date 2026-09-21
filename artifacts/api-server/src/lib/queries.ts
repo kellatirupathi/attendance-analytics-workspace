@@ -3083,10 +3083,11 @@ export interface IncentiveSessionRow {
   /**
    * The single yes/no/na status this campus's staff actually track:
    * "yes" -- the incentive has been paid out; "no" -- this session earned an
-   * incentive (Completed/Partially Completed) and it hasn't been paid yet,
-   * whether or not the BOA has approved it so far; "na" -- this session was
-   * cancelled or the instructor didn't take it (no_show), so no incentive
-   * ever applied.
+   * incentive (Completed/Partially Completed, delivered by a campus
+   * instructor) and it hasn't been paid yet, whether or not the BOA has
+   * approved it so far; "na" -- either this session was cancelled or the
+   * instructor didn't take it (no_show), or it was covered by a confirmed
+   * backup instructor, who is never paid this incentive.
    */
   incentiveProcessed: "yes" | "no" | "na";
 }
@@ -3222,7 +3223,14 @@ export async function getIncentiveTracker(
       sessions: [],
     };
 
-    const eligible = row.status === "conducted" || row.status === "partial";
+    // Backup instructors (confirmed non-campus, e.g. covering for an exited
+    // campus instructor) are never paid the recovery incentive -- their
+    // sessions still show up here for visibility, but always as "na".
+    // Instructors still pending identity review ("unknown") stay eligible
+    // until they're actually confirmed as backup.
+    const eligible =
+      (row.status === "conducted" || row.status === "partial") &&
+      row.instructorType !== "backup";
     const amount = eligible ? RECOVERY_INCENTIVE_PER_SESSION : 0;
     const incentiveProcessed: "yes" | "no" | "na" = !eligible
       ? "na"
