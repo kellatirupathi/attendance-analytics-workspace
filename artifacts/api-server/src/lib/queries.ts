@@ -3125,18 +3125,20 @@ export interface IncentiveCampusGroup {
 }
 
 /**
- * Every resolved recovery session (Completed, Partially Completed,
- * Cancelled, or Not Completed/no-show -- everything except a still-`planned`
- * future session), grouped first by campus and then by instructor (keyed on
- * the BigQuery employee id when the session has one, since that's the
- * canonical identity money should be owed against; sessions still carrying
- * only a free-text name are grouped by that normalized name instead and
- * flagged `needsIdentityReview`).
+ * Every resolved, non-cancelled recovery session (Completed, Partially
+ * Completed, or Not Completed/no-show -- everything except a still-`planned`
+ * future session or a `cancelled` one), grouped first by campus and then by
+ * instructor (keyed on the BigQuery employee id when the session has one,
+ * since that's the canonical identity money should be owed against;
+ * sessions still carrying only a free-text name are grouped by that
+ * normalized name instead and flagged `needsIdentityReview`).
  *
- * Cancelled/no-show sessions are included (tagged `incentiveProcessed:
- * "na"`) purely so the full picture is visible on one screen; they never
- * earn an incentive and don't count toward any instructor's totals below --
- * only Completed/Partially Completed sessions do.
+ * Cancelled sessions never earn an incentive and were never actually
+ * delivered, so they're left out of this tracker entirely rather than shown
+ * as a no-op row. No-show sessions are still included (tagged
+ * `incentiveProcessed: "na"`) since the instructor was scheduled and the
+ * session simply wasn't taken; neither ever counts toward any instructor's
+ * totals below -- only Completed/Partially Completed sessions do.
  *
  * `campuses` scopes the result the same way every other recovery query does:
  * `undefined` (superadmin/admin/hod) means every campus, an array (BOA)
@@ -3149,7 +3151,6 @@ export async function getIncentiveTracker(
     inArray(recoverySessionsTable.status, [
       "conducted",
       "partial",
-      "cancelled",
       "no_show",
     ]),
   ];
