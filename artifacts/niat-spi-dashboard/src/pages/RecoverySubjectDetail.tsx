@@ -1616,7 +1616,7 @@ export default function RecoverySubjectDetail() {
       {canSeeIncentives && (
         <button
           type="button"
-          onClick={() => setLocation(incentivesPath(campus))}
+          onClick={() => setLocation(incentivesPath(campus ?? undefined))}
           className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-left transition-colors hover:bg-emerald-50"
         >
           <span className="flex items-center gap-2 text-sm font-medium text-emerald-800">
