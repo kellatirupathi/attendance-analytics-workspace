@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/SearchableSelect";
+import { incentivesPath } from "@/components/SubNav";
 import {
   CalendarPlus,
   CheckCircle2,
@@ -1615,12 +1616,12 @@ export default function RecoverySubjectDetail() {
       {canSeeIncentives && (
         <button
           type="button"
-          onClick={() => setLocation("/dashboard/recovery/incentives")}
+          onClick={() => setLocation(incentivesPath(campus))}
           className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-left transition-colors hover:bg-emerald-50"
         >
           <span className="flex items-center gap-2 text-sm font-medium text-emerald-800">
             <Wallet className="h-4 w-4" />
-            Incentive Tracker — see what every recovery instructor is owed for sessions marked Completed or Partially Completed below
+            Incentive Tracker — see what recovery instructors at {campus} are owed for sessions marked Completed or Partially Completed below
           </span>
           <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Open →</span>
         </button>

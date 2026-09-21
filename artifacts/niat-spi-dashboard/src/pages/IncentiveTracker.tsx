@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQueryParams } from "@/hooks/useQueryParams";
 
 type IncentiveSessionStatus = "conducted" | "partial" | "cancelled" | "no_show";
 type IncentiveProcessed = "yes" | "no" | "na";
@@ -189,6 +190,12 @@ export default function IncentiveTracker() {
   const canApprove = user?.role === "superadmin" || user?.role === "admin" || user?.role === "boa";
   const canManage = user?.role === "superadmin" || user?.role === "admin";
 
+  // When opened from a specific college's Recovery pages (?campus=...), the
+  // tracker defaults to that campus instead of whichever one happens to
+  // sort first -- see the sync effect below.
+  const queryParams = useQueryParams();
+  const urlCampus = queryParams.get("campus") ?? "";
+
   const [data, setData] = useState<IncentiveTrackerResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -217,6 +224,7 @@ export default function IncentiveTracker() {
       const result = (await response.json()) as IncentiveTrackerResponse;
       setData(result);
       setSelectedCampus((current) => {
+        if (urlCampus && result.campuses.some((c) => c.campus === urlCampus)) return urlCampus;
         if (current && result.campuses.some((c) => c.campus === current)) return current;
         return result.campuses[0]?.campus ?? "";
       });
@@ -231,6 +239,17 @@ export default function IncentiveTracker() {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryCount]);
+
+  // Re-apply the URL's campus if it changes while this page stays mounted
+  // (e.g. following a different college's "Incentive Tracker" banner without
+  // a full page reload) -- everything's already fetched, so this just swaps
+  // which campus's group is shown, no refetch needed.
+  useEffect(() => {
+    if (!data || !urlCampus) return;
+    if (data.campuses.some((c) => c.campus === urlCampus)) {
+      setSelectedCampus(urlCampus);
+    }
+  }, [urlCampus, data]);
 
   useEffect(() => {
     if (!fixTarget) return;
@@ -398,7 +417,7 @@ export default function IncentiveTracker() {
   if (loading && !data) {
     return (
       <div className="flex flex-col">
-        <SubNav items={recoveryNav(undefined, undefined, true)} />
+        <SubNav items={recoveryNav(selectedCampus || undefined, undefined, true)} />
         <PageLoader />
       </div>
     );
@@ -407,7 +426,7 @@ export default function IncentiveTracker() {
   if (error && !data) {
     return (
       <div className="flex flex-col">
-        <SubNav items={recoveryNav(undefined, undefined, true)} />
+        <SubNav items={recoveryNav(selectedCampus || undefined, undefined, true)} />
         <div className="p-6">
           <ErrorState message={error} onRetry={() => setRetryCount((c) => c + 1)} />
         </div>
@@ -417,7 +436,7 @@ export default function IncentiveTracker() {
 
   return (
     <div className="flex flex-col">
-      <SubNav items={recoveryNav(undefined, undefined, true)} />
+      <SubNav items={recoveryNav(selectedCampus || undefined, undefined, true)} />
       <div className="flex flex-col gap-6 p-6 animate-in fade-in duration-300">
       <PageHeader
         title="Incentive Tracker"

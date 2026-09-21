@@ -348,7 +348,10 @@ router.post("/sessions/:id/report", requireSession(), async (req, res): Promise<
 // The Incentive Tracker: every Completed/Partially Completed session, grouped
 // by campus then instructor, with sessions-completed / approved / paid counts
 // and the money owed at the fixed per-session rate. A BOA sees only their own
-// campus(es); superadmin/admin/hod see every campus.
+// campus(es); superadmin/admin/hod see every campus -- the frontend's own
+// campus picker (defaulting to whichever campus the page was opened from,
+// e.g. a specific college's Recovery pages) narrows the view from there
+// without needing a fresh request per campus.
 router.get("/incentives", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   if (!INCENTIVE_VIEW_ROLES.includes(session.role as Role)) {

@@ -110,6 +110,17 @@ export function recoveryListPath(
 
 export const RECOVERY_INCENTIVES_PATH = "/dashboard/recovery/incentives";
 
+/**
+ * When `campus` is given, the Incentive Tracker opens scoped to just that
+ * campus (matching the Attendance/Quizzes tabs' own campus-scoping) --
+ * omit it to see every campus the signed-in session has access to.
+ */
+export function incentivesPath(campus?: string): string {
+  if (!campus || campus === "all") return RECOVERY_INCENTIVES_PATH;
+  const params = new URLSearchParams({ campus });
+  return `${RECOVERY_INCENTIVES_PATH}?${params.toString()}`;
+}
+
 export function recoveryNav(
   campus?: string,
   semester?: string,
@@ -120,7 +131,11 @@ export function recoveryNav(
     { label: "Quizzes", href: recoveryListPath("quiz", campus, semester) },
   ];
   if (showIncentives) {
-    items.push({ label: "Incentives", href: RECOVERY_INCENTIVES_PATH });
+    items.push({
+      label: "Incentives",
+      href: incentivesPath(campus),
+      matchPrefix: RECOVERY_INCENTIVES_PATH,
+    });
   }
   return items;
 }
