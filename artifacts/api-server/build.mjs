@@ -30,6 +30,7 @@ async function buildAll() {
       path.resolve(artifactDir, "src/apply-confirmed-instructor-fixes.ts"),
       path.resolve(artifactDir, "src/search-instructor-by-name.ts"),
       path.resolve(artifactDir, "src/backfill-mark-historical-incentives-approved.ts"),
+      path.resolve(artifactDir, "src/mark-confirmed-backup-instructors.ts"),
     ],
     platform: "node",
     bundle: true,
