@@ -197,7 +197,7 @@ export default function Recovery() {
           subtitle={
             isQuizTab
               ? "Students whose classroom or module quizzes are not fully completed at 100%. This tab is for follow-up only — it does not schedule lecture recovery."
-              : "Campus subject recovery based on subject-level attendance below 80%"
+              : "Campus subject recovery when course attendance is below 80%. Lecture, MCQ practice, and module quiz sessions all count."
           }
         />
 

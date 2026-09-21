@@ -612,7 +612,7 @@ export function SubjectPerformanceList({
             <p className="text-xs text-gray-500">
               {s.studentCount.toLocaleString()} students ·{" "}
               {s.presentRecordCount.toLocaleString()}/
-              {s.totalRecordCount.toLocaleString()} marks
+              {s.totalRecordCount.toLocaleString()} sessions
             </p>
           </div>
           <div className="flex w-44 shrink-0 items-center gap-3">

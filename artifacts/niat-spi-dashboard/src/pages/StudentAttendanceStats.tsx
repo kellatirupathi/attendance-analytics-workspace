@@ -179,8 +179,8 @@ export default function StudentAttendanceStats() {
       [
         "Subject",
         "Students",
-        "Present marks",
-        "Scheduled marks",
+        "Sessions attended",
+        "Sessions scheduled",
         "Attendance %",
       ],
       filtered.map((s) => [
@@ -236,7 +236,7 @@ export default function StudentAttendanceStats() {
 
       <PageHeader
         title="Student Attendance Stats"
-        subtitle="Attendance = present marks ÷ scheduled marks (same formula as SPI)."
+        subtitle="Attendance = sessions attended ÷ sessions scheduled (same formula as SPI)."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter
@@ -312,7 +312,7 @@ export default function StudentAttendanceStats() {
             {semesterLabel(semester)}
             {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
             {" · "}
-            Attendance = present marks ÷ scheduled marks.
+            Attendance = sessions attended ÷ sessions scheduled.
           </p>
         </div>
         <div className="overflow-x-auto">

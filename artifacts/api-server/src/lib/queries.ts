@@ -38,19 +38,39 @@ function studentIdMatch(column: string): string {
 }
 
 const ATTENDANCE_TABLE =
-  "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_student_session_wise_attendance_details`";
+  "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.niat_students_overall_attendance_details`";
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 
 /**
- * One class held: session_id when present, otherwise title, plus date, scoped
- * by subject so campus rollups do not collapse two subjects into one session.
- * Never use COUNT(*) for "total sessions" ΓÇö that is student├ùsession rows.
+ * SPI attendance: sessions attended / sessions scheduled.
+ * Attended = PRESENT. Scheduled = every student-session row, including
+ * ABSENT and OFF_DAY. Lecture, MCQ practice, and module quiz slots all count.
+ */
+const ATTENDED_SQL = `UPPER(attendance_status) = 'PRESENT'`;
+
+/**
+ * This table has session_type + time, not session_title.
+ * Keep the alias so existing APIs and the UI still receive sessionTitle.
+ */
+const SESSION_TITLE_SQL = `TRIM(CONCAT(
+  COALESCE(NULLIF(CAST(session_type AS STRING), ''), 'SESSION'),
+  IF(
+    session_start_end_time IS NULL OR TRIM(CAST(session_start_end_time AS STRING)) = '',
+    '',
+    CONCAT(' · ', CAST(session_start_end_time AS STRING))
+  )
+))`;
+
+/**
+ * One class held: session_id when present, otherwise the display label, plus
+ * date, scoped by subject so campus rollups do not collapse two subjects.
+ * Never use COUNT(*) for "total sessions" — that is student×session rows.
  */
 const SESSION_IDENTITY_SQL = `CONCAT(
   COALESCE(subject_title, ''),
   '|',
-  COALESCE(NULLIF(CAST(session_id AS STRING), ''), COALESCE(session_title, '')),
+  COALESCE(NULLIF(CAST(session_id AS STRING), ''), ${SESSION_TITLE_SQL}),
   '|',
   COALESCE(CAST(DATE(date) AS STRING), '')
 )`;
@@ -69,7 +89,7 @@ function mapAttendanceRollup(r: AttendanceRollupRow) {
   const sessionCount = Number(r.session_count);
   const presentRecordCount = Number(r.present_record_count);
   const totalRecordCount = Number(r.total_record_count);
-  // SPI attendance: present marks ├╖ scheduled marks (student├ùsession rows).
+  // SPI attendance: sessions attended / sessions scheduled.
   const spiPct = pct(presentRecordCount, totalRecordCount);
   return {
     studentCount,
@@ -89,7 +109,7 @@ function scopeClause(
 ): string {
   const clauses: string[] = [];
   if (options.semester) {
-    clauses.push("derived_semester_title = @semester");
+    clauses.push("semester_title = @semester");
     params["semester"] = options.semester;
   } else if (options.currentSemester !== false) {
     clauses.push("is_current_semester = 1");
@@ -125,11 +145,11 @@ export async function getAttendanceSemesters(
     campusFilter = " AND institute_name = @campus";
   }
   const rows = await bqQuery<{ semester: string }>(
-    `SELECT DISTINCT TRIM(derived_semester_title) AS semester
+    `SELECT DISTINCT TRIM(semester_title) AS semester
      FROM ${ATTENDANCE_TABLE}
      WHERE ${where}${campusFilter}
-       AND derived_semester_title IS NOT NULL
-       AND TRIM(derived_semester_title) != ''
+       AND semester_title IS NOT NULL
+       AND TRIM(semester_title) != ''
      ORDER BY semester`,
     params,
   );
@@ -228,7 +248,7 @@ export async function getStudentOverview(
       MAX(institute_name) AS institute_name,
       MAX(batch_section_name) AS batch_section_name,
       COUNT(*) AS total_sessions,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNTIF(${ATTENDED_SQL}) AS present_count,
       COUNTIF(subject_pct < 80) AS subjects_in_recovery
     FROM (
       SELECT
@@ -239,7 +259,7 @@ export async function getStudentOverview(
         attendance_status,
         subject_title,
         SAFE_DIVIDE(
-          COUNTIF(LOWER(attendance_status) = 'present') OVER (PARTITION BY student_user_id, subject_title),
+          COUNTIF(${ATTENDED_SQL}) OVER (PARTITION BY student_user_id, subject_title),
           COUNT(*) OVER (PARTITION BY student_user_id, subject_title)
         ) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
@@ -288,7 +308,7 @@ export async function getStudentSubjects(
   }>(
     `SELECT
       subject_title,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present,
+      COUNTIF(${ATTENDED_SQL}) AS present,
       COUNT(*) AS total
     FROM ${ATTENDANCE_TABLE}
     WHERE ${studentIdMatch('student_user_id')}
@@ -332,7 +352,7 @@ export async function getStudentRecentSessions(
   }>(
     `SELECT
       CAST(date AS STRING) AS date,
-      session_title,
+      ${SESSION_TITLE_SQL} AS session_title,
       subject_title,
       attendance_status,
       marking_method
@@ -388,7 +408,7 @@ export async function searchStudents(
       MAX(student_name) AS student_name,
       MAX(institute_name) AS institute_name,
       MAX(batch_section_name) AS batch_section_name,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present,
+      COUNTIF(${ATTENDED_SQL}) AS present,
       COUNT(*) AS total
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
@@ -414,8 +434,7 @@ export async function searchStudents(
 }
 
 function attendanceHavingClause(band: string | undefined): string {
-  const pct =
-    "SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100";
+  const pct = `SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100`;
   switch (band) {
     case "below50":
       return `${pct} < 50`;
@@ -528,7 +547,7 @@ export async function getInstituteDirectory(
   }>(
     `SELECT
       institute_name,
-      TRIM(CAST(derived_semester_title AS STRING)) AS semester,
+      TRIM(CAST(semester_title AS STRING)) AS semester,
       CAST(MAX(is_current_semester) AS INT64) AS is_current,
       COUNT(DISTINCT subject_title) AS subject_count,
       COUNT(DISTINCT batch_section_name) AS section_count,
@@ -545,8 +564,8 @@ export async function getInstituteDirectory(
      WHERE ${where}${campusFilter}
        AND institute_name IS NOT NULL
        AND TRIM(institute_name) != ''
-       AND derived_semester_title IS NOT NULL
-       AND TRIM(CAST(derived_semester_title AS STRING)) != ''
+       AND semester_title IS NOT NULL
+       AND TRIM(CAST(semester_title AS STRING)) != ''
      GROUP BY institute_name, semester
      ORDER BY institute_name, semester`,
     params,
@@ -645,7 +664,7 @@ export async function getStudentsList(
         MAX(student_name) AS student_name,
         MAX(institute_name) AS institute_name,
         MAX(batch_section_name) AS batch_section_name,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present,
+        COUNTIF(${ATTENDED_SQL}) AS present,
         COUNT(*) AS total
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
@@ -713,7 +732,7 @@ export interface CampusSummaryItem {
   presentCount: number;
   /** Distinct classes held, not attendance row count. */
   totalCount: number;
-  /** SPI attendance: present marks / scheduled marks. */
+  /** SPI attendance: sessions attended / sessions scheduled. */
   pct: number;
   presentRecordCount: number;
   totalRecordCount: number;
@@ -757,9 +776,9 @@ export async function getCampusSummary(
     windowed AS (
       SELECT
         institute_name,
-        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+        COUNT(DISTINCT IF(${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
         COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+        COUNTIF(${ATTENDED_SQL}) AS present_record_count,
         COUNT(*) AS total_record_count
       FROM ${ATTENDANCE_TABLE}
       WHERE ${windowWhere}
@@ -804,7 +823,7 @@ export async function getSectionSummary(
       institute_name,
       COALESCE(batch_section_name, 'Unknown') AS batch_section_name,
       COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNTIF(${ATTENDED_SQL}) AS present_count,
       COUNT(*) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
@@ -834,7 +853,7 @@ export interface SubjectSummaryItem {
   presentCount: number;
   /** Distinct classes held, not attendance row count. */
   totalCount: number;
-  /** SPI attendance: present marks / scheduled marks. */
+  /** SPI attendance: sessions attended / sessions scheduled. */
   pct: number;
   presentRecordCount: number;
   totalRecordCount: number;
@@ -867,9 +886,9 @@ export async function getSubjectSummary(
     windowed AS (
       SELECT
         subject_title,
-        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
+        COUNT(DISTINCT IF(${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
         COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
+        COUNTIF(${ATTENDED_SQL}) AS present_record_count,
         COUNT(*) AS total_record_count
       FROM ${ATTENDANCE_TABLE}
       WHERE ${windowWhere}
@@ -907,8 +926,8 @@ export interface SessionSummaryItem {
 
 /**
  * Session (unit) level rollup inside one subject. One row per
- * (session_title, date) so a session repeated on different days stays
- * distinct. Scope-filtered like every other dashboard query.
+ * (session type + slot time, date) so a session repeated on different days
+ * stays distinct. Scope-filtered like every other dashboard query.
  */
 export async function getSubjectSessions(
   scope: SessionScope,
@@ -941,10 +960,10 @@ export async function getSubjectSessions(
     total_count: string;
   }>(
     `SELECT
-      COALESCE(session_title, 'Untitled session') AS session_title,
+      ${SESSION_TITLE_SQL} AS session_title,
       CAST(date AS STRING) AS date,
       COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNTIF(${ATTENDED_SQL}) AS present_count,
       COUNT(*) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}${extra}
@@ -1010,10 +1029,10 @@ export async function getCampusSessions(
   }>(
     `SELECT
       subject_title,
-      COALESCE(session_title, 'Untitled session') AS session_title,
+      ${SESSION_TITLE_SQL} AS session_title,
       CAST(date AS STRING) AS date,
       COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNTIF(${ATTENDED_SQL}) AS present_count,
       COUNT(*) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}${extra}
@@ -1021,7 +1040,7 @@ export async function getCampusSessions(
     ORDER BY
       subject_title,
       SAFE_DIVIDE(
-        COUNTIF(LOWER(attendance_status) = 'present'),
+        COUNTIF(${ATTENDED_SQL}),
         COUNT(*)
       ) ASC`,
     params,
@@ -1074,7 +1093,7 @@ export async function getSessionStudents(
   const where = scopeClause(scope, params, { semester: opts.semester });
   let extra =
     " AND subject_title = @subject" +
-    " AND COALESCE(session_title, 'Untitled session') = @sessionTitle";
+    ` AND ${SESSION_TITLE_SQL} = @sessionTitle`;
   if (opts.date) {
     params["date"] = opts.date;
     extra += " AND CAST(date AS STRING) = @date";
@@ -1258,17 +1277,12 @@ export async function getCampusSubjectRecovery(
         student_user_id,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+        COUNTIF(${ATTENDED_SQL}) AS present_count,
         COUNT(*) AS total_count,
-        SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
+        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
         AND institute_name = @campus
-        AND COALESCE(session_title, '') NOT IN (
-          'Coding Practice',
-          'MCQ Practice',
-          'Module Quiz'
-        )
       GROUP BY subject_title, student_user_id
     )
     SELECT
@@ -1321,15 +1335,10 @@ export async function getCampusSubjectRecovery(
   }>(
     `SELECT
       subject_title,
-      SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
+      SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
       AND institute_name = @campus
-      AND COALESCE(session_title, '') NOT IN (
-        'Coding Practice',
-        'MCQ Practice',
-        'Module Quiz'
-      )
     GROUP BY subject_title
     ORDER BY subject_title`,
     params,
@@ -1377,18 +1386,13 @@ export async function getRecoveryStudents(
        student_user_id,
        MAX(student_name) AS student_name,
        MAX(batch_section_name) AS batch_section_name,
-       COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+       COUNTIF(${ATTENDED_SQL}) AS present_count,
        COUNT(*) AS total_count,
-       SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
+       SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
      FROM ${ATTENDANCE_TABLE}
      WHERE ${where}
        AND institute_name = @campus
        AND subject_title = @subject
-       AND COALESCE(session_title, '') NOT IN (
-         'Coding Practice',
-         'MCQ Practice',
-         'Module Quiz'
-       )
      GROUP BY student_user_id
      HAVING CAST(subject_pct AS FLOAT64) < 80
      ORDER BY subject_pct ASC, student_name`,
@@ -1404,12 +1408,6 @@ export async function getRecoveryStudents(
     totalCount: Number(row.total_count),
   }));
 }
-
-const LECTURE_SESSION_EXCLUSIONS = `COALESCE(session_title, '') NOT IN (
-          'Coding Practice',
-          'MCQ Practice',
-          'Module Quiz'
-        )`;
 
 /** C.Q / M.Q fail the 100% bar if unfinished or a known average is under 100. Null avg is not treated as 0. */
 function quizFails100Sql(completed: string, total: string, avg: string): string {
@@ -1972,13 +1970,12 @@ export async function getCampusQuizRecovery(
         student_user_id,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+        COUNTIF(${ATTENDED_SQL}) AS present_count,
         COUNT(*) AS total_count,
-        SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
+        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attWhere}
         AND institute_name = @campus
-        AND ${LECTURE_SESSION_EXCLUSIONS}
       GROUP BY subject_title, student_user_id
     ),
     names AS (
@@ -2083,14 +2080,13 @@ export async function getQuizRecoveryStudents(
         student_user_id,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+        COUNTIF(${ATTENDED_SQL}) AS present_count,
         COUNT(*) AS total_count,
-        SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) * 100 AS subject_pct
+        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attWhere}
         AND institute_name = @campus
         AND subject_title = @subject
-        AND ${LECTURE_SESSION_EXCLUSIONS}
       GROUP BY student_user_id
     ),
     names AS (
@@ -2275,7 +2271,7 @@ export async function getAttendanceBySessionId(
 ): Promise<Map<string, RecoveryTopicAttendance>> {
   const params: Record<string, unknown> = { campus, subject };
   const semesterClause = semester
-    ? "derived_semester_title = @semester"
+    ? "semester_title = @semester"
     : "is_current_semester = 1";
   const sectionClause = section ? "AND batch_section_name = @section" : "";
   if (semester) params["semester"] = semester;
@@ -2288,7 +2284,7 @@ export async function getAttendanceBySessionId(
   }>(
     `SELECT
        session_id,
-       COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+       COUNTIF(${ATTENDED_SQL}) AS present_count,
        COUNT(*) AS total_count
      FROM ${ATTENDANCE_TABLE}
      WHERE institute_name = @campus

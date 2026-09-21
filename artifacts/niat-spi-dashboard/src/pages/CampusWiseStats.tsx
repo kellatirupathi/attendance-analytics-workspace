@@ -190,8 +190,8 @@ function CampusList({
         "Students",
         "Sections",
         "Subjects",
-        "Present marks",
-        "Scheduled marks",
+        "Sessions attended",
+        "Sessions scheduled",
         "Attendance %",
       ],
       filtered.map((c) => [
@@ -210,7 +210,7 @@ function CampusList({
     <>
       <PageHeader
         title="Campus-wise Stats"
-        subtitle="Attendance = present marks ÷ scheduled marks (same formula as SPI)."
+        subtitle="Attendance = sessions attended ÷ sessions scheduled (same formula as SPI)."
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <DateRangeFilter
@@ -270,7 +270,7 @@ function CampusList({
             {semesterLabel(semester)}
             {range.dateFrom || range.dateTo ? ` · ${dateRangeLabel(range)}` : ""}
             {" · "}
-            Attendance = present marks ÷ scheduled marks.
+            Attendance = sessions attended ÷ sessions scheduled.
           </p>
         </div>
         <div className="overflow-x-auto">

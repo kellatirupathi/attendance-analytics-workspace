@@ -57,12 +57,19 @@ const TABLE_META: Record<
     accent: string;
   }
 > = {
-  z_niat_student_session_wise_attendance_details: {
+  niat_students_overall_attendance_details: {
     label: "Attendance",
-    description: "Session-wise attendance details",
+    description: "Student session attendance (SPI source)",
     icon: GraduationCap,
     tint: "#eff6ff",
     accent: "#2563eb",
+  },
+  z_niat_student_session_wise_attendance_details: {
+    label: "Legacy attendance",
+    description: "Older session-wise attendance extract (not fully updated)",
+    icon: GraduationCap,
+    tint: "#f8fafc",
+    accent: "#64748b",
   },
   z_niat_students_classroom_and_module_quiz_details: {
     label: "Classroom & Module Quizzes",
