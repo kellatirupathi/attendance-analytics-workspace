@@ -41,6 +41,7 @@ interface IncentiveSessionRow {
   id: string;
   campus: string;
   subject: string;
+  topics: string[];
   scheduledDate: string;
   status: IncentiveSessionStatus;
   instructorName: string;
@@ -581,6 +582,7 @@ export default function IncentiveTracker() {
                                         <tr className="border-b border-slate-200 bg-slate-50">
                                           <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Date</th>
                                           <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Subject</th>
+                                          <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Topic</th>
                                           <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Status</th>
                                           <th className="px-4 py-2 text-center font-semibold uppercase tracking-wider text-slate-500">Incentive Processed</th>
                                           <th className="px-4 py-2 text-right font-semibold uppercase tracking-wider text-slate-500">Amount</th>
@@ -599,6 +601,9 @@ export default function IncentiveTracker() {
                                               {formatDate(session.scheduledDate)}
                                             </td>
                                             <td className="px-4 py-2.5 text-slate-700">{session.subject}</td>
+                                            <td className="px-4 py-2.5 text-slate-700">
+                                              {session.topics.length > 0 ? session.topics.join(", ") : "—"}
+                                            </td>
                                             <td className="px-4 py-2.5">
                                               <StatusPill status={session.status} />
                                             </td>

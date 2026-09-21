@@ -3067,6 +3067,8 @@ export interface IncentiveSessionRow {
   id: string;
   campus: string;
   subject: string;
+  /** Curriculum topic(s) assigned to this session, in delivery order. */
+  topics: string[];
   scheduledDate: string;
   status: "conducted" | "partial" | "cancelled" | "no_show";
   instructorName: string;
@@ -3193,6 +3195,30 @@ export async function getIncentiveTracker(
     for (const u of users) userNames.set(u.id, u.name);
   }
 
+  // Batch-fetch every session's assigned topic(s) in one query rather than
+  // one query per session.
+  const sessionIds = rows.map((r) => r.id);
+  const topicsBySession = new Map<string, string[]>();
+  if (sessionIds.length > 0) {
+    const topicRows = await db
+      .select({
+        sessionId: sessionTopicsTable.sessionId,
+        title: recoveryTopicsTable.topicTitle,
+      })
+      .from(sessionTopicsTable)
+      .innerJoin(
+        recoveryTopicsTable,
+        eq(recoveryTopicsTable.id, sessionTopicsTable.topicId),
+      )
+      .where(inArray(sessionTopicsTable.sessionId, sessionIds))
+      .orderBy(asc(sessionTopicsTable.orderInSession));
+    for (const t of topicRows) {
+      const list = topicsBySession.get(t.sessionId) ?? [];
+      list.push(t.title);
+      topicsBySession.set(t.sessionId, list);
+    }
+  }
+
   const campusGroups = new Map<
     string,
     Map<string, IncentiveInstructorSummary>
@@ -3257,6 +3283,7 @@ export async function getIncentiveTracker(
       id: row.id,
       campus: row.campus,
       subject: row.subject,
+      topics: topicsBySession.get(row.id) ?? [],
       scheduledDate: row.scheduledDate,
       status: row.status as "conducted" | "partial" | "cancelled" | "no_show",
       instructorName: row.instructorName,
