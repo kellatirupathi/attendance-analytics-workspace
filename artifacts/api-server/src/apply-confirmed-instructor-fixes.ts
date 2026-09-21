@@ -43,6 +43,8 @@ const CONFIRMED_FIXES: ConfirmedFix[] = [
   { sessionId: "115c8197-4323-4bea-af61-78353106f528", recordedAs: "Asif", employeeId: "NW0004118" }, // Attar Asif
   { sessionId: "0f411959-cd48-4dbe-9ef8-467089ea35c4", recordedAs: "Asif", employeeId: "NW0004118" },
   { sessionId: "3eac063e-8a8c-4905-9a70-a5e11e59c45c", recordedAs: "Jaswanth", employeeId: "NW0004017" }, // Bandi Jaswanth Reddy
+  { sessionId: "cb70842f-dabc-4d10-82cd-c914aea34f8d", recordedAs: "Likitha", employeeId: "NW0004485" }, // Gudiya Likhita
+  { sessionId: "623d1503-37c6-4289-8055-690d2a77fd92", recordedAs: "Likitha", employeeId: "NW0004485" }, // Gudiya Likhita
 ];
 
 async function main() {
