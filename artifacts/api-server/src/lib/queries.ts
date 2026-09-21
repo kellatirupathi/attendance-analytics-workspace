@@ -42,44 +42,6 @@ const ATTENDANCE_TABLE =
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 
-/**
- * One class held: session_id when present, otherwise title, plus date, scoped
- * by subject so campus rollups do not collapse two subjects into one session.
- * Never use COUNT(*) for "total sessions" — that is student×session rows.
- */
-const SESSION_IDENTITY_SQL = `CONCAT(
-  COALESCE(subject_title, ''),
-  '|',
-  COALESCE(NULLIF(CAST(session_id AS STRING), ''), COALESCE(session_title, '')),
-  '|',
-  COALESCE(CAST(DATE(date) AS STRING), '')
-)`;
-
-interface AttendanceRollupRow {
-  student_count: string;
-  present_student_count: string;
-  session_count: string;
-  present_record_count: string;
-  total_record_count: string;
-}
-
-function mapAttendanceRollup(r: AttendanceRollupRow) {
-  const studentCount = Number(r.student_count);
-  const presentCount = Number(r.present_student_count);
-  const sessionCount = Number(r.session_count);
-  const presentRecordCount = Number(r.present_record_count);
-  const totalRecordCount = Number(r.total_record_count);
-  return {
-    studentCount,
-    presentCount,
-    totalCount: sessionCount,
-    pct: pct(presentCount, studentCount),
-    presentRecordCount,
-    totalRecordCount,
-    recordPct: pct(presentRecordCount, totalRecordCount),
-  };
-}
-
 function scopeClause(
   scope: SessionScope,
   params: Record<string, unknown>,
@@ -107,25 +69,13 @@ export async function getRecoverySemesters(
   campus: string,
   scope: SessionScope,
 ): Promise<string[]> {
-  return getAttendanceSemesters(scope, campus);
-}
-
-/** Distinct academic semesters in attendance data. Campus is optional. */
-export async function getAttendanceSemesters(
-  scope: SessionScope,
-  campus?: string,
-): Promise<string[]> {
-  const params: Record<string, unknown> = {};
+  const params: Record<string, unknown> = { campus };
   const where = scopeClause(scope, params, { currentSemester: false });
-  let campusFilter = "";
-  if (campus) {
-    params["campus"] = campus;
-    campusFilter = " AND institute_name = @campus";
-  }
   const rows = await bqQuery<{ semester: string }>(
     `SELECT DISTINCT TRIM(derived_semester_title) AS semester
      FROM ${ATTENDANCE_TABLE}
-     WHERE ${where}${campusFilter}
+     WHERE ${where}
+       AND institute_name = @campus
        AND derived_semester_title IS NOT NULL
        AND TRIM(derived_semester_title) != ''
      ORDER BY semester`,
@@ -137,13 +87,6 @@ export async function getAttendanceSemesters(
     .sort((left, right) =>
       right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" }),
     );
-}
-
-export function parseSemester(
-  q: Record<string, string | undefined>,
-): string | undefined {
-  const value = q["semester"]?.trim();
-  return value || undefined;
 }
 
 export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -480,13 +423,10 @@ export async function getStudentsList(
     subject?: string;
     attendanceBand?: string;
     dateRange?: DateRangeFilter;
-    semester?: string;
   } = {},
 ): Promise<StudentSearchResult[]> {
   const params: Record<string, unknown> = {};
-  const where =
-    scopeClause(scope, params, { semester: opts.semester }) +
-    dateRangeClause(opts.dateRange, params);
+  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
   const safeLimit = Math.min(opts.limit ?? 1000, 5000);
   let searchFilter = "";
   if (opts.search) {
@@ -584,20 +524,12 @@ export async function getStudentsList(
 
 export interface CampusSummaryItem {
   instituteName: string;
-  /** Distinct students in the selected semester (not the date window). */
   studentCount: number;
   sectionCount: number;
   subjectCount: number;
-  /** Distinct students with at least one present row in the date window. */
   presentCount: number;
-  /** Distinct classes held, not attendance row count. */
   totalCount: number;
-  /** Student attendance: presentCount / studentCount. */
   pct: number;
-  presentRecordCount: number;
-  totalRecordCount: number;
-  /** Record attendance: present rows / all rows. */
-  recordPct: number;
 }
 
 export interface SectionSummaryItem {
@@ -611,67 +543,51 @@ export interface SectionSummaryItem {
 
 export async function getCampusSummary(
   scope: SessionScope,
-  opts: { dateRange?: DateRangeFilter; semester?: string } = {},
+  opts: { dateRange?: DateRangeFilter } = {},
 ): Promise<CampusSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const rosterWhere = scopeClause(scope, params, { semester: opts.semester });
-  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
-  const rows = await bqQuery<
-    AttendanceRollupRow & {
-      institute_name: string;
-      section_count: string;
-      subject_count: string;
-    }
-  >(
-    `WITH roster AS (
-      SELECT
-        institute_name,
-        COUNT(DISTINCT student_user_id) AS student_count,
-        COUNT(DISTINCT batch_section_name) AS section_count,
-        COUNT(DISTINCT subject_title) AS subject_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${rosterWhere}
-      GROUP BY institute_name
-    ),
-    windowed AS (
-      SELECT
-        institute_name,
-        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
-        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
-        COUNT(*) AS total_record_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${windowWhere}
-      GROUP BY institute_name
-    )
-    SELECT
-      roster.institute_name,
-      roster.student_count,
-      roster.section_count,
-      roster.subject_count,
-      COALESCE(windowed.present_student_count, 0) AS present_student_count,
-      COALESCE(windowed.session_count, 0) AS session_count,
-      COALESCE(windowed.present_record_count, 0) AS present_record_count,
-      COALESCE(windowed.total_record_count, 0) AS total_record_count
-    FROM roster
-    LEFT JOIN windowed USING (institute_name)
-    ORDER BY roster.institute_name`,
+  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const rows = await bqQuery<{
+    institute_name: string;
+    student_count: string;
+    section_count: string;
+    subject_count: string;
+    present_count: string;
+    total_count: string;
+  }>(
+    `SELECT
+      institute_name,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      COUNT(DISTINCT batch_section_name) AS section_count,
+      COUNT(DISTINCT subject_title) AS subject_count,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNT(*) AS total_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${where}
+    GROUP BY institute_name
+    ORDER BY institute_name`,
     params,
   );
-  return rows.map((r) => ({
-    instituteName: r.institute_name,
-    sectionCount: Number(r.section_count),
-    subjectCount: Number(r.subject_count),
-    ...mapAttendanceRollup(r),
-  }));
+  return rows.map((r) => {
+    const p = Number(r.present_count);
+    const t = Number(r.total_count);
+    return {
+      instituteName: r.institute_name,
+      studentCount: Number(r.student_count),
+      sectionCount: Number(r.section_count),
+      subjectCount: Number(r.subject_count),
+      presentCount: p,
+      totalCount: t,
+      pct: pct(p, t),
+    };
+  });
 }
 
 export async function getSectionSummary(
   scope: SessionScope,
-  opts: { dateRange?: DateRangeFilter } = {},
 ): Promise<SectionSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where = scopeClause(scope, params);
   const rows = await bqQuery<{
     institute_name: string;
     batch_section_name: string;
@@ -707,72 +623,51 @@ export async function getSectionSummary(
 
 export interface SubjectSummaryItem {
   subjectTitle: string;
-  /** Distinct students in the selected semester (not the date window). */
   studentCount: number;
-  /** Distinct students with at least one present row in the date window. */
   presentCount: number;
-  /** Distinct classes held, not attendance row count. */
   totalCount: number;
-  /** Student attendance: presentCount / studentCount. */
   pct: number;
-  presentRecordCount: number;
-  totalRecordCount: number;
-  /** Record attendance: present rows / all rows. */
-  recordPct: number;
 }
 
 export async function getSubjectSummary(
   scope: SessionScope,
-  opts: { campus?: string; dateRange?: DateRangeFilter; semester?: string } = {},
+  opts: { campus?: string; dateRange?: DateRangeFilter } = {},
 ): Promise<SubjectSummaryItem[]> {
   const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
   let campusFilter = "";
   if (opts.campus) {
     params["filterCampus"] = opts.campus;
     campusFilter = " AND institute_name = @filterCampus";
   }
-  const rosterWhere =
-    scopeClause(scope, params, { semester: opts.semester }) + campusFilter;
-  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
-  const rows = await bqQuery<AttendanceRollupRow & { subject_title: string }>(
-    `WITH roster AS (
-      SELECT
-        subject_title,
-        COUNT(DISTINCT student_user_id) AS student_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${rosterWhere}
-      GROUP BY subject_title
-    ),
-    windowed AS (
-      SELECT
-        subject_title,
-        COUNT(DISTINCT IF(LOWER(attendance_status) = 'present', student_user_id, NULL)) AS present_student_count,
-        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-        COUNTIF(LOWER(attendance_status) = 'present') AS present_record_count,
-        COUNT(*) AS total_record_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${windowWhere}
-      GROUP BY subject_title
-    )
-    SELECT
-      roster.subject_title,
-      roster.student_count,
-      COALESCE(windowed.present_student_count, 0) AS present_student_count,
-      COALESCE(windowed.session_count, 0) AS session_count,
-      COALESCE(windowed.present_record_count, 0) AS present_record_count,
-      COALESCE(windowed.total_record_count, 0) AS total_record_count
-    FROM roster
-    LEFT JOIN windowed USING (subject_title)
-    ORDER BY SAFE_DIVIDE(
-      COALESCE(windowed.present_student_count, 0),
-      roster.student_count
-    ) ASC`,
+  const rows = await bqQuery<{
+    subject_title: string;
+    student_count: string;
+    present_count: string;
+    total_count: string;
+  }>(
+    `SELECT
+      subject_title,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      COUNTIF(LOWER(attendance_status) = 'present') AS present_count,
+      COUNT(*) AS total_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${where}${campusFilter}
+    GROUP BY subject_title
+    ORDER BY SAFE_DIVIDE(COUNTIF(LOWER(attendance_status) = 'present'), COUNT(*)) ASC`,
     params,
   );
-  return rows.map((r) => ({
-    subjectTitle: r.subject_title,
-    ...mapAttendanceRollup(r),
-  }));
+  return rows.map((r) => {
+    const p = Number(r.present_count);
+    const t = Number(r.total_count);
+    return {
+      subjectTitle: r.subject_title,
+      studentCount: Number(r.student_count),
+      presentCount: p,
+      totalCount: t,
+      pct: pct(p, t),
+    };
+  });
 }
 
 export interface SessionSummaryItem {
@@ -863,17 +758,10 @@ export interface CampusSessionRow {
  */
 export async function getCampusSessions(
   scope: SessionScope,
-  opts: {
-    campus: string;
-    section?: string;
-    dateRange?: DateRangeFilter;
-    semester?: string;
-  },
+  opts: { campus: string; section?: string; dateRange?: DateRangeFilter },
 ): Promise<CampusSessionRow[]> {
   const params: Record<string, unknown> = { campus: opts.campus };
-  const where =
-    scopeClause(scope, params, { semester: opts.semester }) +
-    dateRangeClause(opts.dateRange, params);
+  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
   let extra = " AND institute_name = @campus";
   if (opts.section) {
     params["section"] = opts.section;
@@ -943,14 +831,13 @@ export async function getSessionStudents(
     campus?: string;
     section?: string;
     limit?: number;
-    semester?: string;
   },
 ): Promise<SessionStudentItem[]> {
   const params: Record<string, unknown> = {
     subject: opts.subject,
     sessionTitle: opts.sessionTitle,
   };
-  const where = scopeClause(scope, params, { semester: opts.semester });
+  const where = scopeClause(scope, params);
   let extra =
     " AND subject_title = @subject" +
     " AND COALESCE(session_title, 'Untitled session') = @sessionTitle";
@@ -2947,7 +2834,7 @@ export interface IncentiveSessionRow {
   campus: string;
   subject: string;
   scheduledDate: string;
-  status: "conducted" | "partial";
+  status: "conducted" | "partial" | "cancelled" | "no_show";
   instructorName: string;
   employeeId: string | null;
   bigqueryInstructorUserId: string | null;
@@ -2959,6 +2846,15 @@ export interface IncentiveSessionRow {
   incentivePaid: boolean;
   incentivePaidByName: string | null;
   incentivePaidAt: string | null;
+  /**
+   * The single yes/no/na status this campus's staff actually track:
+   * "yes" -- the incentive has been paid out; "no" -- this session earned an
+   * incentive (Completed/Partially Completed) and it hasn't been paid yet,
+   * whether or not the BOA has approved it so far; "na" -- this session was
+   * cancelled or the instructor didn't take it (no_show), so no incentive
+   * ever applied.
+   */
+  incentiveProcessed: "yes" | "no" | "na";
 }
 
 export interface IncentiveInstructorSummary {
@@ -2992,11 +2888,18 @@ export interface IncentiveCampusGroup {
 }
 
 /**
- * Every Completed/Partially Completed recovery session, grouped first by
- * campus and then by instructor (keyed on the BigQuery employee id when the
- * session has one, since that's the canonical identity money should be owed
- * against; sessions still carrying only a free-text name are grouped by that
- * normalized name instead and flagged `needsIdentityReview`).
+ * Every resolved recovery session (Completed, Partially Completed,
+ * Cancelled, or Not Completed/no-show -- everything except a still-`planned`
+ * future session), grouped first by campus and then by instructor (keyed on
+ * the BigQuery employee id when the session has one, since that's the
+ * canonical identity money should be owed against; sessions still carrying
+ * only a free-text name are grouped by that normalized name instead and
+ * flagged `needsIdentityReview`).
+ *
+ * Cancelled/no-show sessions are included (tagged `incentiveProcessed:
+ * "na"`) purely so the full picture is visible on one screen; they never
+ * earn an incentive and don't count toward any instructor's totals below --
+ * only Completed/Partially Completed sessions do.
  *
  * `campuses` scopes the result the same way every other recovery query does:
  * `undefined` (superadmin/admin/hod) means every campus, an array (BOA)
@@ -3006,7 +2909,12 @@ export async function getIncentiveTracker(
   campuses?: string[],
 ): Promise<IncentiveCampusGroup[]> {
   const filters = [
-    inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+    inArray(recoverySessionsTable.status, [
+      "conducted",
+      "partial",
+      "cancelled",
+      "no_show",
+    ]),
   ];
   if (campuses && campuses.length > 0) {
     filters.push(inArray(recoverySessionsTable.campus, campuses));
@@ -3080,18 +2988,27 @@ export async function getIncentiveTracker(
       sessions: [],
     };
 
-    const amount = RECOVERY_INCENTIVE_PER_SESSION;
-    summary.sessionsCompleted += 1;
-    if (row.incentiveApproved) {
-      summary.sessionsApproved += 1;
-      if (row.incentivePaid) {
-        summary.sessionsPaid += 1;
-        summary.amountPaid += amount;
+    const eligible = row.status === "conducted" || row.status === "partial";
+    const amount = eligible ? RECOVERY_INCENTIVE_PER_SESSION : 0;
+    const incentiveProcessed: "yes" | "no" | "na" = !eligible
+      ? "na"
+      : row.incentivePaid
+        ? "yes"
+        : "no";
+
+    if (eligible) {
+      summary.sessionsCompleted += 1;
+      if (row.incentiveApproved) {
+        summary.sessionsApproved += 1;
+        if (row.incentivePaid) {
+          summary.sessionsPaid += 1;
+          summary.amountPaid += amount;
+        } else {
+          summary.amountOwed += amount;
+        }
       } else {
-        summary.amountOwed += amount;
+        summary.amountPendingApproval += amount;
       }
-    } else {
-      summary.amountPendingApproval += amount;
     }
 
     summary.sessions.push({
@@ -3099,7 +3016,7 @@ export async function getIncentiveTracker(
       campus: row.campus,
       subject: row.subject,
       scheduledDate: row.scheduledDate,
-      status: row.status as "conducted" | "partial",
+      status: row.status as "conducted" | "partial" | "cancelled" | "no_show",
       instructorName: row.instructorName,
       employeeId: row.employeeId,
       bigqueryInstructorUserId: row.bigqueryInstructorUserId,
@@ -3115,6 +3032,7 @@ export async function getIncentiveTracker(
         ? (userNames.get(row.incentivePaidBy) ?? null)
         : null,
       incentivePaidAt: row.incentivePaidAt?.toISOString() ?? null,
+      incentiveProcessed,
     });
 
     campusGroup.set(key, summary);

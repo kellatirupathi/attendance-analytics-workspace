@@ -34,12 +34,15 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 
+type IncentiveSessionStatus = "conducted" | "partial" | "cancelled" | "no_show";
+type IncentiveProcessed = "yes" | "no" | "na";
+
 interface IncentiveSessionRow {
   id: string;
   campus: string;
   subject: string;
   scheduledDate: string;
-  status: "conducted" | "partial";
+  status: IncentiveSessionStatus;
   instructorName: string;
   employeeId: string | null;
   bigqueryInstructorUserId: string | null;
@@ -51,6 +54,8 @@ interface IncentiveSessionRow {
   incentivePaid: boolean;
   incentivePaidByName: string | null;
   incentivePaidAt: string | null;
+  /** yes = paid, no = earned but not yet paid, na = cancelled/not taken. */
+  incentiveProcessed: IncentiveProcessed;
 }
 
 interface IncentiveInstructorSummary {
@@ -112,14 +117,51 @@ function formatDate(date: string): string {
   }
 }
 
-function StatusPill({ status }: { status: "conducted" | "partial" }) {
-  return status === "conducted" ? (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-      Completed
-    </span>
-  ) : (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
-      Partially Completed
+function StatusPill({ status }: { status: IncentiveSessionStatus }) {
+  switch (status) {
+    case "conducted":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+          Completed
+        </span>
+      );
+    case "partial":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">
+          Partially Completed
+        </span>
+      );
+    case "cancelled":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-500">
+          Cancelled
+        </span>
+      );
+    case "no_show":
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-600">
+          Not Completed
+        </span>
+      );
+  }
+}
+
+function IncentiveProcessedBadge({ value }: { value: IncentiveProcessed }) {
+  if (value === "yes")
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700">
+        Yes
+      </span>
+    );
+  if (value === "no")
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700">
+        No
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500">
+      NA
     </span>
   );
 }
@@ -540,6 +582,7 @@ export default function IncentiveTracker() {
                                           <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Date</th>
                                           <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Subject</th>
                                           <th className="px-4 py-2 text-left font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                                          <th className="px-4 py-2 text-center font-semibold uppercase tracking-wider text-slate-500">Incentive Processed</th>
                                           <th className="px-4 py-2 text-right font-semibold uppercase tracking-wider text-slate-500">Amount</th>
                                           {canApprove && (
                                             <th className="px-4 py-2 text-center font-semibold uppercase tracking-wider text-slate-500">BOA Approved</th>
@@ -559,39 +602,50 @@ export default function IncentiveTracker() {
                                             <td className="px-4 py-2.5">
                                               <StatusPill status={session.status} />
                                             </td>
+                                            <td className="px-4 py-2.5 text-center">
+                                              <IncentiveProcessedBadge value={session.incentiveProcessed} />
+                                            </td>
                                             <td className="px-4 py-2.5 text-right tabular-nums text-slate-700">
-                                              {formatRupees(session.amount)}
+                                              {session.incentiveProcessed === "na" ? "—" : formatRupees(session.amount)}
                                             </td>
                                             {canApprove && (
                                               <td className="px-4 py-2.5">
-                                                <div className="flex flex-col items-center gap-1">
-                                                  <Switch
-                                                    checked={session.incentiveApproved}
-                                                    disabled={pendingSessionId === session.id}
-                                                    onCheckedChange={(checked) => void setApproval(session, checked)}
-                                                  />
-                                                  {session.incentiveApproved && session.incentiveApprovedByName && (
-                                                    <span className="text-[10px] text-slate-400">
-                                                      by {session.incentiveApprovedByName}
-                                                    </span>
-                                                  )}
-                                                </div>
+                                                {session.incentiveProcessed === "na" ? (
+                                                  <div className="flex justify-center text-slate-300">—</div>
+                                                ) : (
+                                                  <div className="flex flex-col items-center gap-1">
+                                                    <Switch
+                                                      checked={session.incentiveApproved}
+                                                      disabled={pendingSessionId === session.id}
+                                                      onCheckedChange={(checked) => void setApproval(session, checked)}
+                                                    />
+                                                    {session.incentiveApproved && session.incentiveApprovedByName && (
+                                                      <span className="text-[10px] text-slate-400">
+                                                        by {session.incentiveApprovedByName}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                )}
                                               </td>
                                             )}
                                             {canManage && (
                                               <td className="px-4 py-2.5">
-                                                <div className="flex flex-col items-center gap-1">
-                                                  <Switch
-                                                    checked={session.incentivePaid}
-                                                    disabled={pendingSessionId === session.id || !session.incentiveApproved}
-                                                    onCheckedChange={(checked) => void setPaid(session, checked)}
-                                                  />
-                                                  {session.incentivePaid && session.incentivePaidByName && (
-                                                    <span className="text-[10px] text-slate-400">
-                                                      by {session.incentivePaidByName}
-                                                    </span>
-                                                  )}
-                                                </div>
+                                                {session.incentiveProcessed === "na" ? (
+                                                  <div className="flex justify-center text-slate-300">—</div>
+                                                ) : (
+                                                  <div className="flex flex-col items-center gap-1">
+                                                    <Switch
+                                                      checked={session.incentivePaid}
+                                                      disabled={pendingSessionId === session.id || !session.incentiveApproved}
+                                                      onCheckedChange={(checked) => void setPaid(session, checked)}
+                                                    />
+                                                    {session.incentivePaid && session.incentivePaidByName && (
+                                                      <span className="text-[10px] text-slate-400">
+                                                        by {session.incentivePaidByName}
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                )}
                                               </td>
                                             )}
                                           </tr>
