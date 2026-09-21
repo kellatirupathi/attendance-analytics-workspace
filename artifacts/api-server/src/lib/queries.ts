@@ -45,7 +45,7 @@ const QUIZ_TABLE =
 /**
  * One class held: session_id when present, otherwise title, plus date, scoped
  * by subject so campus rollups do not collapse two subjects into one session.
- * Never use COUNT(*) for "total sessions" — that is student×session rows.
+ * Never use COUNT(*) for "total sessions" ΓÇö that is student├ùsession rows.
  */
 const SESSION_IDENTITY_SQL = `CONCAT(
   COALESCE(subject_title, ''),
@@ -69,7 +69,7 @@ function mapAttendanceRollup(r: AttendanceRollupRow) {
   const sessionCount = Number(r.session_count);
   const presentRecordCount = Number(r.present_record_count);
   const totalRecordCount = Number(r.total_record_count);
-  // SPI attendance: present marks ÷ scheduled marks (student×session rows).
+  // SPI attendance: present marks ├╖ scheduled marks (student├ùsession rows).
   const spiPct = pct(presentRecordCount, totalRecordCount);
   return {
     studentCount,
@@ -109,13 +109,25 @@ export async function getRecoverySemesters(
   campus: string,
   scope: SessionScope,
 ): Promise<string[]> {
-  const params: Record<string, unknown> = { campus };
+  return getAttendanceSemesters(scope, campus);
+}
+
+/** Distinct academic semesters in attendance data. Campus is optional. */
+export async function getAttendanceSemesters(
+  scope: SessionScope,
+  campus?: string,
+): Promise<string[]> {
+  const params: Record<string, unknown> = {};
   const where = scopeClause(scope, params, { currentSemester: false });
+  let campusFilter = "";
+  if (campus) {
+    params["campus"] = campus;
+    campusFilter = " AND institute_name = @campus";
+  }
   const rows = await bqQuery<{ semester: string }>(
     `SELECT DISTINCT TRIM(derived_semester_title) AS semester
      FROM ${ATTENDANCE_TABLE}
-     WHERE ${where}
-       AND institute_name = @campus
+     WHERE ${where}${campusFilter}
        AND derived_semester_title IS NOT NULL
        AND TRIM(derived_semester_title) != ''
      ORDER BY semester`,
@@ -127,6 +139,13 @@ export async function getRecoverySemesters(
     .sort((left, right) =>
       right.localeCompare(left, undefined, { numeric: true, sensitivity: "base" }),
     );
+}
+
+export function parseSemester(
+  q: Record<string, string | undefined>,
+): string | undefined {
+  const value = q["semester"]?.trim();
+  return value || undefined;
 }
 
 export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -582,10 +601,13 @@ export async function getStudentsList(
     subject?: string;
     attendanceBand?: string;
     dateRange?: DateRangeFilter;
+    semester?: string;
   } = {},
 ): Promise<StudentSearchResult[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    dateRangeClause(opts.dateRange, params);
   const safeLimit = Math.min(opts.limit ?? 1000, 5000);
   let searchFilter = "";
   if (opts.search) {
@@ -695,7 +717,7 @@ export interface CampusSummaryItem {
   pct: number;
   presentRecordCount: number;
   totalRecordCount: number;
-  /** Same as pct — kept so existing clients keep working. */
+  /** Same as pct ΓÇö kept so existing clients keep working. */
   recordPct: number;
 }
 
@@ -767,9 +789,10 @@ export async function getCampusSummary(
 
 export async function getSectionSummary(
   scope: SessionScope,
+  opts: { dateRange?: DateRangeFilter } = {},
 ): Promise<SectionSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params);
+  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
   const rows = await bqQuery<{
     institute_name: string;
     batch_section_name: string;
@@ -815,7 +838,7 @@ export interface SubjectSummaryItem {
   pct: number;
   presentRecordCount: number;
   totalRecordCount: number;
-  /** Same as pct — kept so existing clients keep working. */
+  /** Same as pct ΓÇö kept so existing clients keep working. */
   recordPct: number;
 }
 
@@ -955,16 +978,23 @@ export interface CampusSessionRow {
 }
 
 /**
- * Every session at one campus, flattened across subjects — the campus
+ * Every session at one campus, flattened across subjects ΓÇö the campus
  * drill-down table. Ordered by subject then worst attendance first, so the
  * sessions needing attention surface at the top of each subject group.
  */
 export async function getCampusSessions(
   scope: SessionScope,
-  opts: { campus: string; section?: string; dateRange?: DateRangeFilter },
+  opts: {
+    campus: string;
+    section?: string;
+    dateRange?: DateRangeFilter;
+    semester?: string;
+  },
 ): Promise<CampusSessionRow[]> {
   const params: Record<string, unknown> = { campus: opts.campus };
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    dateRangeClause(opts.dateRange, params);
   let extra = " AND institute_name = @campus";
   if (opts.section) {
     params["section"] = opts.section;
@@ -1022,7 +1052,7 @@ export interface SessionStudentItem {
 }
 
 /**
- * Per-student attendance for one session of one subject — who attended and
+ * Per-student attendance for one session of one subject ΓÇö who attended and
  * who did not, which is the leaf of the campus drill-down.
  */
 export async function getSessionStudents(
@@ -1034,13 +1064,14 @@ export async function getSessionStudents(
     campus?: string;
     section?: string;
     limit?: number;
+    semester?: string;
   },
 ): Promise<SessionStudentItem[]> {
   const params: Record<string, unknown> = {
     subject: opts.subject,
     sessionTitle: opts.sessionTitle,
   };
-  const where = scopeClause(scope, params);
+  const where = scopeClause(scope, params, { semester: opts.semester });
   let extra =
     " AND subject_title = @subject" +
     " AND COALESCE(session_title, 'Untitled session') = @sessionTitle";
@@ -1397,7 +1428,7 @@ function quizMatchesSubjectSql(subjectExpr: string, quizAlias = ""): string {
   )`;
 }
 
-/** Prefer semester_course_title, then course_title — CQ and MQ store the subject in different columns. */
+/** Prefer semester_course_title, then course_title ΓÇö CQ and MQ store the subject in different columns. */
 function quizSubjectTitleSql(quizAlias = ""): string {
   const col = quizAlias ? `${quizAlias}.` : "";
   return `COALESCE(
@@ -1427,7 +1458,7 @@ function quizPivotSelect(quizAlias = ""): string {
 
 /**
  * Quiz table has no `is_current_semester` or date column. Scope by campus
- * and subject only — subject matches either quiz title column.
+ * and subject only ΓÇö subject matches either quiz title column.
  */
 function quizScopeClause(
   scope: SessionScope,
@@ -1590,7 +1621,7 @@ function assessmentQuizStudentSubjectSql(quizWhere: string): string {
 /**
  * Campus rollup: unique CQ/MQ counts (sum of per-subject typical quizzes)
  * plus student completion % from all student-quiz assignments.
- * Semester comes from attendance enrolment — the quiz table has no date.
+ * Semester comes from attendance enrolment ΓÇö the quiz table has no date.
  */
 export async function getAssessmentCampusSummary(
   scope: SessionScope,
@@ -1897,7 +1928,7 @@ function mapQuizRecoveryStudent(row: {
 
 /**
  * Students whose C.Q or M.Q is not fully completed at 100%. Attendance is
- * joined only for name/section and display % — it does not gate the list.
+ * joined only for name/section and display % ΓÇö it does not gate the list.
  * Skill assessment is not in BigQuery yet.
  */
 export async function getCampusQuizRecovery(
@@ -2163,7 +2194,7 @@ export interface ProdSequenceTopic {
 
 /**
  * Every distinct completed lecture in the current semester for a campus,
- * grouped by subject and ordered by the date it was first scheduled — the
+ * grouped by subject and ordered by the date it was first scheduled ΓÇö the
  * actual prod delivery order.
  */
 export async function getProdSequence(
