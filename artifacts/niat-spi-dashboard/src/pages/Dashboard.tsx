@@ -881,7 +881,7 @@ function LoadingState() {
 /*  Dashboard (role dispatcher)                                        */
 /* ------------------------------------------------------------------ */
 
-const ACADEMIC_LIMIT = 5000;
+const ACADEMIC_LIMIT = 500;
 
 export default function Dashboard() {
   const { user } = useAuth();

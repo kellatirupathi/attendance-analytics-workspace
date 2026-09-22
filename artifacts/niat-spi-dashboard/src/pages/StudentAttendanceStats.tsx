@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
-  useGetDashboardSummary,
-  getGetDashboardSummaryQueryKey,
   useGetDashboardFilters,
   getGetDashboardFiltersQueryKey,
 } from "@workspace/api-client-react";
@@ -72,24 +70,18 @@ export default function StudentAttendanceStats() {
     return "all";
   }, [urlCampus, isBoa, user?.campuses]);
 
-  const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary(
-    undefined,
-    {
-      query: { queryKey: getGetDashboardSummaryQueryKey() },
-    },
-  );
-
-  const { data: filterOptions } = useGetDashboardFilters(undefined, {
-    query: {
-      queryKey: getGetDashboardFiltersQueryKey(),
-      staleTime: 60_000,
-    },
-  });
+  const { data: filterOptions, isLoading: filtersLoading } =
+    useGetDashboardFilters(undefined, {
+      query: {
+        queryKey: getGetDashboardFiltersQueryKey(),
+        staleTime: 5 * 60_000,
+      },
+    });
 
   const campusOptions = useMemo(() => {
     if (isBoa && user?.campuses?.length === 1) return user.campuses;
-    return filterOptions?.campuses ?? summary?.campusBreakdown.map((c) => c.instituteName) ?? [];
-  }, [filterOptions, summary, isBoa, user?.campuses]);
+    return filterOptions?.campuses ?? [];
+  }, [filterOptions, isBoa, user?.campuses]);
 
   const semesters = useAttendanceSemesters(campus);
 
@@ -329,7 +321,7 @@ export default function StudentAttendanceStats() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {summaryLoading || loading ? (
+              {filtersLoading || loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <TableRow key={i}>
                     <TableCell colSpan={7}>

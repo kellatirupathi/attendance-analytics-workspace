@@ -27,6 +27,8 @@ import {
   dateRangeCacheKey,
   getAttendanceSemesters,
   getInstituteDirectory,
+  getSpiAveragesByCampus,
+  getSpiAveragesBySection,
 } from "../lib/queries.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
@@ -74,13 +76,50 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   const dateRange = parseDateRange(
     req.query as Record<string, string | undefined>,
   );
-  const cacheKey = `summary:v3:${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  // lite=1: campus rollup only (Reports / directory counts) — skips the
+  // expensive subject + section + worst-student scans.
+  const lite = String(req.query["lite"] ?? "") === "1";
+  const cacheKey = `summary:v4:${lite ? "lite:" : ""}${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
     return;
   }
   try {
+    if (lite) {
+      const campusBreakdown = await getCampusSummary(scope, { dateRange });
+      const totalStudents = campusBreakdown.reduce(
+        (s, c) => s + c.studentCount,
+        0,
+      );
+      const totalPresentRecords = campusBreakdown.reduce(
+        (s, c) => s + c.presentRecordCount,
+        0,
+      );
+      const totalRecords = campusBreakdown.reduce(
+        (s, c) => s + c.totalRecordCount,
+        0,
+      );
+      const avgPct =
+        totalRecords > 0
+          ? Math.round((totalPresentRecords / totalRecords) * 1000) / 10
+          : 0;
+      const summary = {
+        totalStudents,
+        totalCampuses: campusBreakdown.length,
+        avgAttendancePct: avgPct,
+        subjectsBelow80: 0,
+        subjectBreakdown: [],
+        campusBreakdown,
+        sectionBreakdown: [],
+        needsAttention: [],
+        updatedAt: new Date().toISOString(),
+      };
+      cacheSet(cacheKey, summary, 15 * 60 * 1000);
+      res.json(summary);
+      return;
+    }
+
     const [campusBreakdown, sectionBreakdown, subjectBreakdown, worstStudents] =
       await Promise.all([
         getCampusSummary(scope, { dateRange }),
@@ -116,7 +155,7 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
       needsAttention: worstStudents,
       updatedAt: new Date().toISOString(),
     };
-    cacheSet(cacheKey, summary, 5 * 60 * 1000);
+    cacheSet(cacheKey, summary, 15 * 60 * 1000);
     res.json(summary);
   } catch (err) {
     req.log.error({ err }, "Error fetching dashboard summary");
@@ -142,7 +181,7 @@ router.get("/filters", requireSession(), async (req, res): Promise<void> => {
     const options = await getDashboardFilterOptions(scope, {
       campus: campus || undefined,
     });
-    cacheSet(cacheKey, options, 5 * 60 * 1000);
+    cacheSet(cacheKey, options, 15 * 60 * 1000);
     res.json(options);
   } catch (err) {
     req.log.error({ err }, "Error fetching dashboard filters");
@@ -170,7 +209,7 @@ router.get("/semesters", requireSession(), async (req, res): Promise<void> => {
   }
   try {
     const semesters = await getAttendanceSemesters(scope, campus);
-    cacheSet(cacheKey, semesters, 5 * 60 * 1000);
+    cacheSet(cacheKey, semesters, 15 * 60 * 1000);
     res.json(semesters);
   } catch (err) {
     req.log.error({ err }, "Error fetching attendance semesters");
@@ -197,11 +236,62 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   }
   try {
     const subjects = await getSubjectSummary(scope, { campus, dateRange, semester });
-    cacheSet(cacheKey, subjects, 5 * 60 * 1000);
+    cacheSet(cacheKey, subjects, 15 * 60 * 1000);
     res.json(subjects);
   } catch (err) {
     req.log.error({ err }, "Error fetching subject attendance");
     res.status(500).json({ error: "Failed to fetch subject attendance" });
+  }
+});
+
+// Mean SPI (0–10) by campus or by section — avoids shipping 5k student rows
+// just to average quiz scores on the client (Reports SPI Record).
+router.get("/spi-averages", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | undefined>;
+  const semester = parseSemester(q);
+  const campus = q["campus"]?.trim() || undefined;
+  const group = q["group"] === "section" ? "section" : "campus";
+
+  if (group === "section") {
+    if (!campus) {
+      res.status(400).json({ error: "campus required when group=section" });
+      return;
+    }
+    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+      res.status(403).json({ error: "Not permitted for this campus" });
+      return;
+    }
+  }
+
+  const cacheKey = `spi-avg:v1:${session.role}:${JSON.stringify(scope)}:${group}:${campus ?? ""}:${semester ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const payload =
+      group === "section"
+        ? {
+            group: "section" as const,
+            campus,
+            rows: await getSpiAveragesBySection(scope, { campus: campus!, semester }),
+          }
+        : {
+            group: "campus" as const,
+            rows: await getSpiAveragesByCampus(scope, { semester }),
+          };
+    cacheSet(cacheKey, payload, 15 * 60 * 1000);
+    res.json(payload);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching SPI averages");
+    res.status(500).json({ error: "Failed to fetch SPI averages" });
   }
 });
 
@@ -303,7 +393,7 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
       ...c,
       belowRequirement: c.pct < REQUIRED_PCT,
     }));
-    cacheSet(cacheKey, payload, 5 * 60 * 1000);
+    cacheSet(cacheKey, payload, 15 * 60 * 1000);
     res.json(payload);
   } catch (err) {
     req.log.error({ err }, "Error fetching campus stats");
@@ -455,6 +545,12 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
   const attendanceBand = q["attendanceBand"] || undefined;
   const dateRange = parseDateRange(q);
   const semester = parseSemester(q);
+  const cacheKey = `students:v2:${session.role}:${JSON.stringify(scope)}:${search ?? ""}:${limit}:${campus ?? ""}:${section ?? ""}:${subject ?? ""}:${attendanceBand ?? ""}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
   try {
     const students = await getStudentsList(scope, {
       search,
@@ -478,6 +574,7 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
       moduleAvg: s.moduleAvg ?? null,
       spiPath: spiSharePath(s.studentId),
     }));
+    cacheSet(cacheKey, withPaths, 10 * 60 * 1000);
     res.json(withPaths);
   } catch (err) {
     req.log.error({ err }, "Error fetching dashboard students");

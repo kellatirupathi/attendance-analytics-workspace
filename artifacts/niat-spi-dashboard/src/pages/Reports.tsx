@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   useGetDashboardStudents,
   getGetDashboardStudentsQueryKey,
   useGetDashboardFilters,
   getGetDashboardFiltersQueryKey,
-  useGetDashboardSummary,
-  getGetDashboardSummaryQueryKey,
   type DashboardStudent,
 } from "@workspace/api-client-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -112,11 +111,6 @@ function enrichStudent(s: DashboardStudent): StudentRow {
   };
 }
 
-function mean(values: number[]): number | null {
-  if (values.length === 0) return null;
-  return values.reduce((a, b) => a + b, 0) / values.length;
-}
-
 function StandingBadge({ standing }: { standing: SpiStanding }) {
   const styles =
     standing === "good"
@@ -144,7 +138,7 @@ function Th({
   children,
   className,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
 }) {
   return (
@@ -166,13 +160,13 @@ function SpiRecordPanel() {
 
   const [drill, setDrill] = useState<Drill>(hideCampus ? "section" : "campus");
   const [selectedCampus, setSelectedCampus] = useState<string | null>(
-    hideCampus ? user!.campuses[0]! : null,
+    hideCampus ? (user?.campuses?.[0] ?? null) : null,
   );
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
 
   const [semester, setSemester] = useState("");
   const [campusFilter, setCampusFilter] = useState(
-    hideCampus ? user!.campuses[0]! : "all",
+    hideCampus ? (user?.campuses?.[0] ?? "all") : "all",
   );
   const [sectionFilter, setSectionFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -188,17 +182,30 @@ function SpiRecordPanel() {
   const [pageSize, setPageSize] = useState(50);
   const resetPage = () => setPage(1);
 
-  // Summary endpoint is current-semester roster counts (accurate section/student
-  // totals). Semester filter applies when loading campus students for SPI.
-  const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary(
-    undefined,
-    {
-      query: {
-        queryKey: getGetDashboardSummaryQueryKey(),
-        staleTime: 60_000,
-      },
+  // Lite summary: campus roster counts only (skips subject/section/worst scans).
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: ["dashboard-summary-lite", semester || "current"],
+    queryFn: async () => {
+      const params = new URLSearchParams({ lite: "1" });
+      const res = await fetch(`/api/dashboard/summary?${params}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load summary");
+      return res.json() as Promise<{
+        campusBreakdown: Array<{
+          instituteName: string;
+          studentCount: number;
+          sectionCount: number;
+        }>;
+        sectionBreakdown: Array<{
+          instituteName: string;
+          sectionName: string;
+          studentCount: number;
+        }>;
+      }>;
     },
-  );
+    staleTime: 5 * 60_000,
+  });
 
   const filterCampusForOptions =
     campusFilter !== "all" ? campusFilter : undefined;
@@ -210,7 +217,7 @@ function SpiRecordPanel() {
           queryKey: getGetDashboardFiltersQueryKey({
             campus: filterCampusForOptions,
           }),
-          staleTime: 60_000,
+          staleTime: 5 * 60_000,
         },
       },
     );
@@ -225,32 +232,71 @@ function SpiRecordPanel() {
     campusFilter !== "all" ? campusFilter : undefined,
   );
 
-  // Prefer campus-scoped student loads (avoids global 5k skew). On the
-  // institute list we still need quiz rows to average SPI, so fetch without
-  // campus — roster counts always come from summary, not this sample.
-  const campusForStudents =
-    selectedCampus ??
-    (campusFilter !== "all" ? campusFilter : null);
+  // SPI averages from BigQuery (no 5k student payload on college/section lists).
+  const { data: campusSpi, isLoading: campusSpiLoading } = useQuery({
+    queryKey: ["spi-averages", "campus", semester || "current"],
+    queryFn: async () => {
+      const params = new URLSearchParams({ group: "campus" });
+      if (semester) params.set("semester", semester);
+      const res = await fetch(`/api/dashboard/spi-averages?${params}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load SPI averages");
+      return res.json() as Promise<{
+        rows: Array<{ instituteName: string; avgSpiPoints: number }>;
+      }>;
+    },
+    enabled: drill === "campus" || drill === "section",
+    staleTime: 5 * 60_000,
+  });
 
+  const sectionCampus =
+    selectedCampus ?? (campusFilter !== "all" ? campusFilter : null);
+  const { data: sectionSpi, isLoading: sectionSpiLoading } = useQuery({
+    queryKey: [
+      "spi-averages",
+      "section",
+      sectionCampus,
+      semester || "current",
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        group: "section",
+        campus: sectionCampus!,
+      });
+      if (semester) params.set("semester", semester);
+      const res = await fetch(`/api/dashboard/spi-averages?${params}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load section SPI averages");
+      return res.json() as Promise<{
+        rows: Array<{
+          sectionName: string;
+          avgSpiPoints: number;
+          studentCount: number;
+        }>;
+      }>;
+    },
+    enabled: Boolean(sectionCampus) && drill !== "campus",
+    staleTime: 5 * 60_000,
+  });
+
+  // Students only when drilling into a section (full SPI Record student list).
   const studentQuery = {
     limit: FETCH_LIMIT,
-    campus: campusForStudents ?? undefined,
-    section:
-      drill === "students" && selectedSection
-        ? selectedSection
-        : sectionFilter !== "all"
-          ? sectionFilter
-          : undefined,
+    campus: sectionCampus ?? undefined,
+    section: selectedSection ?? undefined,
     semester: semester || undefined,
   };
 
-  const studentsEnabled = Boolean(campusForStudents) || drill === "campus";
+  const studentsEnabled =
+    drill === "students" && Boolean(sectionCampus && selectedSection);
   const { data: students, isLoading: studentsLoading, isFetching } =
     useGetDashboardStudents(studentQuery, {
       query: {
         queryKey: getGetDashboardStudentsQueryKey(studentQuery),
         enabled: studentsEnabled,
-        staleTime: 30_000,
+        staleTime: 60_000,
         placeholderData: (previousData) => previousData,
       },
     });
@@ -263,36 +309,20 @@ function SpiRecordPanel() {
   const q = debouncedSearch.trim().toLowerCase();
 
   const spiByCampus = useMemo(() => {
-    const map = new Map<string, number[]>();
-    for (const s of rows) {
-      const key = s.instituteName || "Unknown campus";
-      const list = map.get(key);
-      if (list) list.push(s.spiPoints);
-      else map.set(key, [s.spiPoints]);
-    }
     const out = new Map<string, number>();
-    for (const [key, vals] of map) {
-      const m = mean(vals);
-      if (m !== null) out.set(key, m);
+    for (const row of campusSpi?.rows ?? []) {
+      out.set(row.instituteName, row.avgSpiPoints);
     }
     return out;
-  }, [rows]);
+  }, [campusSpi]);
 
   const spiBySection = useMemo(() => {
-    const map = new Map<string, number[]>();
-    for (const s of rows) {
-      const key = s.sectionName?.trim() || "Unassigned";
-      const list = map.get(key);
-      if (list) list.push(s.spiPoints);
-      else map.set(key, [s.spiPoints]);
-    }
     const out = new Map<string, number>();
-    for (const [key, vals] of map) {
-      const m = mean(vals);
-      if (m !== null) out.set(key, m);
+    for (const row of sectionSpi?.rows ?? []) {
+      out.set(row.sectionName, row.avgSpiPoints);
     }
     return out;
-  }, [rows]);
+  }, [sectionSpi]);
 
   const campuses = useMemo<CampusRow[]>(() => {
     const fromSummary = summary?.campusBreakdown ?? [];
@@ -317,59 +347,47 @@ function SpiRecordPanel() {
 
   const sections = useMemo<SectionRow[]>(() => {
     if (!selectedCampus) return [];
-    const fromSummary = (summary?.sectionBreakdown ?? []).filter(
-      (s) => s.instituteName === selectedCampus,
-    );
 
-    // Prefer summary rows (accurate student counts). Fall back to student
-    // grouping if summary has no section breakdown for this campus.
-    if (fromSummary.length > 0) {
-      return fromSummary
+    // Prefer SPI averages (includes roster student counts) when available.
+    const fromSpi = sectionSpi?.rows ?? [];
+    if (fromSpi.length > 0) {
+      return fromSpi
         .filter((s) => {
-          const name = s.sectionName || "Unassigned";
-          if (sectionFilter !== "all" && name !== sectionFilter) return false;
-          if (drill === "section" && q && !name.toLowerCase().includes(q))
+          if (sectionFilter !== "all" && s.sectionName !== sectionFilter)
+            return false;
+          if (drill === "section" && q && !s.sectionName.toLowerCase().includes(q))
             return false;
           return true;
         })
-        .map((s) => {
-          const name = s.sectionName || "Unassigned";
-          const avgSpiPoints = spiBySection.get(name) ?? null;
-          return {
-            name,
-            studentCount: s.studentCount,
-            avgSpiPoints,
-          };
-        })
+        .map((s) => ({
+          name: s.sectionName,
+          studentCount: s.studentCount,
+          avgSpiPoints: s.avgSpiPoints,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
     }
 
-    const bySection = new Map<string, StudentRow[]>();
-    for (const s of rows) {
-      const key = s.sectionName?.trim() || "Unassigned";
-      if (sectionFilter !== "all" && key !== sectionFilter) continue;
-      const list = bySection.get(key);
-      if (list) list.push(s);
-      else bySection.set(key, [s]);
-    }
-    return Array.from(bySection.entries())
-      .map(([name, list]) => {
-        const avgSpiPoints = mean(list.map((x) => x.spiPoints));
-        return {
-          name,
-          studentCount: list.length,
-          avgSpiPoints,
-        };
+    // Fallback: section names from filter options while SPI loads.
+    return sectionOptions
+      .filter((name) => {
+        if (sectionFilter !== "all" && name !== sectionFilter) return false;
+        if (drill === "section" && q && !name.toLowerCase().includes(q))
+          return false;
+        return true;
       })
-      .filter((s) => !q || s.name.toLowerCase().includes(q))
+      .map((name) => ({
+        name,
+        studentCount: 0,
+        avgSpiPoints: spiBySection.get(name) ?? null,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [
-    summary,
     selectedCampus,
+    sectionSpi,
+    sectionOptions,
     sectionFilter,
     q,
     spiBySection,
-    rows,
     drill,
   ]);
 
@@ -507,7 +525,7 @@ function SpiRecordPanel() {
 
   const clearDraft = () => {
     setDraftSemester(CURRENT_SEMESTER);
-    setDraftCampus(hideCampus ? user!.campuses[0]! : "all");
+    setDraftCampus(hideCampus ? (user?.campuses?.[0] ?? "all") : "all");
     setDraftSection("all");
     setDraftSearch("");
   };
@@ -517,8 +535,10 @@ function SpiRecordPanel() {
     setSearch("");
     setSectionFilter("all");
     if (hideCampus) {
-      setCampusFilter(user!.campuses[0]!);
-      setSelectedCampus(user!.campuses[0]!);
+      const only = user?.campuses?.[0];
+      if (!only) return;
+      setCampusFilter(only);
+      setSelectedCampus(only);
       setSelectedSection(null);
       setDrill("section");
     } else {
@@ -576,7 +596,10 @@ function SpiRecordPanel() {
         : "students";
 
   const isLoading =
-    summaryLoading || (studentsEnabled && studentsLoading);
+    summaryLoading ||
+    (drill === "campus" && campusSpiLoading) ||
+    (drill === "section" && sectionSpiLoading) ||
+    (studentsEnabled && studentsLoading);
 
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
