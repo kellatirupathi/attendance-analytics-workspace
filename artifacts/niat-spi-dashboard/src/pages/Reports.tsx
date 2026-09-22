@@ -130,6 +130,15 @@ function nameKey(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase();
 }
 
+function sectionKey(value: string | null | undefined): string {
+  return value?.trim() || "Unassigned";
+}
+
+function meanPoints(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+}
+
 function Th({
   children,
   className,
@@ -249,54 +258,28 @@ function SpiRecordPanel() {
 
   const sectionCampus =
     selectedCampus ?? (campusFilter !== "all" ? campusFilter : null);
-  const { data: sectionSpi, isLoading: sectionSpiLoading } = useQuery({
-    queryKey: [
-      "spi-averages",
-      "section",
-      sectionCampus,
-      semester || "current",
-    ],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        group: "section",
-        campus: sectionCampus!,
-      });
-      if (semester) params.set("semester", semester);
-      const res = await fetch(`/api/dashboard/spi-averages?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load section SPI averages");
-      return res.json() as Promise<{
-        rows: Array<{
-          sectionName: string;
-          avgSpiPoints: number;
-          studentCount: number;
-        }>;
-      }>;
-    },
-    enabled: Boolean(sectionCampus) && drill !== "campus",
-    staleTime: 5 * 60_000,
-  });
 
-  // Students only when drilling into a section (full SPI Record student list).
+  // One campus of students powers both the section rollup and the student list.
   const studentQuery = {
     limit: FETCH_LIMIT,
     campus: sectionCampus ?? undefined,
-    section: selectedSection ?? undefined,
     semester: semester || undefined,
   };
 
-  const studentsEnabled =
-    drill === "students" && Boolean(sectionCampus && selectedSection);
-  const { data: students, isLoading: studentsLoading, isFetching } =
-    useGetDashboardStudents(studentQuery, {
-      query: {
-        queryKey: getGetDashboardStudentsQueryKey(studentQuery),
-        enabled: studentsEnabled,
-        staleTime: 60_000,
-        placeholderData: (previousData) => previousData,
-      },
-    });
+  const studentsEnabled = Boolean(sectionCampus) && drill !== "campus";
+  const {
+    data: students,
+    isLoading: studentsLoading,
+    isFetching,
+    isError: studentsError,
+  } = useGetDashboardStudents(studentQuery, {
+    query: {
+      queryKey: getGetDashboardStudentsQueryKey(studentQuery),
+      enabled: studentsEnabled,
+      staleTime: 60_000,
+      placeholderData: (previousData) => previousData,
+    },
+  });
 
   const rows = useMemo(
     () => (students ?? []).map(enrichStudent),
@@ -312,14 +295,6 @@ function SpiRecordPanel() {
     }
     return out;
   }, [campusSpi]);
-
-  const spiBySection = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const row of sectionSpi?.rows ?? []) {
-      out.set(nameKey(row.sectionName), row.avgSpiPoints);
-    }
-    return out;
-  }, [sectionSpi]);
 
   const campuses = useMemo<CampusRow[]>(() => {
     const summaryByKey = new Map(
@@ -357,56 +332,43 @@ function SpiRecordPanel() {
 
   const sections = useMemo<SectionRow[]>(() => {
     if (!selectedCampus) return [];
-
-    // Prefer SPI averages (includes roster student counts) when available.
-    const fromSpi = sectionSpi?.rows ?? [];
-    if (fromSpi.length > 0) {
-      return fromSpi
-        .filter((s) => {
-          if (sectionFilter !== "all" && s.sectionName !== sectionFilter)
-            return false;
-          if (drill === "section" && q && !s.sectionName.toLowerCase().includes(q))
-            return false;
-          return true;
-        })
-        .map((s) => ({
-          name: s.sectionName,
-          studentCount: s.studentCount,
-          avgSpiPoints: s.avgSpiPoints,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+    const bySection = new Map<string, number[]>();
+    for (const student of rows) {
+      const name = sectionKey(student.sectionName);
+      const list = bySection.get(name);
+      if (list) list.push(student.spiPoints);
+      else bySection.set(name, [student.spiPoints]);
     }
-
-    // Fallback: section names from filter options while SPI loads.
-    return sectionOptions
-      .filter((name) => {
-        if (sectionFilter !== "all" && name !== sectionFilter) return false;
-        if (drill === "section" && q && !name.toLowerCase().includes(q))
+    const fromStudents = Array.from(bySection.entries()).map(([name, points]) => ({
+      name,
+      studentCount: points.length,
+      avgSpiPoints: meanPoints(points),
+    }));
+    const source =
+      fromStudents.length > 0
+        ? fromStudents
+        : sectionOptions.map((name) => ({
+            name,
+            studentCount: 0,
+            avgSpiPoints: null,
+          }));
+    return source
+      .filter((section) => {
+        if (
+          sectionFilter !== "all" &&
+          nameKey(section.name) !== nameKey(sectionFilter)
+        ) {
           return false;
+        }
         return true;
       })
-      .map((name) => ({
-        name,
-        studentCount: 0,
-        avgSpiPoints: spiBySection.get(nameKey(name)) ?? null,
-      }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [
-    selectedCampus,
-    sectionSpi,
-    sectionOptions,
-    sectionFilter,
-    q,
-    spiBySection,
-    drill,
-  ]);
+  }, [selectedCampus, rows, sectionOptions, sectionFilter]);
 
   const sectionStudents = useMemo(() => {
     if (!selectedSection) return [];
     return rows
-      .filter(
-        (s) => (s.sectionName?.trim() || "Unassigned") === selectedSection,
-      )
+      .filter((s) => nameKey(sectionKey(s.sectionName)) === nameKey(selectedSection))
       .filter((s) => {
         if (!q) return true;
         return (
@@ -590,7 +552,6 @@ function SpiRecordPanel() {
   const isLoading =
     summaryLoading ||
     (drill === "campus" && campusSpiLoading) ||
-    (drill === "section" && sectionSpiLoading) ||
     (studentsEnabled && studentsLoading);
 
   const semesterSelect = (
@@ -659,9 +620,8 @@ function SpiRecordPanel() {
           Clear
         </button>
       )}
-      {((drill === "students" && isFetching && !studentsLoading) ||
-        campusSpiLoading ||
-        sectionSpiLoading) && (
+      {((studentsEnabled && isFetching && !studentsLoading) ||
+        campusSpiLoading) && (
         <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
       )}
     </>
@@ -716,6 +676,11 @@ function SpiRecordPanel() {
       {drill === "campus" && campusSpiError && (
         <p className="mb-3 text-sm text-red-600">
           Could not load institute SPI averages. Counts may still appear.
+        </p>
+      )}
+      {studentsEnabled && studentsError && (
+        <p className="mb-3 text-sm text-red-600">
+          Could not load student SPI data for this college.
         </p>
       )}
 

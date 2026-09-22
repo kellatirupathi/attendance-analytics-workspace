@@ -272,7 +272,7 @@ router.get("/spi-averages", requireSession(), async (req, res): Promise<void> =>
     }
   }
 
-  const cacheKey = `spi-avg:v2:${session.role}:${JSON.stringify(scope)}:${group}:${campus ?? ""}:${semester ?? ""}`;
+  const cacheKey = `spi-avg:v3:${session.role}:${JSON.stringify(scope)}:${group}:${campus ?? ""}:${semester ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

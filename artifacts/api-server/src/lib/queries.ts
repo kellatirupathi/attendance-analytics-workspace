@@ -482,8 +482,8 @@ export async function getDashboardFilterOptions(
   const where = scopeClause(scope, params);
   let sectionCampusFilter = "";
   if (opts.campus) {
-    params["filterCampus"] = opts.campus;
-    sectionCampusFilter = "AND institute_name = @filterCampus";
+    params["filterCampus"] = opts.campus.trim();
+    sectionCampusFilter = "AND TRIM(institute_name) = @filterCampus";
   }
 
   const [campusRows, sectionRows] = await Promise.all([
@@ -662,12 +662,13 @@ export async function getStudentsList(
   }
   let dimensionFilter = "";
   if (opts.campus) {
-    params["campus"] = opts.campus;
-    dimensionFilter += " AND institute_name = @campus";
+    params["campus"] = opts.campus.trim();
+    dimensionFilter += " AND TRIM(institute_name) = @campus";
   }
   if (opts.section) {
-    params["section"] = opts.section;
-    dimensionFilter += " AND batch_section_name = @section";
+    params["section"] = opts.section.trim();
+    dimensionFilter +=
+      " AND COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') = @section";
   }
   if (opts.subject) {
     params["subject"] = opts.subject;
@@ -801,13 +802,16 @@ export async function getSpiAveragesByCampus(
     ),
     quiz AS (
       SELECT
-        user_id,
-        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
-      FROM ${QUIZ_TABLE}
-      GROUP BY user_id
+        students.student_user_id,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM students
+      INNER JOIN ${QUIZ_TABLE} q
+        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(students.student_user_id AS STRING), '-', ''))
+      GROUP BY students.student_user_id
     ),
     scored AS (
       SELECT
@@ -815,9 +819,7 @@ export async function getSpiAveragesByCampus(
         students.student_user_id,
         ${SPI_POINTS_SQL} AS spi_points
       FROM students
-      LEFT JOIN quiz
-        ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
-         = LOWER(REPLACE(CAST(students.student_user_id AS STRING), '-', ''))
+      LEFT JOIN quiz USING (student_user_id)
     ),
     sections AS (
       SELECT
@@ -856,10 +858,10 @@ export async function getSpiAveragesBySection(
   scope: SessionScope,
   opts: { campus: string; semester?: string },
 ): Promise<SpiSectionAverage[]> {
-  const params: Record<string, unknown> = { campus: opts.campus };
+  const params: Record<string, unknown> = { campus: opts.campus.trim() };
   const where =
     scopeClause(scope, params, { semester: opts.semester }) +
-    " AND institute_name = @campus";
+    " AND TRIM(institute_name) = @campus";
   const rows = await bqQuery<{
     section_name: string;
     avg_spi_points: string;
@@ -874,13 +876,16 @@ export async function getSpiAveragesBySection(
     ),
     quiz AS (
       SELECT
-        user_id,
-        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
-      FROM ${QUIZ_TABLE}
-      GROUP BY user_id
+        roster.student_user_id,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM roster
+      INNER JOIN ${QUIZ_TABLE} q
+        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
+      GROUP BY roster.student_user_id
     ),
     scored AS (
       SELECT
@@ -888,9 +893,7 @@ export async function getSpiAveragesBySection(
         roster.student_user_id,
         ${SPI_POINTS_SQL} AS spi_points
       FROM roster
-      LEFT JOIN quiz
-        ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
-         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
+      LEFT JOIN quiz USING (student_user_id)
     )
     SELECT
       section_name,
