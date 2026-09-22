@@ -1,7 +1,7 @@
 import { createSign } from "node:crypto";
 
 const BQ_PROJECT_ID = process.env.BQ_PROJECT_ID ?? "kossip-helpers";
-const BQ_LOCATION = process.env.BQ_LOCATION ?? "asia-south1";
+export const BQ_LOCATION = process.env.BQ_LOCATION ?? "asia-south1";
 
 export const PROD_SEQUENCE_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.niat_schedule_details_as_per_prod_sequence`";
@@ -113,18 +113,88 @@ function buildParam(name: string, value: unknown): BqParam {
   };
 }
 
+/** Interactive wait for jobs.query; BQ also supports incomplete-job polling. */
+export const BQ_DEFAULT_TIMEOUT_MS = 60_000;
+/** Campus/subject rollups over the full attendance table. */
+export const BQ_HEAVY_QUERY_TIMEOUT_MS = 120_000;
+
+interface BqQueryResponse {
+  schema?: { fields: Array<{ name: string }> };
+  rows?: Array<{ f: Array<{ v: unknown }> }>;
+  jobComplete?: boolean;
+  jobReference?: { projectId?: string; jobId?: string; location?: string };
+  pageToken?: string;
+  errors?: Array<{ message?: string; reason?: string }>;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatBqErrors(data: BqQueryResponse): string {
+  const errs = data.errors ?? [];
+  if (errs.length === 0) return "";
+  return errs
+    .map((e) => e.message || e.reason || "unknown")
+    .filter(Boolean)
+    .join("; ");
+}
+
+function mapBqRows<T>(data: BqQueryResponse): T[] {
+  if (!data.schema?.fields?.length) return [];
+  const cols = data.schema.fields.map((f) => f.name);
+  return (data.rows ?? []).map((row) => {
+    const obj: Record<string, unknown> = {};
+    row.f.forEach((cell, i) => {
+      obj[cols[i]!] = cell.v;
+    });
+    return obj as T;
+  });
+}
+
+async function fetchQueryResults(
+  projectId: string,
+  jobId: string,
+  location: string,
+  timeoutMs: number,
+  pageToken?: string,
+): Promise<BqQueryResponse> {
+  const token = await getAccessToken();
+  const url = new URL(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${encodeURIComponent(jobId)}`,
+  );
+  url.searchParams.set("location", location);
+  url.searchParams.set("timeoutMs", String(Math.min(timeoutMs, 60_000)));
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`BQ getQueryResults error: ${res.status} ${err.slice(0, 500)}`);
+  }
+  return (await res.json()) as BqQueryResponse;
+}
+
+/**
+ * Run a BigQuery SQL job. If results are not ready within `timeoutMs`, polls
+ * getQueryResults until the job completes (or the overall deadline).
+ * Previously incomplete jobs returned [] and heavy rollups timed out as 500s.
+ */
 export async function bqQuery<T = Record<string, unknown>>(
   sql: string,
   params: Record<string, unknown> = {},
   location: string = BQ_LOCATION,
-  timeoutMs: number = 30000,
+  timeoutMs: number = BQ_DEFAULT_TIMEOUT_MS,
 ): Promise<T[]> {
   const token = await getAccessToken();
   const queryParams = Object.entries(params).map(([k, v]) => buildParam(k, v));
+  // Cap the interactive wait; remaining time is spent polling.
+  const interactiveMs = Math.min(Math.max(timeoutMs, 10_000), 120_000);
   const body = {
     query: sql,
     useLegacySql: false,
-    timeoutMs,
+    timeoutMs: interactiveMs,
     location,
     queryParameters: queryParams,
     parameterMode: queryParams.length > 0 ? "NAMED" : undefined,
@@ -142,26 +212,57 @@ export async function bqQuery<T = Record<string, unknown>>(
   );
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`BQ query error: ${res.status}`);
+    throw new Error(`BQ query error: ${res.status} ${err.slice(0, 500)}`);
   }
-  const data = (await res.json()) as {
-    schema?: { fields: Array<{ name: string }> };
-    rows?: Array<{ f: Array<{ v: unknown }> }>;
-    jobComplete?: boolean;
-    errors?: unknown[];
-  };
-  if (data.errors && (data.errors as unknown[]).length > 0) {
-    throw new Error("BQ query returned errors");
+  let data = (await res.json()) as BqQueryResponse;
+  const errMsg = formatBqErrors(data);
+  if (errMsg) {
+    throw new Error(`BQ query returned errors: ${errMsg}`);
   }
-  if (!data.schema || !data.rows) return [];
-  const cols = data.schema.fields.map((f) => f.name);
-  return (data.rows ?? []).map((row) => {
-    const obj: Record<string, unknown> = {};
-    row.f.forEach((cell, i) => {
-      obj[cols[i]!] = cell.v;
-    });
-    return obj as T;
-  });
+
+  const deadline = Date.now() + Math.max(timeoutMs, interactiveMs) + 30_000;
+  while (data.jobComplete === false) {
+    if (Date.now() > deadline) {
+      throw new Error("BQ query timed out waiting for job completion");
+    }
+    const jobId = data.jobReference?.jobId;
+    const projectId = data.jobReference?.projectId ?? BQ_PROJECT_ID;
+    const jobLocation = data.jobReference?.location ?? location;
+    if (!jobId) {
+      throw new Error("BQ query incomplete without jobId");
+    }
+    await sleep(1500);
+    data = await fetchQueryResults(projectId, jobId, jobLocation, 30_000);
+    const pollErr = formatBqErrors(data);
+    if (pollErr) {
+      throw new Error(`BQ query returned errors: ${pollErr}`);
+    }
+  }
+
+  const rows = mapBqRows<T>(data);
+  let pageToken = data.pageToken;
+  const projectId = data.jobReference?.projectId ?? BQ_PROJECT_ID;
+  const jobId = data.jobReference?.jobId;
+  const jobLocation = data.jobReference?.location ?? location;
+  while (pageToken && jobId) {
+    if (Date.now() > deadline) {
+      throw new Error("BQ query timed out while paging results");
+    }
+    const page = await fetchQueryResults(
+      projectId,
+      jobId,
+      jobLocation,
+      30_000,
+      pageToken,
+    );
+    const pageErr = formatBqErrors(page);
+    if (pageErr) {
+      throw new Error(`BQ query returned errors: ${pageErr}`);
+    }
+    rows.push(...mapBqRows<T>(page));
+    pageToken = page.pageToken;
+  }
+  return rows;
 }
 
 export async function listDatasets(): Promise<string[]> {

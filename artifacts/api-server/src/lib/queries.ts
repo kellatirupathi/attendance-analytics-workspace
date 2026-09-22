@@ -3,6 +3,8 @@ import {
   pct,
   PROD_SEQUENCE_TABLE,
   INSTRUCTOR_DETAILS_TABLE,
+  BQ_LOCATION,
+  BQ_HEAVY_QUERY_TIMEOUT_MS,
   validateStudentId,
   normalizeStudentId,
 } from "./bigquery.js";
@@ -152,6 +154,8 @@ export async function getAttendanceSemesters(
        AND TRIM(semester_title) != ''
      ORDER BY semester`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
 
   return rows
@@ -214,6 +218,15 @@ function dateRangeClause(
     parts.push("DATE(date) <= DATE(@dateTo)");
   }
   return parts.length > 0 ? ` AND ${parts.join(" AND ")}` : "";
+}
+
+/** TRUE when no date filter; otherwise the date predicate (no leading AND). */
+function dateWindowPredicate(
+  range: DateRangeFilter | undefined,
+  params: Record<string, unknown>,
+): string {
+  const clause = dateRangeClause(range, params);
+  return clause ? clause.replace(/^\s*AND\s+/, "") : "TRUE";
 }
 
 export interface StudentOverview {
@@ -473,6 +486,8 @@ export async function getDashboardFilterOptions(
        WHERE ${where} AND institute_name IS NOT NULL
        ORDER BY institute_name`,
       params,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     bqQuery<{ batch_section_name: string }>(
       `SELECT DISTINCT batch_section_name
@@ -481,6 +496,8 @@ export async function getDashboardFilterOptions(
          AND batch_section_name IS NOT NULL
        ORDER BY batch_section_name`,
       params,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
   ]);
 
@@ -755,7 +772,9 @@ export async function getCampusSummary(
 ): Promise<CampusSummaryItem[]> {
   const params: Record<string, unknown> = {};
   const rosterWhere = scopeClause(scope, params, { semester: opts.semester });
-  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
+  const inWindow = dateWindowPredicate(opts.dateRange, params);
+  // Single scan: roster metrics over the semester scope; windowed metrics
+  // gated by inWindow (TRUE when "All dates") — avoids a second full-table CTE.
   const rows = await bqQuery<
     AttendanceRollupRow & {
       institute_name: string;
@@ -763,40 +782,22 @@ export async function getCampusSummary(
       subject_count: string;
     }
   >(
-    `WITH roster AS (
-      SELECT
-        institute_name,
-        COUNT(DISTINCT student_user_id) AS student_count,
-        COUNT(DISTINCT batch_section_name) AS section_count,
-        COUNT(DISTINCT subject_title) AS subject_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${rosterWhere}
-      GROUP BY institute_name
-    ),
-    windowed AS (
-      SELECT
-        institute_name,
-        COUNT(DISTINCT IF(${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
-        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-        COUNTIF(${ATTENDED_SQL}) AS present_record_count,
-        COUNT(*) AS total_record_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${windowWhere}
-      GROUP BY institute_name
-    )
-    SELECT
-      roster.institute_name,
-      roster.student_count,
-      roster.section_count,
-      roster.subject_count,
-      COALESCE(windowed.present_student_count, 0) AS present_student_count,
-      COALESCE(windowed.session_count, 0) AS session_count,
-      COALESCE(windowed.present_record_count, 0) AS present_record_count,
-      COALESCE(windowed.total_record_count, 0) AS total_record_count
-    FROM roster
-    LEFT JOIN windowed USING (institute_name)
-    ORDER BY roster.institute_name`,
+    `SELECT
+      institute_name,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      COUNT(DISTINCT batch_section_name) AS section_count,
+      COUNT(DISTINCT subject_title) AS subject_count,
+      COUNT(DISTINCT IF((${inWindow}) AND ${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
+      COUNT(DISTINCT IF(${inWindow}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
+      COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_record_count,
+      COUNTIF(${inWindow}) AS total_record_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${rosterWhere}
+    GROUP BY institute_name
+    ORDER BY institute_name`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   return rows.map((r) => ({
     instituteName: r.institute_name,
@@ -811,7 +812,8 @@ export async function getSectionSummary(
   opts: { dateRange?: DateRangeFilter } = {},
 ): Promise<SectionSummaryItem[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params) + dateRangeClause(opts.dateRange, params);
+  const where = scopeClause(scope, params);
+  const inWindow = dateWindowPredicate(opts.dateRange, params);
   const rows = await bqQuery<{
     institute_name: string;
     batch_section_name: string;
@@ -823,13 +825,15 @@ export async function getSectionSummary(
       institute_name,
       COALESCE(batch_section_name, 'Unknown') AS batch_section_name,
       COUNT(DISTINCT student_user_id) AS student_count,
-      COUNTIF(${ATTENDED_SQL}) AS present_count,
-      COUNT(*) AS total_count
+      COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_count,
+      COUNTIF(${inWindow}) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
     GROUP BY institute_name, COALESCE(batch_section_name, 'Unknown')
     ORDER BY institute_name, batch_section_name`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   return rows.map((r) => {
     const p = Number(r.present_count);
@@ -873,41 +877,25 @@ export async function getSubjectSummary(
   }
   const rosterWhere =
     scopeClause(scope, params, { semester: opts.semester }) + campusFilter;
-  const windowWhere = rosterWhere + dateRangeClause(opts.dateRange, params);
+  const inWindow = dateWindowPredicate(opts.dateRange, params);
   const rows = await bqQuery<AttendanceRollupRow & { subject_title: string }>(
-    `WITH roster AS (
-      SELECT
-        subject_title,
-        COUNT(DISTINCT student_user_id) AS student_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${rosterWhere}
-      GROUP BY subject_title
-    ),
-    windowed AS (
-      SELECT
-        subject_title,
-        COUNT(DISTINCT IF(${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
-        COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS session_count,
-        COUNTIF(${ATTENDED_SQL}) AS present_record_count,
-        COUNT(*) AS total_record_count
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${windowWhere}
-      GROUP BY subject_title
-    )
-    SELECT
-      roster.subject_title,
-      roster.student_count,
-      COALESCE(windowed.present_student_count, 0) AS present_student_count,
-      COALESCE(windowed.session_count, 0) AS session_count,
-      COALESCE(windowed.present_record_count, 0) AS present_record_count,
-      COALESCE(windowed.total_record_count, 0) AS total_record_count
-    FROM roster
-    LEFT JOIN windowed USING (subject_title)
+    `SELECT
+      subject_title,
+      COUNT(DISTINCT student_user_id) AS student_count,
+      COUNT(DISTINCT IF((${inWindow}) AND ${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
+      COUNT(DISTINCT IF(${inWindow}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
+      COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_record_count,
+      COUNTIF(${inWindow}) AS total_record_count
+    FROM ${ATTENDANCE_TABLE}
+    WHERE ${rosterWhere}
+    GROUP BY subject_title
     ORDER BY SAFE_DIVIDE(
-      COALESCE(windowed.present_record_count, 0),
-      COALESCE(windowed.total_record_count, 0)
+      COUNTIF((${inWindow}) AND ${ATTENDED_SQL}),
+      NULLIF(COUNTIF(${inWindow}), 0)
     ) ASC`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   return rows.map((r) => ({
     subjectTitle: r.subject_title,
