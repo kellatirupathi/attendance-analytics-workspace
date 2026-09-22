@@ -116,7 +116,7 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
       needsAttention: worstStudents,
       updatedAt: new Date().toISOString(),
     };
-    cacheSet(cacheKey, summary, 60 * 1000);
+    cacheSet(cacheKey, summary, 5 * 60 * 1000);
     res.json(summary);
   } catch (err) {
     req.log.error({ err }, "Error fetching dashboard summary");
@@ -142,7 +142,7 @@ router.get("/filters", requireSession(), async (req, res): Promise<void> => {
     const options = await getDashboardFilterOptions(scope, {
       campus: campus || undefined,
     });
-    cacheSet(cacheKey, options, 60 * 1000);
+    cacheSet(cacheKey, options, 5 * 60 * 1000);
     res.json(options);
   } catch (err) {
     req.log.error({ err }, "Error fetching dashboard filters");
@@ -170,7 +170,7 @@ router.get("/semesters", requireSession(), async (req, res): Promise<void> => {
   }
   try {
     const semesters = await getAttendanceSemesters(scope, campus);
-    cacheSet(cacheKey, semesters, 60 * 1000);
+    cacheSet(cacheKey, semesters, 5 * 60 * 1000);
     res.json(semesters);
   } catch (err) {
     req.log.error({ err }, "Error fetching attendance semesters");
@@ -197,7 +197,7 @@ router.get("/subjects", requireSession(), async (req, res): Promise<void> => {
   }
   try {
     const subjects = await getSubjectSummary(scope, { campus, dateRange, semester });
-    cacheSet(cacheKey, subjects, 60 * 1000);
+    cacheSet(cacheKey, subjects, 5 * 60 * 1000);
     res.json(subjects);
   } catch (err) {
     req.log.error({ err }, "Error fetching subject attendance");
@@ -303,7 +303,7 @@ router.get("/campuses", requireSession(), async (req, res): Promise<void> => {
       ...c,
       belowRequirement: c.pct < REQUIRED_PCT,
     }));
-    cacheSet(cacheKey, payload, 60 * 1000);
+    cacheSet(cacheKey, payload, 5 * 60 * 1000);
     res.json(payload);
   } catch (err) {
     req.log.error({ err }, "Error fetching campus stats");
