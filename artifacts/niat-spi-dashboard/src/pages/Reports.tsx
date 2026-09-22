@@ -33,12 +33,23 @@ import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
 import { cn, pctTextColor } from "@/lib/utils";
+import { KpiCard } from "@/components/dashboard/blocks";
 import {
   computeSpiScore,
   spiStanding,
   standingLabel,
   type SpiStanding,
 } from "@/lib/spiScore";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import {
   ChevronRight,
   Download,
@@ -54,19 +65,12 @@ const FETCH_LIMIT = 5000;
 const PAGE_SIZES = [10, 25, 50, 100];
 const CURRENT_SEMESTER = "current";
 
-const PLACEHOLDER: Record<
-  Exclude<ReportsTab, "spi-record">,
-  { title: string; description: string }
-> = {
+const PLACEHOLDER = {
   "skill-debt": {
     title: "Skill Debt",
     description: "Students with active Skill Debt will appear here.",
   },
-  insights: {
-    title: "Insights",
-    description: "Trends and highlights across SPI will appear here.",
-  },
-};
+} as const;
 
 function tabFromPath(path: string): ReportsTab {
   if (path === "/dashboard/reports/skill-debt") return "skill-debt";
@@ -857,6 +861,407 @@ function SpiRecordPanel() {
   );
 }
 
+function InsightsPanel() {
+  const { user } = useAuth();
+  const isBoa = user?.role === "boa";
+  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
+
+  const [semester, setSemester] = useState("");
+  const [campusFilter, setCampusFilter] = useState(
+    hideCampus ? (user?.campuses?.[0] ?? "all") : "all",
+  );
+
+  const { data: filterOptions, isLoading: filtersLoading } =
+    useGetDashboardFilters(undefined, {
+      query: {
+        queryKey: getGetDashboardFiltersQueryKey(),
+        staleTime: 5 * 60_000,
+      },
+    });
+  const campusOptions = hideCampus
+    ? (user?.campuses ?? [])
+    : (filterOptions?.campuses ?? []);
+  const semesters = useAttendanceSemesters(
+    campusFilter !== "all" ? campusFilter : undefined,
+  );
+
+  const { data: campusSpi, isLoading: campusSpiLoading, isError: campusSpiError } =
+    useQuery({
+      queryKey: ["spi-averages", "campus", "insights", semester || "current"],
+      queryFn: async () => {
+        const params = new URLSearchParams({ group: "campus" });
+        if (semester) params.set("semester", semester);
+        const res = await fetch(`/api/dashboard/spi-averages?${params}`, {
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error("Failed to load SPI averages");
+        return res.json() as Promise<{
+          rows: Array<{
+            instituteName: string;
+            avgSpiPoints: number;
+            studentCount: number;
+            sectionCount: number;
+          }>;
+        }>;
+      },
+      staleTime: 5 * 60_000,
+    });
+
+  const { data: subjects, isLoading: subjectsLoading, isError: subjectsError } =
+    useQuery({
+      queryKey: [
+        "insights-subjects",
+        campusFilter,
+        semester || "current",
+      ],
+      queryFn: async () => {
+        const params = new URLSearchParams();
+        if (campusFilter !== "all") params.set("campus", campusFilter);
+        if (semester) params.set("semester", semester);
+        const res = await fetch(`/api/dashboard/subjects?${params}`, {
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error("Failed to load subjects");
+        return res.json() as Promise<Array<{ subjectTitle: string; pct: number }>>;
+      },
+      staleTime: 5 * 60_000,
+    });
+
+  const studentQuery = {
+    limit: FETCH_LIMIT,
+    campus: campusFilter !== "all" ? campusFilter : undefined,
+    semester: semester || undefined,
+  };
+  const {
+    data: students,
+    isLoading: studentsLoading,
+    isError: studentsError,
+  } = useGetDashboardStudents(studentQuery, {
+    query: {
+      queryKey: getGetDashboardStudentsQueryKey(studentQuery),
+      staleTime: 60_000,
+    },
+  });
+
+  const campusRows = useMemo(() => {
+    const rows = campusSpi?.rows ?? [];
+    if (campusFilter === "all") return rows;
+    return rows.filter(
+      (row) => nameKey(row.instituteName) === nameKey(campusFilter),
+    );
+  }, [campusSpi, campusFilter]);
+
+  const avgSpiPoints = useMemo(() => {
+    const values = campusRows
+      .map((row) => row.avgSpiPoints)
+      .filter((value): value is number => Number.isFinite(value));
+    return meanPoints(values);
+  }, [campusRows]);
+
+  const studentRows = useMemo(
+    () => (students ?? []).map(enrichStudent),
+    [students],
+  );
+
+  const standingMix = useMemo(() => {
+    const total = studentRows.length;
+    const good = studentRows.filter((s) => s.standing === "good").length;
+    const atRisk = studentRows.filter((s) => s.standing === "at_risk").length;
+    return {
+      total,
+      goodPct: total > 0 ? Math.round((good / total) * 1000) / 10 : null,
+      atRiskPct: total > 0 ? Math.round((atRisk / total) * 1000) / 10 : null,
+      good,
+      atRisk,
+    };
+  }, [studentRows]);
+
+  const subjectsBelow80 = useMemo(
+    () => (subjects ?? []).filter((s) => s.pct < 80).length,
+    [subjects],
+  );
+
+  const chartData = useMemo(
+    () =>
+      campusRows
+        .slice()
+        .sort((a, b) => a.avgSpiPoints - b.avgSpiPoints)
+        .map((row) => ({
+          fullName: row.instituteName,
+          name:
+            row.instituteName.length > 18
+              ? `${row.instituteName.slice(0, 17)}…`
+              : row.instituteName,
+          avgSpiPoints: row.avgSpiPoints,
+        })),
+    [campusRows],
+  );
+
+  const needsAttention = useMemo(
+    () =>
+      studentRows
+        .slice()
+        .sort((a, b) => a.spiPoints - b.spiPoints)
+        .slice(0, 25),
+    [studentRows],
+  );
+
+  const isLoading = campusSpiLoading || subjectsLoading || studentsLoading;
+
+  const handleExport = () => {
+    exportCsv(
+      "insights-needs-attention.csv",
+      ["Student", "Institute", "SPI Score", "Status"],
+      needsAttention.map((s) => [
+        s.studentName,
+        s.instituteName,
+        formatSpi(s.spiPoints),
+        standingLabel(s.standing),
+      ]),
+    );
+  };
+
+  return (
+    <div className="flex flex-col">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {!hideCampus && (
+          <SearchableSelect
+            value={campusFilter}
+            onValueChange={setCampusFilter}
+            options={campusSelectOptions(campusOptions, "All Colleges")}
+            placeholder="All Colleges"
+            searchPlaceholder="Search colleges…"
+            className="w-[220px]"
+            disabled={filtersLoading && campusOptions.length === 0}
+          />
+        )}
+        <SearchableSelect
+          value={semester || CURRENT_SEMESTER}
+          onValueChange={(value) =>
+            setSemester(value === CURRENT_SEMESTER ? "" : value)
+          }
+          options={[
+            { value: CURRENT_SEMESTER, label: "Current semester" },
+            ...semesters.map((s) => ({ value: s, label: s })),
+            ...(semester && !semesters.includes(semester)
+              ? [{ value: semester, label: semester }]
+              : []),
+          ]}
+          placeholder="Current semester"
+          searchPlaceholder="Search semesters…"
+          className="w-[200px]"
+          disabled={semesters.length === 0 && !semester}
+        />
+        <Button
+          variant="outline"
+          className="h-9 gap-2 border-gray-200"
+          onClick={handleExport}
+          disabled={needsAttention.length === 0}
+        >
+          <Download className="h-4 w-4" /> Export
+        </Button>
+        {isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+      </div>
+
+      {(campusSpiError || subjectsError || studentsError) && (
+        <p className="mb-3 text-sm text-red-600">
+          Some Insights metrics failed to load. Try again or narrow the college filter.
+        </p>
+      )}
+
+      <div className="mb-6 grid grid-cols-1 overflow-hidden rounded-xl border border-slate-200 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          label="Avg SPI"
+          value={
+            avgSpiPoints !== null ? (
+              <span style={{ color: pctTextColor(avgSpiPoints * 10) }}>
+                {formatSpi(avgSpiPoints)}
+              </span>
+            ) : (
+              <span className="text-gray-300">—</span>
+            )
+          }
+          footer="Mean of institute averages"
+        />
+        <KpiCard
+          label="% Good"
+          value={
+            standingMix.goodPct !== null ? `${standingMix.goodPct}%` : (
+              <span className="text-gray-300">—</span>
+            )
+          }
+          footer={`${standingMix.good.toLocaleString()} students · SPI ≥ 8`}
+        />
+        <KpiCard
+          label="% At Risk"
+          value={
+            standingMix.atRiskPct !== null ? (
+              <span className="text-red-600">{standingMix.atRiskPct}%</span>
+            ) : (
+              <span className="text-gray-300">—</span>
+            )
+          }
+          footer={`${standingMix.atRisk.toLocaleString()} students · SPI < 6`}
+        />
+        <KpiCard
+          label="Subjects below 80%"
+          value={
+            subjects ? (
+              <span className={subjectsBelow80 > 0 ? "text-red-600" : undefined}>
+                {subjectsBelow80}
+              </span>
+            ) : (
+              <span className="text-gray-300">—</span>
+            )
+          }
+          footer={`${(subjects ?? []).length} subjects in scope`}
+        />
+      </div>
+
+      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-gray-900">
+          Institute-wise avg SPI
+        </h2>
+        <p className="mb-3 text-xs text-gray-500">
+          Lowest scores first · 0–10 scale
+        </p>
+        {campusSpiLoading ? (
+          <Skeleton className="h-[320px] w-full" />
+        ) : chartData.length === 0 ? (
+          <p className="py-16 text-center text-sm text-gray-500">
+            No institute SPI averages for these filters.
+          </p>
+        ) : (
+          <div className="h-[340px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={chartData}
+                margin={{ top: 8, right: 8, left: -16, bottom: 64 }}
+                barCategoryGap="22%"
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  vertical={false}
+                  stroke="#f1f3f5"
+                />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: "#6b7280" }}
+                  tickLine={false}
+                  axisLine={{ stroke: "#e5e7eb" }}
+                  interval={0}
+                  angle={-35}
+                  textAnchor="end"
+                  height={70}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#9ca3af" }}
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, 10]}
+                  ticks={[0, 2, 4, 6, 8, 10]}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(0,0,0,0.03)" }}
+                  formatter={(value: number) => [formatSpi(value), "Avg SPI"]}
+                  labelFormatter={(_, payload) =>
+                    payload?.[0]?.payload?.fullName ?? ""
+                  }
+                />
+                <Bar dataKey="avgSpiPoints" radius={[5, 5, 0, 0]} maxBarSize={44}>
+                  {chartData.map((row) => (
+                    <Cell
+                      key={row.fullName}
+                      fill={pctTextColor(row.avgSpiPoints * 10)}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      <TableShell>
+        <div className="border-b border-gray-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-gray-900">Needs attention</h2>
+          <p className="text-xs text-gray-500">
+            Lowest student SPI scores in scope
+            {campusFilter === "all" ? " · capped at 5,000 students" : ""}
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
+                <Th className="min-w-[200px]">Student</Th>
+                <Th className="min-w-[180px]">Institute</Th>
+                <Th className="text-right">SPI Score</Th>
+                <Th>Status</Th>
+                <Th className="text-right">Report</Th>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {studentsLoading ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <TableRow key={i} className="border-b border-gray-100">
+                    <TableCell colSpan={5}>
+                      <Skeleton className="h-8 w-full" />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : needsAttention.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={5}
+                    className="h-24 text-center text-gray-500"
+                  >
+                    No student SPI data matches your filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                needsAttention.map((s) => (
+                  <TableRow key={s.studentId} className="border-b border-gray-100">
+                    <TableCell className="py-3 font-medium text-gray-900">
+                      {s.studentName}
+                    </TableCell>
+                    <TableCell className="text-gray-600">
+                      {s.instituteName || "—"}
+                    </TableCell>
+                    <TableCell
+                      className="text-right font-semibold tabular-nums"
+                      style={{ color: pctTextColor(s.spiPoints * 10) }}
+                    >
+                      {formatSpi(s.spiPoints)}
+                    </TableCell>
+                    <TableCell>
+                      <StandingBadge standing={s.standing} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {s.spiPath ? (
+                        <a
+                          href={s.spiPath}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                        >
+                          Open <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </TableShell>
+    </div>
+  );
+}
+
 export default function Reports() {
   const [location] = useLocation();
   const path = location.split("?")[0] ?? location;
@@ -871,16 +1276,16 @@ export default function Reports() {
       />
       <SubNav items={reportsNav()} />
 
-      {tab === "spi-record" ? (
-        <SpiRecordPanel />
-      ) : (
+      {tab === "spi-record" && <SpiRecordPanel />}
+      {tab === "insights" && <InsightsPanel />}
+      {tab === "skill-debt" && (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
           <p className="text-lg font-semibold text-slate-900">
-            {PLACEHOLDER[tab].title}
+            {PLACEHOLDER["skill-debt"].title}
           </p>
           <p className="mt-2 text-sm text-slate-500">Coming soon</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">
-            {PLACEHOLDER[tab].description}
+            {PLACEHOLDER["skill-debt"].description}
           </p>
         </div>
       )}
