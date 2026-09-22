@@ -26,13 +26,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -50,15 +43,14 @@ import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
 import { cn, pctTextColor } from "@/lib/utils";
 import {
-  attendanceStanding,
   computeSpiScore,
+  spiStanding,
   standingLabel,
-  type AttendanceStanding,
+  type SpiStanding,
 } from "@/lib/spiScore";
 import {
   ChevronRight,
   Download,
-  ExternalLink,
   Loader2,
   Search,
   SlidersHorizontal,
@@ -94,21 +86,19 @@ function tabFromPath(path: string): ReportsTab {
 type StudentRow = DashboardStudent & {
   spiPct: number;
   spiPoints: number;
-  standing: AttendanceStanding;
+  standing: SpiStanding;
 };
 
 type CampusRow = {
   name: string;
   studentCount: number;
   sectionCount: number;
-  avgSpiPct: number | null;
   avgSpiPoints: number | null;
 };
 
 type SectionRow = {
   name: string;
   studentCount: number;
-  avgSpiPct: number | null;
   avgSpiPoints: number | null;
 };
 
@@ -118,7 +108,7 @@ function enrichStudent(s: DashboardStudent): StudentRow {
     ...s,
     spiPct,
     spiPoints: points,
-    standing: attendanceStanding(s.attendancePct),
+    standing: spiStanding(points),
   };
 }
 
@@ -127,7 +117,7 @@ function mean(values: number[]): number | null {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function StandingBadge({ standing }: { standing: AttendanceStanding }) {
+function StandingBadge({ standing }: { standing: SpiStanding }) {
   const styles =
     standing === "good"
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -144,6 +134,10 @@ function StandingBadge({ standing }: { standing: AttendanceStanding }) {
       {standingLabel(standing)}
     </span>
   );
+}
+
+function formatSpi(points: number): string {
+  return `${points.toFixed(1)} / 10`;
 }
 
 function Th({
@@ -231,8 +225,9 @@ function SpiRecordPanel() {
     campusFilter !== "all" ? campusFilter : undefined,
   );
 
-  // Students are loaded only for the selected campus (not all institutes).
-  // That fixes wrong counts from the global 5k cap and keeps the page fast.
+  // Prefer campus-scoped student loads (avoids global 5k skew). On the
+  // institute list we still need quiz rows to average SPI, so fetch without
+  // campus — roster counts always come from summary, not this sample.
   const campusForStudents =
     selectedCampus ??
     (campusFilter !== "all" ? campusFilter : null);
@@ -249,7 +244,7 @@ function SpiRecordPanel() {
     semester: semester || undefined,
   };
 
-  const studentsEnabled = Boolean(campusForStudents);
+  const studentsEnabled = Boolean(campusForStudents) || drill === "campus";
   const { data: students, isLoading: studentsLoading, isFetching } =
     useGetDashboardStudents(studentQuery, {
       query: {
@@ -272,8 +267,8 @@ function SpiRecordPanel() {
     for (const s of rows) {
       const key = s.instituteName || "Unknown campus";
       const list = map.get(key);
-      if (list) list.push(s.spiPct);
-      else map.set(key, [s.spiPct]);
+      if (list) list.push(s.spiPoints);
+      else map.set(key, [s.spiPoints]);
     }
     const out = new Map<string, number>();
     for (const [key, vals] of map) {
@@ -288,8 +283,8 @@ function SpiRecordPanel() {
     for (const s of rows) {
       const key = s.sectionName?.trim() || "Unassigned";
       const list = map.get(key);
-      if (list) list.push(s.spiPct);
-      else map.set(key, [s.spiPct]);
+      if (list) list.push(s.spiPoints);
+      else map.set(key, [s.spiPoints]);
     }
     const out = new Map<string, number>();
     for (const [key, vals] of map) {
@@ -309,13 +304,12 @@ function SpiRecordPanel() {
         return true;
       })
       .map((c) => {
-        const avgSpiPct = spiByCampus.get(c.instituteName) ?? null;
+        const avgSpiPoints = spiByCampus.get(c.instituteName) ?? null;
         return {
           name: c.instituteName,
           studentCount: c.studentCount,
           sectionCount: c.sectionCount,
-          avgSpiPct,
-          avgSpiPoints: avgSpiPct !== null ? avgSpiPct / 10 : null,
+          avgSpiPoints,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -334,17 +328,17 @@ function SpiRecordPanel() {
         .filter((s) => {
           const name = s.sectionName || "Unassigned";
           if (sectionFilter !== "all" && name !== sectionFilter) return false;
-          if (q && !name.toLowerCase().includes(q)) return false;
+          if (drill === "section" && q && !name.toLowerCase().includes(q))
+            return false;
           return true;
         })
         .map((s) => {
           const name = s.sectionName || "Unassigned";
-          const avgSpiPct = spiBySection.get(name) ?? null;
+          const avgSpiPoints = spiBySection.get(name) ?? null;
           return {
             name,
             studentCount: s.studentCount,
-            avgSpiPct,
-            avgSpiPoints: avgSpiPct !== null ? avgSpiPct / 10 : null,
+            avgSpiPoints,
           };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -360,12 +354,11 @@ function SpiRecordPanel() {
     }
     return Array.from(bySection.entries())
       .map(([name, list]) => {
-        const avgSpiPct = mean(list.map((x) => x.spiPct));
+        const avgSpiPoints = mean(list.map((x) => x.spiPoints));
         return {
           name,
           studentCount: list.length,
-          avgSpiPct,
-          avgSpiPoints: avgSpiPct !== null ? avgSpiPct / 10 : null,
+          avgSpiPoints,
         };
       })
       .filter((s) => !q || s.name.toLowerCase().includes(q))
@@ -377,6 +370,7 @@ function SpiRecordPanel() {
     q,
     spiBySection,
     rows,
+    drill,
   ]);
 
   const sectionStudents = useMemo(() => {
@@ -387,10 +381,7 @@ function SpiRecordPanel() {
       )
       .filter((s) => {
         if (!q) return true;
-        return (
-          s.studentName.toLowerCase().includes(q) ||
-          s.studentId.toLowerCase().includes(q)
-        );
+        return s.studentName.toLowerCase().includes(q);
       })
       .sort((a, b) => a.studentName.localeCompare(b.studentName));
   }, [rows, selectedSection, q]);
@@ -547,7 +538,7 @@ function SpiRecordPanel() {
         ["Student", "SPI Score", "Status"],
         sectionStudents.map((s) => [
           s.studentName,
-          s.spiPoints.toFixed(1),
+          formatSpi(s.spiPoints),
           standingLabel(s.standing),
         ]),
       );
@@ -559,7 +550,7 @@ function SpiRecordPanel() {
         ["Section", "Avg SPI Score", "Students Count"],
         sections.map((s) => [
           s.name,
-          s.avgSpiPoints !== null ? s.avgSpiPoints.toFixed(1) : "",
+          s.avgSpiPoints !== null ? formatSpi(s.avgSpiPoints) : "",
           s.studentCount,
         ]),
       );
@@ -570,7 +561,7 @@ function SpiRecordPanel() {
       ["Institute Name", "Avg SPI Score", "Section", "Students Count"],
       campuses.map((c) => [
         c.name,
-        c.avgSpiPoints !== null ? c.avgSpiPoints.toFixed(1) : "",
+        c.avgSpiPoints !== null ? formatSpi(c.avgSpiPoints) : "",
         c.sectionCount,
         c.studentCount,
       ]),
@@ -585,23 +576,53 @@ function SpiRecordPanel() {
         : "students";
 
   const isLoading =
-    summaryLoading || (studentsEnabled && studentsLoading && drill !== "campus");
+    summaryLoading || (studentsEnabled && studentsLoading);
+
+  const actions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="outline"
+        className="h-9 gap-2 border-gray-200"
+        onClick={openFilters}
+      >
+        <SlidersHorizontal className="h-4 w-4" /> Filters
+        {activeFilterCount > 0 && (
+          <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-xs font-semibold text-white">
+            {activeFilterCount}
+          </span>
+        )}
+      </Button>
+      <Button
+        variant="outline"
+        className="h-9 gap-2 border-gray-200"
+        onClick={handleExport}
+        disabled={activeList.length === 0}
+      >
+        <Download className="h-4 w-4" /> Export
+      </Button>
+      {activeFilterCount > 0 && (
+        <button
+          type="button"
+          onClick={clearAll}
+          className="h-9 px-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:underline"
+        >
+          Clear
+        </button>
+      )}
+      {isFetching && !studentsLoading && (
+        <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+      )}
+    </div>
+  );
 
   return (
     <div className="flex flex-col">
-      <div className="mb-3">
-        <h2 className="text-base font-semibold text-gray-900 underline decoration-gray-300 underline-offset-4">
-          SPI Record
-        </h2>
-      </div>
-
-      {(drill !== "campus" || selectedCampus) && (
+      {drill !== "campus" && (
         <PageBreadcrumb
           items={[
             {
               label: "All Colleges",
               onClick: hideCampus ? undefined : goInstitutes,
-              current: drill === "campus",
             },
             ...(selectedCampus
               ? [
@@ -619,75 +640,66 @@ function SpiRecordPanel() {
         />
       )}
 
-      {/* Sketch layout: Semwise · All colleges · Filter · Export */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <SearchableSelect
-          value={semester || CURRENT_SEMESTER}
-          onValueChange={(value) => {
-            setSemester(value === CURRENT_SEMESTER ? "" : value);
-            resetPage();
-          }}
-          options={[
-            { value: CURRENT_SEMESTER, label: "Current semester" },
-            ...semesters.map((s) => ({ value: s, label: s })),
-            ...(semester && !semesters.includes(semester)
-              ? [{ value: semester, label: semester }]
-              : []),
-          ]}
-          placeholder="Semwise"
-          searchPlaceholder="Search semesters…"
-          className="w-[200px]"
-          disabled={semesters.length === 0 && !semester}
-        />
-
-        {!hideCampus && (
+      {/* Level-specific controls */}
+      {drill === "students" ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
           <SearchableSelect
-            value={campusFilter}
-            onValueChange={setCollege}
-            options={campusSelectOptions(campusOptions, "All colleges")}
-            placeholder="All colleges"
-            searchPlaceholder="Search colleges…"
-            className="w-[220px]"
-            disabled={filtersLoading && campusOptions.length === 0}
+            value={semester || CURRENT_SEMESTER}
+            onValueChange={(value) => {
+              setSemester(value === CURRENT_SEMESTER ? "" : value);
+              resetPage();
+            }}
+            options={[
+              { value: CURRENT_SEMESTER, label: "Current semester" },
+              ...semesters.map((s) => ({ value: s, label: s })),
+              ...(semester && !semesters.includes(semester)
+                ? [{ value: semester, label: semester }]
+                : []),
+            ]}
+            placeholder="Current semester"
+            searchPlaceholder="Search semesters…"
+            className="w-[200px]"
+            disabled={semesters.length === 0 && !semester}
           />
-        )}
-
-        <Button
-          variant="outline"
-          className="h-9 gap-2 border-gray-200"
-          onClick={openFilters}
-        >
-          <SlidersHorizontal className="h-4 w-4" /> Filter
-          {activeFilterCount > 0 && (
-            <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-xs font-semibold text-white">
-              {activeFilterCount}
-            </span>
+          {!hideCampus && (
+            <SearchableSelect
+              value={campusFilter}
+              onValueChange={setCollege}
+              options={campusSelectOptions(campusOptions, "All Colleges")}
+              placeholder="All Colleges"
+              searchPlaceholder="Search colleges…"
+              className="w-[220px]"
+              disabled={filtersLoading && campusOptions.length === 0}
+            />
           )}
-        </Button>
-
-        <Button
-          variant="outline"
-          className="h-9 gap-2 border-gray-200"
-          onClick={handleExport}
-          disabled={activeList.length === 0}
-        >
-          <Download className="h-4 w-4" /> Export
-        </Button>
-
-        {activeFilterCount > 0 && (
-          <button
-            type="button"
-            onClick={clearAll}
-            className="h-9 px-2 text-sm font-semibold text-red-600 hover:text-red-700 hover:underline"
-          >
-            Clear
-          </button>
-        )}
-
-        {isFetching && !studentsLoading && (
-          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-        )}
-      </div>
+          <SearchableSelect
+            value={sectionFilter}
+            onValueChange={setSection}
+            options={sectionSelectOptions(sectionOptions, "All Sections")}
+            placeholder="All Sections"
+            searchPlaceholder="Search sections…"
+            className="w-[200px]"
+            disabled={campusFilter === "all" || filtersLoading}
+          />
+          <div className="relative min-w-[200px] flex-1 sm:w-64 sm:flex-none">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Input
+              placeholder="Search student name…"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                resetPage();
+              }}
+              className="h-9 w-full border-gray-200 pl-9"
+            />
+          </div>
+          {actions}
+        </div>
+      ) : (
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+          {actions}
+        </div>
+      )}
 
       <TableShell>
         <div className="overflow-x-auto">
@@ -716,7 +728,6 @@ function SpiRecordPanel() {
                     <Th className="min-w-[200px]">Student</Th>
                     <Th className="text-right">SPI Score</Th>
                     <Th>Status</Th>
-                    <Th className="text-right">SPI Report</Th>
                   </>
                 )}
               </TableRow>
@@ -751,8 +762,12 @@ function SpiRecordPanel() {
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">
                       {c.avgSpiPoints !== null ? (
-                        <span style={{ color: pctTextColor(c.avgSpiPct!) }}>
-                          {c.avgSpiPoints.toFixed(1)} / 10
+                        <span
+                          style={{
+                            color: pctTextColor(c.avgSpiPoints * 10),
+                          }}
+                        >
+                          {formatSpi(c.avgSpiPoints)}
                         </span>
                       ) : (
                         <span className="font-normal text-gray-300">—</span>
@@ -781,8 +796,12 @@ function SpiRecordPanel() {
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">
                       {sec.avgSpiPoints !== null ? (
-                        <span style={{ color: pctTextColor(sec.avgSpiPct!) }}>
-                          {sec.avgSpiPoints.toFixed(1)} / 10
+                        <span
+                          style={{
+                            color: pctTextColor(sec.avgSpiPoints * 10),
+                          }}
+                        >
+                          {formatSpi(sec.avgSpiPoints)}
                         </span>
                       ) : (
                         <span className="font-normal text-gray-300">—</span>
@@ -807,23 +826,12 @@ function SpiRecordPanel() {
                     </TableCell>
                     <TableCell
                       className="text-right font-semibold tabular-nums"
-                      style={{ color: pctTextColor(s.spiPct) }}
+                      style={{ color: pctTextColor(s.spiPoints * 10) }}
                     >
-                      {s.spiPoints.toFixed(1)} / 10
+                      {formatSpi(s.spiPoints)}
                     </TableCell>
                     <TableCell>
                       <StandingBadge standing={s.standing} />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <a
-                        href={s.spiPath}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        Open <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
                     </TableCell>
                   </TableRow>
                 ))
@@ -851,27 +859,32 @@ function SpiRecordPanel() {
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
         <SheetContent side="right" className="flex w-full flex-col sm:max-w-sm">
           <SheetHeader>
-            <SheetTitle>Filter</SheetTitle>
+            <SheetTitle>Filters</SheetTitle>
             <SheetDescription>
-              Semwise, college, section, and search. Apply jumps to the matching
-              level.
+              {drill === "students"
+                ? "Semester, college, section, and student search."
+                : drill === "section"
+                  ? "Narrow sections or jump to a college / student list."
+                  : "Search institutes or jump into a college."}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 space-y-5 overflow-y-auto py-6">
-            <div className="space-y-1.5">
-              <Label>Semwise</Label>
-              <SearchableSelect
-                value={draftSemester}
-                onValueChange={setDraftSemester}
-                options={[
-                  { value: CURRENT_SEMESTER, label: "Current semester" },
-                  ...semesters.map((s) => ({ value: s, label: s })),
-                ]}
-                placeholder="Current semester"
-                searchPlaceholder="Search semesters…"
-                className="w-full"
-              />
-            </div>
+            {(drill === "students" || drill === "section") && (
+              <div className="space-y-1.5">
+                <Label>Semester</Label>
+                <SearchableSelect
+                  value={draftSemester}
+                  onValueChange={setDraftSemester}
+                  options={[
+                    { value: CURRENT_SEMESTER, label: "Current semester" },
+                    ...semesters.map((s) => ({ value: s, label: s })),
+                  ]}
+                  placeholder="Current semester"
+                  searchPlaceholder="Search semesters…"
+                  className="w-full"
+                />
+              </div>
+            )}
             {!hideCampus && (
               <div className="space-y-1.5">
                 <Label>College</Label>
@@ -881,58 +894,51 @@ function SpiRecordPanel() {
                     setDraftCampus(v);
                     setDraftSection("all");
                   }}
-                  options={campusSelectOptions(campusOptions, "All colleges")}
-                  placeholder="All colleges"
+                  options={campusSelectOptions(campusOptions, "All Colleges")}
+                  placeholder="All Colleges"
                   searchPlaceholder="Search colleges…"
                   className="w-full"
                   disabled={filtersLoading}
                 />
               </div>
             )}
+            {(drill === "students" || drill === "section") && (
+              <div className="space-y-1.5">
+                <Label>Section</Label>
+                <SearchableSelect
+                  value={draftSection}
+                  onValueChange={setDraftSection}
+                  options={sectionSelectOptions(sectionOptions, "All Sections")}
+                  placeholder="All Sections"
+                  searchPlaceholder="Search sections…"
+                  className="w-full"
+                  disabled={draftCampus === "all" || filtersLoading}
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
-              <Label>Section</Label>
-              <SearchableSelect
-                value={draftSection}
-                onValueChange={setDraftSection}
-                options={sectionSelectOptions(sectionOptions, "All Sections")}
-                placeholder="All Sections"
-                searchPlaceholder="Search sections…"
-                className="w-full"
-                disabled={draftCampus === "all" || filtersLoading}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Search</Label>
+              <Label>
+                {drill === "students"
+                  ? "Student name"
+                  : drill === "section"
+                    ? "Search sections"
+                    : "Search institutes"}
+              </Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <Input
-                  placeholder="College, section, or student…"
+                  placeholder={
+                    drill === "students"
+                      ? "Search student name…"
+                      : drill === "section"
+                        ? "Search section…"
+                        : "Search institute…"
+                  }
                   value={draftSearch}
                   onChange={(e) => setDraftSearch(e.target.value)}
                   className="h-9 border-gray-200 pl-9"
                 />
               </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Rows per page</Label>
-              <Select
-                value={String(pageSize)}
-                onValueChange={(v) => {
-                  setPageSize(Number(v));
-                  resetPage();
-                }}
-              >
-                <SelectTrigger className="h-9 w-full border-gray-200">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAGE_SIZES.map((s) => (
-                    <SelectItem key={s} value={String(s)}>
-                      {s}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 border-t border-gray-200 pt-4">
