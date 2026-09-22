@@ -15,7 +15,6 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const SpiReport = lazy(() => import("@/pages/SpiReport"));
 const Students = lazy(() => import("@/pages/Students"));
 const Campuses = lazy(() => import("@/pages/Campuses"));
-const InstituteDirectory = lazy(() => import("@/pages/InstituteDirectory"));
 const Profile = lazy(() => import("@/pages/Profile"));
 const BigQueryExplorer = lazy(() => import("@/pages/BigQueryExplorer"));
 const AdminUsers = lazy(() => import("@/pages/AdminUsers"));
@@ -126,11 +125,6 @@ function Router() {
         <Route path="/dashboard/campuses">
           <Protected>
             <Campuses />
-          </Protected>
-        </Route>
-        <Route path="/dashboard/institutes">
-          <Protected>
-            <InstituteDirectory />
           </Protected>
         </Route>
         <Route path="/dashboard/reports/skill-debt">
