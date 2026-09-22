@@ -48,7 +48,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
-import { semesterLabel } from "@/lib/dateRange";
 import { cn, pctTextColor } from "@/lib/utils";
 import {
   attendanceStanding,
@@ -557,7 +556,7 @@ function SpiRecordPanel() {
     if (drill === "section") {
       exportCsv(
         "spi-record-sections.csv",
-        ["Section", "Avg SPI", "Students"],
+        ["Section", "Avg SPI Score", "Students Count"],
         sections.map((s) => [
           s.name,
           s.avgSpiPoints !== null ? s.avgSpiPoints.toFixed(1) : "",
@@ -568,7 +567,7 @@ function SpiRecordPanel() {
     }
     exportCsv(
       "spi-record-colleges.csv",
-      ["Institute", "Avg SPI", "Sections", "Students"],
+      ["Institute Name", "Avg SPI Score", "Section", "Students Count"],
       campuses.map((c) => [
         c.name,
         c.avgSpiPoints !== null ? c.avgSpiPoints.toFixed(1) : "",
@@ -590,6 +589,12 @@ function SpiRecordPanel() {
 
   return (
     <div className="flex flex-col">
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-gray-900 underline decoration-gray-300 underline-offset-4">
+          SPI Record
+        </h2>
+      </div>
+
       {(drill !== "campus" || selectedCampus) && (
         <PageBreadcrumb
           items={[
@@ -614,6 +619,7 @@ function SpiRecordPanel() {
         />
       )}
 
+      {/* Sketch layout: Semwise · All colleges · Filter · Export */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SearchableSelect
           value={semester || CURRENT_SEMESTER}
@@ -628,72 +634,30 @@ function SpiRecordPanel() {
               ? [{ value: semester, label: semester }]
               : []),
           ]}
-          placeholder="Current semester"
+          placeholder="Semwise"
           searchPlaceholder="Search semesters…"
-          className="w-[220px]"
+          className="w-[200px]"
           disabled={semesters.length === 0 && !semester}
         />
-
-        <div className="relative min-w-[200px] flex-1 sm:w-64 sm:flex-none">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Search college, section, or student…"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              resetPage();
-            }}
-            className="h-9 w-full border-gray-200 pl-9"
-          />
-        </div>
 
         {!hideCampus && (
           <SearchableSelect
             value={campusFilter}
             onValueChange={setCollege}
-            options={campusSelectOptions(campusOptions, "All Colleges")}
-            placeholder="All Colleges"
+            options={campusSelectOptions(campusOptions, "All colleges")}
+            placeholder="All colleges"
             searchPlaceholder="Search colleges…"
             className="w-[220px]"
             disabled={filtersLoading && campusOptions.length === 0}
           />
         )}
 
-        <SearchableSelect
-          value={sectionFilter}
-          onValueChange={setSection}
-          options={sectionSelectOptions(sectionOptions, "All Sections")}
-          placeholder="All Sections"
-          searchPlaceholder="Search sections…"
-          className="w-[200px]"
-          disabled={campusFilter === "all" || filtersLoading}
-        />
-
-        <Select
-          value={String(pageSize)}
-          onValueChange={(v) => {
-            setPageSize(Number(v));
-            resetPage();
-          }}
-        >
-          <SelectTrigger className="h-9 w-[76px] border-gray-200">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PAGE_SIZES.map((s) => (
-              <SelectItem key={s} value={String(s)}>
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <Button
           variant="outline"
           className="h-9 gap-2 border-gray-200"
           onClick={openFilters}
         >
-          <SlidersHorizontal className="h-4 w-4" /> Filters
+          <SlidersHorizontal className="h-4 w-4" /> Filter
           {activeFilterCount > 0 && (
             <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-xs font-semibold text-white">
               {activeFilterCount}
@@ -726,43 +690,24 @@ function SpiRecordPanel() {
       </div>
 
       <TableShell>
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">
-            {drill === "campus"
-              ? "Colleges"
-              : drill === "section"
-                ? `Sections · ${selectedCampus}`
-                : `Students · ${selectedSection}`}
-          </h2>
-          <p className="mt-0.5 text-xs text-gray-500">
-            {activeList.length.toLocaleString()} {listLabel}
-            {" · "}
-            {semesterLabel(semester)}
-            {" · "}
-            Section/student counts from attendance roster
-            {" · "}
-            SPI = classroom (10%) + module (15%); skill &amp; final = 0 until
-            available
-          </p>
-        </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
                 {drill === "campus" && (
                   <>
-                    <Th className="min-w-[220px]">Institute</Th>
-                    <Th className="text-right">Avg SPI</Th>
-                    <Th className="text-right">Sections</Th>
-                    <Th className="text-right">Students</Th>
+                    <Th className="min-w-[220px]">Institute Name</Th>
+                    <Th className="text-right">Avg SPI Score</Th>
+                    <Th className="text-right">Section</Th>
+                    <Th className="text-right">Students Count</Th>
                     <Th className="w-10" />
                   </>
                 )}
                 {drill === "section" && (
                   <>
                     <Th className="min-w-[180px]">Section</Th>
-                    <Th className="text-right">Avg SPI</Th>
-                    <Th className="text-right">Students</Th>
+                    <Th className="text-right">Avg SPI Score</Th>
+                    <Th className="text-right">Students Count</Th>
                     <Th className="w-10" />
                   </>
                 )}
@@ -906,15 +851,15 @@ function SpiRecordPanel() {
       <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
         <SheetContent side="right" className="flex w-full flex-col sm:max-w-sm">
           <SheetHeader>
-            <SheetTitle>Filters</SheetTitle>
+            <SheetTitle>Filter</SheetTitle>
             <SheetDescription>
-              College, semester, section, and search — same controls as the
-              filter bar.
+              Semwise, college, section, and search. Apply jumps to the matching
+              level.
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 space-y-5 overflow-y-auto py-6">
             <div className="space-y-1.5">
-              <Label>Semester</Label>
+              <Label>Semwise</Label>
               <SearchableSelect
                 value={draftSemester}
                 onValueChange={setDraftSemester}
@@ -936,8 +881,8 @@ function SpiRecordPanel() {
                     setDraftCampus(v);
                     setDraftSection("all");
                   }}
-                  options={campusSelectOptions(campusOptions, "All Colleges")}
-                  placeholder="All Colleges"
+                  options={campusSelectOptions(campusOptions, "All colleges")}
+                  placeholder="All colleges"
                   searchPlaceholder="Search colleges…"
                   className="w-full"
                   disabled={filtersLoading}
@@ -957,7 +902,7 @@ function SpiRecordPanel() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Student / search</Label>
+              <Label>Search</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <Input
@@ -967,6 +912,27 @@ function SpiRecordPanel() {
                   className="h-9 border-gray-200 pl-9"
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Rows per page</Label>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(v) => {
+                  setPageSize(Number(v));
+                  resetPage();
+                }}
+              >
+                <SelectTrigger className="h-9 w-full border-gray-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZES.map((s) => (
+                    <SelectItem key={s} value={String(s)}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="flex items-center justify-between gap-2 border-t border-gray-200 pt-4">
