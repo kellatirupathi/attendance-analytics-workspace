@@ -50,6 +50,8 @@ import {
   Pencil,
   X,
   Search,
+  MinusCircle,
+  ShieldAlert,
 } from "lucide-react";
 import {
   format,
@@ -67,6 +69,31 @@ import {
 } from "date-fns";
 
 const REQUIRED_PCT = 80;
+
+/** Center label of the SPI ring. Flip to "percent" to show "XX%" instead of "X.X / 10". */
+type SpiCenterFormat = "points" | "percent";
+const SPI_SCORE_FORMAT: SpiCenterFormat = "points";
+
+type EligibilityState = "met" | "not_met" | "unavailable";
+type CategoryKey = "classroom" | "module" | "skill" | "final";
+type StandingKind = "clear" | "recovery" | "skill_debt";
+
+type SpiRingSegment = {
+  key: CategoryKey;
+  label: string;
+  weight: number;
+  scored: boolean;
+  pct: number | null;
+};
+
+const CONSEQUENCES = [
+  { icon: BookOpen, label: "SPI", text: "Not earned this cycle" },
+  { icon: ClipboardList, label: "Assessments", text: "Can't sit them" },
+  { icon: Briefcase, label: "Placements", text: "Drives paused" },
+  { icon: Users, label: "Internships", text: "Nominations paused" },
+  { icon: Star, label: "MINT · BRAVE · GRIT", text: "On hold" },
+];
+
 
 /* ------------------------------------------------------------------ */
 /*  Section wrapper — numbered, hairline-separated (editorial layout)  */
@@ -101,73 +128,267 @@ function Section({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Attendance donut ring                                             */
+/*  SPI score ring — 4 weight arcs (10 / 15 / 25 / 50)                */
 /* ------------------------------------------------------------------ */
-function Donut({ pct, label = "this semester" }: { pct: number; label?: string }) {
-  const size = 150;
-  const stroke = 14;
+function SpiScoreRing({
+  segments,
+  format = "points",
+  size = 176,
+}: {
+  segments: SpiRingSegment[];
+  format?: SpiCenterFormat;
+  size?: number;
+}) {
+  const stroke = 16;
   const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const dash = (Math.min(100, Math.max(0, pct)) / 100) * c;
-  const color = pctColor(pct);
+  const circumference = 2 * Math.PI * r;
+  const gap = circumference * 0.02;
+  const totalWeight = segments.reduce((sum, seg) => sum + seg.weight, 0) || 1;
+  const usable = circumference - gap * segments.length;
+
+  const scoredWeight = segments
+    .filter((seg) => seg.scored)
+    .reduce((sum, seg) => sum + seg.weight, 0);
+  const weightedPctSum = segments
+    .filter((seg) => seg.scored)
+    .reduce((sum, seg) => sum + (seg.pct ?? 0) * seg.weight, 0);
+  const spiPct = scoredWeight > 0 ? weightedPctSum / scoredWeight : 0;
+  const points = spiPct / 10;
+  const centerColor =
+    scoredWeight === 0 ? "#9ca3af" : pctTextColor(spiPct);
+
+  let offset = 0;
+  const arcs = segments.map((seg) => {
+    const len = (seg.weight / totalWeight) * usable;
+    const color = seg.scored ? pctColor(seg.pct ?? 0) : "#e5e7eb";
+    const arc = {
+      key: seg.key,
+      color,
+      dasharray: `${len} ${circumference - len}`,
+      dashoffset: -offset,
+    };
+    offset += len + gap;
+    return arc;
+  });
+
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="#eceef2"
-          strokeWidth={stroke}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={`${dash} ${c - dash}`}
-          strokeLinecap="round"
-          style={{ transition: "stroke-dasharray 1s cubic-bezier(.4,0,.2,1)" }}
-        />
+      <svg width={size} height={size} className="-rotate-90" aria-hidden>
+        {arcs.map((arc) => (
+          <circle
+            key={arc.key}
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={arc.color}
+            strokeWidth={stroke}
+            strokeDasharray={arc.dasharray}
+            strokeDashoffset={arc.dashoffset}
+            strokeLinecap="butt"
+            style={{ transition: "stroke 0.6s ease, stroke-dasharray 0.6s ease" }}
+          />
+        ))}
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span
-          className="font-serif text-3xl font-bold leading-none"
-          style={{ color: pctTextColor(pct) }}
-        >
-          {pct}%
-        </span>
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-center">
+        {scoredWeight === 0 ? (
+          <span className="font-serif text-3xl font-bold leading-none text-gray-300">
+            —
+          </span>
+        ) : format === "percent" ? (
+          <span
+            className="font-serif text-3xl font-bold leading-none tabular-nums"
+            style={{ color: centerColor }}
+          >
+            {Math.round(spiPct)}
+            <span className="text-lg">%</span>
+          </span>
+        ) : (
+          <span
+            className="font-serif text-[1.65rem] font-bold leading-none tabular-nums"
+            style={{ color: centerColor }}
+          >
+            {points.toFixed(1)}
+            <span className="text-sm font-semibold text-gray-400"> / 10</span>
+          </span>
+        )}
         <span className="mt-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">
-          {label}
+          SPI score
         </span>
       </div>
     </div>
   );
 }
 
-const CONSEQUENCES = [
-  { icon: BookOpen, label: "SPI", text: "Not earned this cycle" },
-  { icon: ClipboardList, label: "Assessments", text: "Can't sit them" },
-  { icon: Briefcase, label: "Placements", text: "Drives paused" },
-  { icon: Users, label: "Internships", text: "Nominations paused" },
-  { icon: Star, label: "MINT · BRAVE · GRIT", text: "On hold" },
-];
+function EligibilityRow({
+  label,
+  criterion,
+  state,
+  detail,
+}: {
+  label: string;
+  criterion: string;
+  state: EligibilityState;
+  detail: string;
+}) {
+  const icon =
+    state === "met" ? (
+      <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+    ) : state === "not_met" ? (
+      <AlertTriangle className="h-5 w-5 text-orange-500" />
+    ) : (
+      <MinusCircle className="h-5 w-5 text-gray-300" />
+    );
+  const badge =
+    state === "met"
+      ? "Met"
+      : state === "not_met"
+        ? "Not met"
+        : "Not available";
+  const badgeClass =
+    state === "met"
+      ? "bg-emerald-50 text-emerald-700"
+      : state === "not_met"
+        ? "bg-orange-50 text-orange-700"
+        : "bg-gray-100 text-gray-500";
 
-type CategoryKey = "classroom" | "module" | "skill" | "final";
+  return (
+    <li className="flex items-start gap-3 border-b border-gray-100 py-3 last:border-0">
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-sm font-semibold text-gray-900">{label}</p>
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+              badgeClass,
+            )}
+          >
+            {badge}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs text-gray-500">{criterion}</p>
+        <p className="mt-0.5 text-xs text-gray-400">{detail}</p>
+      </div>
+    </li>
+  );
+}
+
+function StandingBanner({
+  kind,
+  recoverySubjects,
+  skillDebtCourses,
+}: {
+  kind: StandingKind;
+  recoverySubjects: SubjectAttendance[];
+  skillDebtCourses: string[];
+}) {
+  if (kind === "clear") {
+    return (
+      <div className="mt-6 rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-5 sm:p-6">
+        <div className="flex items-center gap-2.5">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
+          <h3 className="text-base font-bold text-emerald-900">Clear</h3>
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-emerald-800">
+          No active Skill Debt. You have full access to MINT, BRAVE, GRIT,
+          placements, and internships.
+        </p>
+      </div>
+    );
+  }
+
+  if (kind === "recovery") {
+    return (
+      <div
+        id="recovery-and-skill-debt"
+        className="mt-6 overflow-hidden rounded-2xl border border-orange-200/70 bg-[#fff8ef] p-5 sm:p-6"
+      >
+        <div className="flex items-center gap-2.5">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-orange-500" />
+          <h3 className="text-base font-bold text-orange-900">Recovery</h3>
+        </div>
+        <p className="mt-2 text-sm leading-relaxed text-orange-800">
+          Attendance is below 80% in{" "}
+          {recoverySubjects.length === 1 ? "this course" : "these courses"}.
+          Attend the assigned recovery classes (RAF) to restore eligibility.
+          This is not Skill Debt.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {recoverySubjects.map((s) => (
+            <span
+              key={s.subjectTitle}
+              className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3.5 py-1.5 text-[13px] font-medium text-gray-700"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+              {s.subjectTitle} · {s.pct}%
+            </span>
+          ))}
+        </div>
+        <a
+          href="#recovery-and-skill-debt"
+          className="mt-4 inline-flex text-sm font-semibold text-orange-800 underline decoration-orange-300 underline-offset-2 hover:text-orange-950"
+        >
+          View RAF schedule
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6 overflow-hidden rounded-2xl border border-red-200/80 bg-red-50/70 p-5 sm:p-6">
+      <div className="flex items-center gap-2.5">
+        <ShieldAlert className="h-5 w-5 shrink-0 text-red-600" />
+        <h3 className="text-base font-bold text-red-900">Skill Debt</h3>
+      </div>
+      <p className="mt-2 text-sm leading-relaxed text-red-800">
+        {skillDebtCourses.length === 1 ? "This course" : "These courses"}{" "}
+        {skillDebtCourses.length === 1 ? "has" : "have"} an F/Ab grade or a
+        skipped recovery class. The following are paused until the debt is
+        cleared (policy §6):
+      </p>
+      {skillDebtCourses.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {skillDebtCourses.map((name) => (
+            <span
+              key={name}
+              className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-white px-3.5 py-1.5 text-[13px] font-medium text-gray-700"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+              {name}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {CONSEQUENCES.map((c) => (
+          <div
+            key={c.label}
+            className="rounded-xl border border-red-100 bg-white p-3.5"
+          >
+            <div className="flex items-center gap-2 text-red-500">
+              <c.icon className="h-4 w-4 shrink-0" />
+              <p className="text-[13px] font-bold text-gray-900">{c.label}</p>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">{c.text}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const SPI_CATEGORIES: {
   key: CategoryKey;
   label: string;
   weight: string;
+  weightPct: number;
   soon: boolean;
 }[] = [
-  { key: "classroom", label: "Classroom Quizzes", weight: "10%", soon: false },
-  { key: "module", label: "Module Quizzes", weight: "15%", soon: false },
-  { key: "skill", label: "Skill Assessments", weight: "25%", soon: true },
-  { key: "final", label: "Final Assessment", weight: "50%", soon: true },
+  { key: "classroom", label: "Classroom Quizzes", weight: "10%", weightPct: 10, soon: false },
+  { key: "module", label: "Module Quizzes", weight: "15%", weightPct: 15, soon: false },
+  { key: "skill", label: "Skill Assessments", weight: "25%", weightPct: 25, soon: true },
+  { key: "final", label: "Final Assessment", weight: "50%", weightPct: 50, soon: true },
 ];
 
 export default function SpiReport() {
@@ -446,12 +667,113 @@ export default function SpiReport() {
     );
   }
 
-  const onTrack = overview.attendancePct >= REQUIRED_PCT;
-  const classroomPct = categoryData.classroom.avgPct;
-  const modulePct = categoryData.module.avgPct;
-  const spiScore = Math.round(
-    overview.attendancePct * 0.75 + classroomPct * 0.1 + modulePct * 0.15,
-  );
+  const spiSegments: SpiRingSegment[] = SPI_CATEGORIES.map((cat) => {
+    const data = categoryData[cat.key];
+    const scored = !cat.soon && data.items.length > 0;
+    return {
+      key: cat.key,
+      label: cat.label,
+      weight: cat.weightPct,
+      scored,
+      pct: scored ? data.avgPct : null,
+    };
+  });
+  const scoredSpiWeight = spiSegments
+    .filter((seg) => seg.scored)
+    .reduce((sum, seg) => sum + seg.weight, 0);
+
+  const quizCriterion = (
+    data: (typeof categoryData)[CategoryKey],
+    kind: "participation" | "completion",
+  ): { state: EligibilityState; detail: string } => {
+    if (!quizzes) {
+      return { state: "unavailable", detail: "Not available" };
+    }
+    if (data.total === 0) {
+      return { state: "unavailable", detail: "None assigned yet" };
+    }
+    const met = data.attempted >= data.total;
+    return {
+      state: met ? "met" : "not_met",
+      detail: `${data.attempted} / ${data.total} ${kind === "participation" ? "attempted" : "completed"}`,
+    };
+  };
+
+  const attendanceBelow = recoverySubjects;
+  const attendanceRow: {
+    state: EligibilityState;
+    detail: string;
+  } = !subjects
+    ? { state: "unavailable", detail: "Not available" }
+    : subjects.length === 0
+      ? { state: "unavailable", detail: "No courses recorded yet" }
+      : attendanceBelow.length === 0
+        ? {
+            state: "met",
+            detail: `All ${subjects.length} course${subjects.length === 1 ? "" : "s"} at or above 80%`,
+          }
+        : {
+            state: "not_met",
+            detail: `${attendanceBelow.length} course${attendanceBelow.length === 1 ? "" : "s"} below 80%`,
+          };
+
+  const classroomRow = quizCriterion(categoryData.classroom, "participation");
+  const moduleRow = quizCriterion(categoryData.module, "completion");
+
+  const eligibilityRows: {
+    label: string;
+    criterion: string;
+    state: EligibilityState;
+    detail: string;
+  }[] = [
+    {
+      label: "Attendance",
+      criterion: "≥80% in every course",
+      ...attendanceRow,
+    },
+    {
+      label: "Classroom Quizzes",
+      criterion: "100% participation",
+      ...classroomRow,
+    },
+    {
+      label: "Module Quizzes",
+      criterion: "100% completion",
+      ...moduleRow,
+    },
+    {
+      label: "Skill Assessments",
+      criterion: "100% participation",
+      state: "unavailable",
+      detail: "Not available",
+    },
+    {
+      label: "Final Skill Assessment",
+      criterion: "Mandatory",
+      state: "unavailable",
+      detail: "Not available",
+    },
+    {
+      label: "Assessment Honesty",
+      criterion: "No malpractice",
+      state: "unavailable",
+      detail: "Not available",
+    },
+  ];
+
+  /**
+   * Skill Debt is grade-driven (F/Ab or a skipped RAF class) per policy §6.
+   * Those fields are not on the student overview/quiz APIs yet, so this stays
+   * empty rather than inferring debt from quiz averages or attendance.
+   */
+  const skillDebtCourses: string[] = [];
+  const standing: StandingKind =
+    skillDebtCourses.length > 0
+      ? "skill_debt"
+      : recoveryCount > 0
+        ? "recovery"
+        : "clear";
+  const section1Loading = quizzesLoading || subjectsLoading;
 
   return (
     <div className="min-h-screen bg-[#f4f5f9]">
@@ -482,10 +804,10 @@ export default function SpiReport() {
           </div>
         </header>
 
-        {/* ==================== 01 · ATTENDANCE ==================== */}
+        {/* ==================== 01 · ELIGIBILITY & SPI ==================== */}
         <Section
           num="01"
-          title="Attendance"
+          title="Eligibility & SPI"
           aside={
             <div className="flex flex-wrap items-center gap-2">
               <button
@@ -511,136 +833,80 @@ export default function SpiReport() {
               {reqDone}
             </div>
           )}
-          <div className="grid gap-8 sm:grid-cols-2">
-            {quizzesLoading ? (
-              <>
-                <div className="flex flex-col items-center gap-6 sm:flex-row">
-                  <Skeleton className="h-[150px] w-[150px] shrink-0 rounded-full" />
-                  <div className="flex w-full max-w-[220px] flex-col gap-3">
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-8 w-full" />
+          {section1Loading ? (
+            <div className="grid gap-8 lg:grid-cols-2">
+              <div className="flex flex-col items-center gap-6 sm:flex-row">
+                <Skeleton className="h-[176px] w-[176px] shrink-0 rounded-full" />
+                <div className="flex w-full max-w-[220px] flex-col gap-3">
+                  <Skeleton className="h-6 w-full" />
+                  <Skeleton className="h-6 w-full" />
+                  <Skeleton className="h-6 w-3/4" />
+                </div>
+              </div>
+              <div className="space-y-3">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-8 lg:grid-cols-2">
+                <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
+                  <SpiScoreRing
+                    segments={spiSegments}
+                    format={SPI_SCORE_FORMAT}
+                  />
+                  <div className="w-full min-w-0">
+                    {scoredSpiWeight < 100 && (
+                      <p className="mb-4 text-sm leading-relaxed text-gray-600">
+                        Only {scoredSpiWeight}% of your SPI weight is scored so
+                        far.
+                      </p>
+                    )}
+                    <ul className="space-y-2">
+                      {spiSegments.map((seg) => (
+                        <li
+                          key={seg.key}
+                          className="flex items-center justify-between gap-3 text-xs"
+                        >
+                          <span className="flex min-w-0 items-center gap-2 text-gray-600">
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{
+                                backgroundColor: seg.scored
+                                  ? pctColor(seg.pct ?? 0)
+                                  : "#e5e7eb",
+                              }}
+                            />
+                            <span className="truncate">{seg.label}</span>
+                          </span>
+                          <span className="shrink-0 tabular-nums text-gray-400">
+                            {seg.weight}%
+                            {seg.scored ? "" : " · pending"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              </>
-            ) : (
-              <>
-            <div className="flex flex-col items-center gap-6 sm:flex-row">
-              <Donut pct={spiScore} label="SPI score" />
-              <div className="flex w-full max-w-[220px] flex-col gap-3">
-                <ScoreBar label="Attendance overall" pct={overview.attendancePct} />
-                <ScoreBar label="Classroom quiz overall" pct={classroomPct} />
-                <ScoreBar label="Module quiz overall" pct={modulePct} />
-              </div>
-            </div>
 
-            {/* Message + key/value standing */}
-            <div>
-              <p className="text-sm leading-relaxed text-gray-600">
-                {onTrack ? (
-                  "You're on track — keep attending to stay eligible."
-                ) : (
-                  <>
-                    {recoveryCount} course{recoveryCount === 1 ? "" : "s"} below
-                    80% — complete recovery to earn your SPI this cycle.
-                  </>
-                )}
-              </p>
-              <dl className="mt-4 space-y-0">
-                <KeyVal
-                  label="Recovery Mode"
-                  value={recoveryCount > 0 ? "Active" : "Not active"}
-                  ok={recoveryCount === 0}
-                />
-                <KeyVal
-                  label="SPI Eligibility"
-                  value={onTrack ? "On track" : "Not on track"}
-                  ok={onTrack}
-                />
-                <KeyVal
-                  label="Courses in Recovery"
-                  value={recoveryCount > 0 ? String(recoveryCount) : "None"}
-                  ok={recoveryCount === 0}
-                />
-              </dl>
-            </div>
-              </>
-            )}
-          </div>
-        </Section>
-
-        {/* ==================== RECOVERY MODE (amber card) ==================== */}
-        {recoveryCount > 0 && (
-          <div className="overflow-hidden rounded-2xl border border-orange-200/70 bg-[#fff8ef]">
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-2.5">
-                <AlertTriangle className="h-5 w-5 shrink-0 text-orange-500" />
-                <h3 className="text-lg font-bold text-orange-900">
-                  You&apos;re in Recovery Mode
-                </h3>
-              </div>
-              <p className="mt-2 text-sm leading-relaxed text-orange-800">
-                {recoveryCount} course{recoveryCount === 1 ? "" : "s"} below 80%
-                — you need to attend the assigned recovery classes to get them
-                back above 80% and stay eligible for SPI.
-              </p>
-
-              <p className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-wider text-orange-600">
-                Courses in Recovery Mode
-              </p>
-              <div className="flex flex-wrap gap-2.5">
-                {recoverySubjects.map((s, i) => (
-                  <span
-                    key={i}
-                    className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-white px-3.5 py-1.5 text-[13px] font-medium text-gray-700"
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
-                    {s.subjectTitle} · {s.pct}%
-                  </span>
-                ))}
-              </div>
-
-              <div className="mt-6 border-t border-orange-200/60 pt-6">
-                <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-orange-600">
-                  If recovery isn&apos;t completed
-                </p>
-                <p className="mb-4 text-sm text-gray-700">
-                  Skip the recovery classes and a course moves into{" "}
-                  <span className="font-bold text-orange-900">Skill Debt</span>{" "}
-                  — a single Skill Debt puts all of this on hold:
-                </p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                  {CONSEQUENCES.map((c) => (
-                    <div
-                      key={c.label}
-                      className="rounded-xl border border-orange-100 bg-white p-3.5"
-                    >
-                      <div className="flex items-center gap-2 text-orange-500">
-                        <c.icon className="h-4 w-4 shrink-0" />
-                        <p className="text-[13px] font-bold text-gray-900">
-                          {c.label}
-                        </p>
-                      </div>
-                      <p className="mt-1 text-xs text-gray-500">{c.text}</p>
-                    </div>
+                <ul>
+                  {eligibilityRows.map((row) => (
+                    <EligibilityRow key={row.label} {...row} />
                   ))}
-                </div>
-                <p className="mt-4 text-sm text-gray-600">
-                  Stay clear: attend every assigned recovery class and restore
-                  attendance to 80% — then SPI, assessments and all activities
-                  stay open.
-                </p>
+                </ul>
               </div>
-            </div>
-          </div>
-        )}
+
+              <StandingBanner
+                kind={standing}
+                recoverySubjects={recoverySubjects}
+                skillDebtCourses={skillDebtCourses}
+              />
+            </>
+          )}
+        </Section>
 
         {/* ==================== 02 · SPI ==================== */}
         <Section num="02" title="Skill Performance Index">
@@ -1319,30 +1585,6 @@ function MonthDatePicker({
   );
 }
 
-/* Small progress bar for SPI section */
-function ScoreBar({ label, pct }: { label: string; pct: number }) {
-  const safe = Math.min(100, Math.max(0, pct));
-  return (
-    <div className="w-full">
-      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-        <span className="text-gray-500">{label}</span>
-        <span
-          className="font-semibold tabular-nums"
-          style={{ color: pctTextColor(safe) }}
-        >
-          {safe}%
-        </span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${safe}%`, backgroundColor: pctColor(safe) }}
-        />
-      </div>
-    </div>
-  );
-}
-
 function RequestStatusBadge({
   status,
   small,
@@ -1400,31 +1642,6 @@ function Stat({
         {value}
       </p>
       <p className="text-xs text-gray-400">{label}</p>
-    </div>
-  );
-}
-
-/* Key/value standing row */
-function KeyVal({
-  label,
-  value,
-  ok,
-}: {
-  label: string;
-  value: string;
-  ok: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between border-b border-gray-100 py-2.5 last:border-0">
-      <dt className="text-sm text-gray-500">{label}</dt>
-      <dd
-        className={cn(
-          "text-sm font-bold",
-          ok ? "text-emerald-600" : "text-orange-500",
-        )}
-      >
-        {value}
-      </dd>
     </div>
   );
 }
