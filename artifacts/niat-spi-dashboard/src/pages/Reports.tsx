@@ -26,6 +26,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -62,7 +69,7 @@ type ReportsTab = "spi-record" | "skill-debt" | "insights";
 type Drill = "campus" | "section" | "students";
 
 const FETCH_LIMIT = 5000;
-const PAGE_SIZES = [25, 50, 100, 200];
+const PAGE_SIZES = [10, 25, 50, 100];
 const CURRENT_SEMESTER = "current";
 
 const PLACEHOLDER: Record<
@@ -534,15 +541,15 @@ function SpiRecordPanel() {
   };
 
   const handleExport = () => {
+    // Full filtered result set (not just the current page).
     if (drill === "students") {
       exportCsv(
         "spi-record-students.csv",
-        ["Student", "SPI Score", "Status", "SPI Report"],
+        ["Student", "SPI Score", "Status"],
         sectionStudents.map((s) => [
           s.studentName,
           s.spiPoints.toFixed(1),
           standingLabel(s.standing),
-          s.spiPath,
         ]),
       );
       return;
@@ -661,6 +668,25 @@ function SpiRecordPanel() {
           className="w-[200px]"
           disabled={campusFilter === "all" || filtersLoading}
         />
+
+        <Select
+          value={String(pageSize)}
+          onValueChange={(v) => {
+            setPageSize(Number(v));
+            resetPage();
+          }}
+        >
+          <SelectTrigger className="h-9 w-[76px] border-gray-200">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZES.map((s) => (
+              <SelectItem key={s} value={String(s)}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <Button
           variant="outline"
