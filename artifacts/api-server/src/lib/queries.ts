@@ -701,13 +701,16 @@ export async function getStudentsList(
     ),
     quiz AS (
       SELECT
-        user_id,
-        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
-      FROM ${QUIZ_TABLE}
-      GROUP BY user_id
+        att.student_user_id,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM att
+      INNER JOIN ${QUIZ_TABLE} q
+        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
+      GROUP BY att.student_user_id
     )
     SELECT
       att.student_user_id,
@@ -719,12 +722,12 @@ export async function getStudentsList(
       quiz.classroom_avg,
       quiz.module_avg
     FROM att
-    LEFT JOIN quiz
-      ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
-       = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
+    LEFT JOIN quiz USING (student_user_id)
     ORDER BY SAFE_DIVIDE(att.present, att.total) ASC
     LIMIT ${safeLimit}`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   const round1 = (v: string | null): number | null => {
     if (v === null || v === undefined) return null;
@@ -746,6 +749,147 @@ export async function getStudentsList(
       moduleAvg: round1(r.module_avg),
     };
   });
+}
+
+/** Official SPI points 0–10 from classroom/module only (skill/final stubbed as 0). */
+const SPI_POINTS_SQL = `(
+  (IFNULL(classroom_avg, 0) * 10 + IFNULL(module_avg, 0) * 15) / 100.0
+) / 10.0`;
+
+export interface SpiCampusAverage {
+  instituteName: string;
+  avgSpiPoints: number;
+  studentCount: number;
+}
+
+export interface SpiSectionAverage {
+  sectionName: string;
+  avgSpiPoints: number;
+  studentCount: number;
+}
+
+/**
+ * Campus-level mean SPI without shipping every student row to the client.
+ * Quiz is joined only to roster students (not a full quiz table pre-aggregate).
+ */
+export async function getSpiAveragesByCampus(
+  scope: SessionScope,
+  opts: { semester?: string } = {},
+): Promise<SpiCampusAverage[]> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params, { semester: opts.semester });
+  const rows = await bqQuery<{
+    institute_name: string;
+    avg_spi_points: string;
+    student_count: string;
+  }>(
+    `WITH roster AS (
+      SELECT DISTINCT
+        student_user_id,
+        institute_name
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${where}
+        AND institute_name IS NOT NULL
+    ),
+    quiz AS (
+      SELECT
+        roster.student_user_id,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM roster
+      INNER JOIN ${QUIZ_TABLE} q
+        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
+      GROUP BY roster.student_user_id
+    ),
+    scored AS (
+      SELECT
+        roster.institute_name,
+        roster.student_user_id,
+        ${SPI_POINTS_SQL} AS spi_points
+      FROM roster
+      LEFT JOIN quiz USING (student_user_id)
+    )
+    SELECT
+      institute_name,
+      AVG(spi_points) AS avg_spi_points,
+      COUNT(*) AS student_count
+    FROM scored
+    GROUP BY institute_name
+    ORDER BY institute_name`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows.map((r) => ({
+    instituteName: r.institute_name,
+    avgSpiPoints: Math.round(Number(r.avg_spi_points) * 10) / 10,
+    studentCount: Number(r.student_count),
+  }));
+}
+
+/**
+ * Section-level mean SPI for one campus (Reports section drill).
+ */
+export async function getSpiAveragesBySection(
+  scope: SessionScope,
+  opts: { campus: string; semester?: string },
+): Promise<SpiSectionAverage[]> {
+  const params: Record<string, unknown> = { campus: opts.campus };
+  const where =
+    scopeClause(scope, params, { semester: opts.semester }) +
+    " AND institute_name = @campus";
+  const rows = await bqQuery<{
+    section_name: string;
+    avg_spi_points: string;
+    student_count: string;
+  }>(
+    `WITH roster AS (
+      SELECT DISTINCT
+        student_user_id,
+        COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${where}
+    ),
+    quiz AS (
+      SELECT
+        roster.student_user_id,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM roster
+      INNER JOIN ${QUIZ_TABLE} q
+        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
+      GROUP BY roster.student_user_id
+    ),
+    scored AS (
+      SELECT
+        roster.section_name,
+        roster.student_user_id,
+        ${SPI_POINTS_SQL} AS spi_points
+      FROM roster
+      LEFT JOIN quiz USING (student_user_id)
+    )
+    SELECT
+      section_name,
+      AVG(spi_points) AS avg_spi_points,
+      COUNT(*) AS student_count
+    FROM scored
+    GROUP BY section_name
+    ORDER BY section_name`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows.map((r) => ({
+    sectionName: r.section_name,
+    avgSpiPoints: Math.round(Number(r.avg_spi_points) * 10) / 10,
+    studentCount: Number(r.student_count),
+  }));
 }
 
 export interface CampusSummaryItem {
