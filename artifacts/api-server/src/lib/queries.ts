@@ -586,6 +586,8 @@ export async function getInstituteDirectory(
      GROUP BY institute_name, semester
      ORDER BY institute_name, semester`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
 
   const byInstitute = new Map<string, InstituteSemesterRow[]>();
