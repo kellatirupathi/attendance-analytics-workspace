@@ -760,6 +760,7 @@ export interface SpiCampusAverage {
   instituteName: string;
   avgSpiPoints: number;
   studentCount: number;
+  sectionCount: number;
 }
 
 export interface SpiSectionAverage {
@@ -782,51 +783,69 @@ export async function getSpiAveragesByCampus(
     institute_name: string;
     avg_spi_points: string;
     student_count: string;
+    section_count: string;
   }>(
     `WITH roster AS (
-      SELECT DISTINCT
+      SELECT
         student_user_id,
-        institute_name
+        TRIM(institute_name) AS institute_name,
+        COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
         AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+    ),
+    students AS (
+      SELECT DISTINCT student_user_id, institute_name
+      FROM roster
     ),
     quiz AS (
       SELECT
-        roster.student_user_id,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
-      FROM roster
-      INNER JOIN ${QUIZ_TABLE} q
-        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
-         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
-      GROUP BY roster.student_user_id
+        user_id,
+        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM ${QUIZ_TABLE}
+      GROUP BY user_id
     ),
     scored AS (
       SELECT
-        roster.institute_name,
-        roster.student_user_id,
+        students.institute_name,
+        students.student_user_id,
         ${SPI_POINTS_SQL} AS spi_points
+      FROM students
+      LEFT JOIN quiz
+        ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(students.student_user_id AS STRING), '-', ''))
+    ),
+    sections AS (
+      SELECT
+        institute_name,
+        COUNT(DISTINCT section_name) AS section_count
       FROM roster
-      LEFT JOIN quiz USING (student_user_id)
+      GROUP BY institute_name
     )
     SELECT
-      institute_name,
-      AVG(spi_points) AS avg_spi_points,
-      COUNT(*) AS student_count
+      scored.institute_name,
+      AVG(scored.spi_points) AS avg_spi_points,
+      COUNT(*) AS student_count,
+      ANY_VALUE(sections.section_count) AS section_count
     FROM scored
-    GROUP BY institute_name
-    ORDER BY institute_name`,
+    LEFT JOIN sections USING (institute_name)
+    GROUP BY scored.institute_name
+    ORDER BY scored.institute_name`,
     params,
     BQ_LOCATION,
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   return rows.map((r) => ({
     instituteName: r.institute_name,
-    avgSpiPoints: Math.round(Number(r.avg_spi_points) * 10) / 10,
+    avgSpiPoints: Number.isFinite(Number(r.avg_spi_points))
+      ? Math.round(Number(r.avg_spi_points) * 10) / 10
+      : 0,
     studentCount: Number(r.student_count),
+    sectionCount: Number(r.section_count),
   }));
 }
 
@@ -855,16 +874,13 @@ export async function getSpiAveragesBySection(
     ),
     quiz AS (
       SELECT
-        roster.student_user_id,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
-      FROM roster
-      INNER JOIN ${QUIZ_TABLE} q
-        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
-         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
-      GROUP BY roster.student_user_id
+        user_id,
+        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM ${QUIZ_TABLE}
+      GROUP BY user_id
     ),
     scored AS (
       SELECT
@@ -872,7 +888,9 @@ export async function getSpiAveragesBySection(
         roster.student_user_id,
         ${SPI_POINTS_SQL} AS spi_points
       FROM roster
-      LEFT JOIN quiz USING (student_user_id)
+      LEFT JOIN quiz
+        ON LOWER(REPLACE(CAST(quiz.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
     )
     SELECT
       section_name,
@@ -936,7 +954,7 @@ export async function getCampusSummary(
     }
   >(
     `SELECT
-      institute_name,
+      TRIM(institute_name) AS institute_name,
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNT(DISTINCT batch_section_name) AS section_count,
       COUNT(DISTINCT subject_title) AS subject_count,
@@ -946,7 +964,7 @@ export async function getCampusSummary(
       COUNTIF(${inWindow}) AS total_record_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${rosterWhere}
-    GROUP BY institute_name
+    GROUP BY TRIM(institute_name)
     ORDER BY institute_name`,
     params,
     BQ_LOCATION,

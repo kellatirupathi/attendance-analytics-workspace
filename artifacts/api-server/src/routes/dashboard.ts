@@ -73,13 +73,13 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
     campuses: session.campuses,
     subjects: session.subjects,
   });
-  const dateRange = parseDateRange(
-    req.query as Record<string, string | undefined>,
-  );
+  const q = req.query as Record<string, string | undefined>;
+  const dateRange = parseDateRange(q);
+  const semester = parseSemester(q);
   // lite=1: campus rollup only (Reports / directory counts) — skips the
   // expensive subject + section + worst-student scans.
   const lite = String(req.query["lite"] ?? "") === "1";
-  const cacheKey = `summary:v4:${lite ? "lite:" : ""}${session.role}:${JSON.stringify(scope)}:${dateRangeCacheKey(dateRange)}`;
+  const cacheKey = `summary:v5:${lite ? "lite:" : ""}${session.role}:${JSON.stringify(scope)}:${semester ?? ""}:${dateRangeCacheKey(dateRange)}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -87,7 +87,10 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   }
   try {
     if (lite) {
-      const campusBreakdown = await getCampusSummary(scope, { dateRange });
+      const campusBreakdown = await getCampusSummary(scope, {
+        dateRange,
+        semester,
+      });
       const totalStudents = campusBreakdown.reduce(
         (s, c) => s + c.studentCount,
         0,
@@ -122,10 +125,10 @@ router.get("/summary", requireSession(), async (req, res): Promise<void> => {
 
     const [campusBreakdown, sectionBreakdown, subjectBreakdown, worstStudents] =
       await Promise.all([
-        getCampusSummary(scope, { dateRange }),
+        getCampusSummary(scope, { dateRange, semester }),
         getSectionSummary(scope, { dateRange }),
         getSubjectSummary(scope, { dateRange }),
-        getStudentsList(scope, { limit: 5, dateRange }),
+        getStudentsList(scope, { limit: 5, dateRange, semester }),
       ]);
     const totalStudents = campusBreakdown.reduce(
       (s, c) => s + c.studentCount,
@@ -269,7 +272,7 @@ router.get("/spi-averages", requireSession(), async (req, res): Promise<void> =>
     }
   }
 
-  const cacheKey = `spi-avg:v1:${session.role}:${JSON.stringify(scope)}:${group}:${campus ?? ""}:${semester ?? ""}`;
+  const cacheKey = `spi-avg:v2:${session.role}:${JSON.stringify(scope)}:${group}:${campus ?? ""}:${semester ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

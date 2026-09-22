@@ -22,15 +22,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
 import {
   SearchableSelect,
   campusSelectOptions,
@@ -50,9 +42,9 @@ import {
 import {
   ChevronRight,
   Download,
+  ExternalLink,
   Loader2,
   Search,
-  SlidersHorizontal,
 } from "lucide-react";
 
 type ReportsTab = "spi-record" | "skill-debt" | "insights";
@@ -134,6 +126,10 @@ function formatSpi(points: number): string {
   return `${points.toFixed(1)} / 10`;
 }
 
+function nameKey(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 function Th({
   children,
   className,
@@ -172,12 +168,6 @@ function SpiRecordPanel() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [draftSemester, setDraftSemester] = useState(CURRENT_SEMESTER);
-  const [draftCampus, setDraftCampus] = useState("all");
-  const [draftSection, setDraftSection] = useState("all");
-  const [draftSearch, setDraftSearch] = useState("");
-
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const resetPage = () => setPage(1);
@@ -187,6 +177,7 @@ function SpiRecordPanel() {
     queryKey: ["dashboard-summary-lite", semester || "current"],
     queryFn: async () => {
       const params = new URLSearchParams({ lite: "1" });
+      if (semester) params.set("semester", semester);
       const res = await fetch(`/api/dashboard/summary?${params}`, {
         credentials: "include",
       });
@@ -208,7 +199,7 @@ function SpiRecordPanel() {
   });
 
   const filterCampusForOptions =
-    campusFilter !== "all" ? campusFilter : undefined;
+    campusFilter !== "all" ? campusFilter : selectedCampus ?? undefined;
   const { data: filterOptions, isLoading: filtersLoading } =
     useGetDashboardFilters(
       { campus: filterCampusForOptions },
@@ -233,22 +224,28 @@ function SpiRecordPanel() {
   );
 
   // SPI averages from BigQuery (no 5k student payload on college/section lists).
-  const { data: campusSpi, isLoading: campusSpiLoading } = useQuery({
-    queryKey: ["spi-averages", "campus", semester || "current"],
-    queryFn: async () => {
-      const params = new URLSearchParams({ group: "campus" });
-      if (semester) params.set("semester", semester);
-      const res = await fetch(`/api/dashboard/spi-averages?${params}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load SPI averages");
-      return res.json() as Promise<{
-        rows: Array<{ instituteName: string; avgSpiPoints: number }>;
-      }>;
-    },
-    enabled: drill === "campus" || drill === "section",
-    staleTime: 5 * 60_000,
-  });
+  const { data: campusSpi, isLoading: campusSpiLoading, isError: campusSpiError } =
+    useQuery({
+      queryKey: ["spi-averages", "campus", semester || "current"],
+      queryFn: async () => {
+        const params = new URLSearchParams({ group: "campus" });
+        if (semester) params.set("semester", semester);
+        const res = await fetch(`/api/dashboard/spi-averages?${params}`, {
+          credentials: "include",
+        });
+        if (!res.ok) throw new Error("Failed to load SPI averages");
+        return res.json() as Promise<{
+          rows: Array<{
+            instituteName: string;
+            avgSpiPoints: number;
+            studentCount: number;
+            sectionCount: number;
+          }>;
+        }>;
+      },
+      enabled: drill === "campus",
+      staleTime: 5 * 60_000,
+    });
 
   const sectionCampus =
     selectedCampus ?? (campusFilter !== "all" ? campusFilter : null);
@@ -311,7 +308,7 @@ function SpiRecordPanel() {
   const spiByCampus = useMemo(() => {
     const out = new Map<string, number>();
     for (const row of campusSpi?.rows ?? []) {
-      out.set(row.instituteName, row.avgSpiPoints);
+      out.set(nameKey(row.instituteName), row.avgSpiPoints);
     }
     return out;
   }, [campusSpi]);
@@ -319,31 +316,44 @@ function SpiRecordPanel() {
   const spiBySection = useMemo(() => {
     const out = new Map<string, number>();
     for (const row of sectionSpi?.rows ?? []) {
-      out.set(row.sectionName, row.avgSpiPoints);
+      out.set(nameKey(row.sectionName), row.avgSpiPoints);
     }
     return out;
   }, [sectionSpi]);
 
   const campuses = useMemo<CampusRow[]>(() => {
-    const fromSummary = summary?.campusBreakdown ?? [];
-    return fromSummary
+    const summaryByKey = new Map(
+      (summary?.campusBreakdown ?? []).map((c) => [nameKey(c.instituteName), c]),
+    );
+    const spiRows = campusSpi?.rows ?? [];
+    const source: CampusRow[] =
+      spiRows.length > 0
+        ? spiRows.map((row) => {
+            const extra = summaryByKey.get(nameKey(row.instituteName));
+            return {
+              name: row.instituteName,
+              studentCount: row.studentCount || extra?.studentCount || 0,
+              sectionCount: row.sectionCount || extra?.sectionCount || 0,
+              avgSpiPoints: Number.isFinite(row.avgSpiPoints)
+                ? row.avgSpiPoints
+                : 0,
+            };
+          })
+        : (summary?.campusBreakdown ?? []).map((c) => ({
+            name: c.instituteName,
+            studentCount: c.studentCount,
+            sectionCount: c.sectionCount,
+            avgSpiPoints: spiByCampus.get(nameKey(c.instituteName)) ?? null,
+          }));
+
+    return source
       .filter((c) => {
-        if (campusFilter !== "all" && c.instituteName !== campusFilter)
+        if (campusFilter !== "all" && nameKey(c.name) !== nameKey(campusFilter))
           return false;
-        if (q && !c.instituteName.toLowerCase().includes(q)) return false;
         return true;
       })
-      .map((c) => {
-        const avgSpiPoints = spiByCampus.get(c.instituteName) ?? null;
-        return {
-          name: c.instituteName,
-          studentCount: c.studentCount,
-          sectionCount: c.sectionCount,
-          avgSpiPoints,
-        };
-      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [summary, campusFilter, q, spiByCampus]);
+  }, [summary, campusSpi, campusFilter, spiByCampus]);
 
   const sections = useMemo<SectionRow[]>(() => {
     if (!selectedCampus) return [];
@@ -378,7 +388,7 @@ function SpiRecordPanel() {
       .map((name) => ({
         name,
         studentCount: 0,
-        avgSpiPoints: spiBySection.get(name) ?? null,
+        avgSpiPoints: spiBySection.get(nameKey(name)) ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [
@@ -399,7 +409,10 @@ function SpiRecordPanel() {
       )
       .filter((s) => {
         if (!q) return true;
-        return s.studentName.toLowerCase().includes(q);
+        return (
+          s.studentName.toLowerCase().includes(q) ||
+          s.studentId.toLowerCase().includes(q)
+        );
       })
       .sort((a, b) => a.studentName.localeCompare(b.studentName));
   }, [rows, selectedSection, q]);
@@ -420,12 +433,18 @@ function SpiRecordPanel() {
   }, [page, totalPages]);
 
   const setCollege = (value: string) => {
+    if (drill === "campus") {
+      setCampusFilter(value);
+      resetPage();
+      return;
+    }
     setCampusFilter(value);
     setSectionFilter("all");
     setSelectedSection(null);
     resetPage();
     if (value === "all") {
       setSelectedCampus(null);
+      setSearch("");
       setDrill("campus");
     } else {
       setSelectedCampus(value);
@@ -434,10 +453,16 @@ function SpiRecordPanel() {
   };
 
   const setSection = (value: string) => {
+    if (drill === "section") {
+      setSectionFilter(value);
+      resetPage();
+      return;
+    }
     setSectionFilter(value);
     resetPage();
     if (value === "all") {
       setSelectedSection(null);
+      setSearch("");
       if (campusFilter !== "all") {
         setSelectedCampus(campusFilter);
         setDrill("section");
@@ -458,7 +483,7 @@ function SpiRecordPanel() {
     (semester ? 1 : 0) +
     (!hideCampus && campusFilter !== "all" ? 1 : 0) +
     (sectionFilter !== "all" ? 1 : 0) +
-    (search.trim() ? 1 : 0);
+    (drill === "students" && search.trim() ? 1 : 0);
 
   const openCampus = (name: string) => {
     setCampusFilter(name);
@@ -482,6 +507,7 @@ function SpiRecordPanel() {
     setSectionFilter("all");
     setSelectedCampus(null);
     setSelectedSection(null);
+    setSearch("");
     setDrill("campus");
     resetPage();
   };
@@ -491,43 +517,9 @@ function SpiRecordPanel() {
     setCampusFilter(selectedCampus);
     setSectionFilter("all");
     setSelectedSection(null);
+    setSearch("");
     setDrill("section");
     resetPage();
-  };
-
-  const openFilters = () => {
-    setDraftSemester(semester || CURRENT_SEMESTER);
-    setDraftCampus(campusFilter);
-    setDraftSection(sectionFilter);
-    setDraftSearch(search);
-    setFiltersOpen(true);
-  };
-
-  const applyFilters = () => {
-    setSemester(draftSemester === CURRENT_SEMESTER ? "" : draftSemester);
-    setSearch(draftSearch);
-    setFiltersOpen(false);
-    resetPage();
-    if (draftCampus !== "all" && draftSection !== "all") {
-      setCampusFilter(draftCampus);
-      setSelectedCampus(draftCampus);
-      setSectionFilter(draftSection);
-      setSelectedSection(draftSection);
-      setDrill("students");
-      return;
-    }
-    if (draftCampus !== "all") {
-      setCollege(draftCampus);
-      return;
-    }
-    setCollege("all");
-  };
-
-  const clearDraft = () => {
-    setDraftSemester(CURRENT_SEMESTER);
-    setDraftCampus(hideCampus ? (user?.campuses?.[0] ?? "all") : "all");
-    setDraftSection("all");
-    setDraftSearch("");
   };
 
   const clearAll = () => {
@@ -601,20 +593,55 @@ function SpiRecordPanel() {
     (drill === "section" && sectionSpiLoading) ||
     (studentsEnabled && studentsLoading);
 
+  const semesterSelect = (
+    <SearchableSelect
+      value={semester || CURRENT_SEMESTER}
+      onValueChange={(value) => {
+        setSemester(value === CURRENT_SEMESTER ? "" : value);
+        resetPage();
+      }}
+      options={[
+        { value: CURRENT_SEMESTER, label: "Current semester" },
+        ...semesters.map((s) => ({ value: s, label: s })),
+        ...(semester && !semesters.includes(semester)
+          ? [{ value: semester, label: semester }]
+          : []),
+      ]}
+      placeholder="Current semester"
+      searchPlaceholder="Search semesters…"
+      className="w-[200px]"
+      disabled={semesters.length === 0 && !semester}
+    />
+  );
+
+  const instituteSelect = !hideCampus && (
+    <SearchableSelect
+      value={campusFilter}
+      onValueChange={setCollege}
+      options={campusSelectOptions(campusOptions, "All Colleges")}
+      placeholder="All Colleges"
+      searchPlaceholder="Search colleges…"
+      className="w-[220px]"
+      disabled={filtersLoading && campusOptions.length === 0}
+    />
+  );
+
+  const sectionSelect = (drill === "section" || drill === "students") && (
+    <SearchableSelect
+      value={sectionFilter}
+      onValueChange={setSection}
+      options={sectionSelectOptions(sectionOptions, "All Sections")}
+      placeholder="All Sections"
+      searchPlaceholder="Search sections…"
+      className="w-[200px]"
+      disabled={
+        (campusFilter === "all" && !selectedCampus) || filtersLoading
+      }
+    />
+  );
+
   const actions = (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        variant="outline"
-        className="h-9 gap-2 border-gray-200"
-        onClick={openFilters}
-      >
-        <SlidersHorizontal className="h-4 w-4" /> Filters
-        {activeFilterCount > 0 && (
-          <span className="ml-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1 text-xs font-semibold text-white">
-            {activeFilterCount}
-          </span>
-        )}
-      </Button>
+    <>
       <Button
         variant="outline"
         className="h-9 gap-2 border-gray-200"
@@ -632,10 +659,12 @@ function SpiRecordPanel() {
           Clear
         </button>
       )}
-      {isFetching && !studentsLoading && (
+      {((drill === "students" && isFetching && !studentsLoading) ||
+        campusSpiLoading ||
+        sectionSpiLoading) && (
         <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
       )}
-    </div>
+    </>
   );
 
   return (
@@ -663,47 +692,11 @@ function SpiRecordPanel() {
         />
       )}
 
-      {/* Level-specific controls */}
-      {drill === "students" ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <SearchableSelect
-            value={semester || CURRENT_SEMESTER}
-            onValueChange={(value) => {
-              setSemester(value === CURRENT_SEMESTER ? "" : value);
-              resetPage();
-            }}
-            options={[
-              { value: CURRENT_SEMESTER, label: "Current semester" },
-              ...semesters.map((s) => ({ value: s, label: s })),
-              ...(semester && !semesters.includes(semester)
-                ? [{ value: semester, label: semester }]
-                : []),
-            ]}
-            placeholder="Current semester"
-            searchPlaceholder="Search semesters…"
-            className="w-[200px]"
-            disabled={semesters.length === 0 && !semester}
-          />
-          {!hideCampus && (
-            <SearchableSelect
-              value={campusFilter}
-              onValueChange={setCollege}
-              options={campusSelectOptions(campusOptions, "All Colleges")}
-              placeholder="All Colleges"
-              searchPlaceholder="Search colleges…"
-              className="w-[220px]"
-              disabled={filtersLoading && campusOptions.length === 0}
-            />
-          )}
-          <SearchableSelect
-            value={sectionFilter}
-            onValueChange={setSection}
-            options={sectionSelectOptions(sectionOptions, "All Sections")}
-            placeholder="All Sections"
-            searchPlaceholder="Search sections…"
-            className="w-[200px]"
-            disabled={campusFilter === "all" || filtersLoading}
-          />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {instituteSelect}
+        {semesterSelect}
+        {sectionSelect}
+        {drill === "students" && (
           <div className="relative min-w-[200px] flex-1 sm:w-64 sm:flex-none">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <Input
@@ -716,12 +709,14 @@ function SpiRecordPanel() {
               className="h-9 w-full border-gray-200 pl-9"
             />
           </div>
-          {actions}
-        </div>
-      ) : (
-        <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-          {actions}
-        </div>
+        )}
+        {actions}
+      </div>
+
+      {drill === "campus" && campusSpiError && (
+        <p className="mb-3 text-sm text-red-600">
+          Could not load institute SPI averages. Counts may still appear.
+        </p>
       )}
 
       <TableShell>
@@ -751,6 +746,7 @@ function SpiRecordPanel() {
                     <Th className="min-w-[200px]">Student</Th>
                     <Th className="text-right">SPI Score</Th>
                     <Th>Status</Th>
+                    <Th className="text-right">Report</Th>
                   </>
                 )}
               </TableRow>
@@ -856,6 +852,20 @@ function SpiRecordPanel() {
                     <TableCell>
                       <StandingBadge standing={s.standing} />
                     </TableCell>
+                    <TableCell className="text-right">
+                      {s.spiPath ? (
+                        <a
+                          href={s.spiPath}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                        >
+                          Open <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -878,110 +888,6 @@ function SpiRecordPanel() {
           />
         )}
       </TableShell>
-
-      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="right" className="flex w-full flex-col sm:max-w-sm">
-          <SheetHeader>
-            <SheetTitle>Filters</SheetTitle>
-            <SheetDescription>
-              {drill === "students"
-                ? "Semester, college, section, and student search."
-                : drill === "section"
-                  ? "Narrow sections or jump to a college / student list."
-                  : "Search institutes or jump into a college."}
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 space-y-5 overflow-y-auto py-6">
-            {(drill === "students" || drill === "section") && (
-              <div className="space-y-1.5">
-                <Label>Semester</Label>
-                <SearchableSelect
-                  value={draftSemester}
-                  onValueChange={setDraftSemester}
-                  options={[
-                    { value: CURRENT_SEMESTER, label: "Current semester" },
-                    ...semesters.map((s) => ({ value: s, label: s })),
-                  ]}
-                  placeholder="Current semester"
-                  searchPlaceholder="Search semesters…"
-                  className="w-full"
-                />
-              </div>
-            )}
-            {!hideCampus && (
-              <div className="space-y-1.5">
-                <Label>College</Label>
-                <SearchableSelect
-                  value={draftCampus}
-                  onValueChange={(v) => {
-                    setDraftCampus(v);
-                    setDraftSection("all");
-                  }}
-                  options={campusSelectOptions(campusOptions, "All Colleges")}
-                  placeholder="All Colleges"
-                  searchPlaceholder="Search colleges…"
-                  className="w-full"
-                  disabled={filtersLoading}
-                />
-              </div>
-            )}
-            {(drill === "students" || drill === "section") && (
-              <div className="space-y-1.5">
-                <Label>Section</Label>
-                <SearchableSelect
-                  value={draftSection}
-                  onValueChange={setDraftSection}
-                  options={sectionSelectOptions(sectionOptions, "All Sections")}
-                  placeholder="All Sections"
-                  searchPlaceholder="Search sections…"
-                  className="w-full"
-                  disabled={draftCampus === "all" || filtersLoading}
-                />
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>
-                {drill === "students"
-                  ? "Student name"
-                  : drill === "section"
-                    ? "Search sections"
-                    : "Search institutes"}
-              </Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <Input
-                  placeholder={
-                    drill === "students"
-                      ? "Search student name…"
-                      : drill === "section"
-                        ? "Search section…"
-                        : "Search institute…"
-                  }
-                  value={draftSearch}
-                  onChange={(e) => setDraftSearch(e.target.value)}
-                  className="h-9 border-gray-200 pl-9"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center justify-between gap-2 border-t border-gray-200 pt-4">
-            <Button variant="ghost" onClick={() => setFiltersOpen(false)}>
-              Cancel
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={clearDraft}>
-                Clear filters
-              </Button>
-              <Button
-                onClick={applyFilters}
-                className="bg-brand-600 text-white hover:bg-brand-700"
-              >
-                Apply filters
-              </Button>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
