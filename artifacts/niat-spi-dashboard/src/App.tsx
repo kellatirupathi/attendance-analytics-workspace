@@ -37,6 +37,7 @@ const RecoveryQuizSubjectDetail = lazy(
 );
 const InstructorRecovery = lazy(() => import("@/pages/InstructorRecovery"));
 const IncentiveTracker = lazy(() => import("@/pages/IncentiveTracker"));
+const Reports = lazy(() => import("@/pages/Reports"));
 
 const queryClient = new QueryClient();
 
@@ -130,6 +131,21 @@ function Router() {
         <Route path="/dashboard/institutes">
           <Protected>
             <InstituteDirectory />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/reports/skill-debt">
+          <Protected>
+            <Reports />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/reports/insights">
+          <Protected>
+            <Reports />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/reports">
+          <Protected>
+            <Reports />
           </Protected>
         </Route>
         <Route path="/dashboard/recovery/quiz/:campus/:subject">

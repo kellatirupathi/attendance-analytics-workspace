@@ -21,6 +21,7 @@ import {
   ClipboardCheck,
   BookOpenCheck,
   GraduationCap,
+  FileBarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
@@ -42,6 +43,7 @@ const mainNav: NavItem[] = [
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
   { label: "Institute Directory", href: "/dashboard/institutes", icon: GraduationCap },
   { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
+  { label: "Reports", href: "/dashboard/reports", icon: FileBarChart2 },
 ];
 
 const adminNav: NavItem[] = [
