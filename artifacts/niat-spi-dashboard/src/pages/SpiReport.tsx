@@ -146,13 +146,16 @@ function SpiScoreRing({
   const totalWeight = segments.reduce((sum, seg) => sum + seg.weight, 0) || 1;
   const usable = circumference - gap * segments.length;
 
+  // Missing / not-yet-scored categories (Skill, Final, etc.) count as 0%.
+  // Always divide by full policy weight (10+15+25+50 = 100), never renormalize.
   const scoredWeight = segments
     .filter((seg) => seg.scored)
     .reduce((sum, seg) => sum + seg.weight, 0);
-  const weightedPctSum = segments
-    .filter((seg) => seg.scored)
-    .reduce((sum, seg) => sum + (seg.pct ?? 0) * seg.weight, 0);
-  const spiPct = scoredWeight > 0 ? weightedPctSum / scoredWeight : 0;
+  const weightedPctSum = segments.reduce(
+    (sum, seg) => sum + (seg.scored ? (seg.pct ?? 0) : 0) * seg.weight,
+    0,
+  );
+  const spiPct = weightedPctSum / totalWeight;
   const points = spiPct / 10;
   const centerColor =
     scoredWeight === 0 ? "#9ca3af" : pctTextColor(spiPct);
