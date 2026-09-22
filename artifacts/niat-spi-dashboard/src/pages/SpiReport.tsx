@@ -756,12 +756,6 @@ export default function SpiReport() {
       state: "unavailable",
       detail: "Not available",
     },
-    {
-      label: "Assessment Honesty",
-      criterion: "No malpractice",
-      state: "unavailable",
-      detail: "Not available",
-    },
   ];
 
   /**

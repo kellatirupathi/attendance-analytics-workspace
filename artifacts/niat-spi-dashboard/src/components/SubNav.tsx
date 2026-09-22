@@ -139,3 +139,19 @@ export function recoveryNav(
   }
   return items;
 }
+
+export function reportsPath(
+  tab: "spi-record" | "skill-debt" | "insights" = "spi-record",
+): string {
+  if (tab === "skill-debt") return "/dashboard/reports/skill-debt";
+  if (tab === "insights") return "/dashboard/reports/insights";
+  return "/dashboard/reports";
+}
+
+export function reportsNav(): SubNavItem[] {
+  return [
+    { label: "SPI Record", href: reportsPath("spi-record") },
+    { label: "Skill Debt", href: reportsPath("skill-debt") },
+    { label: "Insights", href: reportsPath("insights") },
+  ];
+}
