@@ -35,6 +35,7 @@ import {
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
+import { omitExcludedInstitutes, isExcludedInstitute } from "@/lib/excludedInstitutes";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -49,7 +50,7 @@ function useCampusNames() {
     fetch("/api/dashboard/filters", { credentials: "include" })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data: { campuses?: string[] }) => {
-        if (alive) setNames(data.campuses ?? []);
+        if (alive) setNames(omitExcludedInstitutes(data.campuses ?? []));
       })
       .catch(() => {
         if (alive) setNames([]);
@@ -249,8 +250,9 @@ function CampusList() {
   }, [campusFilter, semester]);
 
   const filtered = useMemo(() => {
-    if (campusFilter === "all") return rows;
-    return rows.filter((c) => c.instituteName === campusFilter);
+    const visible = rows.filter((c) => !isExcludedInstitute(c.instituteName));
+    if (campusFilter === "all") return visible;
+    return visible.filter((c) => c.instituteName === campusFilter);
   }, [rows, campusFilter]);
 
   const totals = useMemo(() => sumCounts(filtered), [filtered]);
@@ -263,7 +265,7 @@ function CampusList() {
   const studentTotal = filtered.reduce((sum, row) => sum + row.studentCount, 0);
   const names = campusNames.length
     ? campusNames
-    : rows.map((c) => c.instituteName);
+    : omitExcludedInstitutes(rows.map((c) => c.instituteName));
 
   return (
     <div className="flex flex-col">

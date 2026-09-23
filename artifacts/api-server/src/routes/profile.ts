@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { requireSession, signSession, setSessionCookie } from "../lib/auth.js";
 import { invalidateSessionCache } from "../lib/sessionCache.js";
 import type { Role } from "../lib/rbac.js";
+import { omitExcludedInstitutes } from "../lib/excludedInstitutes.js";
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.get("/", requireSession(), async (req, res): Promise<void> => {
     name: user.name,
     email: user.email,
     role: user.role,
-    campuses: user.campuses,
+    campuses: omitExcludedInstitutes(user.campuses),
     subjects: user.subjects,
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -63,7 +64,7 @@ router.patch("/", requireSession(), async (req, res): Promise<void> => {
     email: u.email,
     name: u.name,
     role: u.role as Role,
-    campuses: u.campuses,
+    campuses: omitExcludedInstitutes(u.campuses),
     subjects: u.subjects,
     tokenVersion: u.tokenVersion,
   });
@@ -73,7 +74,7 @@ router.patch("/", requireSession(), async (req, res): Promise<void> => {
     name: u.name,
     email: u.email,
     role: u.role,
-    campuses: u.campuses,
+    campuses: omitExcludedInstitutes(u.campuses),
     subjects: u.subjects,
     isActive: u.isActive,
     lastLoginAt: u.lastLoginAt?.toISOString() ?? null,

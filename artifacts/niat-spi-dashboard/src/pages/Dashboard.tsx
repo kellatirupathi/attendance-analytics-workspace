@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import {
@@ -454,7 +455,9 @@ function SubjectChartPanel({
   range: DateRange;
   span?: boolean;
 }) {
-  const campuses = summary.campusBreakdown.map((c) => c.instituteName);
+  const campuses = omitExcludedInstitutes(
+    summary.campusBreakdown.map((c) => c.instituteName),
+  );
   const [campus, setCampus] = useState<string>("all");
   const [subjects, setSubjects] = useState<SubjectSummary[]>(
     summary.subjectBreakdown,

@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
+import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 
 import {
   Table,
@@ -316,7 +317,7 @@ function UserFormDialog({
   const updateUser = useUpdateUser();
 
   const roleOptions = meta?.roles ?? [];
-  const campusOptions = meta?.campuses ?? [];
+  const campusOptions = omitExcludedInstitutes(meta?.campuses ?? []);
   const subjectOptions = meta?.subjects ?? [];
 
   const [name, setName] = useState("");

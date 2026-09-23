@@ -46,6 +46,7 @@ import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Search, Download, SlidersHorizontal, Loader2 } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { isExcludedInstitute, omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import {
@@ -131,9 +132,21 @@ export default function Campuses() {
       },
     });
 
-  const campuses = useMemo(() => summary?.campusBreakdown ?? [], [summary]);
-  const sections = useMemo(() => summary?.sectionBreakdown ?? [], [summary]);
-  const campusOptions = filterOptions?.campuses ?? [];
+  const campuses = useMemo(
+    () =>
+      (summary?.campusBreakdown ?? []).filter(
+        (campus) => !isExcludedInstitute(campus.instituteName),
+      ),
+    [summary],
+  );
+  const sections = useMemo(
+    () =>
+      (summary?.sectionBreakdown ?? []).filter(
+        (section) => !isExcludedInstitute(section.instituteName),
+      ),
+    [summary],
+  );
+  const campusOptions = omitExcludedInstitutes(filterOptions?.campuses ?? []);
 
   const studentQuery = {
     limit: 5000,

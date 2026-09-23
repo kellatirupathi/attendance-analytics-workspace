@@ -19,6 +19,7 @@ import {
   setRecoverySessionInstructorIdentity,
   setRecoverySessionIncentivePaid,
 } from "../lib/queries.js";
+import { omitExcludedInstitutes, isExcludedInstitute } from "../lib/excludedInstitutes.js";
 import { cacheDeletePrefix } from "../lib/cache.js";
 
 const router = Router();
@@ -33,7 +34,7 @@ function toUserDto(u: typeof usersTable.$inferSelect) {
     name: u.name,
     email: u.email,
     role: u.role,
-    campuses: u.campuses,
+    campuses: omitExcludedInstitutes(u.campuses),
     subjects: u.subjects,
     isActive: u.isActive,
     createdBy: u.createdBy,
@@ -70,7 +71,7 @@ router.get("/users", async (req, res): Promise<void> => {
       name: u.name,
       email: u.email,
       role: u.role,
-      campuses: u.campuses,
+      campuses: omitExcludedInstitutes(u.campuses),
       subjects: u.subjects,
       isActive: u.isActive,
       createdBy: u.createdBy,
@@ -110,7 +111,7 @@ router.post("/users", async (req, res): Promise<void> => {
       email: normalizedEmail,
       passwordHash,
       role: role as Role,
-      campuses: campuses ?? [],
+      campuses: omitExcludedInstitutes(campuses ?? []),
       subjects: subjects ?? [],
       isActive: isActive ?? true,
       createdBy: session.email,
@@ -168,7 +169,7 @@ router.post("/users/bulk", async (req, res): Promise<void> => {
     const name = String(raw.name ?? "").trim();
     const email = String(raw.email ?? "").trim().toLowerCase();
     const role = normalizeRole(String(raw.role ?? ""));
-    const campuses = cleanList(raw.campuses);
+    const campuses = omitExcludedInstitutes(cleanList(raw.campuses));
     const subjects = cleanList(raw.subjects);
     const password =
       (typeof raw.password === "string" && raw.password.trim()) ||
@@ -326,7 +327,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     updates.tokenVersion = (target.tokenVersion ?? 0) + 1;
   }
   if (password) updates.passwordHash = await bcrypt.hash(password, 10);
-  if (campuses !== undefined) updates.campuses = campuses;
+  if (campuses !== undefined) updates.campuses = omitExcludedInstitutes(campuses);
   if (subjects !== undefined) updates.subjects = subjects;
   if (isActive !== undefined) {
     updates.isActive = isActive;
@@ -348,7 +349,7 @@ router.patch("/users/:id", async (req, res): Promise<void> => {
     name: u.name,
     email: u.email,
     role: u.role,
-    campuses: u.campuses,
+    campuses: omitExcludedInstitutes(u.campuses),
     subjects: u.subjects,
     isActive: u.isActive,
     createdBy: u.createdBy,
@@ -392,7 +393,9 @@ router.get("/campuses", async (_req, res) => {
     .from(campusesTable)
     .orderBy(campusesTable.name);
   res.json(
-    campuses.map((c) => ({
+    campuses
+      .filter((c) => !isExcludedInstitute(c.name))
+      .map((c) => ({
       id: c.id,
       name: c.name,
       instituteId: c.instituteId,
@@ -781,6 +784,9 @@ router.get("/meta", async (req, res) => {
       instituteName: c.name,
     }));
   }
+  institutions = institutions.filter(
+    (item) => !isExcludedInstitute(item.instituteName),
+  );
   if (subjects.length === 0) {
     subjects = [...SUBJECTS];
   }

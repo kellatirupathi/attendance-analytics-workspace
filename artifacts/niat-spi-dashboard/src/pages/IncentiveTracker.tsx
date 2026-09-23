@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 import {
   AlertCircle,
   ChevronDown,
@@ -222,6 +223,9 @@ export default function IncentiveTracker() {
       const response = await fetch("/api/recovery/incentives", { credentials: "include" });
       if (!response.ok) throw new Error("Failed to load the incentive tracker");
       const result = (await response.json()) as IncentiveTrackerResponse;
+      result.campuses = result.campuses.filter(
+        (group) => !isExcludedInstitute(group.campus),
+      );
       setData(result);
       setSelectedCampus((current) => {
         if (urlCampus && result.campuses.some((c) => c.campus === urlCampus)) return urlCampus;

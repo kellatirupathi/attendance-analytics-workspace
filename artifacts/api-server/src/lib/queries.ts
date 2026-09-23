@@ -29,6 +29,10 @@ import {
   sql,
 } from "drizzle-orm";
 import type { SessionScope } from "./rbac.js";
+import {
+  excludeInstituteSql,
+  isExcludedInstitute,
+} from "./excludedInstitutes.js";
 
 /**
  * Matches a student id column against @studentId regardless of UUID hyphens.
@@ -43,17 +47,6 @@ const ATTENDANCE_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.niat_students_overall_attendance_details`";
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
-
-/** Campuses omitted from every attendance and quiz read. Rows stay in BigQuery. */
-const EXCLUDED_INSTITUTE_NAMES = ["Intensive Offline DC"] as const;
-
-function excludeInstituteSql(column = "institute_name"): string {
-  const list = EXCLUDED_INSTITUTE_NAMES.map(
-    (name) => `'${name.replaceAll("'", "''")}'`,
-  ).join(", ");
-  // IFNULL keeps rows whose institute is null; only the named campuses drop out.
-  return `IFNULL(${column}, '') NOT IN (${list})`;
-}
 
 /**
  * SPI attendance: sessions attended / sessions scheduled.
@@ -520,7 +513,9 @@ export async function getDashboardFilterOptions(
   ]);
 
   return {
-    campuses: campusRows.map((r) => r.institute_name),
+    campuses: campusRows
+      .map((r) => r.institute_name)
+      .filter((name) => !isExcludedInstitute(name)),
     sections: sectionRows.map((r) => r.batch_section_name),
     updatedAt: new Date().toISOString(),
   };
@@ -624,7 +619,7 @@ export async function getInstituteDirectory(
     byInstitute.set(row.institute_name, list);
   }
 
-  return [...byInstitute.entries()].map(([instituteName, semesters]) => {
+  return [...byInstitute.entries()].filter(([instituteName]) => !isExcludedInstitute(instituteName)).map(([instituteName, semesters]) => {
     const subjects = new Set<string>();
     const sections = new Set<string>();
     let studentCount = 0;
@@ -746,7 +741,7 @@ export async function getStudentsList(
     const n = Number(v);
     return Number.isFinite(n) ? Math.round(n * 10) / 10 : null;
   };
-  return rows.map((r) => {
+  return rows.filter((r) => !isExcludedInstitute(r.institute_name)).map((r) => {
     const p = Number(r.present);
     const t = Number(r.total);
     return {
@@ -852,7 +847,7 @@ export async function getSpiAveragesByCampus(
     BQ_LOCATION,
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
-  return rows.map((r) => ({
+  return rows.filter((r) => !isExcludedInstitute(r.institute_name)).map((r) => ({
     instituteName: r.institute_name,
     avgSpiPoints: Number.isFinite(Number(r.avg_spi_points))
       ? Math.round(Number(r.avg_spi_points) * 10) / 10
@@ -984,7 +979,7 @@ export async function getCampusSummary(
     BQ_LOCATION,
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
-  return rows.map((r) => ({
+  return rows.filter((r) => !isExcludedInstitute(r.institute_name)).map((r) => ({
     instituteName: r.institute_name,
     sectionCount: Number(r.section_count),
     subjectCount: Number(r.subject_count),
@@ -1020,7 +1015,7 @@ export async function getSectionSummary(
     BQ_LOCATION,
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
-  return rows.map((r) => {
+  return rows.filter((r) => !isExcludedInstitute(r.institute_name)).map((r) => {
     const p = Number(r.present_count);
     const t = Number(r.total_count);
     return {
@@ -1302,7 +1297,7 @@ export async function getSessionStudents(
     LIMIT ${safeLimit}`,
     params,
   );
-  return rows.map((r) => ({
+  return rows.filter((r) => !isExcludedInstitute(r.institute_name)).map((r) => ({
     studentId: r.student_user_id,
     studentName: r.student_name,
     instituteName: r.institute_name ?? null,
@@ -1867,7 +1862,7 @@ export async function getAssessmentCampusSummary(
     ORDER BY campuses.institute_name`,
     params,
   );
-  return rows.map((r) => ({
+  return rows.filter((r) => !isExcludedInstitute(r.institute_name)).map((r) => ({
     instituteName: r.institute_name,
     studentCount: Number(r.student_count),
     subjectCount: Number(r.subject_count),
@@ -2974,7 +2969,7 @@ export async function getCampusInstructorRoster(
   const rows = await bqQuery<InstructorDetailsRow>(
     `SELECT instructor_user_id, instructor_category, instructor_name, instructor_role, nw_instructor_id, institute_name
      FROM ${INSTRUCTOR_DETAILS_TABLE}
-     WHERE institute_name = @campus AND instructor_status = 'ACTIVE'
+     WHERE institute_name = @campus AND ${excludeInstituteSql()} AND instructor_status = 'ACTIVE'
      ORDER BY instructor_name`,
     { campus },
   );
@@ -2993,7 +2988,9 @@ export async function getAllActiveInstructors(): Promise<CampusInstructorOption[
      WHERE instructor_status = 'ACTIVE'
      ORDER BY instructor_name`,
   );
-  return rows.map((row) => toInstructorOption(row, row.institute_name ?? ""));
+  return rows
+    .filter((row) => !isExcludedInstitute(row.institute_name))
+    .map((row) => toInstructorOption(row, row.institute_name ?? ""));
 }
 
 /** Just the campus/subject a recovery session belongs to -- used for scope checks before deleting one. */
@@ -3396,6 +3393,7 @@ export async function getIncentiveTracker(
   >();
 
   for (const row of rows) {
+    if (isExcludedInstitute(row.campus)) continue;
     const campusGroup =
       campusGroups.get(row.campus) ??
       new Map<string, IncentiveInstructorSummary>();
@@ -3788,7 +3786,9 @@ export async function getCampusList(): Promise<string[]> {
   const rows = await bqQuery<{ institute_name: string }>(
     `SELECT DISTINCT institute_name FROM ${ATTENDANCE_TABLE} WHERE is_current_semester = 1 AND ${excludeInstituteSql()} ORDER BY institute_name`,
   );
-  return rows.map((r) => r.institute_name).filter(Boolean);
+  return rows
+    .map((r) => r.institute_name)
+    .filter((name) => Boolean(name) && !isExcludedInstitute(name));
 }
 
 export interface Institution {
@@ -3815,7 +3815,7 @@ export async function getInstitutions(): Promise<Institution[]> {
      ORDER BY institute_name`,
   );
   return rows
-    .filter((r) => Boolean(r.institute_name))
+    .filter((r) => Boolean(r.institute_name) && !isExcludedInstitute(r.institute_name))
     .map((r) => ({
       instituteId: r.institute_id ?? null,
       instituteName: r.institute_name,

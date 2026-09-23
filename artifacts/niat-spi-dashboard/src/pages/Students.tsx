@@ -52,6 +52,7 @@ import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
+import { isExcludedInstitute, omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { useToast } from "@/hooks/use-toast";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import {
@@ -139,7 +140,7 @@ export default function Students() {
       },
     );
 
-  const campusOptions = filterOptions?.campuses ?? [];
+  const campusOptions = omitExcludedInstitutes(filterOptions?.campuses ?? []);
   const sectionOptions = filterOptions?.sections ?? [];
 
   useEffect(() => {
@@ -173,7 +174,10 @@ export default function Students() {
     },
   );
 
-  const rows = useMemo<DashboardStudent[]>(() => students ?? [], [students]);
+  const rows = useMemo<DashboardStudent[]>(
+    () => (students ?? []).filter((student) => !isExcludedInstitute(student.instituteName)),
+    [students],
+  );
 
   const filtered = useMemo(() => {
     return rows.filter(

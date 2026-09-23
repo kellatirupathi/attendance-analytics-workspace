@@ -17,6 +17,7 @@ import { TableShell } from "@/components/DataTable";
 import { exportCsv } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 
 interface InstituteSemesterRow {
   semesterTitle: string;
@@ -95,9 +96,10 @@ export default function InstituteDirectory() {
   }, []);
 
   const filtered = useMemo(() => {
+    const visible = rows.filter((row) => !isExcludedInstitute(row.instituteName));
     const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
+    if (!q) return visible;
+    return visible.filter((row) => {
       if (row.instituteName.toLowerCase().includes(q)) return true;
       return row.semesters.some(
         (semester) =>

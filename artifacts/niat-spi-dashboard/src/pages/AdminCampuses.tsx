@@ -32,6 +32,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Edit2, Trash2, Plus, Building2 } from "lucide-react";
+import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 
 export default function AdminCampuses() {
   const { toast } = useToast();
@@ -39,9 +40,12 @@ export default function AdminCampuses() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editCampus, setEditCampus] = useState<Campus | null>(null);
 
-  const { data: campuses, isLoading } = useListCampuses({
+  const { data: allCampuses, isLoading } = useListCampuses({
     query: { queryKey: getListCampusesQueryKey() },
   });
+  const campuses = (allCampuses ?? []).filter(
+    (campus) => !isExcludedInstitute(campus.name),
+  );
 
   const deleteCampus = useDeleteCampus();
 

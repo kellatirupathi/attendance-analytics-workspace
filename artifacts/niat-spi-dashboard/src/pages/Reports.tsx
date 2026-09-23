@@ -40,6 +40,7 @@ import {
   standingLabel,
   type SpiStanding,
 } from "@/lib/spiScore";
+import { isExcludedInstitute, omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import {
   Bar,
   BarChart,
@@ -226,11 +227,13 @@ function SpiRecordPanel() {
       },
     );
 
-  const campusOptions = hideCampus
-    ? (user?.campuses ?? [])
-    : (filterOptions?.campuses ??
-      summary?.campusBreakdown.map((c) => c.instituteName) ??
-      []);
+  const campusOptions = omitExcludedInstitutes(
+    hideCampus
+      ? (user?.campuses ?? [])
+      : (filterOptions?.campuses ??
+        summary?.campusBreakdown.map((c) => c.instituteName) ??
+        []),
+  );
   const sectionOptions = filterOptions?.sections ?? [];
   const semesters = useAttendanceSemesters(
     campusFilter !== "all" ? campusFilter : undefined,
@@ -286,7 +289,10 @@ function SpiRecordPanel() {
   });
 
   const rows = useMemo(
-    () => (students ?? []).map(enrichStudent),
+    () =>
+      (students ?? [])
+        .filter((student) => !isExcludedInstitute(student.instituteName))
+        .map(enrichStudent),
     [students],
   );
 
@@ -326,6 +332,7 @@ function SpiRecordPanel() {
           }));
 
     return source
+      .filter((c) => !isExcludedInstitute(c.name))
       .filter((c) => {
         if (campusFilter !== "all" && nameKey(c.name) !== nameKey(campusFilter))
           return false;
@@ -878,9 +885,9 @@ function InsightsPanel() {
         staleTime: 5 * 60_000,
       },
     });
-  const campusOptions = hideCampus
-    ? (user?.campuses ?? [])
-    : (filterOptions?.campuses ?? []);
+  const campusOptions = omitExcludedInstitutes(
+    hideCampus ? (user?.campuses ?? []) : (filterOptions?.campuses ?? []),
+  );
   const semesters = useAttendanceSemesters(
     campusFilter !== "all" ? campusFilter : undefined,
   );
@@ -944,7 +951,9 @@ function InsightsPanel() {
   });
 
   const campusRows = useMemo(() => {
-    const rows = campusSpi?.rows ?? [];
+    const rows = (campusSpi?.rows ?? []).filter(
+      (row) => !isExcludedInstitute(row.instituteName),
+    );
     if (campusFilter === "all") return rows;
     return rows.filter(
       (row) => nameKey(row.instituteName) === nameKey(campusFilter),
@@ -959,7 +968,10 @@ function InsightsPanel() {
   }, [campusRows]);
 
   const studentRows = useMemo(
-    () => (students ?? []).map(enrichStudent),
+    () =>
+      (students ?? [])
+        .filter((student) => !isExcludedInstitute(student.instituteName))
+        .map(enrichStudent),
     [students],
   );
 

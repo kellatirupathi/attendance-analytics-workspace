@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { TableShell, TablePagination } from "@/components/DataTable";
+import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 import {
   ExternalLink,
   Search,
@@ -130,7 +131,10 @@ export default function SubjectAttendanceStudents() {
     },
   );
 
-  const rows = useMemo(() => students ?? [], [students]);
+  const rows = useMemo(
+    () => (students ?? []).filter((student) => !isExcludedInstitute(student.instituteName)),
+    [students],
+  );
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
   const paged = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);

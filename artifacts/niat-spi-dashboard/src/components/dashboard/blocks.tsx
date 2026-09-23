@@ -14,6 +14,7 @@ import type {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn, pctColor, pctTextColor } from "@/lib/utils";
+import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 import {
   BarChart as RechartsBarChart,
   Bar,
@@ -431,7 +432,7 @@ export function NeedsAttentionList({
   }
   return (
     <ul>
-      {students.map((student) => {
+      {students.filter((student) => !isExcludedInstitute(student.instituteName)).map((student) => {
         const pct = student.attendancePct ?? 0;
         return (
           <li
@@ -479,6 +480,7 @@ export function CampusLeaderboard({
   return (
     <ul>
       {campuses
+        .filter((campus) => !isExcludedInstitute(campus.instituteName))
         .slice()
         .sort((a, b) => b.pct - a.pct)
         .map((campus, i) => (
@@ -539,6 +541,7 @@ export function SectionsToWatch({
   limit?: number;
 }) {
   const top = sections
+    .filter((sec) => !isExcludedInstitute(sec.instituteName))
     .slice()
     .sort((a, b) => a.pct - b.pct)
     .slice(0, limit);

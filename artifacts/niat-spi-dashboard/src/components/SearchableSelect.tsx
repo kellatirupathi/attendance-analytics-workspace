@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -109,7 +110,7 @@ export function campusSelectOptions(
 ): SearchableSelectOption[] {
   return [
     { value: "all", label: allLabel },
-    ...campuses.map((c) => ({ value: c, label: c })),
+    ...omitExcludedInstitutes(campuses).map((c) => ({ value: c, label: c })),
   ];
 }
 

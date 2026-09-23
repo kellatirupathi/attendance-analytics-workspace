@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { PageLoader } from "@/components/PageLoader";
 import { ErrorState } from "@/components/PageStates";
 import { SubNav, recoveryListPath, recoveryNav } from "@/components/SubNav";
+import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import {
   AlertCircle,
@@ -185,7 +186,7 @@ export default function Recovery() {
   }
 
   const campusOptions =
-    filterOptions?.campuses.map((campus) => ({ value: campus, label: campus })) || [];
+    omitExcludedInstitutes(filterOptions?.campuses ?? []).map((campus) => ({ value: campus, label: campus }));
   const recoveryData = isQuizTab ? quizData : attendanceData;
 
   return (

@@ -14,6 +14,7 @@ import {
 } from "../lib/auth.js";
 import { verifyGoogleIdToken } from "../lib/googleAuth.js";
 import type { Role } from "../lib/rbac.js";
+import { omitExcludedInstitutes } from "../lib/excludedInstitutes.js";
 
 const router = Router();
 
@@ -57,7 +58,7 @@ router.post("/login", loginLimiter, async (req, res): Promise<void> => {
     email: user.email,
     name: user.name,
     role: user.role as Role,
-    campuses: user.campuses,
+    campuses: omitExcludedInstitutes(user.campuses),
     subjects: user.subjects,
     tokenVersion: user.tokenVersion,
   });
@@ -67,7 +68,7 @@ router.post("/login", loginLimiter, async (req, res): Promise<void> => {
     name: user.name,
     email: user.email,
     role: user.role,
-    campuses: user.campuses,
+    campuses: omitExcludedInstitutes(user.campuses),
     subjects: user.subjects,
     isActive: user.isActive,
     lastLoginAt: loginTime.toISOString(),
@@ -103,7 +104,7 @@ router.get("/me", async (req, res): Promise<void> => {
     name: user.name,
     email: user.email,
     role: user.role,
-    campuses: user.campuses,
+    campuses: omitExcludedInstitutes(user.campuses),
     subjects: user.subjects,
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -196,7 +197,7 @@ router.get("/google/callback", async (req, res): Promise<void> => {
       email: user.email,
       name: user.name,
       role: user.role as Role,
-      campuses: user.campuses,
+      campuses: omitExcludedInstitutes(user.campuses),
       subjects: user.subjects,
       tokenVersion: user.tokenVersion,
     });

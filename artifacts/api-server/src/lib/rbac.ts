@@ -1,3 +1,5 @@
+import { omitExcludedInstitutes } from "./excludedInstitutes.js";
+
 export type Role =
   | "superadmin"
   | "admin"
@@ -68,23 +70,22 @@ export function scopeForSession(session: {
   ) {
     return {};
   }
+  const assigned = omitExcludedInstitutes(session.campuses);
   if (session.role === "boa") {
-    if (session.campuses.length === 0) {
+    if (assigned.length === 0) {
       return { campuses: ["__none__"] };
     }
-    return { campuses: session.campuses };
+    return { campuses: assigned };
   }
   if (session.role === "capability_manager") {
     return {
-      campuses:
-        session.campuses.length > 0 ? session.campuses : ["__none__"],
+      campuses: assigned.length > 0 ? assigned : ["__none__"],
       subjects: session.subjects,
     };
   }
   if (session.role === "instructor") {
     return {
-      campuses:
-        session.campuses.length > 0 ? session.campuses : ["__none__"],
+      campuses: assigned.length > 0 ? assigned : ["__none__"],
       // Empty subjects = institute-wide access. Fill later to narrow.
       subjects: session.subjects,
       instructorId: session.sub ?? "__none__",

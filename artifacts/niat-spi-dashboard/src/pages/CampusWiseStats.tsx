@@ -18,6 +18,7 @@ import { TableShell, TablePagination } from "@/components/DataTable";
 import { SubNav, attendanceStatsNav } from "@/components/SubNav";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { useQueryParams } from "@/hooks/useQueryParams";
+import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 import { subjectColor } from "@/lib/subjectColors";
 import { Search, Loader2, ChevronRight, Download } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
@@ -169,9 +170,10 @@ function CampusList({
   }, [range.dateFrom, range.dateTo, semester]);
 
   const filtered = useMemo(() => {
+    const visible = rows.filter((c) => !isExcludedInstitute(c.instituteName));
     const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((c) => c.instituteName.toLowerCase().includes(q));
+    if (!q) return visible;
+    return visible.filter((c) => c.instituteName.toLowerCase().includes(q));
   }, [rows, debouncedSearch]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));

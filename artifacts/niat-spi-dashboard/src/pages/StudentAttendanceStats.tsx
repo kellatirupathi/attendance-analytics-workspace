@@ -37,6 +37,7 @@ import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
+import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import {
   applyDateRange,
@@ -79,8 +80,10 @@ export default function StudentAttendanceStats() {
     });
 
   const campusOptions = useMemo(() => {
-    if (isBoa && user?.campuses?.length === 1) return user.campuses;
-    return filterOptions?.campuses ?? [];
+    if (isBoa && user?.campuses?.length === 1) {
+      return omitExcludedInstitutes(user.campuses);
+    }
+    return omitExcludedInstitutes(filterOptions?.campuses ?? []);
   }, [filterOptions, isBoa, user?.campuses]);
 
   const semesters = useAttendanceSemesters(campus);
