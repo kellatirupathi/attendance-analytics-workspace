@@ -141,10 +141,11 @@ export function recoveryNav(
 }
 
 export function reportsPath(
-  tab: "spi-record" | "skill-debt" | "insights" = "spi-record",
+  tab: "spi-record" | "skill-debt" | "insights" | "attendance-summary" = "spi-record",
 ): string {
   if (tab === "skill-debt") return "/dashboard/reports/skill-debt";
   if (tab === "insights") return "/dashboard/reports/insights";
+  if (tab === "attendance-summary") return "/dashboard/reports/attendance-summary";
   return "/dashboard/reports";
 }
 
@@ -153,5 +154,6 @@ export function reportsNav(): SubNavItem[] {
     { label: "SPI Record", href: reportsPath("spi-record") },
     { label: "Skill Debt", href: reportsPath("skill-debt") },
     { label: "Insights", href: reportsPath("insights") },
+    { label: "Attendance Summary", href: reportsPath("attendance-summary") },
   ];
 }
