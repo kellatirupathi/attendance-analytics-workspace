@@ -44,6 +44,17 @@ const ATTENDANCE_TABLE =
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 
+/** Campuses omitted from every attendance and quiz read. Rows stay in BigQuery. */
+const EXCLUDED_INSTITUTE_NAMES = ["Intensive Offline DC"] as const;
+
+function excludeInstituteSql(column = "institute_name"): string {
+  const list = EXCLUDED_INSTITUTE_NAMES.map(
+    (name) => `'${name.replaceAll("'", "''")}'`,
+  ).join(", ");
+  // IFNULL keeps rows whose institute is null; only the named campuses drop out.
+  return `IFNULL(${column}, '') NOT IN (${list})`;
+}
+
 /**
  * SPI attendance: sessions attended / sessions scheduled.
  * Attended = PRESENT. Scheduled = every student-session row, including
@@ -116,7 +127,7 @@ function scopeClause(
   params: Record<string, unknown>,
   options: { semester?: string; currentSemester?: boolean } = {},
 ): string {
-  const clauses: string[] = [];
+  const clauses: string[] = [excludeInstituteSql()];
   if (options.semester) {
     clauses.push("semester_title = @semester");
     params["semester"] = options.semester;
@@ -1626,7 +1637,7 @@ function quizScopeClause(
   quizAlias = "",
 ): string {
   const col = quizAlias ? `${quizAlias}.` : "";
-  const clauses: string[] = [];
+  const clauses: string[] = [excludeInstituteSql(`${col}institute_name`)];
   if (scope.campuses && scope.campuses.length > 0) {
     clauses.push(`${col}institute_name IN UNNEST(@campuses)`);
     params["campuses"] = scope.campuses;
@@ -2450,6 +2461,7 @@ export async function getAttendanceBySessionId(
        COUNT(*) AS total_count
      FROM ${ATTENDANCE_TABLE}
      WHERE institute_name = @campus
+       AND ${excludeInstituteSql()}
        AND subject_title = @subject
        AND ${semesterClause}
        ${sectionClause}
@@ -3774,7 +3786,7 @@ export async function getRecoverySessionTracker(
 
 export async function getCampusList(): Promise<string[]> {
   const rows = await bqQuery<{ institute_name: string }>(
-    `SELECT DISTINCT institute_name FROM ${ATTENDANCE_TABLE} WHERE is_current_semester = 1 ORDER BY institute_name`,
+    `SELECT DISTINCT institute_name FROM ${ATTENDANCE_TABLE} WHERE is_current_semester = 1 AND ${excludeInstituteSql()} ORDER BY institute_name`,
   );
   return rows.map((r) => r.institute_name).filter(Boolean);
 }
@@ -3798,6 +3810,7 @@ export async function getInstitutions(): Promise<Institution[]> {
        institute_name
      FROM ${ATTENDANCE_TABLE}
      WHERE is_current_semester = 1 AND institute_name IS NOT NULL
+       AND ${excludeInstituteSql()}
      GROUP BY institute_name
      ORDER BY institute_name`,
   );
@@ -3815,6 +3828,7 @@ export async function getSubjectList(): Promise<string[]> {
     `SELECT DISTINCT subject_title
      FROM ${ATTENDANCE_TABLE}
      WHERE is_current_semester = 1 AND subject_title IS NOT NULL
+       AND ${excludeInstituteSql()}
      ORDER BY subject_title`,
   );
   return rows.map((r) => r.subject_title).filter(Boolean);
