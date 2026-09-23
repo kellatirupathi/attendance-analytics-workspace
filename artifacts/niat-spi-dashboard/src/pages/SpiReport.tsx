@@ -32,6 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
+import StudentReportView from "@/pages/StudentReportView";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import {
   AlertCircle,
@@ -407,8 +408,12 @@ export default function SpiReport() {
   const [sessionsEnabled, setSessionsEnabled] = useState(false);
   const openSubject = panel?.type === "course" ? panel.subjectTitle : null;
 
-  const { data: overview, isLoading: overviewLoading } =
-    useFetchStudentOverview(studentId || "", params, {
+  const {
+    data: overview,
+    isLoading: overviewLoading,
+    isError: overviewError,
+    refetch: refetchOverview,
+  } = useFetchStudentOverview(studentId || "", params, {
       query: {
         enabled: !!studentId,
         queryKey: getFetchStudentOverviewQueryKey(studentId || "", params),
@@ -487,6 +492,7 @@ export default function SpiReport() {
     createdAt: string;
   };
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const [myRequests, setMyRequests] = useState<StudentRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [requestsSearch, setRequestsSearch] = useState("");
@@ -505,6 +511,31 @@ export default function SpiReport() {
       return haystack.includes(q);
     });
   }, [myRequests, requestsSearch]);
+
+  useEffect(() => {
+    if (!studentId) return;
+    const qs = token ? `?t=${encodeURIComponent(token)}` : "";
+    let cancelled = false;
+    fetch(`/api/attendance/students/${studentId}/requests${qs}`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        if (!res.ok) return [] as StudentRequest[];
+        return (await res.json()) as StudentRequest[];
+      })
+      .then((rows) => {
+        if (cancelled) return;
+        setPendingCount(
+          rows.filter((row) => row.overallStatus === "pending").length,
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPendingCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, token, reqDone]);
 
   const openRequests = async () => {
     if (!studentId) return;
@@ -642,11 +673,38 @@ export default function SpiReport() {
   /* ---------------------------- Loading ---------------------------- */
   if (overviewLoading) {
     return (
-      <div className="min-h-screen bg-[#f7f7f5] px-6 py-12">
-        <div className="mx-auto max-w-3xl space-y-8">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-40 w-full" />
-          <Skeleton className="h-40 w-full" />
+      <div className="min-h-screen bg-[#F3F4F7] px-4 py-8">
+        <div className="mx-auto max-w-[1280px] space-y-4">
+          <Skeleton className="h-28 w-full rounded-2xl" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Skeleton className="h-36 rounded-2xl" />
+            <Skeleton className="h-36 rounded-2xl" />
+            <Skeleton className="h-36 rounded-2xl" />
+          </div>
+          <Skeleton className="h-80 w-full rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (overviewError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F3F4F7] p-4">
+        <div className="w-full max-w-md text-center">
+          <AlertCircle className="mx-auto mb-4 h-10 w-10 text-red-500" />
+          <h2 className="mb-2 text-xl font-bold text-gray-900">
+            We couldn't load this report
+          </h2>
+          <p className="mb-4 text-sm text-gray-600">
+            Check the link and try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refetchOverview()}
+            className="min-h-11 rounded-xl bg-[#F25C05] px-4 text-sm font-semibold text-white"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
@@ -773,256 +831,32 @@ export default function SpiReport() {
   const section1Loading = quizzesLoading || subjectsLoading;
 
   return (
-    <div className="min-h-screen bg-[#f4f5f9]">
-      <div className="mx-auto max-w-6xl space-y-6 px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
-        {/* ============================ HEADER ============================ */}
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          {/* Left: label + student name */}
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-500">
-              Attendance &amp; Eligibility Report
-            </p>
-            <h1 className="mt-2 font-serif text-3xl font-semibold leading-tight text-gray-900 sm:text-4xl md:text-5xl">
-              {overview.studentName}
-            </h1>
-          </div>
-
-          {/* Right: meta aligned to the two left rows */}
-          <div className="shrink-0 text-left sm:text-right">
-            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-gray-400">
-              Current semester · classes still in progress
-            </p>
-            <div className="mt-2 flex h-auto items-center justify-start sm:h-[3.5rem] sm:justify-end">
-              <span className="inline-flex items-center gap-1.5 text-emerald-600">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                <span className="text-xs font-medium">Live</span>
-              </span>
-            </div>
-          </div>
-        </header>
-
-        {/* ==================== 01 · ELIGIBILITY & SPI ==================== */}
-        <Section
-          num="01"
-          title="Eligibility & SPI"
-          aside={
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={openRequests}
-                className="text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
-              >
-                Requests
-              </button>
-              <Button
-                onClick={openRequest}
-                className="gap-2 bg-brand-600 text-white hover:bg-brand-700"
-              >
-                <CalendarPlus className="h-4 w-4" />
-                Request Attendance
-              </Button>
-            </div>
-          }
-        >
-          {reqDone && (
-            <div className="mb-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-              {reqDone}
-            </div>
-          )}
-          {section1Loading ? (
-            <div className="grid gap-8 lg:grid-cols-2">
-              <div className="flex flex-col items-center gap-6 sm:flex-row">
-                <Skeleton className="h-[176px] w-[176px] shrink-0 rounded-full" />
-                <div className="flex w-full max-w-[220px] flex-col gap-3">
-                  <Skeleton className="h-6 w-full" />
-                  <Skeleton className="h-6 w-full" />
-                  <Skeleton className="h-6 w-3/4" />
-                </div>
-              </div>
-              <div className="space-y-3">
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-                <Skeleton className="h-14 w-full" />
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-8 lg:grid-cols-2">
-                <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-                  <SpiScoreRing
-                    segments={spiSegments}
-                    format={SPI_SCORE_FORMAT}
-                  />
-                  <div className="w-full min-w-0">
-                    {scoredSpiWeight < 100 && (
-                      <p className="mb-4 text-sm leading-relaxed text-gray-600">
-                        Only {scoredSpiWeight}% of your SPI weight is scored so
-                        far.
-                      </p>
-                    )}
-                    <ul className="space-y-2">
-                      {spiSegments.map((seg) => (
-                        <li
-                          key={seg.key}
-                          className="flex items-center justify-between gap-3 text-xs"
-                        >
-                          <span className="flex min-w-0 items-center gap-2 text-gray-600">
-                            <span
-                              className="h-2 w-2 shrink-0 rounded-full"
-                              style={{
-                                backgroundColor: seg.scored
-                                  ? pctColor(seg.pct ?? 0)
-                                  : "#e5e7eb",
-                              }}
-                            />
-                            <span className="truncate">{seg.label}</span>
-                          </span>
-                          <span className="shrink-0 tabular-nums text-gray-400">
-                            {seg.weight}%
-                            {seg.scored ? "" : " · pending"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-
-                <ul>
-                  {eligibilityRows.map((row) => (
-                    <EligibilityRow key={row.label} {...row} />
-                  ))}
-                </ul>
-              </div>
-
-              <StandingBanner
-                kind={standing}
-                recoverySubjects={recoverySubjects}
-                skillDebtCourses={skillDebtCourses}
-              />
-            </>
-          )}
-        </Section>
-
-        {/* ==================== 02 · SPI ==================== */}
-        <Section num="02" title="Skill Performance Index">
-          {quizzesLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-28 w-full rounded-2xl" />
-              <Skeleton className="h-28 w-full rounded-2xl" />
-              <Skeleton className="h-28 w-full rounded-2xl" />
-              <Skeleton className="h-28 w-full rounded-2xl" />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {SPI_CATEGORIES.map((cat) => (
-                <CategoryCard
-                  key={cat.key}
-                  label={cat.label}
-                  weight={cat.weight}
-                  soon={cat.soon}
-                  data={categoryData[cat.key]}
-                  onClick={() => openCategory(cat.key)}
-                />
-              ))}
-            </div>
-          )}
-        </Section>
-
-        {/* ==================== 03 · COURSE-WISE ==================== */}
-        <Section
-          num="03"
-          title="Course-wise attendance"
-          aside={
-            <span className="text-xs text-gray-400">
-              | marks the <span className="font-semibold">80%</span> minimum
-            </span>
-          }
-        >
-          {subjectsLoading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Skeleton className="h-32 w-full rounded-xl" />
-              <Skeleton className="h-32 w-full rounded-xl" />
-              <Skeleton className="h-32 w-full rounded-xl" />
-            </div>
-          ) : !subjects?.length ? (
-            <p className="py-6 text-sm text-gray-500">
-              No course attendance recorded yet.
-            </p>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {subjects.map((sub: SubjectAttendance, i) => (
-                <button
-                  key={i}
-                  onClick={() => openSessions(sub.subjectTitle)}
-                  className="group flex flex-col rounded-2xl border border-gray-100 bg-white p-5 text-left transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <h4
-                      className="min-w-0 flex-1 font-serif text-base font-semibold leading-snug text-gray-900"
-                      title={sub.subjectTitle}
-                    >
-                      {sub.subjectTitle}
-                    </h4>
-                    <span
-                      className="shrink-0 text-xl font-bold tabular-nums"
-                      style={{ color: pctTextColor(sub.pct) }}
-                    >
-                      {sub.pct}%
-                    </span>
-                  </div>
-
-                  <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${Math.min(100, sub.pct)}%`,
-                        backgroundColor: pctColor(sub.pct),
-                      }}
-                    />
-                    <div
-                      className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 bg-gray-400/70"
-                      style={{ left: `${REQUIRED_PCT}%` }}
-                    />
-                  </div>
-
-                  <div className="mt-2.5 flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      {sub.present} / {sub.total} sessions
-                    </span>
-                    <span
-                      className={cn(
-                        "text-xs font-semibold",
-                        sub.meetsRequirement
-                          ? "text-emerald-600"
-                          : "text-orange-500",
-                      )}
-                    >
-                      {sub.meetsRequirement ? "Meets 80%" : "Recovery"}
-                    </span>
-                  </div>
-
-                  <p className="mt-3 text-right text-xs font-medium text-gray-400 transition-colors group-hover:text-brand-600">
-                    Tap to view sessions →
-                  </p>
-                </button>
-              ))}
-            </div>
-          )}
-        </Section>
-
-        {/* Support footer */}
-        <p className="mt-12 border-t border-gray-200 pt-8 text-center text-sm text-gray-500">
-          Need help or spotted something off?{" "}
-          <a
-            href="mailto:learning.support@nxtwave.co.in"
-            className="font-semibold text-brand-600 hover:text-brand-700 hover:underline"
-          >
-            learning.support@nxtwave.co.in
-          </a>
-        </p>
-      </div>
+    <>
+      <StudentReportView
+        name={overview.studentName}
+        userId={overview.studentId}
+        campus={overview.instituteName ?? ""}
+        section={overview.sectionName ?? ""}
+        attendancePct={overview.attendancePct}
+        attended={overview.presentCount}
+        totalSessions={overview.totalSessions}
+        courses={(subjects ?? []).map((subject) => ({
+          name: subject.subjectTitle,
+          attended: subject.present,
+          total: subject.total,
+          pct: subject.pct,
+        }))}
+        classroomAttempted={quizzes?.classroomSummary.attempted ?? 0}
+        classroomTotal={quizzes?.classroomSummary.total ?? 0}
+        classroomAvg={quizzes?.classroomSummary.avgPct ?? 0}
+        moduleAttempted={quizzes?.moduleSummary.attempted ?? 0}
+        moduleTotal={quizzes?.moduleSummary.total ?? 0}
+        moduleAvg={quizzes?.moduleSummary.avgPct ?? 0}
+        pendingCount={pendingCount}
+        notice={reqDone}
+        onRequestCorrection={openRequest}
+        onMyRequests={() => void openRequests()}
+      />
 
       {/* ==================== RIGHT SLIDE-OVER PANEL ==================== */}
       <Sheet open={panel !== null} onOpenChange={(o) => !o && setPanel(null)}>
@@ -1468,7 +1302,7 @@ export default function SpiReport() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
