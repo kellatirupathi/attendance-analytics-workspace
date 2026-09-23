@@ -1148,7 +1148,7 @@ function resolveAttendanceSummaryAccess(
   return { ok: true, campuses: asked };
 }
 
-router.get("/attendance-summary", requireSession(), async (req, res): Promise<void> => {
+router.get("/subject-attendance", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const q = req.query as Record<string, unknown>;
   const toDate = String(q["to"] ?? "").trim() || istToday();
@@ -1213,7 +1213,7 @@ router.get("/attendance-summary", requireSession(), async (req, res): Promise<vo
 });
 
 router.get(
-  "/attendance-summary/students",
+  "/subject-attendance-students",
   requireSession(),
   async (req, res): Promise<void> => {
     const session = req.session!;

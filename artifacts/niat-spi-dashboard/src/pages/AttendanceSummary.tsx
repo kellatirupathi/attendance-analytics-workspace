@@ -225,7 +225,7 @@ export default function AttendanceSummary() {
     for (const campus of appliedCampuses) search.append("campuses", campus);
     setLoading(true);
     setError("");
-    fetch(`/api/dashboard/attendance-summary?${search}`, {
+    fetch(`/api/dashboard/subject-attendance?${search}`, {
       credentials: "include",
       signal: controller.signal,
     })
@@ -388,7 +388,7 @@ export default function AttendanceSummary() {
     const search = new URLSearchParams({ to: appliedTo, campus, subject, band });
     if (appliedFrom) search.set("from", appliedFrom);
     try {
-      const res = await fetch(`/api/dashboard/attendance-summary/students?${search}`, {
+      const res = await fetch(`/api/dashboard/subject-attendance-students?${search}`, {
         credentials: "include",
       });
       if (!res.ok) {
