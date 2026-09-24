@@ -954,12 +954,12 @@ export interface SpiRecordSummary {
 }
 
 const SPI_LEVEL_SQL = `CASE
-  WHEN classroom_avg IS NULL OR module_avg IS NULL THEN 'Ab'
-  WHEN LEAST(classroom_avg, module_avg) < 50 THEN 'F'
-  WHEN LEAST(classroom_avg, module_avg) >= 90 THEN 'A+'
-  WHEN LEAST(classroom_avg, module_avg) >= 80 THEN 'A'
-  WHEN LEAST(classroom_avg, module_avg) >= 70 THEN 'B'
-  WHEN LEAST(classroom_avg, module_avg) >= 60 THEN 'C'
+  WHEN classroom_avg IS NULL AND module_avg IS NULL THEN 'Ab'
+  WHEN LEAST(IFNULL(classroom_avg, 100), IFNULL(module_avg, 100)) < 50 THEN 'F'
+  WHEN LEAST(IFNULL(classroom_avg, 100), IFNULL(module_avg, 100)) >= 90 THEN 'A+'
+  WHEN LEAST(IFNULL(classroom_avg, 100), IFNULL(module_avg, 100)) >= 80 THEN 'A'
+  WHEN LEAST(IFNULL(classroom_avg, 100), IFNULL(module_avg, 100)) >= 70 THEN 'B'
+  WHEN LEAST(IFNULL(classroom_avg, 100), IFNULL(module_avg, 100)) >= 60 THEN 'C'
   ELSE 'D'
 END`;
 

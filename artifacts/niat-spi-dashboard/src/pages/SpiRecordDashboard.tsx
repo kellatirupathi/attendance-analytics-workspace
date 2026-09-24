@@ -319,7 +319,7 @@ export default function SpiRecordDashboard() {
         <Tile
           label="Skill Debt"
           value={isLoading ? null : fmt(summary?.skillDebt ?? 0)}
-          hint="Below 50% (F) or no attempt (Ab) on classroom or module."
+          hint="Below 50% on a quiz the student has, or no classroom and no module quiz."
           tone="rose"
         />
       </div>
