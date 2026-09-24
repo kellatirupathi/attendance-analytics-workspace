@@ -245,15 +245,21 @@ export function AttendanceBySubject({
   const data = subjects
     .slice()
     .sort((a, b) => a.pct - b.pct)
-    .map((s) => ({
-      fullName: s.subjectTitle,
-      name:
-        s.subjectTitle.length > 16
-          ? s.subjectTitle.slice(0, 15) + "…"
-          : s.subjectTitle,
-      pct: s.pct,
-      fill: pctColor(s.pct),
-    }));
+    .map((s) => {
+      const subjectTitle =
+        typeof s.subjectTitle === "string" && s.subjectTitle.trim()
+          ? s.subjectTitle.trim()
+          : "Unassigned subject";
+      return {
+        fullName: subjectTitle,
+        name:
+          subjectTitle.length > 16
+            ? subjectTitle.slice(0, 15) + "…"
+            : subjectTitle,
+        pct: s.pct,
+        fill: pctColor(s.pct),
+      };
+    });
 
   return (
     <div style={{ height }}>

@@ -1288,7 +1288,9 @@ export async function getSubjectSummary(
   const rosterWhere =
     scopeClause(scope, params, { semester: opts.semester }) + campusFilter;
   const inWindow = dateWindowPredicate(opts.dateRange, params);
-  const rows = await bqQuery<AttendanceRollupRow & { subject_title: string }>(
+  const rows = await bqQuery<
+    AttendanceRollupRow & { subject_title: string | null }
+  >(
     `SELECT
       subject_title,
       COUNT(DISTINCT student_user_id) AS student_count,
@@ -1308,7 +1310,7 @@ export async function getSubjectSummary(
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   return rows.map((r) => ({
-    subjectTitle: r.subject_title,
+    subjectTitle: r.subject_title?.trim() || "Unassigned subject",
     ...mapAttendanceRollup(r),
   }));
 }
