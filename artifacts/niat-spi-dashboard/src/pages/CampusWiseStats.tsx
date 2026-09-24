@@ -409,7 +409,15 @@ function CampusSubjects({
     })
       .then((res) => (res.ok ? res.json() : Promise.reject()))
       .then((data: CampusSessionRow[]) => {
-        if (alive) setRows(data ?? []);
+        if (alive) {
+          setRows(
+            (data ?? []).filter(
+              (row) =>
+                typeof row.subjectTitle === "string" &&
+                row.subjectTitle.trim().length > 0,
+            ),
+          );
+        }
       })
       .catch(() => {
         if (alive) {

@@ -42,7 +42,7 @@ function hash(value: string): number {
   return h;
 }
 
-export function subjectColor(subject: string): SubjectColor {
-  const key = subject.trim().toLowerCase();
+export function subjectColor(subject: string | null | undefined): SubjectColor {
+  const key = subject?.trim().toLowerCase() || "unassigned";
   return PALETTE[hash(key) % PALETTE.length]!;
 }

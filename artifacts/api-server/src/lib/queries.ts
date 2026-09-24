@@ -1183,6 +1183,7 @@ export async function getCampusSessions(
     scopeClause(scope, params, { semester: opts.semester }) +
     dateRangeClause(opts.dateRange, params);
   let extra = " AND institute_name = @campus";
+  extra += " AND NULLIF(TRIM(subject_title), '') IS NOT NULL";
   if (opts.section) {
     params["section"] = opts.section;
     extra += " AND batch_section_name = @section";
