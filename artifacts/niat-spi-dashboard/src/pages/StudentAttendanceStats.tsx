@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import {
   useGetDashboardFilters,
@@ -24,6 +24,7 @@ import {
 } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Search, Loader2, ChevronRight, Download } from "lucide-react";
+import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -89,7 +90,7 @@ const DEFAULT_COLUMNS: ColumnId[] = [
 ];
 
 const GRAIN_PCT_LABEL: Record<Grain, string> = {
-  university: "University Attendance %",
+  university: "Campus Attendance %",
   university_subject: "Subject Attendance %",
   university_section: "Section Attendance %",
   university_student: "Student Attendance %",
@@ -103,11 +104,14 @@ const COLUMN_LABEL: Record<ColumnId, string> = {
   sessions: "Sessions",
   students: "Students",
   absences: "Absences",
-  eligible: "Eligible",
-  recoveryEligible: "Recovery Eligible",
-  atRisk: "At Risk",
-  ineligible: "Ineligible",
+  eligible: "Eligible ≥ 80%",
+  recoveryEligible: "Recovery 60–80%",
+  atRisk: "At risk 50–60%",
+  ineligible: "Ineligible < 50%",
 };
+
+const TIER_COLUMNS = new Set<ColumnId>(["eligible", "recoveryEligible", "atRisk", "ineligible"]);
+const ALL_COLUMNS: ColumnId[] = COLUMN_GROUPS.flatMap((group) => group.ids);
 
 interface StatsRow {
   university: string;
@@ -135,7 +139,12 @@ function columnLabel(id: ColumnId, grain: Grain): string {
 }
 
 function cellValue(row: StatsRow, id: ColumnId): string | number {
-  return row[id];
+  if (id === "overallPct" || id === "grainPct") return `${row[id]}%`;
+  if (TIER_COLUMNS.has(id)) {
+    if (!row.students) return "—";
+    return `${Math.round((Number(row[id]) / row.students) * 100)}%`;
+  }
+  return Number(row[id]).toLocaleString();
 }
 
 export default function StudentAttendanceStats() {
@@ -216,7 +225,8 @@ export default function StudentAttendanceStats() {
     else if (scopeKind === "range") {
       params.set("dateFrom", dateFrom);
       params.set("dateTo", dateTo);
-    } else if (semester) params.set("semester", semester);
+    }
+    if (semester) params.set("semester", semester);
     fetch(`/api/dashboard/attendance-group?${params.toString()}`, {
       credentials: "include",
     })
@@ -254,8 +264,9 @@ export default function StudentAttendanceStats() {
   const currentPage = Math.min(page, totalPages);
   const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  const visibleColumns = columns.filter((id) => id !== "overallPct");
-  const headers = ["University", ...identityHeaders(grain), "Overall Attendance %", ...visibleColumns.map((id) => columnLabel(id, grain))];
+  const visibleColumns = columns.filter((id) => ALL_COLUMNS.includes(id));
+  const identity = identityHeaders(grain);
+  const headers = ["Campus", ...identity, ...visibleColumns.map((id) => columnLabel(id, grain))];
 
   const scopeLabel =
     scopeKind === "day" && day
@@ -300,7 +311,6 @@ export default function StudentAttendanceStats() {
       data.map((row) => [
         row.university,
         ...identityValues(row, grain),
-        row.overallPct,
         ...visibleColumns.map((id) => cellValue(row, id)),
       ]),
     );
@@ -312,13 +322,14 @@ export default function StudentAttendanceStats() {
     else if (scopeKind === "range") {
       params.set("dateFrom", dateFrom);
       params.set("dateTo", dateTo);
-    } else if (semester) params.set("semester", semester);
+    }
+    if (semester) params.set("semester", semester);
     const res = await fetch(`/api/dashboard/attendance-group?${params.toString()}`, {
       credentials: "include",
     });
     if (!res.ok) return;
     const data = (await res.json()) as StatsRow[];
-    exportRows(data, "attendance-stats-all-universities.csv");
+    exportRows(data, "attendance-stats-all-campuses.csv");
   };
 
   const applyColumns = async (asDefault: boolean) => {
@@ -349,54 +360,78 @@ export default function StudentAttendanceStats() {
     );
   };
 
+  const columnOrder = [
+    ...draftColumns,
+    ...ALL_COLUMNS.filter((id) => !draftColumns.includes(id)),
+  ];
+  const textColumnCount = 1 + identity.length;
+
   return (
     <div className="flex flex-col">
-      <PageHeader
-        title="Student Attendance Stats"
-        subtitle={`${scopeLabel} · Attendance = sessions attended ÷ sessions scheduled.`}
-      />
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <PageHeader title="Student Attendance Stats" />
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <FilterField label="Group by">
         <SearchableSelect
           value={grain}
           onValueChange={(value) => writeQuery({ group: value === "university" ? undefined : value })}
           options={[
-            { value: "university", label: "University" },
-            { value: "university_subject", label: "University × Subject" },
-            { value: "university_section", label: "University × Section" },
-            { value: "university_student", label: "University × Student" },
+            { value: "university", label: "Campus-wise" },
+            { value: "university_subject", label: "Subject-wise" },
+            { value: "university_section", label: "Section-wise" },
+            { value: "university_student", label: "Student-wise" },
           ]}
           placeholder="Group by"
           searchPlaceholder="Search…"
-          className="w-[220px]"
+          className="w-[200px]"
         />
+        </FilterField>
+        <FilterField label="Date scope">
         <SearchableSelect
-          value={scopeKind === "semester" ? semester || "current" : scopeKind}
+          value={scopeKind === "day" ? "day" : scopeKind === "range" ? "range" : "semester"}
           onValueChange={(value) => {
-            if (value === "day") writeQuery({ scope: "day", semester: undefined, dateFrom: undefined, dateTo: undefined });
-            else if (value === "range") writeQuery({ scope: "range", semester: undefined, date: undefined });
-            else if (value === "current") writeQuery({ scope: undefined, semester: undefined, date: undefined, dateFrom: undefined, dateTo: undefined });
-            else writeQuery({ scope: "semester", semester: value, date: undefined, dateFrom: undefined, dateTo: undefined });
+            if (value === "day") writeQuery({ scope: "day", dateFrom: undefined, dateTo: undefined });
+            else if (value === "range") writeQuery({ scope: "range", date: undefined });
+            else writeQuery({ scope: undefined, date: undefined, dateFrom: undefined, dateTo: undefined });
           }}
           options={[
-            { value: "current", label: "Current semester" },
-            ...semesters.map((item) => ({ value: item, label: item })),
+            { value: "semester", label: "Semester dates" },
             { value: "day", label: "Single day" },
             { value: "range", label: "Date range" },
           ]}
           placeholder="Date scope"
-          searchPlaceholder="Search semesters…"
-          className="w-[220px]"
+          className="w-[180px]"
         />
+        </FilterField>
+        <FilterField label="Semester">
+        <SearchableSelect
+          value={semester || "current"}
+          onValueChange={(value) => writeQuery({ semester: value === "current" ? undefined : value })}
+          options={[
+            { value: "current", label: "Current semester" },
+            ...semesters.map((item) => ({ value: item, label: item })),
+          ]}
+          placeholder="Semester"
+          searchPlaceholder="Search semesters…"
+          className="w-[200px]"
+        />
+        </FilterField>
         {scopeKind === "day" && (
-          <Input type="date" value={day} aria-label="Day" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "day", date: e.target.value, semester: undefined })} />
+          <FilterField label="Day">
+            <Input type="date" value={day} aria-label="Day" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "day", date: e.target.value })} />
+          </FilterField>
         )}
         {scopeKind === "range" && (
           <>
-            <Input type="date" value={dateFrom} aria-label="From" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
-            <Input type="date" value={dateTo} aria-label="To" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
+            <FilterField label="From">
+              <Input type="date" value={dateFrom} aria-label="From" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
+            </FilterField>
+            <FilterField label="To">
+              <Input type="date" value={dateTo} aria-label="To" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
+            </FilterField>
           </>
         )}
         {!(isBoa && user?.campuses?.length === 1) && campusOptions.length > 0 && (
+          <FilterField label="Campus">
           <SearchableSelect
             value={campus}
             onValueChange={(value) => writeQuery({ campus: value === "all" ? undefined : value })}
@@ -405,11 +440,13 @@ export default function StudentAttendanceStats() {
             searchPlaceholder="Search campuses…"
             className="w-[220px]"
           />
+          </FilterField>
         )}
+        <FilterField label="Search">
         <div className="relative min-w-[180px] sm:w-56">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="Search…"
+            placeholder="Name or campus"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -418,29 +455,24 @@ export default function StudentAttendanceStats() {
             className="h-9 border-gray-200 pl-9"
           />
         </div>
+        </FilterField>
         <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
           <PopoverTrigger asChild>
             <Button type="button" variant="outline" className="h-9 border-gray-200">Columns</Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-72">
-            <div className="max-h-80 space-y-3 overflow-y-auto">
-              {COLUMN_GROUPS.map((group) => (
-                <div key={group.title}>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{group.title}</p>
-                  {group.ids.map((id) => (
-                    <label key={id} className="flex items-center gap-2 py-1 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draftColumns.includes(id)}
-                        disabled={id === "overallPct"}
-                        onChange={() => toggleDraft(id)}
-                      />
-                      {columnLabel(id, grain)}
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </div>
+            <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
+            <ColumnOrderList
+              ids={columnOrder}
+              label={(id) => columnLabel(id, grain)}
+              checked={(id) => draftColumns.includes(id)}
+              locked={(id) => id === "overallPct"}
+              onToggle={toggleDraft}
+              onReorder={(from, to) => {
+                const next = moveListItem(columnOrder, from, to);
+                setDraftColumns(next.filter((id) => draftColumns.includes(id)));
+              }}
+            />
             <div className="mt-3 flex flex-col gap-2">
               <Button type="button" className="h-9" onClick={() => void applyColumns(false)}>Apply</Button>
               {isSuperAdmin && (
@@ -456,7 +488,7 @@ export default function StudentAttendanceStats() {
           <Download className="h-4 w-4" /> Export this view
         </Button>
         <Button type="button" variant="outline" className="h-9 gap-2" disabled={loading || !scopeReady} onClick={() => void exportAll()}>
-          <Download className="h-4 w-4" /> Export all universities
+          <Download className="h-4 w-4" /> Export all campuses
         </Button>
       </div>
 
@@ -471,8 +503,11 @@ export default function StudentAttendanceStats() {
           <Table>
             <TableHeader>
               <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-                {headers.map((header) => (
-                  <TableHead key={header} className="h-11 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-600">
+                {headers.map((header, index) => (
+                  <TableHead
+                    key={header}
+                    className={`h-11 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-600 ${index < textColumnCount ? "text-left" : "text-right"}`}
+                  >
                     {header}
                   </TableHead>
                 ))}
@@ -517,12 +552,19 @@ export default function StudentAttendanceStats() {
                         )}
                       </TableCell>
                     )}
-                    <TableCell className="text-right font-semibold tabular-nums" style={{ color: pctTextColor(row.overallPct) }}>
-                      {row.overallPct}%
-                    </TableCell>
                     {visibleColumns.map((id) => (
-                      <TableCell key={id} className="text-right tabular-nums" style={id === "grainPct" ? { color: pctColor(row.grainPct) } : undefined}>
-                        {id === "grainPct" ? `${row.grainPct}%` : Number(cellValue(row, id)).toLocaleString()}
+                      <TableCell
+                        key={id}
+                        className="text-right tabular-nums"
+                        style={
+                          id === "overallPct"
+                            ? { color: pctTextColor(row.overallPct) }
+                            : id === "grainPct"
+                              ? { color: pctColor(row.grainPct) }
+                              : undefined
+                        }
+                      >
+                        {cellValue(row, id)}
                       </TableCell>
                     ))}
                     <TableCell className="text-right text-gray-300">
@@ -574,6 +616,15 @@ function identityValues(row: StatsRow, grain: Grain): string[] {
 
 function rowKey(row: StatsRow, grain: Grain): string {
   return [row.university, grain === "university_subject" ? row.subject : "", grain === "university_section" ? row.section : "", row.studentId ?? ""].join("|");
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+      {label}
+      {children}
+    </label>
+  );
 }
 
 function formatDay(iso: string): string {

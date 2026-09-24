@@ -981,18 +981,18 @@ function spiRecordGrainSql(grain: SpiRecordGrain): { select: string; group: stri
       };
     case "semester":
       return {
-        select: `semester_title AS label, CAST(NULL AS STRING) AS university, semester_title AS semester, CAST(NULL AS STRING) AS section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
-        group: "semester_title",
+        select: `semester_title AS label, university, semester_title AS semester, CAST(NULL AS STRING) AS section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
+        group: "university, semester_title",
       };
     case "section":
       return {
-        select: `section_name AS label, ANY_VALUE(university) AS university, CAST(NULL AS STRING) AS semester, section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
-        group: "section_name",
+        select: `section_name AS label, university, CAST(NULL AS STRING) AS semester, section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
+        group: "university, section_name",
       };
     case "student":
       return {
-        select: `ANY_VALUE(student_name) AS label, university, ANY_VALUE(semester_title) AS semester, ANY_VALUE(section_name) AS section_name, student_user_id AS student_id, ANY_VALUE(student_name) AS student_name`,
-        group: "university, student_user_id",
+        select: `ANY_VALUE(student_name) AS label, university, semester_title AS semester, section_name, student_user_id AS student_id, ANY_VALUE(student_name) AS student_name`,
+        group: "university, semester_title, section_name, student_user_id",
       };
     default:
       return {
@@ -1059,24 +1059,24 @@ export async function getSpiRecord(
         student_user_id,
         ANY_VALUE(student_name) AS student_name,
         TRIM(institute_name) AS university,
-        COALESCE(NULLIF(TRIM(ANY_VALUE(batch_section_name)), ''), 'Unassigned') AS section_name,
+        COALESCE(NULLIF(TRIM(${opts.grain === "section" || opts.grain === "student" ? "batch_section_name" : "ANY_VALUE(batch_section_name)"}), ''), 'Unassigned') AS section_name,
         COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
         ${extra}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
-      GROUP BY student_user_id, TRIM(institute_name), semester_title
+      GROUP BY student_user_id, TRIM(institute_name), semester_title${opts.grain === "section" || opts.grain === "student" ? ", COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')" : ""}
     ),
     people AS (
       SELECT
         student_user_id,
         university,
         ANY_VALUE(student_name) AS student_name,
-        ANY_VALUE(section_name) AS section_name,
-        ${opts.grain === "semester" ? "semester_title" : "ANY_VALUE(semester_title) AS semester_title"}
+        ${opts.grain === "campus" || opts.grain === "all" ? "ANY_VALUE(section_name) AS section_name" : "section_name"},
+        ${opts.grain === "campus" || opts.grain === "all" ? "ANY_VALUE(semester_title) AS semester_title" : "semester_title"}
       FROM roster
-      GROUP BY student_user_id, university${opts.grain === "semester" ? ", semester_title" : ""}
+      GROUP BY student_user_id, university${opts.grain === "campus" || opts.grain === "all" ? "" : ", semester_title, section_name"}
     ),
     quiz AS (
       SELECT
@@ -4251,7 +4251,8 @@ export async function getAttendanceGroupStats(
     clauses.push(
       "DATE(date) >= DATE(@dateFrom) AND DATE(date) <= DATE(@dateTo)",
     );
-  } else if (opts.semester) {
+  }
+  if (opts.semester) {
     params["semester"] = opts.semester;
     clauses.push("semester_title = @semester");
   } else {

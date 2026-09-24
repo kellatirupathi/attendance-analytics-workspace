@@ -30,6 +30,7 @@ import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
+import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 
 type Grain = "all" | "campus" | "semester" | "section" | "student";
 
@@ -64,6 +65,8 @@ const DEFAULT_COLUMNS: ColumnId[] = [
   "levelD",
   "skillDebt",
 ];
+
+const ALL_SPI_COLUMNS: ColumnId[] = COLUMN_GROUPS.flatMap((group) => group.ids);
 
 const COLUMN_LABEL: Record<ColumnId, string> = {
   students: "Students",
@@ -169,8 +172,8 @@ export default function SpiRecordDashboard() {
   const params = new URLSearchParams({ group: grain });
   if (campus !== "all") params.set("campus", campus);
   if (grain === "student" && section !== "all") params.set("section", section);
-  if (scope === "all") params.set("scope", "all");
-  else if (semester) params.set("semester", semester);
+  if (semester) params.set("semester", semester);
+  else if (scope === "all") params.set("scope", "all");
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["spi-record", params.toString()],
@@ -208,15 +211,25 @@ export default function SpiRecordDashboard() {
     return true;
   });
 
-  const identityHeader =
-    grain === "all" ? "Scope" : grain === "semester" ? "Semester" : grain === "section" ? "Section" : grain === "student" ? "Name" : "Campus";
+  const identityHeaders =
+    grain === "all"
+      ? ["Scope"]
+      : grain === "semester"
+        ? ["Campus", "Semester"]
+        : grain === "section"
+          ? ["Campus", "Section"]
+          : grain === "student"
+            ? ["Campus", "Semester", "Section", "Name", "Student ID"]
+            : ["Campus"];
 
-  const identity = (row: RecordRow) => {
-    if (grain === "semester") return row.semester || "—";
-    if (grain === "section") return row.section || "—";
-    if (grain === "student") return row.studentName || "—";
-    if (grain === "all") return "All campuses";
-    return row.university || "—";
+  const identityCells = (row: RecordRow): string[] => {
+    if (grain === "semester") return [row.university || "—", row.semester || "—"];
+    if (grain === "section") return [row.university || "—", row.section || "—"];
+    if (grain === "student") {
+      return [row.university || "—", row.semester || "—", row.section || "—", row.studentName || "—", row.studentId || "—"];
+    }
+    if (grain === "all") return ["All campuses"];
+    return [row.university || "—"];
   };
 
   const cell = (row: RecordRow, id: ColumnId): string => {
@@ -230,19 +243,10 @@ export default function SpiRecordDashboard() {
   };
 
   const exportRows = (source: RecordRow[], filename: string) => {
-    const headers = [
-      identityHeader,
-      ...(grain === "student" ? ["Student ID"] : []),
-      ...visible.map((id) => COLUMN_LABEL[id]),
-    ];
     exportCsv(
       filename,
-      headers,
-      source.map((row) => [
-        identity(row),
-        ...(grain === "student" ? [row.studentId ?? ""] : []),
-        ...visible.map((id) => cell(row, id)),
-      ]),
+      [...identityHeaders, ...visible.map((id) => COLUMN_LABEL[id])],
+      source.map((row) => [...identityCells(row), ...visible.map((id) => cell(row, id))]),
     );
   };
 
@@ -250,8 +254,8 @@ export default function SpiRecordDashboard() {
     setExporting(true);
     try {
       const all = new URLSearchParams({ group: "campus" });
-      if (scope === "all") all.set("scope", "all");
-      else if (semester) all.set("semester", semester);
+      if (semester) all.set("semester", semester);
+      else if (scope === "all") all.set("scope", "all");
       const res = await fetch(`/api/dashboard/spi-record?${all.toString()}`, { credentials: "include" });
       if (!res.ok) return;
       const body = (await res.json()) as RecordPayload;
@@ -279,10 +283,7 @@ export default function SpiRecordDashboard() {
 
   return (
     <div className="flex flex-col">
-      <PageHeader
-        title="SPI Record Dashboard"
-        subtitle={`Skill Performance Index · ${scopeLabel}. SPI points use the Reports formula. Skill level follows plan §3.2.`}
-      />
+      <PageHeader title="SPI Record Dashboard" />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={`Across ${fmt(summary?.campuses ?? 0)} campuses, ${scopeLabel.toLowerCase()}`} />
@@ -341,21 +342,28 @@ export default function SpiRecordDashboard() {
         </Field>
         <Field label="Date scope">
           <SearchableSelect
-            value={scope === "all" ? "all" : semester || "current"}
-            onValueChange={(value) => {
-              if (value === "current") writeQuery({ scope: undefined, semester: undefined });
-              else if (value === "all") writeQuery({ scope: "all", semester: undefined });
-              else writeQuery({ scope: undefined, semester: value });
-            }}
+            value={scope === "all" ? "all" : "current"}
+            onValueChange={(value) => writeQuery({ scope: value === "all" ? "all" : undefined })}
             options={[
               { value: "current", label: "Current semester" },
               { value: "all", label: "All semesters" },
+            ]}
+            className="w-[180px]"
+          />
+        </Field>
+        <Field label="Semester">
+          <SearchableSelect
+            value={semester || "any"}
+            onValueChange={(value) => writeQuery({ semester: value === "any" ? undefined : value })}
+            options={[
+              { value: "any", label: "Any in date scope" },
               ...semesters.map((item) => ({ value: item, label: item })),
             ]}
             className="w-[200px]"
+            searchPlaceholder="Search semesters…"
           />
         </Field>
-        {needsCampus && (
+        {!(isBoa && user?.campuses?.length === 1) && (
           <Field label="Campus">
             <SearchableSelect
               value={campus}
@@ -379,32 +387,29 @@ export default function SpiRecordDashboard() {
           </Field>
         )}
         <Field label="Columns">
-          <Popover open={open} onOpenChange={setOpen}>
+          <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-[180px] justify-between">
                 {columns.length} of {Object.keys(COLUMN_LABEL).length} selected
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-64" align="start">
-              {COLUMN_GROUPS.map((group) => (
-                <div key={group.title} className="mb-2">
-                  <div className="px-1 py-1 text-[11px] font-semibold uppercase text-gray-500">{group.title}</div>
-                  {group.ids.map((id) => (
-                    <label key={id} className="flex items-center gap-2 px-1 py-1 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={draft.includes(id)}
-                        onChange={() =>
-                          setDraft((current) =>
-                            current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-                          )
-                        }
-                      />
-                      {COLUMN_LABEL[id]}
-                    </label>
-                  ))}
-                </div>
-              ))}
+            <PopoverContent className="w-72" align="start">
+              <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
+              <ColumnOrderList
+                ids={[...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))]}
+                label={(id) => COLUMN_LABEL[id]}
+                checked={(id) => draft.includes(id)}
+                onToggle={(id) =>
+                  setDraft((current) =>
+                    current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+                  )
+                }
+                onReorder={(from, to) => {
+                  const order = [...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))];
+                  const next = moveListItem(order, from, to);
+                  setDraft(next.filter((id) => draft.includes(id)));
+                }}
+              />
               <Button
                 size="sm"
                 className="mt-1 w-full"
@@ -441,10 +446,11 @@ export default function SpiRecordDashboard() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{identityHeader}</TableHead>
-                {grain === "student" && <TableHead>Student ID</TableHead>}
+                {identityHeaders.map((header) => (
+                  <TableHead key={header} className="text-left">{header}</TableHead>
+                ))}
                 {visible.map((id) => (
-                  <TableHead key={id}>{COLUMN_LABEL[id]}</TableHead>
+                  <TableHead key={id} className="text-right">{COLUMN_LABEL[id]}</TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -456,17 +462,18 @@ export default function SpiRecordDashboard() {
                     </TableRow>
                   ))
                 : pageRows.map((row, index) => (
-                    <TableRow key={`${identity(row)}-${row.studentId ?? index}`}>
-                      <TableCell className="font-medium">
-                        {grain === "student" && row.spiPath ? (
-                          <a className="text-brand-700 hover:underline" href={row.spiPath}>{identity(row)}</a>
-                        ) : (
-                          identity(row)
-                        )}
-                      </TableCell>
-                      {grain === "student" && <TableCell className="text-gray-500">{row.studentId}</TableCell>}
+                    <TableRow key={`${row.university ?? ""}-${row.semester ?? ""}-${row.section ?? ""}-${row.studentId ?? index}`}>
+                      {identityCells(row).map((value, cellIndex) => (
+                        <TableCell key={`${cellIndex}-${value}`} className="font-medium">
+                          {grain === "student" && cellIndex === 3 && row.spiPath ? (
+                            <a className="text-brand-700 hover:underline" href={row.spiPath}>{value}</a>
+                          ) : (
+                            value
+                          )}
+                        </TableCell>
+                      ))}
                       {visible.map((id) => (
-                        <TableCell key={id}>
+                        <TableCell key={id} className="text-right tabular-nums">
                           {id === "skillLevel" ? (
                             <span className={cn("text-xs font-bold", levelTone(row.skillLevel ?? ""))}>{cell(row, id)}</span>
                           ) : (

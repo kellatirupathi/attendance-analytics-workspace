@@ -341,7 +341,7 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   }
   const allSemesters = q["scope"] === "all";
   const semester = allSemesters ? undefined : parseSemester(q);
-  const cacheKey = `spi-record:v4:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${allSemesters}`;
+  const cacheKey = `spi-record:v5:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${allSemesters}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -1155,15 +1155,15 @@ function closedDateScope(q: Record<string, string | undefined>): {
   const to = q["dateTo"]?.trim();
   const day = q["date"]?.trim();
   const iso = /^\d{4}-\d{2}-\d{2}$/;
-  if (day && iso.test(day)) return { dateFrom: day, dateTo: day };
+  const semester = q["semester"]?.trim() || undefined;
+  if (day && iso.test(day)) return { dateFrom: day, dateTo: day, semester };
   if ((from && iso.test(from)) || (to && iso.test(to))) {
     const start = from && iso.test(from) ? from : to!;
     const end = to && iso.test(to) ? to : from!;
     return start <= end
-      ? { dateFrom: start, dateTo: end }
-      : { dateFrom: end, dateTo: start };
+      ? { dateFrom: start, dateTo: end, semester }
+      : { dateFrom: end, dateTo: start, semester };
   }
-  const semester = q["semester"]?.trim();
   return semester ? { semester } : {};
 }
 
