@@ -29,7 +29,15 @@ import {
   getInstituteDirectory,
   getSpiAveragesByCampus,
   getSpiAveragesBySection,
+  getAttendanceGroupStats,
+  type AttendanceGrain,
 } from "../lib/queries.js";
+import {
+  getColumnSelection,
+  sanitizeColumns,
+  saveDefaultColumns,
+  saveUserColumns,
+} from "../lib/attendanceStatsColumns.js";
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
 import { spiSharePath } from "../lib/spiToken.js";
@@ -1063,6 +1071,126 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching assessment students");
       res.status(500).json({ error: "Failed to fetch assessment students" });
+    }
+  },
+);
+
+const ATTENDANCE_GRAINS = new Set<AttendanceGrain>([
+  "university",
+  "university_subject",
+  "university_section",
+  "university_student",
+]);
+
+function closedDateScope(q: Record<string, string | undefined>): {
+  semester?: string;
+  dateFrom?: string;
+  dateTo?: string;
+} {
+  const from = q["dateFrom"]?.trim();
+  const to = q["dateTo"]?.trim();
+  const day = q["date"]?.trim();
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (day && iso.test(day)) return { dateFrom: day, dateTo: day };
+  if ((from && iso.test(from)) || (to && iso.test(to))) {
+    const start = from && iso.test(from) ? from : to!;
+    const end = to && iso.test(to) ? to : from!;
+    return start <= end
+      ? { dateFrom: start, dateTo: end }
+      : { dateFrom: end, dateTo: start };
+  }
+  const semester = q["semester"]?.trim();
+  return semester ? { semester } : {};
+}
+
+router.get("/attendance-group", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | undefined>;
+  const grain = q["group"] as AttendanceGrain;
+  if (!ATTENDANCE_GRAINS.has(grain)) {
+    res.status(400).json({ error: "group is required" });
+    return;
+  }
+  const campus = q["campus"]?.trim() || undefined;
+  if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const dates = closedDateScope(q);
+  const cacheKey = `attendance-group:v1:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${dates.semester ?? ""}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const rows = await getAttendanceGroupStats(scope, { grain, campus, ...dates });
+    const payload = rows.map((row) => ({
+      ...row,
+      spiPath: row.studentId ? spiSharePath(row.studentId) : null,
+    }));
+    cacheSet(cacheKey, payload, 10 * 60 * 1000);
+    res.json(payload);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching attendance group stats");
+    res.status(500).json({ error: "Failed to fetch attendance stats" });
+  }
+});
+
+router.get("/attendance-stats/columns", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  try {
+    const selection = await getColumnSelection(session.sub);
+    res.json({
+      columns: selection.columns,
+      personalized: selection.personalized,
+      canSetDefault: session.role === "superadmin",
+    });
+  } catch (err) {
+    req.log.error({ err }, "Error reading attendance column prefs");
+    res.status(500).json({ error: "Failed to load columns" });
+  }
+});
+
+router.put("/attendance-stats/columns", requireSession(), async (req, res): Promise<void> => {
+  const columns = sanitizeColumns(req.body?.columns);
+  if (!columns) {
+    res.status(400).json({ error: "columns must be a list" });
+    return;
+  }
+  try {
+    await saveUserColumns(req.session!.sub, columns);
+    res.json({ columns, personalized: true });
+  } catch (err) {
+    req.log.error({ err }, "Error saving attendance column prefs");
+    res.status(500).json({ error: "Failed to save columns" });
+  }
+});
+
+router.put(
+  "/attendance-stats/columns/default",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    if (req.session!.role !== "superadmin") {
+      res.status(403).json({ error: "Only a Super Admin can set the default columns" });
+      return;
+    }
+    const columns = sanitizeColumns(req.body?.columns);
+    if (!columns) {
+      res.status(400).json({ error: "columns must be a list" });
+      return;
+    }
+    try {
+      await saveDefaultColumns(columns);
+      res.json({ columns });
+    } catch (err) {
+      req.log.error({ err }, "Error saving default attendance columns");
+      res.status(500).json({ error: "Failed to save default columns" });
     }
   },
 );

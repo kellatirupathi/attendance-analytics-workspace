@@ -3947,3 +3947,198 @@ export async function getStudentQuizzes(
     moduleSummary: calcSummary(moduleQuizzes),
   };
 }
+
+export type AttendanceGrain =
+  | "university"
+  | "university_subject"
+  | "university_section"
+  | "university_student";
+
+export interface AttendanceGroupRow {
+  university: string;
+  subject: string | null;
+  section: string | null;
+  studentId: string | null;
+  studentName: string | null;
+  overallPct: number;
+  grainPct: number;
+  present: number;
+  scheduled: number;
+  sessions: number;
+  students: number;
+  absences: number;
+  eligible: number;
+  recoveryEligible: number;
+  atRisk: number;
+  ineligible: number;
+}
+
+/**
+ * One closed scope. A date range does not also keep the current semester,
+ * so a single day cannot include sessions from other days.
+ */
+export async function getAttendanceGroupStats(
+  scope: SessionScope,
+  opts: {
+    grain: AttendanceGrain;
+    campus?: string;
+    semester?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  },
+): Promise<AttendanceGroupRow[]> {
+  const params: Record<string, unknown> = {};
+  const clauses = [excludeInstituteSql()];
+  if (opts.dateFrom && opts.dateTo) {
+    params["dateFrom"] = opts.dateFrom;
+    params["dateTo"] = opts.dateTo;
+    clauses.push(
+      "DATE(date) >= DATE(@dateFrom) AND DATE(date) <= DATE(@dateTo)",
+    );
+  } else if (opts.semester) {
+    params["semester"] = opts.semester;
+    clauses.push("semester_title = @semester");
+  } else {
+    clauses.push("is_current_semester = 1");
+  }
+  if (scope.campuses && scope.campuses.length > 0) {
+    params["campuses"] = scope.campuses;
+    clauses.push("institute_name IN UNNEST(@campuses)");
+  }
+  if (scope.subjects && scope.subjects.length > 0) {
+    params["subjects"] = scope.subjects;
+    clauses.push("subject_title IN UNNEST(@subjects)");
+  }
+  if (opts.campus) {
+    params["filterCampus"] = opts.campus;
+    clauses.push("institute_name = @filterCampus");
+  }
+  const where = clauses.join(" AND ");
+  const grain =
+    opts.grain === "university_subject"
+      ? {
+          keys: "university, subject",
+          select: "university, subject, CAST(NULL AS STRING) AS section, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name",
+          sessionKeys: "university, subject",
+        }
+      : opts.grain === "university_section"
+        ? {
+            keys: "university, section",
+            select: "university, CAST(NULL AS STRING) AS subject, section, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name",
+            sessionKeys: "university, section",
+          }
+        : opts.grain === "university_student"
+          ? {
+              keys: "university, student_id",
+              select: "university, CAST(NULL AS STRING) AS subject, ANY_VALUE(section) AS section, student_id, ANY_VALUE(student_name) AS student_name",
+              sessionKeys: "university, student_id",
+            }
+          : {
+              keys: "university",
+              select: "university, CAST(NULL AS STRING) AS subject, CAST(NULL AS STRING) AS section, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name",
+              sessionKeys: "university",
+            };
+
+  const rows = await bqQuery<{
+    university: string;
+    subject: string | null;
+    section: string | null;
+    student_id: string | null;
+    student_name: string | null;
+    overall_pct: string;
+    grain_pct: string;
+    present_n: string;
+    scheduled_n: string;
+    sessions_n: string;
+    students_n: string;
+    eligible_n: string;
+    recovery_n: string;
+    at_risk_n: string;
+    ineligible_n: string;
+  }>(
+    `WITH base AS (
+      SELECT
+        TRIM(institute_name) AS university,
+        NULLIF(TRIM(subject_title), '') AS subject,
+        COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown') AS section,
+        student_user_id AS student_id,
+        student_name,
+        ${SESSION_IDENTITY_SQL} AS session_key,
+        ${ATTENDED_SQL} AS is_present
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${where}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+    ),
+    per_student AS (
+      SELECT
+        university, subject, section, student_id,
+        ANY_VALUE(student_name) AS student_name,
+        COUNTIF(is_present) AS present_n,
+        COUNT(*) AS scheduled_n
+      FROM base
+      GROUP BY university, subject, section, student_id
+    ),
+    uni AS (
+      SELECT university,
+        ROUND(SAFE_DIVIDE(SUM(present_n), SUM(scheduled_n)) * 100, 1) AS overall_pct
+      FROM per_student
+      GROUP BY university
+    ),
+    at_grain AS (
+      SELECT ${grain.select},
+        SUM(present_n) AS present_n,
+        SUM(scheduled_n) AS scheduled_n,
+        COUNT(DISTINCT student_id) AS students_n,
+        COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 >= 80) AS eligible_n,
+        COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 >= 60 AND SAFE_DIVIDE(present_n, scheduled_n) * 100 < 80) AS recovery_n,
+        COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 >= 50 AND SAFE_DIVIDE(present_n, scheduled_n) * 100 < 60) AS at_risk_n,
+        COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 < 50) AS ineligible_n
+      FROM per_student
+      GROUP BY ${grain.keys}
+    ),
+    sessions AS (
+      SELECT ${grain.sessionKeys}, COUNT(DISTINCT session_key) AS sessions_n
+      FROM base
+      GROUP BY ${grain.sessionKeys}
+    )
+    SELECT
+      g.university, g.subject, g.section, g.student_id, g.student_name,
+      uni.overall_pct,
+      ROUND(SAFE_DIVIDE(g.present_n, g.scheduled_n) * 100, 1) AS grain_pct,
+      g.present_n, g.scheduled_n, IFNULL(s.sessions_n, 0) AS sessions_n,
+      g.students_n, g.eligible_n, g.recovery_n, g.at_risk_n, g.ineligible_n
+    FROM at_grain g
+    JOIN uni USING (university)
+    LEFT JOIN sessions s USING (${grain.sessionKeys})
+    ORDER BY g.university, grain_pct`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+
+  return rows
+    .filter((row) => !isExcludedInstitute(row.university))
+    .map((row) => {
+      const present = Number(row.present_n);
+      const scheduled = Number(row.scheduled_n);
+      return {
+        university: row.university,
+        subject: row.subject,
+        section: row.section,
+        studentId: row.student_id,
+        studentName: row.student_name,
+        overallPct: Number(row.overall_pct) || 0,
+        grainPct: Number(row.grain_pct) || 0,
+        present,
+        scheduled,
+        sessions: Number(row.sessions_n) || 0,
+        students: Number(row.students_n) || 0,
+        absences: Math.max(scheduled - present, 0),
+        eligible: Number(row.eligible_n) || 0,
+        recoveryEligible: Number(row.recovery_n) || 0,
+        atRisk: Number(row.at_risk_n) || 0,
+        ineligible: Number(row.ineligible_n) || 0,
+      };
+    });
+}
