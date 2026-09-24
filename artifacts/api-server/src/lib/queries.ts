@@ -929,29 +929,48 @@ export interface SpiRecordRow {
   studentName: string | null;
   students: number;
   avgSpi: number | null;
-  classroomAvg: number | null;
-  moduleAvg: number | null;
   sections: number;
-  eligible: number;
-  recoveryEligible: number;
-  atRisk: number;
-  ineligible: number;
+  skillLevel: string | null;
+  levelAPlus: number;
+  levelA: number;
+  levelB: number;
+  levelC: number;
+  levelD: number;
   skillDebt: number;
-  hasScore: boolean;
+  classroomPoints: number | null;
+  modulePoints: number | null;
 }
 
 export interface SpiRecordSummary {
   students: number;
   campuses: number;
   avgSpi: number | null;
-  eligible: number;
-  recoveryEligible: number;
-  atRisk: number;
-  ineligible: number;
+  levelAPlus: number;
+  levelA: number;
+  levelB: number;
+  levelC: number;
+  levelD: number;
   skillDebt: number;
 }
 
-const SPI_PCT_SQL = `(IFNULL(classroom_avg, 0) * 10 + IFNULL(module_avg, 0) * 15) / 100.0`;
+const SPI_LEVEL_SQL = `CASE
+  WHEN classroom_avg IS NULL OR module_avg IS NULL THEN 'Ab'
+  WHEN LEAST(classroom_avg, module_avg) < 50 THEN 'F'
+  WHEN LEAST(classroom_avg, module_avg) >= 90 THEN 'A+'
+  WHEN LEAST(classroom_avg, module_avg) >= 80 THEN 'A'
+  WHEN LEAST(classroom_avg, module_avg) >= 70 THEN 'B'
+  WHEN LEAST(classroom_avg, module_avg) >= 60 THEN 'C'
+  ELSE 'D'
+END`;
+
+const SPI_COMPONENT_POINTS_SQL = (column: string) => `CASE
+  WHEN ${column} IS NULL OR ${column} < 50 THEN 0
+  WHEN ${column} >= 90 THEN 10
+  WHEN ${column} >= 80 THEN 9
+  WHEN ${column} >= 70 THEN 8
+  WHEN ${column} >= 60 THEN 7
+  ELSE 6
+END`;
 
 function spiRecordGrainSql(grain: SpiRecordGrain): { select: string; group: string } {
   switch (grain) {
@@ -984,10 +1003,10 @@ function spiRecordGrainSql(grain: SpiRecordGrain): { select: string; group: stri
 }
 
 /**
- * SPI Record dashboard. Score is the same 0–100 formula as the student report
- * (classroom 10, module 15, skill and final 0). Students with no quiz attempts
- * stay out of the average and count as ineligible. Skill debt is 0 until
- * grade fields exist.
+ * SPI Record dashboard. Points match Reports: (classroom×10 + module×15) / 100 / 10.
+ * A missing quiz counts as 0 and stays in the average. Skill level is the
+ * weaker of classroom and module under SPI plan §3.2. Below 50 is F and a
+ * missing attempt is Ab; both are Skill Debt.
  */
 export async function getSpiRecord(
   scope: SessionScope,
@@ -1022,15 +1041,17 @@ export async function getSpiRecord(
     student_id: string | null;
     student_name: string | null;
     students: string;
-    scored_students: string;
     avg_spi: string | null;
-    classroom_avg: string | null;
-    module_avg: string | null;
+    classroom_points: string | null;
+    module_points: string | null;
     sections: string;
-    eligible: string;
-    recovery_eligible: string;
-    at_risk: string;
-    ineligible: string;
+    skill_level: string | null;
+    level_a_plus: string;
+    level_a: string;
+    level_b: string;
+    level_c: string;
+    level_d: string;
+    skill_debt: string;
     campuses: string;
   }>(
     `WITH roster AS (
@@ -1079,24 +1100,26 @@ export async function getSpiRecord(
         people.student_name,
         quiz.classroom_avg,
         quiz.module_avg,
-        ${SPI_PCT_SQL} AS spi_pct,
-        quiz.student_user_id IS NOT NULL AS has_score
+        ${SPI_POINTS_SQL} AS spi_points,
+        ${SPI_LEVEL_SQL} AS skill_level
       FROM people
       LEFT JOIN quiz USING (student_user_id)
     )
     SELECT
       ${grain.select},
       COUNT(*) AS students,
-      COUNTIF(has_score) AS scored_students,
-      AVG(IF(has_score, spi_pct, NULL)) AS avg_spi,
-      AVG(IF(has_score, classroom_avg, NULL)) AS classroom_avg,
-      AVG(IF(has_score, module_avg, NULL)) AS module_avg,
+      AVG(spi_points) AS avg_spi,
+      AVG(${SPI_COMPONENT_POINTS_SQL("classroom_avg")}) AS classroom_points,
+      AVG(${SPI_COMPONENT_POINTS_SQL("module_avg")}) AS module_points,
       COUNT(DISTINCT section_name) AS sections,
       COUNT(DISTINCT university) AS campuses,
-      COUNTIF(has_score AND spi_pct >= 80) AS eligible,
-      COUNTIF(has_score AND spi_pct >= 60 AND spi_pct < 80) AS recovery_eligible,
-      COUNTIF(has_score AND spi_pct >= 50 AND spi_pct < 60) AS at_risk,
-      COUNTIF(NOT has_score OR spi_pct < 50) AS ineligible
+      ${opts.grain === "student" ? "ANY_VALUE(skill_level)" : "CAST(NULL AS STRING)"} AS skill_level,
+      COUNTIF(skill_level = 'A+') AS level_a_plus,
+      COUNTIF(skill_level = 'A') AS level_a,
+      COUNTIF(skill_level = 'B') AS level_b,
+      COUNTIF(skill_level = 'C') AS level_c,
+      COUNTIF(skill_level = 'D') AS level_d,
+      COUNTIF(skill_level IN ('F', 'Ab')) AS skill_debt
     FROM scored
     ${groupBy}
     ORDER BY 1`,
@@ -1109,6 +1132,8 @@ export async function getSpiRecord(
     .filter((r) => !isExcludedInstitute(r.university))
     .map((r) => {
       const avg = r.avg_spi == null ? null : Math.round(Number(r.avg_spi) * 10) / 10;
+      const points = (value: string | null) =>
+        value == null ? null : Math.round(Number(value) * 10) / 10;
       return {
         university: r.university,
         semester: r.semester,
@@ -1116,36 +1141,35 @@ export async function getSpiRecord(
         studentId: r.student_id,
         studentName: r.student_name,
         students: Number(r.students),
-        scoredStudents: Number(r.scored_students),
         avgSpi: Number.isFinite(avg as number) ? avg : null,
-        classroomAvg: r.classroom_avg == null ? null : Math.round(Number(r.classroom_avg) * 10) / 10,
-        moduleAvg: r.module_avg == null ? null : Math.round(Number(r.module_avg) * 10) / 10,
+        classroomPoints: points(r.classroom_points),
+        modulePoints: points(r.module_points),
         sections: Number(r.sections),
-        eligible: Number(r.eligible),
-        recoveryEligible: Number(r.recovery_eligible),
-        atRisk: Number(r.at_risk),
-        ineligible: Number(r.ineligible),
-        skillDebt: 0,
-        hasScore: r.avg_spi != null,
+        skillLevel: r.skill_level,
+        levelAPlus: Number(r.level_a_plus),
+        levelA: Number(r.level_a),
+        levelB: Number(r.level_b),
+        levelC: Number(r.level_c),
+        levelD: Number(r.level_d),
+        skillDebt: Number(r.skill_debt),
       };
     });
 
-  const scoredForAvg = mapped.filter((row) => row.avgSpi != null && row.scoredStudents > 0);
-  const avgDen = scoredForAvg.reduce((sum, row) => sum + row.scoredStudents, 0);
-  const avgNum = scoredForAvg.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.scoredStudents, 0);
+  const avgDen = mapped.reduce((sum, row) => sum + row.students, 0);
+  const avgNum = mapped.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.students, 0);
   const summary: SpiRecordSummary = {
-    students: mapped.reduce((sum, row) => sum + row.students, 0),
+    students: avgDen,
     campuses: opts.campus ? 1 : opts.grain === "campus" ? mapped.length : Number(rows[0]?.campuses ?? 0),
     avgSpi: avgDen > 0 ? Math.round((avgNum / avgDen) * 10) / 10 : null,
-    eligible: mapped.reduce((sum, row) => sum + row.eligible, 0),
-    recoveryEligible: mapped.reduce((sum, row) => sum + row.recoveryEligible, 0),
-    atRisk: mapped.reduce((sum, row) => sum + row.atRisk, 0),
-    ineligible: mapped.reduce((sum, row) => sum + row.ineligible, 0),
-    skillDebt: 0,
+    levelAPlus: mapped.reduce((sum, row) => sum + row.levelAPlus, 0),
+    levelA: mapped.reduce((sum, row) => sum + row.levelA, 0),
+    levelB: mapped.reduce((sum, row) => sum + row.levelB, 0),
+    levelC: mapped.reduce((sum, row) => sum + row.levelC, 0),
+    levelD: mapped.reduce((sum, row) => sum + row.levelD, 0),
+    skillDebt: mapped.reduce((sum, row) => sum + row.skillDebt, 0),
   };
-  const publicRows = mapped.map(({ scoredStudents: _scored, ...row }) => row);
 
-  return { summary, rows: publicRows };
+  return { summary, rows: mapped };
 }
 
 

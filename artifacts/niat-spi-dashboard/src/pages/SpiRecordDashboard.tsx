@@ -37,43 +37,46 @@ type ColumnId =
   | "students"
   | "avgSpi"
   | "skillLevel"
-  | "eligible"
-  | "recoveryEligible"
-  | "atRisk"
-  | "ineligible"
+  | "levelAPlus"
+  | "levelA"
+  | "levelB"
+  | "levelC"
+  | "levelD"
   | "skillDebt"
-  | "classroomAvg"
-  | "moduleAvg"
+  | "classroomPoints"
+  | "modulePoints"
   | "sections";
 
 const COLUMN_GROUPS: { title: string; ids: ColumnId[] }[] = [
-  { title: "SPI score", ids: ["students", "avgSpi", "skillLevel", "classroomAvg", "moduleAvg"] },
-  { title: "Eligibility tier", ids: ["eligible", "recoveryEligible", "atRisk", "ineligible"] },
-  { title: "Other", ids: ["skillDebt", "sections"] },
+  { title: "SPI score", ids: ["students", "avgSpi", "skillLevel", "classroomPoints", "modulePoints"] },
+  { title: "Skill level §3.2", ids: ["levelAPlus", "levelA", "levelB", "levelC", "levelD", "skillDebt"] },
+  { title: "Other", ids: ["sections"] },
 ];
 
 const DEFAULT_COLUMNS: ColumnId[] = [
   "students",
   "avgSpi",
   "skillLevel",
-  "eligible",
-  "recoveryEligible",
-  "atRisk",
-  "ineligible",
+  "levelAPlus",
+  "levelA",
+  "levelB",
+  "levelC",
+  "levelD",
   "skillDebt",
 ];
 
 const COLUMN_LABEL: Record<ColumnId, string> = {
   students: "Students",
-  avgSpi: "Avg SPI score",
-  skillLevel: "Skill level (A+–F)",
-  eligible: "Eligible",
-  recoveryEligible: "Recovery eligible",
-  atRisk: "At risk",
-  ineligible: "Ineligible",
-  skillDebt: "Skill debt",
-  classroomAvg: "Classroom avg",
-  moduleAvg: "Module avg",
+  avgSpi: "SPI points",
+  skillLevel: "Skill level",
+  levelAPlus: "A+",
+  levelA: "A",
+  levelB: "B",
+  levelC: "C",
+  levelD: "D",
+  skillDebt: "Skill Debt",
+  classroomPoints: "Classroom points",
+  modulePoints: "Module points",
   sections: "Sections",
 };
 
@@ -85,15 +88,16 @@ interface RecordRow {
   studentName: string | null;
   students: number;
   avgSpi: number | null;
-  classroomAvg: number | null;
-  moduleAvg: number | null;
   sections: number;
-  eligible: number;
-  recoveryEligible: number;
-  atRisk: number;
-  ineligible: number;
+  skillLevel: string | null;
+  levelAPlus: number;
+  levelA: number;
+  levelB: number;
+  levelC: number;
+  levelD: number;
   skillDebt: number;
-  hasScore: boolean;
+  classroomPoints: number | null;
+  modulePoints: number | null;
   spiPath: string | null;
 }
 
@@ -102,24 +106,14 @@ interface RecordPayload {
     students: number;
     campuses: number;
     avgSpi: number | null;
-    eligible: number;
-    recoveryEligible: number;
-    atRisk: number;
-    ineligible: number;
+    levelAPlus: number;
+    levelA: number;
+    levelB: number;
+    levelC: number;
+    levelD: number;
     skillDebt: number;
   };
   rows: RecordRow[];
-}
-
-function skillLevel(score: number | null): string {
-  if (score == null) return "—";
-  if (score >= 90) return "A+";
-  if (score >= 80) return "A";
-  if (score >= 70) return "B";
-  if (score >= 60) return "C";
-  if (score >= 50) return "D";
-  if (score >= 40) return "E";
-  return "F";
 }
 
 function levelTone(level: string): string {
@@ -128,14 +122,6 @@ function levelTone(level: string): string {
   if (level === "C") return "text-amber-700";
   if (level === "D") return "text-orange-700";
   return "text-red-700";
-}
-
-function eligibilityLabel(row: RecordRow): string {
-  if (!row.hasScore) return "Ineligible";
-  if (row.eligible > 0) return "Eligible";
-  if (row.recoveryEligible > 0) return "Recovery eligible";
-  if (row.atRisk > 0) return "At risk";
-  return "Ineligible";
 }
 
 function fmt(n: number | null | undefined): string {
@@ -215,17 +201,12 @@ export default function SpiRecordDashboard() {
   const summary = data?.summary;
   const total = summary?.students ?? 0;
   const split = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
+  const levelColumns: ColumnId[] = ["levelAPlus", "levelA", "levelB", "levelC", "levelD"];
   const visible = columns.filter((id) => {
-    if (id === "skillLevel" && columns.includes("avgSpi")) return false;
-    if (grain === "student" && (id === "students" || id === "sections")) return false;
-    if (grain === "student" && (id === "eligible" || id === "recoveryEligible" || id === "atRisk" || id === "ineligible")) {
-      return false;
-    }
+    if (grain === "student" && (id === "students" || id === "sections" || levelColumns.includes(id))) return false;
+    if (grain !== "student" && id === "skillLevel") return false;
     return true;
   });
-  const showEligibility = grain === "student" && columns.some((id) =>
-    ["eligible", "recoveryEligible", "atRisk", "ineligible"].includes(id),
-  );
 
   const identityHeader =
     grain === "all" ? "Scope" : grain === "semester" ? "Semester" : grain === "section" ? "Section" : grain === "student" ? "Name" : "Campus";
@@ -239,12 +220,11 @@ export default function SpiRecordDashboard() {
   };
 
   const cell = (row: RecordRow, id: ColumnId): string => {
-    if (id === "avgSpi") return row.hasScore && row.avgSpi != null ? row.avgSpi.toFixed(1) : "—";
-    if (id === "skillLevel") return skillLevel(row.hasScore ? row.avgSpi : null);
-    if (id === "classroomAvg" || id === "moduleAvg") {
+    if (id === "avgSpi" || id === "classroomPoints" || id === "modulePoints") {
       const value = row[id];
       return value == null ? "—" : value.toFixed(1);
     }
+    if (id === "skillLevel") return row.skillLevel || "—";
     if (id === "skillDebt" && grain === "student") return row.skillDebt > 0 ? "Yes" : "No";
     return fmt(row[id]);
   };
@@ -254,7 +234,6 @@ export default function SpiRecordDashboard() {
       identityHeader,
       ...(grain === "student" ? ["Student ID"] : []),
       ...visible.map((id) => COLUMN_LABEL[id]),
-      ...(showEligibility ? ["Eligibility"] : []),
     ];
     exportCsv(
       filename,
@@ -263,7 +242,6 @@ export default function SpiRecordDashboard() {
         identity(row),
         ...(grain === "student" ? [row.studentId ?? ""] : []),
         ...visible.map((id) => cell(row, id)),
-        ...(showEligibility ? [eligibilityLabel(row)] : []),
       ]),
     );
   };
@@ -279,15 +257,16 @@ export default function SpiRecordDashboard() {
       const body = (await res.json()) as RecordPayload;
       exportCsv(
         "spi-record-all-campuses.csv",
-        ["Campus", "Students", "Avg SPI score", "Eligible", "Recovery eligible", "At risk", "Ineligible", "Skill debt"],
+        ["Campus", "Students", "SPI points", "A+", "A", "B", "C", "D", "Skill Debt"],
         body.rows.map((row) => [
           row.university ?? "",
           row.students,
           row.avgSpi ?? "",
-          row.eligible,
-          row.recoveryEligible,
-          row.atRisk,
-          row.ineligible,
+          row.levelAPlus,
+          row.levelA,
+          row.levelB,
+          row.levelC,
+          row.levelD,
           row.skillDebt,
         ]),
       );
@@ -302,41 +281,45 @@ export default function SpiRecordDashboard() {
     <div className="flex flex-col">
       <PageHeader
         title="SPI Record Dashboard"
-        subtitle={`Skill Performance Index · ${scopeLabel}. Score uses classroom 10% and module 15%. Skill and final count as 0.`}
+        subtitle={`Skill Performance Index · ${scopeLabel}. SPI points use the Reports formula. Skill level follows plan §3.2.`}
       />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={`Across ${fmt(summary?.campuses ?? 0)} campuses, ${scopeLabel.toLowerCase()}`} />
         <Tile
-          label="Avg SPI score"
+          label="Average SPI points"
           value={isLoading ? null : summary?.avgSpi == null ? "—" : summary.avgSpi.toFixed(1)}
-          hint={summary?.avgSpi == null ? "No scored students" : `Level ${skillLevel(summary.avgSpi)}`}
+          hint="0–10. Classroom 10% and module 15%. Missing quizzes count as 0."
         />
         <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Eligibility split</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Skill level split</div>
           {isLoading || !summary ? (
             <Skeleton className="mt-3 h-8 w-full" />
           ) : (
             <>
               <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-gray-100">
-                <span className="bg-emerald-600" style={{ width: `${split(summary.eligible)}%` }} />
-                <span className="bg-amber-500" style={{ width: `${split(summary.recoveryEligible)}%` }} />
-                <span className="bg-orange-600" style={{ width: `${split(summary.atRisk)}%` }} />
-                <span className="bg-red-600" style={{ width: `${split(summary.ineligible)}%` }} />
+                <span className="bg-emerald-700" style={{ width: `${split(summary.levelAPlus)}%` }} />
+                <span className="bg-emerald-500" style={{ width: `${split(summary.levelA)}%` }} />
+                <span className="bg-lime-500" style={{ width: `${split(summary.levelB)}%` }} />
+                <span className="bg-amber-400" style={{ width: `${split(summary.levelC)}%` }} />
+                <span className="bg-orange-500" style={{ width: `${split(summary.levelD)}%` }} />
+                <span className="bg-red-600" style={{ width: `${split(summary.skillDebt)}%` }} />
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-gray-600">
-                <span>Eligible {split(summary.eligible)}%</span>
-                <span>Recovery {split(summary.recoveryEligible)}%</span>
-                <span>At risk {split(summary.atRisk)}%</span>
-                <span>Ineligible {split(summary.ineligible)}%</span>
+                <span>A+ {split(summary.levelAPlus)}%</span>
+                <span>A {split(summary.levelA)}%</span>
+                <span>B {split(summary.levelB)}%</span>
+                <span>C {split(summary.levelC)}%</span>
+                <span>D {split(summary.levelD)}%</span>
+                <span>Skill Debt {split(summary.skillDebt)}%</span>
               </div>
             </>
           )}
         </div>
         <Tile
-          label="Skill debt"
+          label="Skill Debt"
           value={isLoading ? null : fmt(summary?.skillDebt ?? 0)}
-          hint="Grade fields are not in the warehouse yet, so this stays 0."
+          hint="Below 50% (F) or no attempt (Ab) on classroom or module."
           tone="rose"
         />
       </div>
@@ -399,7 +382,7 @@ export default function SpiRecordDashboard() {
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-[180px] justify-between">
-                {columns.length} of 11 selected
+                {columns.length} of {Object.keys(COLUMN_LABEL).length} selected
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-64" align="start">
@@ -463,8 +446,6 @@ export default function SpiRecordDashboard() {
                 {visible.map((id) => (
                   <TableHead key={id}>{COLUMN_LABEL[id]}</TableHead>
                 ))}
-                {showEligibility && <TableHead>Eligibility</TableHead>}
-                {grain === "student" && columns.includes("skillDebt") && !visible.includes("skillDebt") ? null : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -486,23 +467,13 @@ export default function SpiRecordDashboard() {
                       {grain === "student" && <TableCell className="text-gray-500">{row.studentId}</TableCell>}
                       {visible.map((id) => (
                         <TableCell key={id}>
-                          {id === "avgSpi" ? (
-                            <span>
-                              {cell(row, id)}{" "}
-                              {columns.includes("skillLevel") && row.hasScore && (
-                                <span className={cn("text-xs font-bold", levelTone(skillLevel(row.avgSpi)))}>
-                                  {skillLevel(row.avgSpi)}
-                                </span>
-                              )}
-                            </span>
-                          ) : id === "skillLevel" && columns.includes("avgSpi") ? (
-                            <span className={cn("text-xs font-bold", levelTone(cell(row, id)))}>{cell(row, id)}</span>
+                          {id === "skillLevel" ? (
+                            <span className={cn("text-xs font-bold", levelTone(row.skillLevel ?? ""))}>{cell(row, id)}</span>
                           ) : (
                             cell(row, id)
                           )}
                         </TableCell>
                       ))}
-                      {showEligibility && <TableCell>{eligibilityLabel(row)}</TableCell>}
                     </TableRow>
                   ))}
             </TableBody>
