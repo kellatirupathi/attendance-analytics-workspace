@@ -341,7 +341,7 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   }
   const allSemesters = q["scope"] === "all";
   const semester = allSemesters ? undefined : parseSemester(q);
-  const cacheKey = `spi-record:v1:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${allSemesters}`;
+  const cacheKey = `spi-record:v2:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${allSemesters}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
