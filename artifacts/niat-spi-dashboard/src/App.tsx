@@ -127,11 +127,6 @@ function Router() {
             <Campuses />
           </Protected>
         </Route>
-        <Route path="/dashboard/reports/attendance-summary">
-          <Protected>
-            <Reports />
-          </Protected>
-        </Route>
         <Route path="/dashboard/reports/skill-debt">
           <Protected>
             <Reports />

@@ -11,7 +11,6 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { SubNav, reportsNav } from "@/components/SubNav";
-import AttendanceSummary from "@/pages/AttendanceSummary";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import {
   Table,
@@ -60,7 +59,7 @@ import {
   Search,
 } from "lucide-react";
 
-type ReportsTab = "spi-record" | "skill-debt" | "insights" | "attendance-summary";
+type ReportsTab = "spi-record" | "skill-debt" | "insights";
 type Drill = "campus" | "section" | "students";
 
 const FETCH_LIMIT = 5000;
@@ -77,7 +76,6 @@ const PLACEHOLDER = {
 function tabFromPath(path: string): ReportsTab {
   if (path === "/dashboard/reports/skill-debt") return "skill-debt";
   if (path === "/dashboard/reports/insights") return "insights";
-  if (path === "/dashboard/reports/attendance-summary") return "attendance-summary";
   return "spi-record";
 }
 
@@ -1277,40 +1275,21 @@ function InsightsPanel() {
 }
 
 export default function Reports() {
-  const { user } = useAuth();
   const [location] = useLocation();
   const path = location.split("?")[0] ?? location;
   const tab = tabFromPath(path);
-  const canSeeAttendanceSummary = [
-    "superadmin",
-    "admin",
-    "hod",
-    "boa",
-    "capability_manager",
-  ].includes(user?.role ?? "");
-  const navItems = reportsNav().filter(
-    (item) => item.label !== "Attendance Summary" || canSeeAttendanceSummary,
-  );
 
   return (
     <div className="space-y-4">
       <PageHeader
         badge="Reports"
         title="Reports"
-        subtitle="SPI Record, Skill Debt, Insights, and Attendance Summary."
+        subtitle="SPI Record, Skill Debt, and Insights."
       />
-      <SubNav items={navItems} />
+      <SubNav items={reportsNav()} />
 
       {tab === "spi-record" && <SpiRecordPanel />}
       {tab === "insights" && <InsightsPanel />}
-      {tab === "attendance-summary" &&
-        (canSeeAttendanceSummary ? (
-          <AttendanceSummary />
-        ) : (
-          <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500">
-            You do not have access to Attendance Summary.
-          </div>
-        ))}
       {tab === "skill-debt" && (
         <div className="rounded-xl border border-slate-200 bg-white px-6 py-16 text-center shadow-sm">
           <p className="text-lg font-semibold text-slate-900">
