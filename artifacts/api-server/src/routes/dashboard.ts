@@ -29,6 +29,8 @@ import {
   getInstituteDirectory,
   getSpiAveragesByCampus,
   getSpiAveragesBySection,
+  getSpiRecord,
+  type SpiRecordGrain,
   getAttendanceGroupStats,
   type AttendanceGrain,
 } from "../lib/queries.js";
@@ -303,6 +305,68 @@ router.get("/spi-averages", requireSession(), async (req, res): Promise<void> =>
   } catch (err) {
     req.log.error({ err }, "Error fetching SPI averages");
     res.status(500).json({ error: "Failed to fetch SPI averages" });
+  }
+});
+
+const SPI_RECORD_GRAINS = new Set<SpiRecordGrain>([
+  "all",
+  "campus",
+  "semester",
+  "section",
+  "student",
+]);
+
+router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | undefined>;
+  const grain = (q["group"] || "campus") as SpiRecordGrain;
+  if (!SPI_RECORD_GRAINS.has(grain)) {
+    res.status(400).json({ error: "Invalid group" });
+    return;
+  }
+  const campus = q["campus"]?.trim() || undefined;
+  const section = q["section"]?.trim() || undefined;
+  if ((grain === "section" || grain === "student") && !campus) {
+    res.status(400).json({ error: "campus required for this group" });
+    return;
+  }
+  if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const allSemesters = q["scope"] === "all";
+  const semester = allSemesters ? undefined : parseSemester(q);
+  const cacheKey = `spi-record:v1:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${allSemesters}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const payload = await getSpiRecord(scope, {
+      grain,
+      semester,
+      allSemesters,
+      campus,
+      section,
+    });
+    const body = {
+      ...payload,
+      rows: payload.rows.map((row) => ({
+        ...row,
+        spiPath: row.studentId ? spiSharePath(row.studentId) : null,
+      })),
+    };
+    cacheSet(cacheKey, body, 15 * 60 * 1000);
+    res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching SPI record");
+    res.status(500).json({ error: "Failed to fetch SPI record" });
   }
 });
 

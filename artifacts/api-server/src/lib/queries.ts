@@ -919,6 +919,236 @@ export async function getSpiAveragesBySection(
   }));
 }
 
+export type SpiRecordGrain = "all" | "campus" | "semester" | "section" | "student";
+
+export interface SpiRecordRow {
+  university: string | null;
+  semester: string | null;
+  section: string | null;
+  studentId: string | null;
+  studentName: string | null;
+  students: number;
+  avgSpi: number | null;
+  classroomAvg: number | null;
+  moduleAvg: number | null;
+  sections: number;
+  eligible: number;
+  recoveryEligible: number;
+  atRisk: number;
+  ineligible: number;
+  skillDebt: number;
+  hasScore: boolean;
+}
+
+export interface SpiRecordSummary {
+  students: number;
+  campuses: number;
+  avgSpi: number | null;
+  eligible: number;
+  recoveryEligible: number;
+  atRisk: number;
+  ineligible: number;
+  skillDebt: number;
+}
+
+const SPI_PCT_SQL = `(IFNULL(classroom_avg, 0) * 10 + IFNULL(module_avg, 0) * 15) / 100.0`;
+
+function spiRecordGrainSql(grain: SpiRecordGrain): { select: string; group: string } {
+  switch (grain) {
+    case "all":
+      return {
+        select: `'All campuses' AS label, CAST(NULL AS STRING) AS university, CAST(NULL AS STRING) AS semester, CAST(NULL AS STRING) AS section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
+        group: "",
+      };
+    case "semester":
+      return {
+        select: `semester_title AS label, CAST(NULL AS STRING) AS university, semester_title AS semester, CAST(NULL AS STRING) AS section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
+        group: "semester_title",
+      };
+    case "section":
+      return {
+        select: `section_name AS label, ANY_VALUE(university) AS university, CAST(NULL AS STRING) AS semester, section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
+        group: "section_name",
+      };
+    case "student":
+      return {
+        select: `ANY_VALUE(student_name) AS label, university, ANY_VALUE(semester_title) AS semester, ANY_VALUE(section_name) AS section_name, student_user_id AS student_id, ANY_VALUE(student_name) AS student_name`,
+        group: "university, student_user_id",
+      };
+    default:
+      return {
+        select: `university AS label, university, CAST(NULL AS STRING) AS semester, CAST(NULL AS STRING) AS section_name, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name`,
+        group: "university",
+      };
+  }
+}
+
+/**
+ * SPI Record dashboard. Score is the same 0–100 formula as the student report
+ * (classroom 10, module 15, skill and final 0). Students with no quiz attempts
+ * stay out of the average and count as ineligible. Skill debt is 0 until
+ * grade fields exist.
+ */
+export async function getSpiRecord(
+  scope: SessionScope,
+  opts: {
+    grain: SpiRecordGrain;
+    semester?: string;
+    allSemesters?: boolean;
+    campus?: string;
+    section?: string;
+  },
+): Promise<{ summary: SpiRecordSummary; rows: SpiRecordRow[] }> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params, {
+    semester: opts.semester,
+    currentSemester: opts.allSemesters ? false : undefined,
+  });
+  let extra = "";
+  if (opts.campus) {
+    params["filterCampus"] = opts.campus;
+    extra += " AND TRIM(institute_name) = @filterCampus";
+  }
+  if (opts.section) {
+    params["filterSection"] = opts.section;
+    extra += " AND COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') = @filterSection";
+  }
+  const grain = spiRecordGrainSql(opts.grain);
+  const groupBy = grain.group ? `GROUP BY ${grain.group}` : "";
+  const rows = await bqQuery<{
+    university: string | null;
+    semester: string | null;
+    section_name: string | null;
+    student_id: string | null;
+    student_name: string | null;
+    students: string;
+    scored_students: string;
+    avg_spi: string | null;
+    classroom_avg: string | null;
+    module_avg: string | null;
+    sections: string;
+    eligible: string;
+    recovery_eligible: string;
+    at_risk: string;
+    ineligible: string;
+    campuses: string;
+  }>(
+    `WITH roster AS (
+      SELECT
+        student_user_id,
+        ANY_VALUE(student_name) AS student_name,
+        TRIM(institute_name) AS university,
+        COALESCE(NULLIF(TRIM(ANY_VALUE(batch_section_name)), ''), 'Unassigned') AS section_name,
+        COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${where}
+        ${extra}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+      GROUP BY student_user_id, TRIM(institute_name), semester_title
+    ),
+    people AS (
+      SELECT
+        student_user_id,
+        university,
+        ANY_VALUE(student_name) AS student_name,
+        ANY_VALUE(section_name) AS section_name,
+        ${opts.grain === "semester" ? "semester_title" : "ANY_VALUE(semester_title) AS semester_title"}
+      FROM roster
+      GROUP BY student_user_id, university${opts.grain === "semester" ? ", semester_title" : ""}
+    ),
+    quiz AS (
+      SELECT
+        people.student_user_id,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+      FROM people
+      INNER JOIN ${QUIZ_TABLE} q
+        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         = LOWER(REPLACE(CAST(people.student_user_id AS STRING), '-', ''))
+      GROUP BY people.student_user_id
+    ),
+    scored AS (
+      SELECT
+        people.university,
+        people.section_name,
+        people.semester_title,
+        people.student_user_id,
+        people.student_name,
+        quiz.classroom_avg,
+        quiz.module_avg,
+        ${SPI_PCT_SQL} AS spi_pct,
+        quiz.student_user_id IS NOT NULL AS has_score
+      FROM people
+      LEFT JOIN quiz USING (student_user_id)
+    )
+    SELECT
+      ${grain.select},
+      COUNT(*) AS students,
+      COUNTIF(has_score) AS scored_students,
+      AVG(IF(has_score, spi_pct, NULL)) AS avg_spi,
+      AVG(IF(has_score, classroom_avg, NULL)) AS classroom_avg,
+      AVG(IF(has_score, module_avg, NULL)) AS module_avg,
+      COUNT(DISTINCT section_name) AS sections,
+      COUNT(DISTINCT university) AS campuses,
+      COUNTIF(has_score AND spi_pct >= 80) AS eligible,
+      COUNTIF(has_score AND spi_pct >= 60 AND spi_pct < 80) AS recovery_eligible,
+      COUNTIF(has_score AND spi_pct >= 50 AND spi_pct < 60) AS at_risk,
+      COUNTIF(NOT has_score OR spi_pct < 50) AS ineligible
+    FROM scored
+    ${groupBy}
+    ORDER BY 1`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+
+  const mapped = rows
+    .filter((r) => !isExcludedInstitute(r.university))
+    .map((r) => {
+      const avg = r.avg_spi == null ? null : Math.round(Number(r.avg_spi) * 10) / 10;
+      return {
+        university: r.university,
+        semester: r.semester,
+        section: r.section_name,
+        studentId: r.student_id,
+        studentName: r.student_name,
+        students: Number(r.students),
+        scoredStudents: Number(r.scored_students),
+        avgSpi: Number.isFinite(avg as number) ? avg : null,
+        classroomAvg: r.classroom_avg == null ? null : Math.round(Number(r.classroom_avg) * 10) / 10,
+        moduleAvg: r.module_avg == null ? null : Math.round(Number(r.module_avg) * 10) / 10,
+        sections: Number(r.sections),
+        eligible: Number(r.eligible),
+        recoveryEligible: Number(r.recovery_eligible),
+        atRisk: Number(r.at_risk),
+        ineligible: Number(r.ineligible),
+        skillDebt: 0,
+        hasScore: r.avg_spi != null,
+      };
+    });
+
+  const scoredForAvg = mapped.filter((row) => row.avgSpi != null && row.scoredStudents > 0);
+  const avgDen = scoredForAvg.reduce((sum, row) => sum + row.scoredStudents, 0);
+  const avgNum = scoredForAvg.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.scoredStudents, 0);
+  const summary: SpiRecordSummary = {
+    students: mapped.reduce((sum, row) => sum + row.students, 0),
+    campuses: opts.campus ? 1 : opts.grain === "campus" ? mapped.length : Number(rows[0]?.campuses ?? 0),
+    avgSpi: avgDen > 0 ? Math.round((avgNum / avgDen) * 10) / 10 : null,
+    eligible: mapped.reduce((sum, row) => sum + row.eligible, 0),
+    recoveryEligible: mapped.reduce((sum, row) => sum + row.recoveryEligible, 0),
+    atRisk: mapped.reduce((sum, row) => sum + row.atRisk, 0),
+    ineligible: mapped.reduce((sum, row) => sum + row.ineligible, 0),
+    skillDebt: 0,
+  };
+  const publicRows = mapped.map(({ scoredStudents: _scored, ...row }) => row);
+
+  return { summary, rows: publicRows };
+}
+
+
 export interface CampusSummaryItem {
   instituteName: string;
   /** Distinct students in the selected semester (not the date window). */

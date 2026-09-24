@@ -21,6 +21,7 @@ const AdminUsers = lazy(() => import("@/pages/AdminUsers"));
 const AdminCampuses = lazy(() => import("@/pages/AdminCampuses"));
 const AttendanceRequests = lazy(() => import("@/pages/AttendanceRequests"));
 const StudentAttendanceStats = lazy(() => import("@/pages/StudentAttendanceStats"));
+const SpiRecordDashboard = lazy(() => import("@/pages/SpiRecordDashboard"));
 const SubjectAttendanceStudents = lazy(
   () => import("@/pages/SubjectAttendanceStudents"),
 );
@@ -105,6 +106,11 @@ function Router() {
         <Route path="/dashboard/attendance-stats">
           <Protected>
             <StudentAttendanceStats />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/spi-record">
+          <Protected>
+            <SpiRecordDashboard />
           </Protected>
         </Route>
         <Route path="/dashboard/assessments/students">
