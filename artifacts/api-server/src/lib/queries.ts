@@ -4275,23 +4275,27 @@ export async function getAttendanceGroupStats(
     opts.grain === "university_subject"
       ? {
           keys: "university, subject",
+          rollKeys: "university, subject, student_id",
           select: "university, subject, CAST(NULL AS STRING) AS section, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name",
           sessionKeys: "university, subject",
         }
       : opts.grain === "university_section"
         ? {
             keys: "university, section",
+            rollKeys: "university, section, student_id",
             select: "university, CAST(NULL AS STRING) AS subject, section, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name",
             sessionKeys: "university, section",
           }
         : opts.grain === "university_student"
           ? {
               keys: "university, student_id",
+              rollKeys: "university, student_id",
               select: "university, CAST(NULL AS STRING) AS subject, ANY_VALUE(section) AS section, student_id, ANY_VALUE(student_name) AS student_name",
               sessionKeys: "university, student_id",
             }
           : {
               keys: "university",
+              rollKeys: "university, student_id",
               select: "university, CAST(NULL AS STRING) AS subject, CAST(NULL AS STRING) AS section, CAST(NULL AS STRING) AS student_id, CAST(NULL AS STRING) AS student_name",
               sessionKeys: "university",
             };
@@ -4342,16 +4346,26 @@ export async function getAttendanceGroupStats(
       FROM per_student
       GROUP BY university
     ),
+    student_roll AS (
+      SELECT ${grain.rollKeys},
+        ANY_VALUE(student_name) AS student_name,
+        ${grain.rollKeys.includes("subject") ? "" : "ANY_VALUE(subject) AS subject,"}
+        ${grain.rollKeys.includes("section") ? "" : "ANY_VALUE(section) AS section,"}
+        SUM(present_n) AS present_n,
+        SUM(scheduled_n) AS scheduled_n
+      FROM per_student
+      GROUP BY ${grain.rollKeys}
+    ),
     at_grain AS (
       SELECT ${grain.select},
         SUM(present_n) AS present_n,
         SUM(scheduled_n) AS scheduled_n,
-        COUNT(DISTINCT student_id) AS students_n,
+        COUNT(*) AS students_n,
         COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 >= 80) AS eligible_n,
         COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 >= 60 AND SAFE_DIVIDE(present_n, scheduled_n) * 100 < 80) AS recovery_n,
         COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 >= 50 AND SAFE_DIVIDE(present_n, scheduled_n) * 100 < 60) AS at_risk_n,
         COUNTIF(SAFE_DIVIDE(present_n, scheduled_n) * 100 < 50) AS ineligible_n
-      FROM per_student
+      FROM student_roll
       GROUP BY ${grain.keys}
     ),
     sessions AS (
