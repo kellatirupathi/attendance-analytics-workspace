@@ -42,7 +42,6 @@ const mainNav: NavItem[] = [
   { label: "Assessments", href: "/dashboard/assessments", icon: BookOpenCheck },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
   { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
-  { label: "Reports", href: "/dashboard/reports", icon: FileBarChart2 },
 ];
 
 const adminNav: NavItem[] = [

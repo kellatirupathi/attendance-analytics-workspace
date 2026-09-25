@@ -104,10 +104,10 @@ const COLUMN_LABEL: Record<ColumnId, string> = {
   sessions: "Sessions",
   students: "Students",
   absences: "Absences",
-  eligible: "Eligible ≥ 80%",
-  recoveryEligible: "Recovery 60–80%",
-  atRisk: "At risk 50–60%",
-  ineligible: "Ineligible < 50%",
+  eligible: "Eligible (≥ 80%)",
+  recoveryEligible: "Recovery (60–80%)",
+  atRisk: "At risk (50–60%)",
+  ineligible: "Ineligible (< 50%)",
 };
 
 const TIER_COLUMNS = new Set<ColumnId>(["eligible", "recoveryEligible", "atRisk", "ineligible"]);

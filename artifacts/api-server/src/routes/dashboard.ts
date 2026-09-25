@@ -1186,7 +1186,7 @@ router.get("/attendance-group", requireSession(), async (req, res): Promise<void
     return;
   }
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-group:v1:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${dates.semester ?? ""}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-group:v2:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${dates.semester ?? ""}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
