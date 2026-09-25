@@ -939,6 +939,7 @@ export interface SpiRecordRow {
   skillDebt: number;
   classroomPoints: number | null;
   modulePoints: number | null;
+  attendancePct: number | null;
 }
 
 export interface SpiRecordSummary {
@@ -951,6 +952,7 @@ export interface SpiRecordSummary {
   levelC: number;
   levelD: number;
   skillDebt: number;
+  attendancePct: number | null;
 }
 
 const SPI_LEVEL_SQL = `CASE
@@ -1008,6 +1010,68 @@ function spiRecordGrainSql(grain: SpiRecordGrain): { select: string; group: stri
  * weaker of classroom and module under SPI plan §3.2. Below 50 is F and a
  * missing attempt is Ab; both are Skill Debt.
  */
+export async function searchSpiStudents(
+  scope: SessionScope,
+  opts: {
+    search: string;
+    campuses?: string[];
+    sections?: { campus: string; section: string }[];
+    limit?: number;
+  },
+): Promise<{ studentId: string; studentName: string; campus: string; section: string }[]> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params, { currentSemester: false });
+  params["q"] = `%${opts.search.trim()}%`;
+  params["lim"] = Math.min(opts.limit ?? 20, 50);
+  let extra = "";
+  if (opts.campuses?.length) {
+    params["filterCampuses"] = opts.campuses;
+    extra += " AND TRIM(institute_name) IN UNNEST(@filterCampuses)";
+  }
+  if (opts.sections?.length) {
+    params["sectionCampuses"] = opts.sections.map((pair) => pair.campus);
+    params["sectionNames"] = opts.sections.map((pair) => pair.section);
+    extra += ` AND EXISTS (
+      SELECT 1 FROM UNNEST(@sectionCampuses) AS section_campus WITH OFFSET pos
+      JOIN UNNEST(@sectionNames) AS section_name WITH OFFSET pos2 ON pos = pos2
+      WHERE section_campus = TRIM(institute_name)
+        AND section_name = COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')
+    )`;
+  }
+  const rows = await bqQuery<{
+    student_user_id: string;
+    student_name: string;
+    institute_name: string;
+    section_name: string;
+  }>(
+    `SELECT
+       student_user_id,
+       ANY_VALUE(student_name) AS student_name,
+       TRIM(institute_name) AS institute_name,
+       COALESCE(NULLIF(TRIM(ANY_VALUE(batch_section_name)), ''), 'Unassigned') AS section_name
+     FROM ${ATTENDANCE_TABLE}
+     WHERE ${where}
+       ${extra}
+       AND institute_name IS NOT NULL
+       AND (
+         LOWER(student_name) LIKE LOWER(@q)
+         OR LOWER(CAST(student_user_id AS STRING)) LIKE LOWER(@q)
+       )
+     GROUP BY student_user_id, TRIM(institute_name)
+     ORDER BY student_name
+     LIMIT @lim`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows.map((row) => ({
+    studentId: row.student_user_id,
+    studentName: row.student_name,
+    campus: row.institute_name,
+    section: row.section_name,
+  }));
+}
+
 export async function getSpiRecord(
   scope: SessionScope,
   opts: {
@@ -1016,22 +1080,68 @@ export async function getSpiRecord(
     allSemesters?: boolean;
     campus?: string;
     section?: string;
+    campuses?: string[];
+    semesters?: string[];
+    sections?: { campus: string; section: string }[];
+    studentIds?: string[];
+    attendanceRange?: "semester_to_date" | "last_30" | "custom" | "all_dates";
+    attendanceFrom?: string;
+    attendanceTo?: string;
   },
 ): Promise<{ summary: SpiRecordSummary; rows: SpiRecordRow[] }> {
   const params: Record<string, unknown> = {};
+  const semesters = (opts.semesters?.filter(Boolean) ?? []).length
+    ? opts.semesters!.filter(Boolean)
+    : opts.semester
+      ? [opts.semester]
+      : [];
   const where = scopeClause(scope, params, {
-    semester: opts.semester,
-    currentSemester: opts.allSemesters ? false : undefined,
+    semester: semesters.length === 1 ? semesters[0] : undefined,
+    currentSemester: semesters.length === 1 ? undefined : false,
   });
-  let extra = "";
-  if (opts.campus) {
-    params["filterCampus"] = opts.campus;
-    extra += " AND TRIM(institute_name) = @filterCampus";
+  let dimensionExtra = "";
+  let semesterExtra = "";
+  const campuses = opts.campuses?.filter(Boolean) ?? (opts.campus ? [opts.campus] : []);
+  if (campuses.length) {
+    params["filterCampuses"] = campuses;
+    dimensionExtra += " AND TRIM(institute_name) IN UNNEST(@filterCampuses)";
   }
-  if (opts.section) {
+  const sections = opts.sections?.filter((pair) => pair.campus && pair.section) ?? (opts.section ? [{ campus: opts.campus ?? "", section: opts.section }] : []);
+  if (opts.section && !opts.sections && !opts.campus) {
     params["filterSection"] = opts.section;
-    extra += " AND COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') = @filterSection";
+    dimensionExtra += " AND COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') = @filterSection";
+  } else if (sections.length && sections.every((pair) => pair.campus)) {
+    params["sectionCampuses"] = sections.map((pair) => pair.campus);
+    params["sectionNames"] = sections.map((pair) => pair.section);
+    dimensionExtra += ` AND EXISTS (
+      SELECT 1 FROM UNNEST(@sectionCampuses) AS section_campus WITH OFFSET pos
+      JOIN UNNEST(@sectionNames) AS section_name WITH OFFSET pos2 ON pos = pos2
+      WHERE section_campus = TRIM(institute_name)
+        AND section_name = COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')
+    )`;
   }
+  if (opts.studentIds?.length) {
+    params["studentIds"] = opts.studentIds;
+    dimensionExtra += " AND student_user_id IN UNNEST(@studentIds)";
+  }
+  if (semesters.length > 1) {
+    params["semesters"] = semesters;
+    semesterExtra += " AND semester_title IN UNNEST(@semesters)";
+  }
+  const attendanceParams: Record<string, unknown> = {};
+  const attendanceScope = scopeClause(scope, attendanceParams, { currentSemester: false });
+  let attendanceWindow = "";
+  const attendanceRange = opts.attendanceRange ?? "semester_to_date";
+  if (attendanceRange === "semester_to_date") {
+    attendanceWindow = " AND is_current_semester = 1 AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
+  } else if (attendanceRange === "last_30") {
+    attendanceWindow = " AND DATE(date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 30 DAY) AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
+  } else if (attendanceRange === "custom" && opts.attendanceFrom && opts.attendanceTo) {
+    attendanceParams["attendanceFrom"] = opts.attendanceFrom;
+    attendanceParams["attendanceTo"] = opts.attendanceTo;
+    attendanceWindow = " AND DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
+  }
+  Object.assign(params, attendanceParams);
   const grain = spiRecordGrainSql(opts.grain);
   const groupBy = grain.group ? `GROUP BY ${grain.group}` : "";
   const rows = await bqQuery<{
@@ -1053,6 +1163,7 @@ export async function getSpiRecord(
     level_d: string;
     skill_debt: string;
     campuses: string;
+    attendance_pct: string | null;
   }>(
     `WITH roster AS (
       SELECT
@@ -1063,7 +1174,8 @@ export async function getSpiRecord(
         COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
-        ${extra}
+        ${dimensionExtra}
+        ${semesterExtra}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
       GROUP BY student_user_id, TRIM(institute_name), semester_title${opts.grain === "section" || opts.grain === "student" ? ", COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')" : ""}
@@ -1091,6 +1203,19 @@ export async function getSpiRecord(
          = LOWER(REPLACE(CAST(people.student_user_id AS STRING), '-', ''))
       GROUP BY people.student_user_id
     ),
+    attendance AS (
+      SELECT
+        student_user_id,
+        TRIM(institute_name) AS university,
+        ROUND(SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100, 1) AS attendance_pct
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${attendanceScope}
+        ${dimensionExtra}
+        ${attendanceWindow}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+      GROUP BY student_user_id, TRIM(institute_name)
+    ),
     scored AS (
       SELECT
         people.university,
@@ -1100,10 +1225,12 @@ export async function getSpiRecord(
         people.student_name,
         quiz.classroom_avg,
         quiz.module_avg,
+        attendance.attendance_pct,
         ${SPI_POINTS_SQL} AS spi_points,
         ${SPI_LEVEL_SQL} AS skill_level
       FROM people
       LEFT JOIN quiz USING (student_user_id)
+      LEFT JOIN attendance USING (student_user_id, university)
     )
     SELECT
       ${grain.select},
@@ -1119,7 +1246,8 @@ export async function getSpiRecord(
       COUNTIF(skill_level = 'B') AS level_b,
       COUNTIF(skill_level = 'C') AS level_c,
       COUNTIF(skill_level = 'D') AS level_d,
-      COUNTIF(skill_level IN ('F', 'Ab')) AS skill_debt
+      COUNTIF(skill_level IN ('F', 'Ab')) AS skill_debt,
+      AVG(attendance_pct) AS attendance_pct
     FROM scored
     ${groupBy}
     ORDER BY 1`,
@@ -1152,15 +1280,18 @@ export async function getSpiRecord(
         levelC: Number(r.level_c),
         levelD: Number(r.level_d),
         skillDebt: Number(r.skill_debt),
+        attendancePct: r.attendance_pct == null ? null : Math.round(Number(r.attendance_pct) * 10) / 10,
       };
     });
 
   const avgDen = mapped.reduce((sum, row) => sum + row.students, 0);
   const avgNum = mapped.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.students, 0);
+  const attNum = mapped.reduce((sum, row) => sum + (row.attendancePct ?? 0) * row.students, 0);
   const summary: SpiRecordSummary = {
     students: avgDen,
-    campuses: opts.campus ? 1 : opts.grain === "campus" ? mapped.length : Number(rows[0]?.campuses ?? 0),
+    campuses: campuses.length === 1 ? 1 : opts.grain === "campus" ? mapped.length : Number(rows[0]?.campuses ?? 0),
     avgSpi: avgDen > 0 ? Math.round((avgNum / avgDen) * 10) / 10 : null,
+    attendancePct: avgDen > 0 ? Math.round((attNum / avgDen) * 10) / 10 : null,
     levelAPlus: mapped.reduce((sum, row) => sum + row.levelAPlus, 0),
     levelA: mapped.reduce((sum, row) => sum + row.levelA, 0),
     levelB: mapped.reduce((sum, row) => sum + row.levelB, 0),

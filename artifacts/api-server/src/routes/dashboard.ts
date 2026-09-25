@@ -30,6 +30,7 @@ import {
   getSpiAveragesByCampus,
   getSpiAveragesBySection,
   getSpiRecord,
+  searchSpiStudents,
   type SpiRecordGrain,
   getAttendanceGroupStats,
   type AttendanceGrain,
@@ -308,6 +309,18 @@ router.get("/spi-averages", requireSession(), async (req, res): Promise<void> =>
   }
 });
 
+function firstQuery(q: Record<string, string | string[] | undefined>, key: string): string {
+  const raw = q[key];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return value?.trim() ?? "";
+}
+
+function queryList(q: Record<string, string | string[] | undefined>, key: string): string[] {
+  const raw = q[key];
+  const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return [...new Set(values.flatMap((value) => value.split("||")).map((item) => item.trim()).filter(Boolean))];
+}
+
 const SPI_RECORD_GRAINS = new Set<SpiRecordGrain>([
   "all",
   "campus",
@@ -323,25 +336,32 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
     campuses: session.campuses,
     subjects: session.subjects,
   });
-  const q = req.query as Record<string, string | undefined>;
-  const grain = (q["group"] || "campus") as SpiRecordGrain;
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const grain = (firstQuery(q, "group") || "campus") as SpiRecordGrain;
   if (!SPI_RECORD_GRAINS.has(grain)) {
     res.status(400).json({ error: "Invalid group" });
     return;
   }
-  const campus = q["campus"]?.trim() || undefined;
-  const section = q["section"]?.trim() || undefined;
-  if ((grain === "section" || grain === "student") && !campus) {
-    res.status(400).json({ error: "campus required for this group" });
-    return;
-  }
-  if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
+  const campuses = queryList(q, "campuses");
+  const singleCampus = firstQuery(q, "campus");
+  if (singleCampus && !campuses.includes(singleCampus)) campuses.push(singleCampus);
+  if (campuses.some((name) => scope.campuses?.length && !scope.campuses.includes(name))) {
     res.status(403).json({ error: "Not permitted for this campus" });
     return;
   }
-  const allSemesters = q["scope"] === "all";
-  const semester = allSemesters ? undefined : parseSemester(q);
-  const cacheKey = `spi-record:v5:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${section ?? ""}:${semester ?? ""}:${allSemesters}`;
+  const semesters = queryList(q, "semesters");
+  const singleSemester = firstQuery(q, "semester");
+  if (singleSemester && !semesters.includes(singleSemester)) semesters.push(singleSemester);
+  const sections = queryList(q, "sections").map((value) => {
+    const [campus, section] = value.split("\t");
+    return { campus: campus ?? "", section: section ?? "" };
+  }).filter((pair) => pair.campus && pair.section);
+  const studentIds = queryList(q, "students");
+  const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
+  const attendanceFrom = firstQuery(q, "attFrom");
+  const attendanceTo = firstQuery(q, "attTo");
+  const allSemesters = semesters.length === 0 && firstQuery(q, "scope") === "all";
+  const cacheKey = `spi-record:v6:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -350,10 +370,14 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   try {
     const payload = await getSpiRecord(scope, {
       grain,
-      semester,
+      semesters,
       allSemesters,
-      campus,
-      section,
+      campuses,
+      sections,
+      studentIds,
+      attendanceRange,
+      attendanceFrom,
+      attendanceTo,
     });
     const body = {
       ...payload,
@@ -367,6 +391,32 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error({ err }, "Error fetching SPI record");
     res.status(500).json({ error: "Failed to fetch SPI record" });
+  }
+});
+
+router.get("/spi-record/students", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const search = firstQuery(q, "q");
+  if (search.length < 2) {
+    res.json([]);
+    return;
+  }
+  const campuses = queryList(q, "campuses");
+  const sections = queryList(q, "sections").map((value) => {
+    const [campus, section] = value.split("\t");
+    return { campus: campus ?? "", section: section ?? "" };
+  }).filter((pair) => pair.campus && pair.section);
+  try {
+    res.json(await searchSpiStudents(scope, { search, campuses, sections }));
+  } catch (err) {
+    req.log.error({ err }, "Error searching SPI students");
+    res.status(500).json({ error: "Failed to search students" });
   }
 });
 
