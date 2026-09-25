@@ -19,9 +19,15 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  SearchableSelect,
-  campusSelectOptions,
-} from "@/components/SearchableSelect";
+  SpiRecordFilterBar,
+  DEFAULT_FILTERS,
+  type AttendanceRange,
+  type BoundOp,
+  type FilterId,
+  type Grain,
+  type SectionChoice,
+  type StudentChoice,
+} from "@/components/SpiRecordFilterBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -31,8 +37,6 @@ import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
-
-type Grain = "all" | "campus" | "semester" | "section" | "student";
 
 type ColumnId =
   | "students"
@@ -46,10 +50,12 @@ type ColumnId =
   | "skillDebt"
   | "classroomPoints"
   | "modulePoints"
-  | "sections";
+  | "sections"
+  | "attendancePct";
 
 const COLUMN_GROUPS: { title: string; ids: ColumnId[] }[] = [
   { title: "SPI score", ids: ["students", "avgSpi", "skillLevel", "classroomPoints", "modulePoints"] },
+  { title: "Attendance", ids: ["attendancePct"] },
   { title: "Skill level §3.2", ids: ["levelAPlus", "levelA", "levelB", "levelC", "levelD", "skillDebt"] },
   { title: "Other", ids: ["sections"] },
 ];
@@ -64,6 +70,7 @@ const DEFAULT_COLUMNS: ColumnId[] = [
   "levelC",
   "levelD",
   "skillDebt",
+  "attendancePct",
 ];
 
 const ALL_SPI_COLUMNS: ColumnId[] = COLUMN_GROUPS.flatMap((group) => group.ids);
@@ -81,6 +88,7 @@ const COLUMN_LABEL: Record<ColumnId, string> = {
   classroomPoints: "Classroom points",
   modulePoints: "Module points",
   sections: "Sections",
+  attendancePct: "Attendance %",
 };
 
 interface RecordRow {
@@ -101,6 +109,7 @@ interface RecordRow {
   skillDebt: number;
   classroomPoints: number | null;
   modulePoints: number | null;
+  attendancePct: number | null;
   spiPath: string | null;
 }
 
@@ -115,6 +124,7 @@ interface RecordPayload {
     levelC: number;
     levelD: number;
     skillDebt: number;
+    attendancePct: number | null;
   };
   rows: RecordRow[];
 }
@@ -138,12 +148,25 @@ export default function SpiRecordDashboard() {
   const [, setLocation] = useLocation();
   const query = useQueryParams();
   const grain = (query.get("group") as Grain) || "campus";
-  const campus =
-    query.get("campus") ||
-    (isBoa && user?.campuses?.length === 1 ? user.campuses[0]! : "all");
-  const section = query.get("section") || "all";
-  const scope = query.get("scope") || "current";
-  const semester = query.get("semester") || "";
+  const campuses = splitList(query.get("campuses")).length
+    ? splitList(query.get("campuses"))
+    : isBoa && user?.campuses?.length === 1
+      ? [user.campuses[0]!]
+      : [];
+  const semesters = splitList(query.get("semesters"));
+  const sections = splitList(query.get("sections")).map(parseSection).filter((item) => item.campus && item.section);
+  const students = splitList(query.get("students")).map(parseStudent).filter((item) => item.studentId);
+  const shown = (splitList(query.get("bar")) as FilterId[]).filter((id) => id in { group: 1, campus: 1, semester: 1, section: 1, student: 1, spi: 1, attendance: 1 });
+  const activeFilters = shown.length ? shown : DEFAULT_FILTERS;
+  const spiOp = (query.get("spiOp") || "") as BoundOp;
+  const spiA = query.get("spiA") || "";
+  const spiB = query.get("spiB") || "";
+  const attendanceOp = (query.get("attOp") || "") as BoundOp;
+  const attendanceA = query.get("attA") || "";
+  const attendanceB = query.get("attB") || "";
+  const attendanceRange = (query.get("attRange") || "semester_to_date") as AttendanceRange;
+  const attendanceFrom = query.get("attFrom") || "";
+  const attendanceTo = query.get("attTo") || "";
 
   const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
   const [draft, setDraft] = useState<ColumnId[]>(DEFAULT_COLUMNS);
@@ -152,32 +175,27 @@ export default function SpiRecordDashboard() {
   const [pageSize, setPageSize] = useState(25);
   const [exporting, setExporting] = useState(false);
 
-  const { data: filterOptions } = useGetDashboardFilters(
-    campus !== "all" ? { campus } : undefined,
-    {
-      query: {
-        queryKey: getGetDashboardFiltersQueryKey(campus !== "all" ? { campus } : undefined),
-        staleTime: 5 * 60_000,
-      },
-    },
-  );
+  const { data: filterOptions } = useGetDashboardFilters(undefined, {
+    query: { queryKey: getGetDashboardFiltersQueryKey(), staleTime: 5 * 60_000 },
+  });
   const campusOptions = useMemo(() => {
     if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
     return omitExcludedInstitutes(filterOptions?.campuses ?? []);
   }, [filterOptions, isBoa, user?.campuses]);
-  const semesters = useAttendanceSemesters(campus === "all" ? undefined : campus);
-  const needsCampus = grain === "section" || grain === "student";
-  const ready = !needsCampus || campus !== "all";
+  const semesterOptions = useAttendanceSemesters(campuses.length === 1 ? campuses[0] : undefined);
 
-  const params = new URLSearchParams({ group: grain });
-  if (campus !== "all") params.set("campus", campus);
-  if (grain === "student" && section !== "all") params.set("section", section);
-  if (semester) params.set("semester", semester);
-  else if (scope === "all") params.set("scope", "all");
+  const params = new URLSearchParams({ group: grain, attRange: attendanceRange });
+  if (campuses.length) params.set("campuses", campuses.join("||"));
+  if (semesters.length) params.set("semesters", semesters.join("||"));
+  if (sections.length) params.set("sections", sections.map((item) => `${item.campus}\t${item.section}`).join("||"));
+  if (students.length) params.set("students", students.map((item) => item.studentId).join("||"));
+  if (attendanceRange === "custom" && attendanceFrom && attendanceTo) {
+    params.set("attFrom", attendanceFrom);
+    params.set("attTo", attendanceTo);
+  }
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["spi-record", params.toString()],
-    enabled: ready,
     queryFn: async () => {
       const res = await fetch(`/api/dashboard/spi-record?${params.toString()}`, {
         credentials: "include",
@@ -199,9 +217,13 @@ export default function SpiRecordDashboard() {
     setLocation(qs ? `/dashboard/spi-record?${qs}` : "/dashboard/spi-record");
   };
 
-  const rows = data?.rows ?? [];
-  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
-  const summary = data?.summary;
+  const rows = (data?.rows ?? []).filter((row) =>
+    inBound(row.avgSpi, activeFilters.includes("spi") ? spiOp : "", spiA, spiB) &&
+    inBound(row.attendancePct, activeFilters.includes("attendance") ? attendanceOp : "", attendanceA, attendanceB),
+  );
+  const viewRows = rows;
+  const pageRows = viewRows.slice((page - 1) * pageSize, page * pageSize);
+  const summary = summarize(viewRows, data?.summary);
   const total = summary?.students ?? 0;
   const split = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
   const levelColumns: ColumnId[] = ["levelAPlus", "levelA", "levelB", "levelC", "levelD"];
@@ -233,6 +255,7 @@ export default function SpiRecordDashboard() {
   };
 
   const cell = (row: RecordRow, id: ColumnId): string => {
+    if (id === "attendancePct") return row.attendancePct == null ? "—" : `${row.attendancePct.toFixed(1)}%`;
     if (id === "avgSpi" || id === "classroomPoints" || id === "modulePoints") {
       const value = row[id];
       return value == null ? "—" : value.toFixed(1);
@@ -253,39 +276,28 @@ export default function SpiRecordDashboard() {
   const exportAll = async () => {
     setExporting(true);
     try {
-      const all = new URLSearchParams({ group: "campus" });
-      if (semester) all.set("semester", semester);
-      else if (scope === "all") all.set("scope", "all");
+      const all = new URLSearchParams({ group: grain, attRange: attendanceRange });
+      if (semesters.length) all.set("semesters", semesters.join("||"));
+      if (attendanceRange === "custom" && attendanceFrom && attendanceTo) {
+        all.set("attFrom", attendanceFrom);
+        all.set("attTo", attendanceTo);
+      }
       const res = await fetch(`/api/dashboard/spi-record?${all.toString()}`, { credentials: "include" });
       if (!res.ok) return;
       const body = (await res.json()) as RecordPayload;
-      exportCsv(
-        "spi-record-all-campuses.csv",
-        ["Campus", "Students", "SPI points", "A+", "A", "B", "C", "D", "Skill Debt"],
-        body.rows.map((row) => [
-          row.university ?? "",
-          row.students,
-          row.avgSpi ?? "",
-          row.levelAPlus,
-          row.levelA,
-          row.levelB,
-          row.levelC,
-          row.levelD,
-          row.skillDebt,
-        ]),
-      );
+      exportRows(body.rows, "spi-record-this-grain.csv");
     } finally {
       setExporting(false);
     }
   };
 
-  const scopeLabel = scope === "all" ? "All semesters" : semester || "Current semester";
+  const scopeLabel = semesters.length ? semesters.join(", ") : "All semesters";
 
   return (
     <div className="flex flex-col">
       <PageHeader title="SPI Record Dashboard" />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={`Across ${fmt(summary?.campuses ?? 0)} campuses, ${scopeLabel.toLowerCase()}`} />
         <Tile
           label="Average SPI points"
@@ -318,6 +330,11 @@ export default function SpiRecordDashboard() {
           )}
         </div>
         <Tile
+          label="Attendance %"
+          value={isLoading ? null : summary?.attendancePct == null ? "—" : `${summary.attendancePct.toFixed(1)}%`}
+          hint="Calendar attendance date range. Separate from the semester skill cycle."
+        />
+        <Tile
           label="Skill Debt"
           value={isLoading ? null : fmt(summary?.skillDebt ?? 0)}
           hint="Below 50% on a quiz the student has, or no classroom and no module quiz."
@@ -326,66 +343,75 @@ export default function SpiRecordDashboard() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-3">
-        <Field label="Group by">
-          <SearchableSelect
-            value={grain}
-            onValueChange={(value) => writeQuery({ group: value === "campus" ? undefined : value })}
-            options={[
-              { value: "all", label: "All-campus cumulative" },
-              { value: "campus", label: "Campus-wise" },
-              { value: "semester", label: "Semester-wise" },
-              { value: "section", label: "Section-wise" },
-              { value: "student", label: "Student-wise" },
-            ]}
-            className="w-[220px]"
-          />
-        </Field>
-        <Field label="Date scope">
-          <SearchableSelect
-            value={scope === "all" ? "all" : "current"}
-            onValueChange={(value) => writeQuery({ scope: value === "all" ? "all" : undefined })}
-            options={[
-              { value: "current", label: "Current semester" },
-              { value: "all", label: "All semesters" },
-            ]}
-            className="w-[180px]"
-          />
-        </Field>
-        <Field label="Semester">
-          <SearchableSelect
-            value={semester || "any"}
-            onValueChange={(value) => writeQuery({ semester: value === "any" ? undefined : value })}
-            options={[
-              { value: "any", label: "Any in date scope" },
-              ...semesters.map((item) => ({ value: item, label: item })),
-            ]}
-            className="w-[200px]"
-            searchPlaceholder="Search semesters…"
-          />
-        </Field>
-        {!(isBoa && user?.campuses?.length === 1) && (
-          <Field label="Campus">
-            <SearchableSelect
-              value={campus}
-              onValueChange={(value) => writeQuery({ campus: value === "all" ? undefined : value, section: undefined })}
-              options={campusSelectOptions(campusOptions)}
-              className="w-[240px]"
-            />
-          </Field>
-        )}
-        {grain === "student" && campus !== "all" && (
-          <Field label="Section">
-            <SearchableSelect
-              value={section}
-              onValueChange={(value) => writeQuery({ section: value === "all" ? undefined : value })}
-              options={[
-                { value: "all", label: "All sections" },
-                ...(filterOptions?.sections ?? []).map((item) => ({ value: item, label: item })),
-              ]}
-              className="w-[200px]"
-            />
-          </Field>
-        )}
+        <SpiRecordFilterBar
+          shown={activeFilters}
+          onShown={(next) => {
+            const patch: Record<string, string | undefined> = { bar: next.join("||") };
+            if (!next.includes("campus")) patch.campuses = undefined;
+            if (!next.includes("semester")) patch.semesters = undefined;
+            if (!next.includes("section")) patch.sections = undefined;
+            if (!next.includes("student")) patch.students = undefined;
+            if (!next.includes("spi")) {
+              patch.spiOp = undefined;
+              patch.spiA = undefined;
+              patch.spiB = undefined;
+            }
+            if (!next.includes("attendance")) {
+              patch.attOp = undefined;
+              patch.attA = undefined;
+              patch.attB = undefined;
+              patch.attRange = undefined;
+              patch.attFrom = undefined;
+              patch.attTo = undefined;
+            }
+            writeQuery(patch);
+          }}
+          grain={grain}
+          onGrain={(value) => writeQuery({ group: value === "campus" ? undefined : value })}
+          campuses={campuses}
+          campusOptions={campusOptions}
+          onCampuses={(next) => {
+            const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : sections;
+            const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : students;
+            writeQuery({
+              campuses: next.join("||") || undefined,
+              sections: encodeSections(keptSections),
+              students: encodeStudents(keptStudents),
+            });
+          }}
+          semesters={semesters}
+          semesterOptions={semesterOptions}
+          onSemesters={(next) => writeQuery({ semesters: next.join("||") || undefined })}
+          sections={sections}
+          onSections={(next) => {
+            const keptStudents = next.length
+              ? students.filter((item) => next.some((section) => section.campus === item.campus && section.section === item.section))
+              : students;
+            writeQuery({ sections: encodeSections(next), students: encodeStudents(keptStudents) });
+          }}
+          students={students}
+          onStudents={(next) => writeQuery({ students: encodeStudents(next) })}
+          spiOp={spiOp}
+          spiA={spiA}
+          spiB={spiB}
+          onSpi={(op, a, b) => writeQuery({ spiOp: op || undefined, spiA: a || undefined, spiB: b || undefined })}
+          attendanceOp={attendanceOp}
+          attendanceA={attendanceA}
+          attendanceB={attendanceB}
+          attendanceRange={attendanceRange}
+          attendanceFrom={attendanceFrom}
+          attendanceTo={attendanceTo}
+          onAttendance={(patch) => {
+            const next: Record<string, string | undefined> = {};
+            if (patch.op !== undefined) next.attOp = patch.op || undefined;
+            if (patch.a !== undefined) next.attA = patch.a || undefined;
+            if (patch.b !== undefined) next.attB = patch.b || undefined;
+            if (patch.range !== undefined) next.attRange = patch.range;
+            if (patch.from !== undefined) next.attFrom = patch.from || undefined;
+            if (patch.to !== undefined) next.attTo = patch.to || undefined;
+            writeQuery(next);
+          }}
+        />
         <Field label="Columns">
           <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
             <PopoverTrigger asChild>
@@ -425,21 +451,17 @@ export default function SpiRecordDashboard() {
         </Field>
         <Field label="Export">
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={!rows.length} onClick={() => exportRows(rows, "spi-record-this-view.csv")}>
+            <Button variant="outline" size="sm" disabled={!viewRows.length} onClick={() => exportRows(viewRows, "spi-record-this-view.csv")}>
               <Download className="mr-1 h-4 w-4" /> Export this view
             </Button>
             <Button size="sm" disabled={exporting} onClick={() => void exportAll()}>
-              <Download className="mr-1 h-4 w-4" /> Export all campuses
+              <Download className="mr-1 h-4 w-4" /> Export everything at this grain
             </Button>
           </div>
         </Field>
       </div>
 
-      {!ready ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Pick a campus first. Section-wise and student-wise lists are too large to show for every campus at once.
-        </div>
-      ) : isError ? (
+      {isError ? (
         <ErrorState message="Failed to load the SPI record." onRetry={() => void refetch()} />
       ) : (
         <TableShell>
@@ -501,6 +523,59 @@ export default function SpiRecordDashboard() {
       )}
     </div>
   );
+}
+
+function splitList(value: string | null): string[] {
+  return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function parseSection(value: string): SectionChoice {
+  const [campus, section] = value.split("\t");
+  return { campus: campus ?? "", section: section ?? "" };
+}
+
+function parseStudent(value: string): StudentChoice {
+  const [studentId, campus, section, studentName] = value.split("\t");
+  return { studentId: studentId ?? "", campus: campus ?? "", section: section ?? "", studentName: studentName || studentId || "" };
+}
+
+function encodeSections(items: SectionChoice[]): string | undefined {
+  return items.length ? items.map((item) => `${item.campus}\t${item.section}`).join("||") : undefined;
+}
+
+function encodeStudents(items: StudentChoice[]): string | undefined {
+  return items.length ? items.map((item) => [item.studentId, item.campus, item.section, item.studentName].join("\t")).join("||") : undefined;
+}
+
+function inBound(value: number | null, op: BoundOp, a: string, b: string): boolean {
+  if (!op || a === "" || value == null || Number.isNaN(Number(a))) return true;
+  const min = Number(a);
+  const max = Number(b);
+  if (op === "gte") return value >= min;
+  if (op === "lte") return value <= min;
+  if (op === "between" && b !== "" && !Number.isNaN(max)) return value >= min && value <= max;
+  return true;
+}
+
+function summarize(rows: RecordRow[], fallback: RecordPayload["summary"] | undefined): RecordPayload["summary"] | undefined {
+  if (!rows.length) {
+    return fallback ? { ...fallback, students: 0, avgSpi: null, attendancePct: null, levelAPlus: 0, levelA: 0, levelB: 0, levelC: 0, levelD: 0, skillDebt: 0 } : fallback;
+  }
+  const students = rows.reduce((sum, row) => sum + row.students, 0);
+  const spi = rows.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.students, 0);
+  const attendance = rows.reduce((sum, row) => sum + (row.attendancePct ?? 0) * row.students, 0);
+  return {
+    students,
+    campuses: new Set(rows.map((row) => row.university).filter(Boolean)).size,
+    avgSpi: students ? Math.round((spi / students) * 10) / 10 : null,
+    attendancePct: students ? Math.round((attendance / students) * 10) / 10 : null,
+    levelAPlus: rows.reduce((sum, row) => sum + row.levelAPlus, 0),
+    levelA: rows.reduce((sum, row) => sum + row.levelA, 0),
+    levelB: rows.reduce((sum, row) => sum + row.levelB, 0),
+    levelC: rows.reduce((sum, row) => sum + row.levelC, 0),
+    levelD: rows.reduce((sum, row) => sum + row.levelD, 0),
+    skillDebt: rows.reduce((sum, row) => sum + row.skillDebt, 0),
+  };
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
