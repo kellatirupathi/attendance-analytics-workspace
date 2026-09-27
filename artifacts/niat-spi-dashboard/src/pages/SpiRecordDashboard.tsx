@@ -431,8 +431,8 @@ export default function SpiRecordDashboard() {
           campuses={campuses}
           campusOptions={campusOptions}
           onCampuses={(next) => {
-            const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : sections;
-            const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : students;
+            const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
+            const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
             writeQuery({
               campuses: next.join("||") || undefined,
               sections: encodeSections(keptSections),
@@ -446,7 +446,7 @@ export default function SpiRecordDashboard() {
           onSections={(next) => {
             const keptStudents = next.length
               ? students.filter((item) => next.some((section) => section.campus === item.campus && section.section === item.section))
-              : students;
+              : [];
             writeQuery({ sections: encodeSections(next), students: encodeStudents(keptStudents) });
           }}
           students={students}
@@ -471,6 +471,23 @@ export default function SpiRecordDashboard() {
             if (patch.to !== undefined) next.attTo = patch.to || undefined;
             writeQuery(next);
           }}
+          onClear={() =>
+            writeQuery({
+              campuses: undefined,
+              semesters: undefined,
+              sections: undefined,
+              students: undefined,
+              spiOp: undefined,
+              spiA: undefined,
+              spiB: undefined,
+              attOp: undefined,
+              attA: undefined,
+              attB: undefined,
+              attRange: undefined,
+              attFrom: undefined,
+              attTo: undefined,
+            })
+          }
         />
       </div>
 

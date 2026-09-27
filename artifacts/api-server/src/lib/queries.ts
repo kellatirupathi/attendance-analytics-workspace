@@ -492,27 +492,27 @@ export async function getDashboardFilterOptions(
     sectionCampusFilter = "AND TRIM(institute_name) = @filterCampus";
   }
 
-  const [campusRows, sectionRows] = await Promise.all([
-    bqQuery<{ institute_name: string }>(
-      `SELECT DISTINCT institute_name
-       FROM ${ATTENDANCE_TABLE}
-       WHERE ${where} AND institute_name IS NOT NULL
-       ORDER BY institute_name`,
-      params,
-      BQ_LOCATION,
-      BQ_HEAVY_QUERY_TIMEOUT_MS,
-    ),
-    bqQuery<{ batch_section_name: string }>(
-      `SELECT DISTINCT batch_section_name
-       FROM ${ATTENDANCE_TABLE}
-       WHERE ${where} ${sectionCampusFilter}
-         AND batch_section_name IS NOT NULL
-       ORDER BY batch_section_name`,
-      params,
-      BQ_LOCATION,
-      BQ_HEAVY_QUERY_TIMEOUT_MS,
-    ),
-  ]);
+  const sectionRows = await bqQuery<{ batch_section_name: string }>(
+    `SELECT DISTINCT batch_section_name
+     FROM ${ATTENDANCE_TABLE}
+     WHERE ${where} ${sectionCampusFilter}
+       AND batch_section_name IS NOT NULL
+     ORDER BY batch_section_name`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  const campusRows = opts.campus
+    ? []
+    : await bqQuery<{ institute_name: string }>(
+        `SELECT DISTINCT institute_name
+         FROM ${ATTENDANCE_TABLE}
+         WHERE ${where} AND institute_name IS NOT NULL
+         ORDER BY institute_name`,
+        params,
+        BQ_LOCATION,
+        BQ_HEAVY_QUERY_TIMEOUT_MS,
+      );
 
   return {
     campuses: campusRows
