@@ -4559,11 +4559,18 @@ export interface AttendanceStatsClassRow {
   sessions: number;
 }
 
+type AttendanceStatsDetail = {
+  students: AttendanceStatsStudentRow[];
+  classes: AttendanceStatsClassRow[];
+};
+
+const attendanceStatsDetailInFlight = new Map<string, Promise<AttendanceStatsDetail>>();
+
 /** Current-semester attendance at student × subject × section × unit. Date window is optional. */
 export async function getAttendanceStatsDetail(
   scope: SessionScope,
   opts: { dateFrom?: string; dateTo?: string } = {},
-): Promise<{ students: AttendanceStatsStudentRow[]; classes: AttendanceStatsClassRow[] }> {
+): Promise<AttendanceStatsDetail> {
   const params: Record<string, unknown> = {};
   const clauses = [excludeInstituteSql(), "is_current_semester = 1"];
   if (opts.dateFrom && opts.dateTo) {
@@ -4580,21 +4587,27 @@ export async function getAttendanceStatsDetail(
     clauses.push("subject_title IN UNNEST(@subjects)");
   }
   const where = clauses.join(" AND ");
-  const detailKey = `attendance-stats-detail:v1:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
-  const cached = cacheGet<{ students: AttendanceStatsStudentRow[]; classes: AttendanceStatsClassRow[] }>(detailKey);
+  const detailKey = `attendance-stats-detail:v2:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
+  const cached = cacheGet<AttendanceStatsDetail>(detailKey);
   if (cached) return cached;
+  const existing = attendanceStatsDetailInFlight.get(detailKey);
+  if (existing) return existing;
 
-  const [studentRows, classRows] = await Promise.all([
-    bqQuery<{
+  const pending = (async (): Promise<AttendanceStatsDetail> => {
+    // GROUPING SETS computes both grains from one scan. Class rows still count
+    // distinct session identities, never the number of student attendance rows.
+    const rows = await bqQuery<{
       university: string;
       semester: string;
       subject: string | null;
       section: string;
       unit: string;
-      student_id: string;
+      student_id: string | null;
       student_name: string | null;
       present_n: string;
       scheduled_n: string;
+      sessions_n: string;
+      is_class: string;
     }>(
       `WITH base AS (
         SELECT
@@ -4605,7 +4618,8 @@ export async function getAttendanceStatsDetail(
           ${SESSION_TITLE_SQL} AS unit,
           student_user_id AS student_id,
           student_name,
-          ${ATTENDED_SQL} AS is_present
+          ${ATTENDED_SQL} AS is_present,
+          ${SESSION_IDENTITY_SQL} AS session_key
         FROM ${ATTENDANCE_TABLE}
         WHERE ${where}
           AND institute_name IS NOT NULL
@@ -4617,70 +4631,54 @@ export async function getAttendanceStatsDetail(
         university, semester, subject, section, unit, student_id,
         MAX(student_name) AS student_name,
         COUNTIF(is_present) AS present_n,
-        COUNT(*) AS scheduled_n
+        COUNT(*) AS scheduled_n,
+        COUNT(DISTINCT session_key) AS sessions_n,
+        GROUPING(student_id) AS is_class
       FROM base
-      GROUP BY university, semester, subject, section, unit, student_id`,
+      GROUP BY GROUPING SETS (
+        (university, semester, subject, section, unit, student_id),
+        (university, semester, subject, section, unit)
+      )`,
       params,
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
-    ),
-    bqQuery<{
-      university: string;
-      semester: string;
-      subject: string | null;
-      section: string;
-      unit: string;
-      sessions_n: string;
-    }>(
-      `WITH base AS (
-        SELECT
-          TRIM(institute_name) AS university,
-          COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester,
-          NULLIF(TRIM(subject_title), '') AS subject,
-          COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown') AS section,
-          ${SESSION_TITLE_SQL} AS unit,
-          ${SESSION_IDENTITY_SQL} AS session_key
-        FROM ${ATTENDANCE_TABLE}
-        WHERE ${where}
-          AND institute_name IS NOT NULL
-          AND TRIM(institute_name) != ''
-          AND semester_title IS NOT NULL
-          AND TRIM(semester_title) != ''
-      )
-      SELECT university, semester, subject, section, unit, COUNT(DISTINCT session_key) AS sessions_n
-      FROM base
-      GROUP BY university, semester, subject, section, unit`,
-      params,
-      BQ_LOCATION,
-      BQ_HEAVY_QUERY_TIMEOUT_MS,
-    ),
-  ]);
+    );
 
-  const payload = {
-    students: studentRows
-      .filter((row) => row.university && !isExcludedInstitute(row.university))
-      .map((row) => ({
-        university: row.university,
-        semester: row.semester,
-        subject: row.subject,
-        section: row.section,
-        unit: row.unit,
-        studentId: row.student_id,
-        studentName: row.student_name ?? "",
-        present: Number(row.present_n) || 0,
-        scheduled: Number(row.scheduled_n) || 0,
-      })),
-    classes: classRows
-      .filter((row) => row.university && !isExcludedInstitute(row.university))
-      .map((row) => ({
-        university: row.university,
-        semester: row.semester,
-        subject: row.subject,
-        section: row.section,
-        unit: row.unit,
-        sessions: Number(row.sessions_n) || 0,
-      })),
-  };
-  cacheSet(detailKey, payload, 15 * 60 * 1000);
-  return payload;
+    const students: AttendanceStatsStudentRow[] = [];
+    const classes: AttendanceStatsClassRow[] = [];
+    for (const row of rows) {
+      if (!row.university || isExcludedInstitute(row.university)) continue;
+      if (Number(row.is_class) === 1) {
+        classes.push({
+          university: row.university,
+          semester: row.semester,
+          subject: row.subject,
+          section: row.section,
+          unit: row.unit,
+          sessions: Number(row.sessions_n) || 0,
+        });
+      } else {
+        students.push({
+          university: row.university,
+          semester: row.semester,
+          subject: row.subject,
+          section: row.section,
+          unit: row.unit,
+          studentId: row.student_id ?? "",
+          studentName: row.student_name ?? "",
+          present: Number(row.present_n) || 0,
+          scheduled: Number(row.scheduled_n) || 0,
+        });
+      }
+    }
+    const payload = { students, classes };
+    cacheSet(detailKey, payload, 15 * 60 * 1000);
+    return payload;
+  })();
+  attendanceStatsDetailInFlight.set(detailKey, pending);
+  try {
+    return await pending;
+  } finally {
+    attendanceStatsDetailInFlight.delete(detailKey);
+  }
 }

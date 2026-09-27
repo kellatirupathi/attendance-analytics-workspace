@@ -59,7 +59,9 @@ function namedQueryImports(source: string): string[] {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\/\/.*$/gm, "")
     .split(",")
-    .map((specifier) => specifier.trim().split(/\s+as\s+/)[0]?.trim())
+    .map((specifier) =>
+      specifier.trim().split(/\s+as\s+/)[0]?.trim().replace(/^type\s+/, ""),
+    )
     .filter((name): name is string => Boolean(name));
 }
 
