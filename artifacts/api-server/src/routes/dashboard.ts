@@ -211,18 +211,19 @@ router.get("/semesters", requireSession(), async (req, res): Promise<void> => {
     subjects: session.subjects,
   });
   const campus = String(req.query["campus"] ?? "").trim() || undefined;
+  const currentOnly = req.query["current"] === "1";
   if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
     res.status(403).json({ error: "Not permitted for this campus" });
     return;
   }
-  const cacheKey = `semesters:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+  const cacheKey = `semesters:${currentOnly ? "current:" : ""}${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
   const cached = cacheGet<string[]>(cacheKey);
   if (cached) {
     res.json(cached);
     return;
   }
   try {
-    const semesters = await getAttendanceSemesters(scope, campus);
+    const semesters = await getAttendanceSemesters(scope, campus, { currentOnly });
     cacheSet(cacheKey, semesters, 15 * 60 * 1000);
     res.json(semesters);
   } catch (err) {
@@ -373,7 +374,7 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   const attendanceA = boundQueryNumber(firstQuery(q, "attA"));
   const attendanceB = boundQueryNumber(firstQuery(q, "attB"));
   const allSemesters = semesters.length === 0 && firstQuery(q, "scope") === "all";
-  const cacheKey = `spi-record:v8:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
+  const cacheKey = `spi-record:v9:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

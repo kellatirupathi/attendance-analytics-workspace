@@ -169,7 +169,7 @@ export function SpiRecordFilterBar({
     ),
     semester: (
       <CheckMenu
-        label={semesters.length ? `${semesters.length} selected` : "All semesters"}
+        label={semesters.length ? `${semesters.length} selected` : "Current semesters"}
         options={semesterOptions.map((name) => ({ id: name, label: name }))}
         selected={semesters}
         onChange={onSemesters}
