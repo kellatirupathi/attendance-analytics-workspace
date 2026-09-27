@@ -61,6 +61,7 @@ export function SpiRecordFilterBar({
   attendanceFrom,
   attendanceTo,
   onAttendance,
+  onClear,
 }: {
   shown: FilterId[];
   grain: Grain;
@@ -93,20 +94,20 @@ export function SpiRecordFilterBar({
     from?: string;
     to?: string;
   }) => void;
+  onClear: () => void;
 }) {
   const [sectionChoices, setSectionChoices] = useState<SectionChoice[]>([]);
   const [studentQuery, setStudentQuery] = useState("");
   const [studentHits, setStudentHits] = useState<StudentChoice[]>([]);
 
   useEffect(() => {
-    const targets = campuses.length ? campuses : campusOptions;
-    if (!targets.length) {
+    if (!campuses.length) {
       setSectionChoices([]);
       return;
     }
     let alive = true;
     Promise.all(
-      targets.map((campus) =>
+      campuses.map((campus) =>
         fetch(`/api/dashboard/filters?campus=${encodeURIComponent(campus)}`, { credentials: "include" })
           .then((res) => (res.ok ? res.json() : { sections: [] }))
           .then((body: { sections?: string[] }) =>
@@ -119,7 +120,7 @@ export function SpiRecordFilterBar({
     return () => {
       alive = false;
     };
-  }, [campuses, campusOptions]);
+  }, [campuses]);
 
   useEffect(() => {
     const q = studentQuery.trim();
@@ -176,7 +177,13 @@ export function SpiRecordFilterBar({
     ),
     section: (
       <CheckMenu
-        label={sections.length ? `${sections.length} selected` : "All sections"}
+        label={
+          sections.length
+            ? `${sections.length} selected`
+            : campuses.length
+              ? "All sections"
+              : "Select a campus"
+        }
         options={sectionChoices.map((item) => ({
           id: `${item.campus}\t${item.section}`,
           label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
@@ -279,6 +286,11 @@ export function SpiRecordFilterBar({
         {shown.includes("spi") && (
           <Field label={FILTER_LABEL.spi}>{controls.spi}</Field>
         )}
+        <div className="flex items-end">
+          <Button type="button" variant="outline" size="sm" onClick={onClear}>
+            Clear
+          </Button>
+        </div>
       </div>
     </div>
   );

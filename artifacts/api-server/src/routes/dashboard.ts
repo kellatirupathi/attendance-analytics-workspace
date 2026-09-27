@@ -185,7 +185,7 @@ router.get("/filters", requireSession(), async (req, res): Promise<void> => {
     subjects: session.subjects,
   });
   const campus = req.query["campus"] as string | undefined;
-  const cacheKey = `filters:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+  const cacheKey = `filters:v2:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
