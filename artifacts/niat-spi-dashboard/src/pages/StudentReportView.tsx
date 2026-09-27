@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/tooltip";
 
 export interface ReportCourse {
-  name: string;
+  name: string | null;
   attended: number;
   total: number;
   pct: number;
@@ -77,8 +77,17 @@ function oneDecimal(value: number): string {
   return value.toFixed(1);
 }
 
-function dataIssue(name: string, pct: number): boolean {
-  const trimmed = name.trim();
+function courseLabel(name: string | null | undefined): string {
+  return (name ?? "").trim();
+}
+
+function namedCourse(name: string | null | undefined): boolean {
+  const trimmed = courseLabel(name);
+  return trimmed.length > 0 && trimmed.toLowerCase() !== "null";
+}
+
+function dataIssue(name: string | null | undefined, pct: number): boolean {
+  const trimmed = courseLabel(name);
   return pct === 0 || trimmed.length === 0 || /quizzes$/i.test(trimmed);
 }
 
@@ -124,7 +133,10 @@ function StatusBadge({
 
 export default function StudentReportView(props: StudentReportViewProps) {
   const courses = useMemo(
-    () => [...props.courses].sort((a, b) => a.pct - b.pct || a.name.localeCompare(b.name)),
+    () =>
+      props.courses
+        .filter((course) => namedCourse(course.name))
+        .sort((a, b) => a.pct - b.pct || courseLabel(a.name).localeCompare(courseLabel(b.name))),
     [props.courses],
   );
   const tierPct = eligibilityAttendancePct(
