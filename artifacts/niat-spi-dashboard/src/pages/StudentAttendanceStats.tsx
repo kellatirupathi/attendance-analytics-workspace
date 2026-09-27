@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import {
-  useGetDashboardFilters,
-  getGetDashboardFiltersQueryKey,
-} from "@workspace/api-client-react";
-import {
   Table,
   TableBody,
   TableCell,
@@ -18,35 +14,32 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
 import { TableShell, TablePagination } from "@/components/DataTable";
-import {
-  SearchableSelect,
-  campusSelectOptions,
-} from "@/components/SearchableSelect";
+import { SearchableSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, Loader2, ChevronRight, Download } from "lucide-react";
+import { Search, ChevronRight, Download } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
-import { pctColor, pctTextColor } from "@/lib/utils";
+import { pctColor, pctTextColor, cn } from "@/lib/utils";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import {
-  applyDateRange,
-  applySemester,
   campusWisePath,
   subjectAttendanceStudentsPath,
   type DateRange,
 } from "@/lib/dateRange";
-import { useAttendanceSemesters } from "@/hooks/useAttendanceSemesters";
+import {
+  aggregateAttendanceStats,
+  type AttendanceClassRow,
+  type AttendanceDetailRow,
+  type AttendanceViewGrain,
+} from "@/lib/attendanceStatsAggregate";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 const PAGE_SIZES = [25, 50, 100];
 
-type Grain =
-  | "university"
-  | "university_subject"
-  | "university_section"
-  | "university_student";
+type Grain = AttendanceViewGrain;
 
 type ColumnId =
   | "overallPct"
@@ -93,6 +86,7 @@ const GRAIN_PCT_LABEL: Record<Grain, string> = {
   university: "Campus Attendance %",
   university_subject: "Subject Attendance %",
   university_section: "Section Attendance %",
+  university_unit: "Unit Attendance %",
   university_student: "Student Attendance %",
 };
 
@@ -117,6 +111,7 @@ interface StatsRow {
   university: string;
   subject: string | null;
   section: string | null;
+  unit: string | null;
   studentId: string | null;
   studentName: string | null;
   overallPct: number;
@@ -131,6 +126,16 @@ interface StatsRow {
   atRisk: number;
   ineligible: number;
   spiPath: string | null;
+}
+
+interface DetailPayload {
+  students: AttendanceDetailRow[];
+  classes: AttendanceClassRow[];
+  spiPaths: Record<string, string>;
+}
+
+function splitList(value: string | null): string[] {
+  return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
 }
 
 function columnLabel(id: ColumnId, grain: Grain): string {
@@ -155,26 +160,35 @@ export default function StudentAttendanceStats() {
   const query = useQueryParams();
 
   const grain = (query.get("group") as Grain) || "university";
-  const campus = query.get("campus") || (isBoa && user?.campuses?.length === 1 ? user.campuses[0]! : "all");
+  const legacyCampus = query.get("campus");
+  const campuses = splitList(query.get("campuses")).length
+    ? splitList(query.get("campuses"))
+    : legacyCampus && legacyCampus !== "all"
+      ? [legacyCampus]
+      : isBoa && user?.campuses?.length === 1
+        ? [user.campuses[0]!]
+        : [];
+  const legacySemester = query.get("semester");
+  const semesters = splitList(query.get("semesters")).length
+    ? splitList(query.get("semesters"))
+    : legacySemester
+      ? [legacySemester]
+      : [];
+  const sections = splitList(query.get("sections")).map((value) => {
+    const [sectionCampus, section] = value.split("\t");
+    return { campus: sectionCampus ?? "", section: section ?? "" };
+  }).filter((item) => item.campus && item.section);
+  const students = splitList(query.get("students")).map((value) => {
+    const [studentId, studentCampus, studentName] = value.split("\t");
+    return { studentId: studentId ?? "", campus: studentCampus ?? "", studentName: studentName ?? "" };
+  }).filter((item) => item.studentId);
   const scopeKind = query.get("scope") || "semester";
-  const semester = query.get("semester") || "";
   const day = query.get("date") || "";
   const dateFrom = query.get("dateFrom") || "";
   const dateTo = query.get("dateTo") || "";
 
-  const { data: filterOptions } = useGetDashboardFilters(undefined, {
-    query: { queryKey: getGetDashboardFiltersQueryKey(), staleTime: 5 * 60_000 },
-  });
-  const campusOptions = useMemo(() => {
-    if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
-    return omitExcludedInstitutes(filterOptions?.campuses ?? []);
-  }, [filterOptions, isBoa, user?.campuses]);
-  const semesters = useAttendanceSemesters(campus === "all" ? undefined : campus);
-
-  const [rows, setRows] = useState<StatsRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
   const [search, setSearch] = useState("");
+  const [studentQuery, setStudentQuery] = useState("");
   const debouncedSearch = useDebounceValue(search, 300);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
@@ -187,6 +201,10 @@ export default function StudentAttendanceStats() {
     for (const [key, value] of Object.entries(patch)) {
       if (value) params.set(key, value);
       else params.delete(key);
+    }
+    if ("campuses" in patch || "semesters" in patch) {
+      params.delete("campus");
+      params.delete("semester");
     }
     const qs = params.toString();
     setPage(1);
@@ -214,45 +232,102 @@ export default function StudentAttendanceStats() {
         (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo))
       : false;
 
-  useEffect(() => {
-    if (!scopeReady) return;
-    let alive = true;
-    setLoading(true);
-    setFetchError(false);
-    const params = new URLSearchParams({ group: grain });
-    if (campus !== "all") params.set("campus", campus);
-    if (scopeKind === "day" && day) params.set("date", day);
-    else if (scopeKind === "range") {
-      params.set("dateFrom", dateFrom);
-      params.set("dateTo", dateTo);
-    }
-    if (semester) params.set("semester", semester);
-    fetch(`/api/dashboard/attendance-group?${params.toString()}`, {
-      credentials: "include",
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: StatsRow[]) => {
-        if (alive) setRows(data ?? []);
-      })
-      .catch(() => {
-        if (alive) {
-          setRows([]);
-          setFetchError(true);
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
+  const detailParams = new URLSearchParams();
+  if (scopeKind === "day" && /^\d{4}-\d{2}-\d{2}$/.test(day)) detailParams.set("date", day);
+  if (scopeKind === "range" && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    detailParams.set("dateFrom", dateFrom);
+    detailParams.set("dateTo", dateTo);
+  }
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ["attendance-stats-detail", detailParams.toString()],
+    enabled: scopeReady,
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/attendance-stats/detail?${detailParams.toString()}`, {
+        credentials: "include",
       });
-    return () => {
-      alive = false;
-    };
-  }, [grain, campus, scopeKind, semester, day, dateFrom, dateTo, scopeReady]);
+      if (!res.ok) throw new Error("Failed to load attendance stats");
+      return res.json() as Promise<DetailPayload>;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+
+  const campusOptions = useMemo(() => {
+    if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
+    const names = new Set((data?.students ?? []).map((row) => row.university));
+    return omitExcludedInstitutes([...names].sort((left, right) => left.localeCompare(right)));
+  }, [data, isBoa, user?.campuses]);
+  const semesterOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const names = new Set<string>();
+    for (const row of data?.students ?? []) {
+      if (campusSet.size && !campusSet.has(row.university)) continue;
+      names.add(row.semester);
+    }
+    return [...names].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  }, [data, campuses]);
+  const sectionChoices = useMemo(() => {
+    if (!campuses.length) return [];
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const seen = new Set<string>();
+    const list: { campus: string; section: string }[] = [];
+    for (const row of data?.students ?? []) {
+      if (!campusSet.has(row.university)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      const key = `${row.university}\t${row.section}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ campus: row.university, section: row.section });
+    }
+    return list.sort((left, right) => left.section.localeCompare(right.section, undefined, { numeric: true }));
+  }, [data, campuses, semesters]);
+  const studentCatalog = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const sectionSet = new Set(sections.map((item) => `${item.campus}\t${item.section}`));
+    const byStudent = new Map<string, { studentId: string; studentName: string; campus: string }>();
+    for (const row of data?.students ?? []) {
+      if (campusSet.size && !campusSet.has(row.university)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      if (sectionSet.size && !sectionSet.has(`${row.university}\t${row.section}`)) continue;
+      const key = `${row.university}\t${row.studentId}`;
+      const existing = byStudent.get(key);
+      if (!existing || row.studentName.length > existing.studentName.length) {
+        byStudent.set(key, { studentId: row.studentId, studentName: row.studentName, campus: row.university });
+      }
+    }
+    return [...byStudent.values()];
+  }, [data, campuses, semesters, sections]);
+  const studentHits = useMemo(() => {
+    const q = studentQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return studentCatalog
+      .filter((item) => item.studentName.toLowerCase().includes(q) || item.studentId.toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [studentCatalog, studentQuery]);
+
+  const aggregated = useMemo(
+    () => aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], grain, {
+      campuses,
+      semesters,
+      sections: sections.map((item) => `${item.campus}\t${item.section}`),
+      students: students.map((item) => `${item.campus}\t${item.studentId}`),
+    }),
+    [data, grain, campuses.join("||"), semesters.join("||"), query.get("sections") ?? "", query.get("students") ?? ""],
+  );
+  const summary = aggregated.summary;
+  const rows = aggregated.rows.map((row) => ({
+    ...row,
+    spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null,
+  }));
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((row) =>
-      [row.university, row.subject, row.section, row.studentName, row.studentId]
+      [row.university, row.subject, row.section, row.unit, row.studentName, row.studentId]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -268,14 +343,19 @@ export default function StudentAttendanceStats() {
   const identity = identityHeaders(grain);
   const headers = ["Campus", ...identity, ...visibleColumns.map((id) => columnLabel(id, grain))];
 
-  const scopeLabel =
+  const scopeLabel = [
+    campuses.length ? campuses.join(", ") : "All campuses",
+    semesters.length ? semesters.join(", ") : "Current semesters",
     scopeKind === "day" && day
-      ? `${formatDay(day)} only`
+      ? formatDay(day)
       : scopeKind === "range" && dateFrom && dateTo
         ? dateFrom === dateTo
-          ? `${formatDay(dateFrom)} only`
+          ? formatDay(dateFrom)
           : `${formatDay(dateFrom)} – ${formatDay(dateTo)}`
-        : semester || "Current semester";
+        : "",
+  ].filter(Boolean).join(" · ");
+
+  const drillSemester = semesters.length === 1 ? semesters[0] : undefined;
 
   const drillRange = (): DateRange =>
     scopeKind === "day" && day
@@ -286,21 +366,16 @@ export default function StudentAttendanceStats() {
 
   const openUniversity = (name: string) => {
     const range = drillRange();
-    setLocation(
-      campusWisePath(range, name, scopeKind === "semester" ? semester : undefined),
-    );
+    setLocation(campusWisePath(range, name, scopeKind === "semester" ? drillSemester : undefined));
   };
 
   const openSubject = (row: StatsRow) => {
     if (!row.subject) return;
     const range = drillRange();
-    const params = new URLSearchParams({ subject: row.subject, campus: row.university });
-    if (scopeKind === "semester") applySemester(params, semester);
-    applyDateRange(params, range);
     setLocation(subjectAttendanceStudentsPath(range, {
       subject: row.subject,
       campus: row.university,
-      semester: scopeKind === "semester" ? semester : undefined,
+      semester: scopeKind === "semester" ? drillSemester : undefined,
     }));
   };
 
@@ -316,20 +391,17 @@ export default function StudentAttendanceStats() {
     );
   };
 
-  const exportAll = async () => {
-    const params = new URLSearchParams({ group: grain });
-    if (scopeKind === "day" && day) params.set("date", day);
-    else if (scopeKind === "range") {
-      params.set("dateFrom", dateFrom);
-      params.set("dateTo", dateTo);
-    }
-    if (semester) params.set("semester", semester);
-    const res = await fetch(`/api/dashboard/attendance-group?${params.toString()}`, {
-      credentials: "include",
+  const exportAll = () => {
+    const body = aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], grain, {
+      campuses: [],
+      semesters,
+      sections: [],
+      students: [],
     });
-    if (!res.ok) return;
-    const data = (await res.json()) as StatsRow[];
-    exportRows(data, "attendance-stats-all-campuses.csv");
+    exportRows(
+      body.rows.map((row) => ({ ...row, spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null })),
+      "attendance-stats-all-campuses.csv",
+    );
   };
 
   const applyColumns = async (asDefault: boolean) => {
@@ -366,135 +438,220 @@ export default function StudentAttendanceStats() {
   ];
   const textColumnCount = 1 + identity.length;
 
+  const rated = summary.eligible + summary.recoveryEligible + summary.atRisk + summary.ineligible;
+  const share = (count: number) => (rated > 0 ? `${Math.round((count / rated) * 100)}%` : "—");
+  const multiCampus = campuses.length !== 1;
+
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       <PageHeader title="Student Attendance Stats" />
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <FilterField label="Group by">
-        <SearchableSelect
-          value={grain}
-          onValueChange={(value) => writeQuery({ group: value === "university" ? undefined : value })}
-          options={[
-            { value: "university", label: "Campus-wise" },
-            { value: "university_subject", label: "Subject-wise" },
-            { value: "university_section", label: "Section-wise" },
-            { value: "university_student", label: "Student-wise" },
-          ]}
-          placeholder="Group by"
-          searchPlaceholder="Search…"
-          className="w-[200px]"
-        />
-        </FilterField>
-        <FilterField label="Date scope">
-        <SearchableSelect
-          value={scopeKind === "day" ? "day" : scopeKind === "range" ? "range" : "semester"}
-          onValueChange={(value) => {
-            if (value === "day") writeQuery({ scope: "day", dateFrom: undefined, dateTo: undefined });
-            else if (value === "range") writeQuery({ scope: "range", date: undefined });
-            else writeQuery({ scope: undefined, date: undefined, dateFrom: undefined, dateTo: undefined });
-          }}
-          options={[
-            { value: "semester", label: "Semester dates" },
-            { value: "day", label: "Single day" },
-            { value: "range", label: "Date range" },
-          ]}
-          placeholder="Date scope"
-          className="w-[180px]"
-        />
-        </FilterField>
-        <FilterField label="Semester">
-        <SearchableSelect
-          value={semester || "current"}
-          onValueChange={(value) => writeQuery({ semester: value === "current" ? undefined : value })}
-          options={[
-            { value: "current", label: "Current semester" },
-            ...semesters.map((item) => ({ value: item, label: item })),
-          ]}
-          placeholder="Semester"
-          searchPlaceholder="Search semesters…"
-          className="w-[200px]"
-        />
-        </FilterField>
-        {scopeKind === "day" && (
-          <FilterField label="Day">
-            <Input type="date" value={day} aria-label="Day" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "day", date: e.target.value })} />
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} hint={scopeLabel} />
+        <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="Present ÷ scheduled. Same students on every Group by." />
+        <StatTile label="Eligible" value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} at 80% or above`} />
+        <StatTile label="Recovery" value={isLoading ? null : summary.recoveryEligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.recoveryEligible)} from 60% to 80%`} />
+        <StatTile label="At risk" value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} from 50% to 60%`} />
+        <StatTile label="Ineligible" value={isLoading ? null : summary.ineligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.ineligible)} below 50%`} tone="rose" />
+      </div>
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
+          <FilterField label="Group by">
+            <SearchableSelect
+              value={grain}
+              onValueChange={(value) => writeQuery({ group: value === "university" ? undefined : value })}
+              options={[
+                { value: "university", label: "Campus-wise" },
+                { value: "university_subject", label: "Subject-wise" },
+                { value: "university_section", label: "Section-wise" },
+                { value: "university_unit", label: "Unit-wise" },
+                { value: "university_student", label: "Student-wise" },
+              ]}
+              placeholder="Group by"
+              searchPlaceholder="Search…"
+              className="w-[180px]"
+            />
           </FilterField>
-        )}
-        {scopeKind === "range" && (
-          <>
-            <FilterField label="From">
-              <Input type="date" value={dateFrom} aria-label="From" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
+          {!(isBoa && user?.campuses?.length === 1) && (
+            <FilterField label="Campus">
+              <CheckMenu
+                label={campuses.length ? `${campuses.length} selected` : "All campuses"}
+                options={campusOptions.map((name) => ({ id: name, label: name }))}
+                selected={campuses}
+                onChange={(next) => {
+                  const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
+                  const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
+                  writeQuery({
+                    campuses: next.join("||") || undefined,
+                    sections: keptSections.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
+                    students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+                  });
+                }}
+              />
             </FilterField>
-            <FilterField label="To">
-              <Input type="date" value={dateTo} aria-label="To" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
-            </FilterField>
-          </>
-        )}
-        {!(isBoa && user?.campuses?.length === 1) && campusOptions.length > 0 && (
-          <FilterField label="Campus">
-          <SearchableSelect
-            value={campus}
-            onValueChange={(value) => writeQuery({ campus: value === "all" ? undefined : value })}
-            options={campusSelectOptions(campusOptions)}
-            placeholder="All campuses"
-            searchPlaceholder="Search campuses…"
-            className="w-[220px]"
-          />
+          )}
+          <FilterField label="Semester">
+            <CheckMenu
+              label={semesters.length ? `${semesters.length} selected` : "Current semesters"}
+              options={semesterOptions.map((name) => ({ id: name, label: name }))}
+              selected={semesters}
+              onChange={(next) => writeQuery({ semesters: next.join("||") || undefined })}
+            />
           </FilterField>
-        )}
-        <FilterField label="Search">
-        <div className="relative min-w-[180px] sm:w-56">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Name or campus"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="h-9 border-gray-200 pl-9"
-          />
-        </div>
-        </FilterField>
-        <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
-          <PopoverTrigger asChild>
-            <Button type="button" variant="outline" className="h-9 border-gray-200">Columns</Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-72">
-            <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
-            <ColumnOrderList
-              ids={columnOrder}
-              label={(id) => columnLabel(id, grain)}
-              checked={(id) => draftColumns.includes(id)}
-              locked={(id) => id === "overallPct"}
-              onToggle={toggleDraft}
-              onReorder={(from, to) => {
-                const next = moveListItem(columnOrder, from, to);
-                setDraftColumns(next.filter((id) => draftColumns.includes(id)));
+          <FilterField label="Section">
+            <CheckMenu
+              label={sections.length ? `${sections.length} selected` : campuses.length ? "All sections" : "Select a campus"}
+              options={sectionChoices.map((item) => ({
+                id: `${item.campus}\t${item.section}`,
+                label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
+              }))}
+              selected={sections.map((item) => `${item.campus}\t${item.section}`)}
+              onChange={(ids) => {
+                const next = ids.map((id) => {
+                  const [sectionCampus, section] = id.split("\t");
+                  return { campus: sectionCampus ?? "", section: section ?? "" };
+                });
+                const keptStudents = next.length
+                  ? students.filter((item) => next.some((section) => section.campus === item.campus))
+                  : [];
+                writeQuery({
+                  sections: next.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
+                  students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+                });
               }}
             />
-            <div className="mt-3 flex flex-col gap-2">
-              <Button type="button" className="h-9" onClick={() => void applyColumns(false)}>Apply</Button>
-              {isSuperAdmin && (
-                <Button type="button" variant="outline" className="h-9" onClick={() => void applyColumns(true)}>
-                  Set as default for all users
-                </Button>
-              )}
+          </FilterField>
+          <FilterField label="Student">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="w-[180px] justify-between">{students.length ? `${students.length} selected` : "All students"}</Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72" align="start">
+                <Input value={studentQuery} placeholder="Search name or ID" onChange={(event) => setStudentQuery(event.target.value)} />
+                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                  {studentHits.map((hit) => {
+                    const on = students.some((item) => item.studentId === hit.studentId && item.campus === hit.campus);
+                    return (
+                      <label key={`${hit.campus}-${hit.studentId}`} className="flex items-start gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => {
+                            const next = on
+                              ? students.filter((item) => !(item.studentId === hit.studentId && item.campus === hit.campus))
+                              : [...students, hit];
+                            writeQuery({
+                              students: next.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+                            });
+                          }}
+                        />
+                        <span>
+                          {hit.studentName}
+                          <span className="block text-xs text-gray-500">{hit.campus}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </FilterField>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <FilterField label="Date scope">
+            <SearchableSelect
+              value={scopeKind === "day" ? "day" : scopeKind === "range" ? "range" : "semester"}
+              onValueChange={(value) => {
+                if (value === "day") writeQuery({ scope: "day", dateFrom: undefined, dateTo: undefined });
+                else if (value === "range") writeQuery({ scope: "range", date: undefined });
+                else writeQuery({ scope: undefined, date: undefined, dateFrom: undefined, dateTo: undefined });
+              }}
+              options={[
+                { value: "semester", label: "Semester dates" },
+                { value: "day", label: "Single day" },
+                { value: "range", label: "Date range" },
+              ]}
+              placeholder="Date scope"
+              className="w-[180px]"
+            />
+          </FilterField>
+          {scopeKind === "day" && (
+            <FilterField label="Day">
+              <Input type="date" value={day} aria-label="Day" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "day", date: e.target.value })} />
+            </FilterField>
+          )}
+          {scopeKind === "range" && (
+            <>
+              <FilterField label="From">
+                <Input type="date" value={dateFrom} aria-label="From" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
+              </FilterField>
+              <FilterField label="To">
+                <Input type="date" value={dateTo} aria-label="To" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
+              </FilterField>
+            </>
+          )}
+          <FilterField label="Search">
+            <div className="relative min-w-[180px] sm:w-56">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                placeholder="Name or campus"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                className="h-9 border-gray-200 pl-9"
+              />
             </div>
-          </PopoverContent>
-        </Popover>
-        {loading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-        <Button type="button" variant="outline" className="h-9 gap-2" disabled={filtered.length === 0 || loading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
-          <Download className="h-4 w-4" /> Export this view
-        </Button>
-        <Button type="button" variant="outline" className="h-9 gap-2" disabled={loading || !scopeReady} onClick={() => void exportAll()}>
-          <Download className="h-4 w-4" /> Export all campuses
-        </Button>
+          </FilterField>
+          <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" className="h-9 border-gray-200">Columns</Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72">
+              <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
+              <ColumnOrderList
+                ids={columnOrder}
+                label={(id) => columnLabel(id, grain)}
+                checked={(id) => draftColumns.includes(id)}
+                locked={(id) => id === "overallPct"}
+                onToggle={toggleDraft}
+                onReorder={(from, to) => {
+                  const next = moveListItem(columnOrder, from, to);
+                  setDraftColumns(next.filter((id) => draftColumns.includes(id)));
+                }}
+              />
+              <div className="mt-3 flex flex-col gap-2">
+                <Button type="button" className="h-9" onClick={() => void applyColumns(false)}>Apply</Button>
+                {isSuperAdmin && (
+                  <Button type="button" variant="outline" className="h-9" onClick={() => void applyColumns(true)}>
+                    Set as default for all users
+                  </Button>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+          <Button type="button" variant="outline" className="h-9" onClick={() => writeQuery({
+            campuses: undefined,
+            semesters: undefined,
+            sections: undefined,
+            students: undefined,
+            campus: undefined,
+            semester: undefined,
+          })}>
+            Clear
+          </Button>
+          <Button type="button" variant="outline" className="h-9 gap-2" disabled={filtered.length === 0 || isLoading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
+            <Download className="h-4 w-4" /> Export this view
+          </Button>
+          <Button type="button" variant="outline" className="h-9 gap-2" disabled={isLoading || !scopeReady} onClick={exportAll}>
+            <Download className="h-4 w-4" /> Export all campuses
+          </Button>
+        </div>
       </div>
 
-      {fetchError && (
+      {isError && (
         <div className="mb-4">
-          <ErrorState message="Failed to load attendance stats." />
+          <ErrorState message="Failed to load attendance stats." onRetry={() => void refetch()} />
         </div>
       )}
 
@@ -515,7 +672,7 @@ export default function StudentAttendanceStats() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
+              {isLoading ? (
                 Array.from({ length: 8 }).map((_, index) => (
                   <TableRow key={index}>
                     <TableCell colSpan={headers.length + 1}><Skeleton className="h-8 w-full" /></TableCell>
@@ -535,23 +692,23 @@ export default function StudentAttendanceStats() {
                         {row.university}
                       </button>
                     </TableCell>
-                    {grain !== "university" && (
-                      <TableCell className="py-3">
-                        {grain === "university_subject" && row.subject ? (
+                    {identity.map((header, index) => (
+                      <TableCell key={header} className="py-3">
+                        {header === "Subject" && row.subject ? (
                           <button type="button" className="text-left font-medium text-brand-700 hover:underline" onClick={() => openSubject(row)}>
                             {row.subject}
                           </button>
-                        ) : grain === "university_student" ? (
+                        ) : header === "Student" ? (
                           row.spiPath ? (
                             <a className="font-medium text-brand-700 hover:underline" href={row.spiPath}>{row.studentName || row.studentId}</a>
                           ) : (
                             row.studentName || row.studentId
                           )
                         ) : (
-                          row.section
+                          identityValues(row, grain)[index]
                         )}
                       </TableCell>
-                    )}
+                    ))}
                     {visibleColumns.map((id) => (
                       <TableCell
                         key={id}
@@ -580,7 +737,7 @@ export default function StudentAttendanceStats() {
             </TableBody>
           </Table>
         </div>
-        {!loading && filtered.length > 0 && (
+        {!isLoading && filtered.length > 0 && (
           <TablePagination
             page={currentPage}
             totalPages={totalPages}
@@ -603,6 +760,7 @@ export default function StudentAttendanceStats() {
 function identityHeaders(grain: Grain): string[] {
   if (grain === "university_subject") return ["Subject"];
   if (grain === "university_section") return ["Section"];
+  if (grain === "university_unit") return ["Subject", "Unit"];
   if (grain === "university_student") return ["Student"];
   return [];
 }
@@ -610,20 +768,72 @@ function identityHeaders(grain: Grain): string[] {
 function identityValues(row: StatsRow, grain: Grain): string[] {
   if (grain === "university_subject") return [row.subject ?? ""];
   if (grain === "university_section") return [row.section ?? ""];
+  if (grain === "university_unit") return [row.subject ?? "", row.unit ?? ""];
   if (grain === "university_student") return [row.studentName || row.studentId || ""];
   return [];
 }
 
 function rowKey(row: StatsRow, grain: Grain): string {
-  return [row.university, grain === "university_subject" ? row.subject : "", grain === "university_section" ? row.section : "", row.studentId ?? ""].join("|");
+  return [row.university, row.subject ?? "", row.section ?? "", row.unit ?? "", row.studentId ?? "", grain].join("|");
 }
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+    <label className="flex shrink-0 flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
       {label}
       {children}
     </label>
+  );
+}
+
+function CheckMenu({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { id: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72" align="start">
+        <div className="max-h-64 space-y-1 overflow-y-auto">
+          {options.map((option) => (
+            <label key={option.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedSet.has(option.id)}
+                onChange={() =>
+                  onChange(
+                    selectedSet.has(option.id)
+                      ? selected.filter((id) => id !== option.id)
+                      : [...selected, option.id],
+                  )
+                }
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function StatTile({ label, value, hint, tone }: { label: string; value: string | null; hint: string; tone?: "rose" }) {
+  return (
+    <div className={cn("rounded-lg border p-4", tone === "rose" ? "border-rose-200 bg-rose-50" : "border-gray-200 bg-white")}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
+      {value == null ? <Skeleton className="mt-2 h-8 w-24" /> : <div className="mt-1 text-2xl font-semibold text-gray-900">{value}</div>}
+      <div className="mt-1 text-xs text-gray-500">{hint}</div>
+    </div>
   );
 }
 

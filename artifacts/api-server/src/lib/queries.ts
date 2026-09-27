@@ -4537,3 +4537,150 @@ export async function getAttendanceGroupStats(
       };
     });
 }
+
+export interface AttendanceStatsStudentRow {
+  university: string;
+  semester: string;
+  subject: string | null;
+  section: string;
+  unit: string;
+  studentId: string;
+  studentName: string;
+  present: number;
+  scheduled: number;
+}
+
+export interface AttendanceStatsClassRow {
+  university: string;
+  semester: string;
+  subject: string | null;
+  section: string;
+  unit: string;
+  sessions: number;
+}
+
+/** Current-semester attendance at student × subject × section × unit. Date window is optional. */
+export async function getAttendanceStatsDetail(
+  scope: SessionScope,
+  opts: { dateFrom?: string; dateTo?: string } = {},
+): Promise<{ students: AttendanceStatsStudentRow[]; classes: AttendanceStatsClassRow[] }> {
+  const params: Record<string, unknown> = {};
+  const clauses = [excludeInstituteSql(), "is_current_semester = 1"];
+  if (opts.dateFrom && opts.dateTo) {
+    params["dateFrom"] = opts.dateFrom;
+    params["dateTo"] = opts.dateTo;
+    clauses.push("DATE(date) >= DATE(@dateFrom) AND DATE(date) <= DATE(@dateTo)");
+  }
+  if (scope.campuses && scope.campuses.length > 0) {
+    params["campuses"] = scope.campuses;
+    clauses.push("institute_name IN UNNEST(@campuses)");
+  }
+  if (scope.subjects && scope.subjects.length > 0) {
+    params["subjects"] = scope.subjects;
+    clauses.push("subject_title IN UNNEST(@subjects)");
+  }
+  const where = clauses.join(" AND ");
+  const detailKey = `attendance-stats-detail:v1:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
+  const cached = cacheGet<{ students: AttendanceStatsStudentRow[]; classes: AttendanceStatsClassRow[] }>(detailKey);
+  if (cached) return cached;
+
+  const [studentRows, classRows] = await Promise.all([
+    bqQuery<{
+      university: string;
+      semester: string;
+      subject: string | null;
+      section: string;
+      unit: string;
+      student_id: string;
+      student_name: string | null;
+      present_n: string;
+      scheduled_n: string;
+    }>(
+      `WITH base AS (
+        SELECT
+          TRIM(institute_name) AS university,
+          COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester,
+          NULLIF(TRIM(subject_title), '') AS subject,
+          COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown') AS section,
+          ${SESSION_TITLE_SQL} AS unit,
+          student_user_id AS student_id,
+          student_name,
+          ${ATTENDED_SQL} AS is_present
+        FROM ${ATTENDANCE_TABLE}
+        WHERE ${where}
+          AND institute_name IS NOT NULL
+          AND TRIM(institute_name) != ''
+          AND semester_title IS NOT NULL
+          AND TRIM(semester_title) != ''
+      )
+      SELECT
+        university, semester, subject, section, unit, student_id,
+        MAX(student_name) AS student_name,
+        COUNTIF(is_present) AS present_n,
+        COUNT(*) AS scheduled_n
+      FROM base
+      GROUP BY university, semester, subject, section, unit, student_id`,
+      params,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+    bqQuery<{
+      university: string;
+      semester: string;
+      subject: string | null;
+      section: string;
+      unit: string;
+      sessions_n: string;
+    }>(
+      `WITH base AS (
+        SELECT
+          TRIM(institute_name) AS university,
+          COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester,
+          NULLIF(TRIM(subject_title), '') AS subject,
+          COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown') AS section,
+          ${SESSION_TITLE_SQL} AS unit,
+          ${SESSION_IDENTITY_SQL} AS session_key
+        FROM ${ATTENDANCE_TABLE}
+        WHERE ${where}
+          AND institute_name IS NOT NULL
+          AND TRIM(institute_name) != ''
+          AND semester_title IS NOT NULL
+          AND TRIM(semester_title) != ''
+      )
+      SELECT university, semester, subject, section, unit, COUNT(DISTINCT session_key) AS sessions_n
+      FROM base
+      GROUP BY university, semester, subject, section, unit`,
+      params,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+  ]);
+
+  const payload = {
+    students: studentRows
+      .filter((row) => row.university && !isExcludedInstitute(row.university))
+      .map((row) => ({
+        university: row.university,
+        semester: row.semester,
+        subject: row.subject,
+        section: row.section,
+        unit: row.unit,
+        studentId: row.student_id,
+        studentName: row.student_name ?? "",
+        present: Number(row.present_n) || 0,
+        scheduled: Number(row.scheduled_n) || 0,
+      })),
+    classes: classRows
+      .filter((row) => row.university && !isExcludedInstitute(row.university))
+      .map((row) => ({
+        university: row.university,
+        semester: row.semester,
+        subject: row.subject,
+        section: row.section,
+        unit: row.unit,
+        sessions: Number(row.sessions_n) || 0,
+      })),
+  };
+  cacheSet(detailKey, payload, 15 * 60 * 1000);
+  return payload;
+}

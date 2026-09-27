@@ -34,6 +34,7 @@ import {
   searchSpiStudents,
   type SpiRecordGrain,
   getAttendanceGroupStats,
+  getAttendanceStatsDetail,
   type AttendanceGrain,
 } from "../lib/queries.js";
 import {
@@ -1268,6 +1269,36 @@ function closedDateScope(q: Record<string, string | undefined>): {
   }
   return semester ? { semester } : {};
 }
+
+router.get("/attendance-stats/detail", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | undefined>;
+  const dates = closedDateScope(q);
+  const cacheKey = `attendance-stats-detail-http:v1:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+    const spiPaths: Record<string, string> = {};
+    for (const row of detail.students) {
+      if (!spiPaths[row.studentId]) spiPaths[row.studentId] = spiSharePath(row.studentId);
+    }
+    const body = { ...detail, spiPaths };
+    cacheSet(cacheKey, body, 15 * 60 * 1000);
+    res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching attendance stats detail");
+    res.status(500).json({ error: "Failed to fetch attendance stats" });
+  }
+});
 
 router.get("/attendance-group", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
