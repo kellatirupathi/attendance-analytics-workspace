@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   SpiRecordFilterBar,
+  SpiRecordFiltersButton,
   DEFAULT_FILTERS,
   type AttendanceRange,
   type BoundOp,
@@ -235,7 +236,7 @@ export default function SpiRecordDashboard() {
   const split = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
   const levelColumns: ColumnId[] = ["levelAPlus", "levelA", "levelB", "levelC", "levelD"];
   const visible = columns.filter((id) => {
-    if (grain === "student" && (id === "students" || id === "sections" || levelColumns.includes(id))) return false;
+    if (grain === "student" && (id === "sections" || levelColumns.includes(id))) return false;
     if (grain !== "student" && id === "skillLevel") return false;
     return true;
   });
@@ -298,14 +299,87 @@ export default function SpiRecordDashboard() {
     }
   };
 
-  const scopeLabel = semesters.length ? semesters.join(", ") : "All semesters";
+  const scopeBits = [
+    campuses.length ? campuses.join(", ") : "All campuses",
+    semesters.length ? semesters.join(", ") : "All semesters",
+    sections.length ? sections.map((item) => item.section).join(", ") : "",
+  ].filter(Boolean);
+  const scopeLabel = scopeBits.join(" · ");
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <SpiRecordFiltersButton
+        shown={activeFilters}
+        onShown={(next) => {
+          const patch: Record<string, string | undefined> = { bar: next.join("||") };
+          if (!next.includes("campus")) patch.campuses = undefined;
+          if (!next.includes("semester")) patch.semesters = undefined;
+          if (!next.includes("section")) patch.sections = undefined;
+          if (!next.includes("student")) patch.students = undefined;
+          if (!next.includes("spi")) {
+            patch.spiOp = undefined;
+            patch.spiA = undefined;
+            patch.spiB = undefined;
+          }
+          if (!next.includes("attendance")) {
+            patch.attOp = undefined;
+            patch.attA = undefined;
+            patch.attB = undefined;
+            patch.attRange = undefined;
+            patch.attFrom = undefined;
+            patch.attTo = undefined;
+          }
+          writeQuery(patch);
+        }}
+      />
+      <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm">Columns</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72" align="end">
+          <p className="mb-2 text-xs text-gray-500">Drag to set the column order. {columns.length} of {Object.keys(COLUMN_LABEL).length} selected.</p>
+          <ColumnOrderList
+            ids={[...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))]}
+            label={(id) => COLUMN_LABEL[id]}
+            checked={(id) => draft.includes(id)}
+            onToggle={(id) =>
+              setDraft((current) =>
+                current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+              )
+            }
+            onReorder={(from, to) => {
+              const order = [...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))];
+              const next = moveListItem(order, from, to);
+              setDraft(next.filter((id) => draft.includes(id)));
+            }}
+          />
+          <Button
+            size="sm"
+            className="mt-1 w-full"
+            onClick={() => {
+              setColumns(draft);
+              setOpen(false);
+            }}
+          >
+            Apply
+          </Button>
+        </PopoverContent>
+      </Popover>
+      <Button variant="outline" size="sm" disabled={!viewRows.length} onClick={() => exportRows(viewRows, "spi-record-this-view.csv")}>
+        <Download className="mr-1 h-4 w-4" /> Export
+      </Button>
+      <Button size="sm" disabled={exporting} onClick={() => void exportAll()}>
+        <Download className="mr-1 h-4 w-4" /> Export everything at this grain
+      </Button>
+    </div>
+  );
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader title="SPI Record Dashboard" />
+      <PageHeader title="SPI Record Dashboard" right={toolbar} />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={`Across ${fmt(summary?.campuses ?? 0)} campuses, ${scopeLabel.toLowerCase()}`} />
+        <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={scopeLabel} />
         <Tile
           label="Average SPI points"
           value={isLoading ? null : summary?.avgSpi == null ? "—" : summary.avgSpi.toFixed(1)}
@@ -352,27 +426,6 @@ export default function SpiRecordDashboard() {
       <div className="mb-4">
         <SpiRecordFilterBar
           shown={activeFilters}
-          onShown={(next) => {
-            const patch: Record<string, string | undefined> = { bar: next.join("||") };
-            if (!next.includes("campus")) patch.campuses = undefined;
-            if (!next.includes("semester")) patch.semesters = undefined;
-            if (!next.includes("section")) patch.sections = undefined;
-            if (!next.includes("student")) patch.students = undefined;
-            if (!next.includes("spi")) {
-              patch.spiOp = undefined;
-              patch.spiA = undefined;
-              patch.spiB = undefined;
-            }
-            if (!next.includes("attendance")) {
-              patch.attOp = undefined;
-              patch.attA = undefined;
-              patch.attB = undefined;
-              patch.attRange = undefined;
-              patch.attFrom = undefined;
-              patch.attTo = undefined;
-            }
-            writeQuery(patch);
-          }}
           grain={grain}
           onGrain={(value) => writeQuery({ group: value === "campus" ? undefined : value })}
           campuses={campuses}
@@ -418,51 +471,6 @@ export default function SpiRecordDashboard() {
             if (patch.to !== undefined) next.attTo = patch.to || undefined;
             writeQuery(next);
           }}
-          actions={
-            <>
-              <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    Columns
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-72" align="end">
-                  <p className="mb-2 text-xs text-gray-500">Drag to set the column order. {columns.length} of {Object.keys(COLUMN_LABEL).length} selected.</p>
-                  <ColumnOrderList
-                    ids={[...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))]}
-                    label={(id) => COLUMN_LABEL[id]}
-                    checked={(id) => draft.includes(id)}
-                    onToggle={(id) =>
-                      setDraft((current) =>
-                        current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-                      )
-                    }
-                    onReorder={(from, to) => {
-                      const order = [...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))];
-                      const next = moveListItem(order, from, to);
-                      setDraft(next.filter((id) => draft.includes(id)));
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    className="mt-1 w-full"
-                    onClick={() => {
-                      setColumns(draft);
-                      setOpen(false);
-                    }}
-                  >
-                    Apply
-                  </Button>
-                </PopoverContent>
-              </Popover>
-              <Button variant="outline" size="sm" disabled={!viewRows.length} onClick={() => exportRows(viewRows, "spi-record-this-view.csv")}>
-                <Download className="mr-1 h-4 w-4" /> Export
-              </Button>
-              <Button size="sm" disabled={exporting} onClick={() => void exportAll()}>
-                <Download className="mr-1 h-4 w-4" /> Export everything at this grain
-              </Button>
-            </>
-          }
         />
       </div>
 

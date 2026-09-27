@@ -28,6 +28,8 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { cacheGet, cacheSet } from "./cache.js";
+import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate.js";
 import type { SessionScope } from "./rbac.js";
 import {
   excludeInstituteSql,
@@ -1072,27 +1074,6 @@ export async function searchSpiStudents(
   }));
 }
 
-function spiNumericBoundSql(
-  column: string,
-  op: string | undefined,
-  a: number | undefined,
-  b: number | undefined,
-  params: Record<string, unknown>,
-  key: string,
-): string {
-  if ((op !== "gte" && op !== "lte" && op !== "between") || a == null || Number.isNaN(a)) {
-    return "";
-  }
-  params[`${key}A`] = a;
-  if (op === "between") {
-    if (b == null || Number.isNaN(b)) return "";
-    params[`${key}B`] = b;
-    return ` AND (${column} IS NULL OR (${column} >= @${key}A AND ${column} <= @${key}B))`;
-  }
-  const cmp = op === "gte" ? ">=" : "<=";
-  return ` AND (${column} IS NULL OR ${column} ${cmp} @${key}A)`;
-}
-
 export async function getSpiRecord(
   scope: SessionScope,
   opts: {
@@ -1122,12 +1103,9 @@ export async function getSpiRecord(
     : opts.semester
       ? [opts.semester]
       : [];
-  const where = scopeClause(scope, params, {
-    semester: semesters.length === 1 ? semesters[0] : undefined,
-    currentSemester: semesters.length === 1 ? undefined : false,
-  });
+  const where = scopeClause(scope, params, { currentSemester: false });
   let dimensionExtra = "";
-  let semesterExtra = "";
+  let rosterSemester = "TRUE";
   const campuses = opts.campuses?.filter(Boolean) ?? (opts.campus ? [opts.campus] : []);
   if (campuses.length) {
     params["filterCampuses"] = campuses;
@@ -1138,263 +1116,157 @@ export async function getSpiRecord(
     params["filterSection"] = opts.section;
     dimensionExtra += " AND COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') = @filterSection";
   } else if (sections.length && sections.every((pair) => pair.campus)) {
-    params["sectionCampuses"] = sections.map((pair) => pair.campus);
-    params["sectionNames"] = sections.map((pair) => pair.section);
-    dimensionExtra += ` AND EXISTS (
-      SELECT 1 FROM UNNEST(@sectionCampuses) AS section_campus WITH OFFSET pos
-      JOIN UNNEST(@sectionNames) AS section_name WITH OFFSET pos2 ON pos = pos2
-      WHERE section_campus = TRIM(institute_name)
-        AND section_name = COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')
-    )`;
+    params["sectionPairs"] = sections.map((pair) => `${pair.campus}\t${pair.section}`);
+    dimensionExtra += " AND CONCAT(TRIM(institute_name), CHR(9), COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')) IN UNNEST(@sectionPairs)";
   }
   if (opts.studentIds?.length) {
     params["studentIds"] = opts.studentIds;
     dimensionExtra += " AND student_user_id IN UNNEST(@studentIds)";
   }
-  if (semesters.length > 1) {
+  if (semesters.length === 1) {
+    params["semester"] = semesters[0];
+    rosterSemester = "semester_title = @semester";
+  } else if (semesters.length > 1) {
     params["semesters"] = semesters;
-    semesterExtra += " AND semester_title IN UNNEST(@semesters)";
+    rosterSemester = "semester_title IN UNNEST(@semesters)";
   }
-  const attendanceParams: Record<string, unknown> = {};
-  const attendanceScope = scopeClause(scope, attendanceParams, { currentSemester: false });
-  let attendanceWindow = "";
+  let attendanceFlag = "TRUE";
   const attendanceRange = opts.attendanceRange ?? "semester_to_date";
   if (attendanceRange === "semester_to_date") {
-    attendanceWindow = " AND is_current_semester = 1 AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
+    attendanceFlag = "is_current_semester = 1 AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
   } else if (attendanceRange === "last_30") {
-    attendanceWindow = " AND DATE(date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 30 DAY) AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
+    attendanceFlag = "DATE(date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 30 DAY) AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
   } else if (attendanceRange === "custom" && opts.attendanceFrom && opts.attendanceTo) {
-    attendanceParams["attendanceFrom"] = opts.attendanceFrom;
-    attendanceParams["attendanceTo"] = opts.attendanceTo;
-    attendanceWindow = " AND DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
+    params["attendanceFrom"] = opts.attendanceFrom;
+    params["attendanceTo"] = opts.attendanceTo;
+    attendanceFlag = "DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
   }
-  Object.assign(params, attendanceParams);
-  const spiBound = spiNumericBoundSql("spi_points", opts.spiOp, opts.spiA, opts.spiB, params, "spiBound");
-  const attendanceBound = spiNumericBoundSql(
-    "attendance_pct",
-    opts.attendanceOp,
-    opts.attendanceA,
-    opts.attendanceB,
-    params,
-    "attBound",
-  );
-  const grain = spiRecordGrainSql(opts.grain);
-  const groupBy = grain.group ? `GROUP BY ${grain.group}` : "";
-  const rows = await bqQuery<{
-    university: string | null;
-    semester: string | null;
-    section_name: string | null;
-    student_id: string | null;
-    student_name: string | null;
-    students: string;
-    avg_spi: string | null;
-    classroom_points: string | null;
-    module_points: string | null;
-    sections: string;
-    skill_level: string | null;
-    level_a_plus: string;
-    level_a: string;
-    level_b: string;
-    level_c: string;
-    level_d: string;
-    skill_debt: string;
-    campuses: string;
-    attendance_pct: string | null;
-    summary_students: string;
-    summary_campuses: string;
-    summary_avg_spi: string | null;
-    summary_attendance_pct: string | null;
-    summary_level_a_plus: string;
-    summary_level_a: string;
-    summary_level_b: string;
-    summary_level_c: string;
-    summary_level_d: string;
-    summary_skill_debt: string;
-  }>(
-    `WITH roster AS (
+
+  const detailKey = `spi-record-detail:v1:${JSON.stringify({
+    scope,
+    campuses,
+    sections,
+    studentIds: opts.studentIds ?? [],
+    semesters,
+    attendanceRange,
+    attendanceFrom: opts.attendanceFrom ?? "",
+    attendanceTo: opts.attendanceTo ?? "",
+  })}`;
+  let detail = cacheGet<SpiDetailRow[]>(detailKey);
+  if (!detail) {
+    const fetched = await bqQuery<{
+      student_user_id: string;
+      student_name: string | null;
+      university: string;
+      semester_title: string;
+      section_name: string;
+      classroom_avg: string | null;
+      module_avg: string | null;
+      present_n: string;
+      scheduled_n: string;
+    }>(
+      `WITH facts AS (
+        SELECT
+          student_user_id,
+          TRIM(institute_name) AS university,
+          COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title,
+          COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name,
+          MAX(student_name) AS student_name,
+          COUNTIF(${attendanceFlag}) AS scheduled_n,
+          COUNTIF((${attendanceFlag}) AND ${ATTENDED_SQL}) AS present_n
+        FROM ${ATTENDANCE_TABLE}
+        WHERE ${where}
+          ${dimensionExtra}
+          AND institute_name IS NOT NULL
+          AND TRIM(institute_name) != ''
+        GROUP BY student_user_id, university, semester_title, section_name
+      ),
+      roster AS (
+        SELECT
+          student_user_id,
+          university,
+          semester_title,
+          section_name,
+          MAX(student_name) AS student_name
+        FROM facts
+        WHERE ${rosterSemester}
+        GROUP BY student_user_id, university, semester_title, section_name
+      ),
+      campus_attendance AS (
+        SELECT
+          facts.student_user_id,
+          facts.university,
+          SUM(facts.present_n) AS present_n,
+          SUM(facts.scheduled_n) AS scheduled_n
+        FROM facts
+        INNER JOIN (
+          SELECT DISTINCT student_user_id, university FROM roster
+        ) enrolled
+          ON enrolled.student_user_id = facts.student_user_id
+         AND enrolled.university = facts.university
+        GROUP BY facts.student_user_id, facts.university
+      ),
+      student_keys AS (
+        SELECT DISTINCT
+          student_user_id,
+          LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key
+        FROM roster
+      ),
+      quiz AS (
+        SELECT
+          student_keys.student_user_id,
+          AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
+            IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
+          AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
+            IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+        FROM student_keys
+        INNER JOIN ${QUIZ_TABLE} q
+          ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', '')) = student_keys.student_key
+        GROUP BY student_keys.student_user_id
+      )
       SELECT
-        student_user_id,
-        MAX(student_name) AS student_name,
-        TRIM(institute_name) AS university,
-        COALESCE(NULLIF(TRIM(${opts.grain === "section" || opts.grain === "student" ? "batch_section_name" : "ANY_VALUE(batch_section_name)"}), ''), 'Unassigned') AS section_name,
-        COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${where}
-        ${dimensionExtra}
-        ${semesterExtra}
-        AND institute_name IS NOT NULL
-        AND TRIM(institute_name) != ''
-      GROUP BY student_user_id, TRIM(institute_name), semester_title${opts.grain === "section" || opts.grain === "student" ? ", COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned')" : ""}
-    ),
-    people AS (
-      SELECT
-        student_user_id,
-        university,
-        MAX(student_name) AS student_name,
-        ${opts.grain === "campus" || opts.grain === "all" ? "ANY_VALUE(section_name) AS section_name" : "section_name"},
-        ${opts.grain === "campus" || opts.grain === "all" ? "ANY_VALUE(semester_title) AS semester_title" : "semester_title"}
+        roster.student_user_id,
+        roster.student_name,
+        roster.university,
+        roster.semester_title,
+        roster.section_name,
+        quiz.classroom_avg,
+        quiz.module_avg,
+        IFNULL(campus_attendance.present_n, 0) AS present_n,
+        IFNULL(campus_attendance.scheduled_n, 0) AS scheduled_n
       FROM roster
-      GROUP BY student_user_id, university${opts.grain === "campus" || opts.grain === "all" ? "" : ", semester_title, section_name"}
-    ),
-    quiz AS (
-      SELECT
-        people.student_user_id,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
-      FROM people
-      INNER JOIN ${QUIZ_TABLE} q
-        ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
-         = LOWER(REPLACE(CAST(people.student_user_id AS STRING), '-', ''))
-      GROUP BY people.student_user_id
-    ),
-    attendance_raw AS (
-      SELECT
-        student_user_id,
-        TRIM(institute_name) AS university,
-        COUNTIF(${ATTENDED_SQL}) AS present_n,
-        COUNT(*) AS scheduled_n
-      FROM ${ATTENDANCE_TABLE}
-      WHERE ${attendanceScope}
-        ${dimensionExtra}
-        ${attendanceWindow}
-        AND institute_name IS NOT NULL
-        AND TRIM(institute_name) != ''
-      GROUP BY student_user_id, TRIM(institute_name)
-    ),
-    attendance AS (
-      SELECT
-        student_user_id,
-        university,
-        ROUND(SAFE_DIVIDE(present_n, scheduled_n) * 100, 1) AS attendance_pct
-      FROM attendance_raw
-    ),
-    student_attendance AS (
-      SELECT
-        student_user_id,
-        ROUND(SAFE_DIVIDE(SUM(present_n), SUM(scheduled_n)) * 100, 1) AS attendance_pct
-      FROM attendance_raw
-      GROUP BY student_user_id
-    ),
-    scored AS (
-      SELECT
-        people.university,
-        people.section_name,
-        people.semester_title,
-        people.student_user_id,
-        people.student_name,
-        quiz.classroom_avg,
-        quiz.module_avg,
-        attendance.attendance_pct,
-        ${SPI_POINTS_SQL} AS spi_points,
-        ${SPI_LEVEL_SQL} AS skill_level
-      FROM people
       LEFT JOIN quiz USING (student_user_id)
-      LEFT JOIN attendance USING (student_user_id, university)
-    ),
-    student_scored AS (
-      SELECT
-        ids.student_user_id,
-        quiz.classroom_avg,
-        quiz.module_avg,
-        student_attendance.attendance_pct,
-        ${SPI_POINTS_SQL} AS spi_points,
-        ${SPI_LEVEL_SQL} AS skill_level
-      FROM (SELECT DISTINCT student_user_id FROM roster) ids
-      LEFT JOIN quiz USING (student_user_id)
-      LEFT JOIN student_attendance USING (student_user_id)
-    ),
-    eligible AS (
-      SELECT student_user_id
-      FROM student_scored
-      WHERE TRUE${spiBound}${attendanceBound}
-    )
-    SELECT
-      ${grain.select},
-      COUNT(*) AS students,
-      AVG(spi_points) AS avg_spi,
-      AVG(${SPI_COMPONENT_POINTS_SQL("classroom_avg")}) AS classroom_points,
-      AVG(${SPI_COMPONENT_POINTS_SQL("module_avg")}) AS module_points,
-      COUNT(DISTINCT section_name) AS sections,
-      COUNT(DISTINCT university) AS campuses,
-      ${opts.grain === "student" ? "ANY_VALUE(skill_level)" : "CAST(NULL AS STRING)"} AS skill_level,
-      COUNTIF(skill_level = 'A+') AS level_a_plus,
-      COUNTIF(skill_level = 'A') AS level_a,
-      COUNTIF(skill_level = 'B') AS level_b,
-      COUNTIF(skill_level = 'C') AS level_c,
-      COUNTIF(skill_level = 'D') AS level_d,
-      COUNTIF(skill_level IN ('F', 'Ab')) AS skill_debt,
-      AVG(attendance_pct) AS attendance_pct,
-      (SELECT COUNT(*) FROM eligible) AS summary_students,
-      (SELECT COUNT(DISTINCT roster.university) FROM roster WHERE roster.student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_campuses,
-      (SELECT AVG(spi_points) FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_avg_spi,
-      (SELECT AVG(attendance_pct) FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_attendance_pct,
-      (SELECT COUNTIF(skill_level = 'A+') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_a_plus,
-      (SELECT COUNTIF(skill_level = 'A') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_a,
-      (SELECT COUNTIF(skill_level = 'B') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_b,
-      (SELECT COUNTIF(skill_level = 'C') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_c,
-      (SELECT COUNTIF(skill_level = 'D') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_d,
-      (SELECT COUNTIF(skill_level IN ('F', 'Ab')) FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_skill_debt
-    FROM scored
-    WHERE student_user_id IN (SELECT student_user_id FROM eligible)
-    ${groupBy}
-    ORDER BY 1`,
-    params,
-    BQ_LOCATION,
-    BQ_HEAVY_QUERY_TIMEOUT_MS,
-  );
+      LEFT JOIN campus_attendance USING (student_user_id, university)`,
+      params,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    );
+    detail = fetched
+      .filter((row) => row.university && !isExcludedInstitute(row.university))
+      .map((row) => ({
+        studentId: row.student_user_id,
+        studentName: row.student_name ?? "",
+        university: row.university,
+        semester: row.semester_title,
+        section: row.section_name,
+        classroomAvg: row.classroom_avg == null ? null : Number(row.classroom_avg),
+        moduleAvg: row.module_avg == null ? null : Number(row.module_avg),
+        presentN: Number(row.present_n) || 0,
+        scheduledN: Number(row.scheduled_n) || 0,
+      }));
+    cacheSet(detailKey, detail, 15 * 60 * 1000);
+  }
 
-  const mapped = rows
-    .filter((r) => !isExcludedInstitute(r.university))
-    .map((r) => {
-      const avg = r.avg_spi == null ? null : Math.round(Number(r.avg_spi) * 10) / 10;
-      const points = (value: string | null) =>
-        value == null ? null : Math.round(Number(value) * 10) / 10;
-      return {
-        university: r.university,
-        semester: r.semester,
-        section: r.section_name,
-        studentId: r.student_id,
-        studentName: r.student_name,
-        students: Number(r.students),
-        avgSpi: Number.isFinite(avg as number) ? avg : null,
-        classroomPoints: points(r.classroom_points),
-        modulePoints: points(r.module_points),
-        sections: Number(r.sections),
-        skillLevel: r.skill_level,
-        levelAPlus: Number(r.level_a_plus),
-        levelA: Number(r.level_a),
-        levelB: Number(r.level_b),
-        levelC: Number(r.level_c),
-        levelD: Number(r.level_d),
-        skillDebt: Number(r.skill_debt),
-        attendancePct: r.attendance_pct == null ? null : Math.round(Number(r.attendance_pct) * 10) / 10,
-      };
-    });
-
-  const head = rows[0];
-  const round1orNull = (value: string | null | undefined) => {
-    if (value == null) return null;
-    const n = Number(value);
-    return Number.isFinite(n) ? Math.round(n * 10) / 10 : null;
-  };
-  const summary: SpiRecordSummary = {
-    students: Number(head?.summary_students ?? 0),
-    campuses: campuses.length === 1 ? 1 : Number(head?.summary_campuses ?? 0),
-    avgSpi: round1orNull(head?.summary_avg_spi),
-    attendancePct: round1orNull(head?.summary_attendance_pct),
-    levelAPlus: Number(head?.summary_level_a_plus ?? 0),
-    levelA: Number(head?.summary_level_a ?? 0),
-    levelB: Number(head?.summary_level_b ?? 0),
-    levelC: Number(head?.summary_level_c ?? 0),
-    levelD: Number(head?.summary_level_d ?? 0),
-    skillDebt: Number(head?.summary_skill_debt ?? 0),
-  };
-
-  return { summary, rows: mapped };
+  return aggregateSpiRecord(detail, opts.grain, {
+    spiOp: opts.spiOp,
+    spiA: opts.spiA,
+    spiB: opts.spiB,
+    attendanceOp: opts.attendanceOp,
+    attendanceA: opts.attendanceA,
+    attendanceB: opts.attendanceB,
+    singleCampus: campuses.length === 1,
+  });
 }
-
 
 export interface CampusSummaryItem {
   instituteName: string;

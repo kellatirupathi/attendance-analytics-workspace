@@ -30,7 +30,7 @@ export function PageHeader({
               </p>
             )}
           </div>
-          {right && <div className="shrink-0">{right}</div>}
+          {right && <div className="ml-auto shrink-0">{right}</div>}
         </div>
       </div>
     </div>

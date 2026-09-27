@@ -373,7 +373,7 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   const attendanceA = boundQueryNumber(firstQuery(q, "attA"));
   const attendanceB = boundQueryNumber(firstQuery(q, "attB"));
   const allSemesters = semesters.length === 0 && firstQuery(q, "scope") === "all";
-  const cacheKey = `spi-record:v7:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
+  const cacheKey = `spi-record:v8:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
