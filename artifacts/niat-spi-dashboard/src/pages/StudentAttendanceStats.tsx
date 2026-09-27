@@ -16,10 +16,9 @@ import { ErrorState } from "@/components/PageStates";
 import { TableShell, TablePagination } from "@/components/DataTable";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Search, ChevronRight, Download } from "lucide-react";
+import { ChevronRight, Download } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
-import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
@@ -187,9 +186,7 @@ export default function StudentAttendanceStats() {
   const dateFrom = query.get("dateFrom") || "";
   const dateTo = query.get("dateTo") || "";
 
-  const [search, setSearch] = useState("");
   const [studentQuery, setStudentQuery] = useState("");
-  const debouncedSearch = useDebounceValue(search, 300);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
@@ -348,17 +345,7 @@ export default function StudentAttendanceStats() {
     }));
   }, [data, unitData, grain, filterKey]);
 
-  const filtered = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) =>
-      [row.university, row.subject, row.section, row.unit, row.studentName, row.studentId]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
-    );
-  }, [rows, debouncedSearch]);
+  const filtered = rows;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -467,9 +454,47 @@ export default function StudentAttendanceStats() {
   const share = (count: number) => (rated > 0 ? `${Math.round((count / rated) * 100)}%` : "—");
   const multiCampus = campuses.length !== 1;
 
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm">Columns</Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72">
+          <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
+          <ColumnOrderList
+            ids={columnOrder}
+            label={(id) => columnLabel(id, grain)}
+            checked={(id) => draftColumns.includes(id)}
+            locked={(id) => id === "overallPct"}
+            onToggle={toggleDraft}
+            onReorder={(from, to) => {
+              const next = moveListItem(columnOrder, from, to);
+              setDraftColumns(next.filter((id) => draftColumns.includes(id)));
+            }}
+          />
+          <div className="mt-3 flex flex-col gap-2">
+            <Button type="button" size="sm" onClick={() => void applyColumns(false)}>Apply</Button>
+            {isSuperAdmin && (
+              <Button type="button" variant="outline" size="sm" onClick={() => void applyColumns(true)}>
+                Set as default for all users
+              </Button>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Button type="button" variant="outline" size="sm" disabled={filtered.length === 0 || tableLoading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
+        <Download className="mr-1 h-4 w-4" /> Export this view
+      </Button>
+      <Button type="button" variant="outline" size="sm" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={exportAll}>
+        <Download className="mr-1 h-4 w-4" /> Export all campuses
+      </Button>
+    </div>
+  );
+
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader title="Student Attendance Stats" />
+      <PageHeader title="Student Attendance Stats" right={toolbar} />
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} hint={scopeLabel} />
         <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="Present ÷ scheduled. Same students on every Group by." />
@@ -614,47 +639,6 @@ export default function StudentAttendanceStats() {
               </FilterField>
             </>
           )}
-          <FilterField label="Search">
-            <div className="relative min-w-[180px] sm:w-56">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <Input
-                placeholder="Name or campus"
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                }}
-                className="h-9 border-gray-200 pl-9"
-              />
-            </div>
-          </FilterField>
-          <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="outline" className="h-9 border-gray-200">Columns</Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-72">
-              <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
-              <ColumnOrderList
-                ids={columnOrder}
-                label={(id) => columnLabel(id, grain)}
-                checked={(id) => draftColumns.includes(id)}
-                locked={(id) => id === "overallPct"}
-                onToggle={toggleDraft}
-                onReorder={(from, to) => {
-                  const next = moveListItem(columnOrder, from, to);
-                  setDraftColumns(next.filter((id) => draftColumns.includes(id)));
-                }}
-              />
-              <div className="mt-3 flex flex-col gap-2">
-                <Button type="button" className="h-9" onClick={() => void applyColumns(false)}>Apply</Button>
-                {isSuperAdmin && (
-                  <Button type="button" variant="outline" className="h-9" onClick={() => void applyColumns(true)}>
-                    Set as default for all users
-                  </Button>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
           <Button type="button" variant="outline" className="h-9" onClick={() => writeQuery({
             campuses: undefined,
             semesters: undefined,
@@ -664,12 +648,6 @@ export default function StudentAttendanceStats() {
             semester: undefined,
           })}>
             Clear
-          </Button>
-          <Button type="button" variant="outline" className="h-9 gap-2" disabled={filtered.length === 0 || tableLoading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
-            <Download className="h-4 w-4" /> Export this view
-          </Button>
-          <Button type="button" variant="outline" className="h-9 gap-2" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={exportAll}>
-            <Download className="h-4 w-4" /> Export all campuses
           </Button>
         </div>
       </div>

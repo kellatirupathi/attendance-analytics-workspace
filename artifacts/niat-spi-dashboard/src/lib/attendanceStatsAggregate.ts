@@ -64,6 +64,11 @@ function pct(present: number, scheduled: number): number | null {
   return round1((present / scheduled) * 100);
 }
 
+function namedSubject(subject: string | null): boolean {
+  const name = (subject ?? "").trim();
+  return name.length > 0 && name.toLowerCase() !== "null";
+}
+
 function passesFilters(
   row: { university: string; semester: string; section: string; studentId: string },
   filters: { campuses: string[]; semesters: string[]; sections: string[]; students: string[] },
@@ -130,7 +135,9 @@ export function aggregateAttendanceStats(
   }
 
   const buckets = new Map<string, AttendanceDetailRow[]>();
+  const subjectGrain = grain === "university_subject" || grain === "university_unit";
   for (const row of filtered) {
+    if (subjectGrain && !namedSubject(row.subject)) continue;
     const key = grain === "university_subject"
       ? `${row.university}\t${row.subject ?? ""}`
       : grain === "university_section"
