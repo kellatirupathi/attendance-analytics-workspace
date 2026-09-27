@@ -157,7 +157,7 @@ export default function SpiRecordDashboard() {
   const sections = splitList(query.get("sections")).map(parseSection).filter((item) => item.campus && item.section);
   const students = splitList(query.get("students")).map(parseStudent).filter((item) => item.studentId);
   const shown = (splitList(query.get("bar")) as FilterId[]).filter((id) => id in { group: 1, campus: 1, semester: 1, section: 1, student: 1, spi: 1, attendance: 1 });
-  const activeFilters = shown.length ? shown : DEFAULT_FILTERS;
+  const activeFilters = withRequiredFilters(shown);
   const spiOp = (query.get("spiOp") || "") as BoundOp;
   const spiA = query.get("spiA") || "";
   const spiB = query.get("spiB") || "";
@@ -189,6 +189,16 @@ export default function SpiRecordDashboard() {
   if (semesters.length) params.set("semesters", semesters.join("||"));
   if (sections.length) params.set("sections", sections.map((item) => `${item.campus}\t${item.section}`).join("||"));
   if (students.length) params.set("students", students.map((item) => item.studentId).join("||"));
+  if (activeFilters.includes("spi") && spiOp && spiA) {
+    params.set("spiOp", spiOp);
+    params.set("spiA", spiA);
+    if (spiOp === "between" && spiB) params.set("spiB", spiB);
+  }
+  if (activeFilters.includes("attendance") && attendanceOp && attendanceA) {
+    params.set("attOp", attendanceOp);
+    params.set("attA", attendanceA);
+    if (attendanceOp === "between" && attendanceB) params.set("attB", attendanceB);
+  }
   if (attendanceRange === "custom" && attendanceFrom && attendanceTo) {
     params.set("attFrom", attendanceFrom);
     params.set("attTo", attendanceTo);
@@ -217,13 +227,10 @@ export default function SpiRecordDashboard() {
     setLocation(qs ? `/dashboard/spi-record?${qs}` : "/dashboard/spi-record");
   };
 
-  const rows = (data?.rows ?? []).filter((row) =>
-    inBound(row.avgSpi, activeFilters.includes("spi") ? spiOp : "", spiA, spiB) &&
-    inBound(row.attendancePct, activeFilters.includes("attendance") ? attendanceOp : "", attendanceA, attendanceB),
-  );
+  const rows = data?.rows ?? [];
   const viewRows = rows;
   const pageRows = viewRows.slice((page - 1) * pageSize, page * pageSize);
-  const summary = summarize(viewRows, data?.summary);
+  const summary = data?.summary;
   const total = summary?.students ?? 0;
   const split = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
   const levelColumns: ColumnId[] = ["levelAPlus", "levelA", "levelB", "levelC", "levelD"];
@@ -294,7 +301,7 @@ export default function SpiRecordDashboard() {
   const scopeLabel = semesters.length ? semesters.join(", ") : "All semesters";
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       <PageHeader title="SPI Record Dashboard" />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -342,7 +349,7 @@ export default function SpiRecordDashboard() {
         />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-end gap-3">
+      <div className="mb-4">
         <SpiRecordFilterBar
           shown={activeFilters}
           onShown={(next) => {
@@ -411,65 +418,63 @@ export default function SpiRecordDashboard() {
             if (patch.to !== undefined) next.attTo = patch.to || undefined;
             writeQuery(next);
           }}
+          actions={
+            <>
+              <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    Columns
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72" align="end">
+                  <p className="mb-2 text-xs text-gray-500">Drag to set the column order. {columns.length} of {Object.keys(COLUMN_LABEL).length} selected.</p>
+                  <ColumnOrderList
+                    ids={[...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))]}
+                    label={(id) => COLUMN_LABEL[id]}
+                    checked={(id) => draft.includes(id)}
+                    onToggle={(id) =>
+                      setDraft((current) =>
+                        current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+                      )
+                    }
+                    onReorder={(from, to) => {
+                      const order = [...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))];
+                      const next = moveListItem(order, from, to);
+                      setDraft(next.filter((id) => draft.includes(id)));
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    className="mt-1 w-full"
+                    onClick={() => {
+                      setColumns(draft);
+                      setOpen(false);
+                    }}
+                  >
+                    Apply
+                  </Button>
+                </PopoverContent>
+              </Popover>
+              <Button variant="outline" size="sm" disabled={!viewRows.length} onClick={() => exportRows(viewRows, "spi-record-this-view.csv")}>
+                <Download className="mr-1 h-4 w-4" /> Export
+              </Button>
+              <Button size="sm" disabled={exporting} onClick={() => void exportAll()}>
+                <Download className="mr-1 h-4 w-4" /> Export everything at this grain
+              </Button>
+            </>
+          }
         />
-        <Field label="Columns">
-          <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-[180px] justify-between">
-                {columns.length} of {Object.keys(COLUMN_LABEL).length} selected
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-72" align="start">
-              <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
-              <ColumnOrderList
-                ids={[...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))]}
-                label={(id) => COLUMN_LABEL[id]}
-                checked={(id) => draft.includes(id)}
-                onToggle={(id) =>
-                  setDraft((current) =>
-                    current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-                  )
-                }
-                onReorder={(from, to) => {
-                  const order = [...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))];
-                  const next = moveListItem(order, from, to);
-                  setDraft(next.filter((id) => draft.includes(id)));
-                }}
-              />
-              <Button
-                size="sm"
-                className="mt-1 w-full"
-                onClick={() => {
-                  setColumns(draft);
-                  setOpen(false);
-                }}
-              >
-                Apply
-              </Button>
-            </PopoverContent>
-          </Popover>
-        </Field>
-        <Field label="Export">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled={!viewRows.length} onClick={() => exportRows(viewRows, "spi-record-this-view.csv")}>
-              <Download className="mr-1 h-4 w-4" /> Export this view
-            </Button>
-            <Button size="sm" disabled={exporting} onClick={() => void exportAll()}>
-              <Download className="mr-1 h-4 w-4" /> Export everything at this grain
-            </Button>
-          </div>
-        </Field>
       </div>
 
       {isError ? (
         <ErrorState message="Failed to load the SPI record." onRetry={() => void refetch()} />
       ) : (
-        <TableShell>
-          <Table>
+        <TableShell className="min-w-0">
+          <Table className="w-max min-w-full">
             <TableHeader>
               <TableRow>
                 {identityHeaders.map((header) => (
-                  <TableHead key={header} className="text-left">{header}</TableHead>
+                  <TableHead key={header} className={cn("whitespace-nowrap text-left", header === "Name" && "min-w-[12rem]")}>{header}</TableHead>
                 ))}
                 {visible.map((id) => (
                   <TableHead key={id} className="text-right">{COLUMN_LABEL[id]}</TableHead>
@@ -486,7 +491,7 @@ export default function SpiRecordDashboard() {
                 : pageRows.map((row, index) => (
                     <TableRow key={`${row.university ?? ""}-${row.semester ?? ""}-${row.section ?? ""}-${row.studentId ?? index}`}>
                       {identityCells(row).map((value, cellIndex) => (
-                        <TableCell key={`${cellIndex}-${value}`} className="font-medium">
+                        <TableCell key={`${cellIndex}-${value}`} className={cn("whitespace-nowrap font-medium", grain === "student" && cellIndex === 3 && "min-w-[12rem]")}>
                           {grain === "student" && cellIndex === 3 && row.spiPath ? (
                             <a className="text-brand-700 hover:underline" href={row.spiPath}>{value}</a>
                           ) : (
@@ -525,6 +530,13 @@ export default function SpiRecordDashboard() {
   );
 }
 
+function withRequiredFilters(ids: FilterId[]): FilterId[] {
+  const next = ids.length ? [...ids] : [...DEFAULT_FILTERS];
+  if (!next.includes("group")) next.unshift("group");
+  if (!next.includes("student")) next.splice(Math.max(next.indexOf("section") + 1, 1), 0, "student");
+  return next;
+}
+
 function splitList(value: string | null): string[] {
   return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
 }
@@ -545,46 +557,6 @@ function encodeSections(items: SectionChoice[]): string | undefined {
 
 function encodeStudents(items: StudentChoice[]): string | undefined {
   return items.length ? items.map((item) => [item.studentId, item.campus, item.section, item.studentName].join("\t")).join("||") : undefined;
-}
-
-function inBound(value: number | null, op: BoundOp, a: string, b: string): boolean {
-  if (!op || a === "" || value == null || Number.isNaN(Number(a))) return true;
-  const min = Number(a);
-  const max = Number(b);
-  if (op === "gte") return value >= min;
-  if (op === "lte") return value <= min;
-  if (op === "between" && b !== "" && !Number.isNaN(max)) return value >= min && value <= max;
-  return true;
-}
-
-function summarize(rows: RecordRow[], fallback: RecordPayload["summary"] | undefined): RecordPayload["summary"] | undefined {
-  if (!rows.length) {
-    return fallback ? { ...fallback, students: 0, avgSpi: null, attendancePct: null, levelAPlus: 0, levelA: 0, levelB: 0, levelC: 0, levelD: 0, skillDebt: 0 } : fallback;
-  }
-  const students = rows.reduce((sum, row) => sum + row.students, 0);
-  const spi = rows.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.students, 0);
-  const attendance = rows.reduce((sum, row) => sum + (row.attendancePct ?? 0) * row.students, 0);
-  return {
-    students,
-    campuses: new Set(rows.map((row) => row.university).filter(Boolean)).size,
-    avgSpi: students ? Math.round((spi / students) * 10) / 10 : null,
-    attendancePct: students ? Math.round((attendance / students) * 10) / 10 : null,
-    levelAPlus: rows.reduce((sum, row) => sum + row.levelAPlus, 0),
-    levelA: rows.reduce((sum, row) => sum + row.levelA, 0),
-    levelB: rows.reduce((sum, row) => sum + row.levelB, 0),
-    levelC: rows.reduce((sum, row) => sum + row.levelC, 0),
-    levelD: rows.reduce((sum, row) => sum + row.levelD, 0),
-    skillDebt: rows.reduce((sum, row) => sum + row.skillDebt, 0),
-  };
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-      {label}
-      {children}
-    </label>
-  );
 }
 
 function Tile({
