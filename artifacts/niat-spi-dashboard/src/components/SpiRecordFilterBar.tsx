@@ -38,7 +38,6 @@ export interface StudentChoice {
 
 export function SpiRecordFilterBar({
   shown,
-  onShown,
   grain,
   onGrain,
   campuses,
@@ -62,10 +61,8 @@ export function SpiRecordFilterBar({
   attendanceFrom,
   attendanceTo,
   onAttendance,
-  actions,
 }: {
   shown: FilterId[];
-  onShown: (next: FilterId[]) => void;
   grain: Grain;
   onGrain: (grain: Grain) => void;
   campuses: string[];
@@ -96,10 +93,7 @@ export function SpiRecordFilterBar({
     from?: string;
     to?: string;
   }) => void;
-  actions?: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<FilterId[]>(shown);
   const [sectionChoices, setSectionChoices] = useState<SectionChoice[]>([]);
   const [studentQuery, setStudentQuery] = useState("");
   const [studentHits, setStudentHits] = useState<StudentChoice[]>([]);
@@ -147,7 +141,6 @@ export function SpiRecordFilterBar({
     return () => window.clearTimeout(handle);
   }, [studentQuery, campuses, sections]);
 
-  const order = [...draft, ...ALL_FILTERS.filter((id) => !draft.includes(id))];
   const multiCampus = campuses.length !== 1;
 
   const controls: Record<FilterId, ReactNode> = {
@@ -246,87 +239,96 @@ export function SpiRecordFilterBar({
   const visible = (ids: FilterId[]) => ids.filter((id) => shown.includes(id));
 
   return (
-    <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-      <div className="flex min-w-0 flex-col gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          {visible(LINE_1).map((id) => (
-            <Field key={id} label={FILTER_LABEL[id]}>
-              {controls[id]}
-            </Field>
-          ))}
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          {shown.includes("attendance") && (
-            <>
-              <Field label="Attendance period">
-                <div className="flex flex-wrap items-center gap-2">
-                  <SearchableSelect
-                    value={attendanceRange}
-                    onValueChange={(value) => onAttendance({ range: value as AttendanceRange })}
-                    options={[
-                      { value: "semester_to_date", label: "This semester's dates so far" },
-                      { value: "last_30", label: "Last 30 days" },
-                      { value: "all_dates", label: "All dates" },
-                      { value: "custom", label: "Custom range" },
-                    ]}
-                    className="w-[220px]"
-                  />
-                  {attendanceRange === "custom" && (
-                    <>
-                      <Input type="date" aria-label="Attendance period from" className="h-9 w-[150px]" value={attendanceFrom} onChange={(event) => onAttendance({ from: event.target.value })} />
-                      <Input type="date" aria-label="Attendance period to" className="h-9 w-[150px]" value={attendanceTo} onChange={(event) => onAttendance({ to: event.target.value })} />
-                    </>
-                  )}
-                </div>
-              </Field>
-              <Field label="Attendance %">
-                <BoundControl scale="0–100" op={attendanceOp} a={attendanceA} b={attendanceB} onChange={(op, a, b) => onAttendance({ op, a, b })} />
-              </Field>
-            </>
-          )}
-          {shown.includes("spi") && (
-            <Field label={FILTER_LABEL.spi}>{controls.spi}</Field>
-          )}
-        </div>
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        {visible(LINE_1).map((id) => (
+          <Field key={id} label={FILTER_LABEL[id]}>
+            {controls[id]}
+          </Field>
+        ))}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-        <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(shown); }}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">Filters</Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-72" align="end">
-            <p className="mb-2 text-xs text-gray-500">Group by and Student stay on.</p>
-            <ColumnOrderList
-              ids={order}
-              label={(id) => FILTER_LABEL[id]}
-              checked={(id) => draft.includes(id)}
-              locked={(id) => id === "group" || id === "student"}
-              onToggle={(id) => {
-                if (id === "group" || id === "student") return;
-                setDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
-              }}
-              onReorder={(from, to) => {
-                const next = moveListItem(order, from, to);
-                setDraft(next.filter((id) => draft.includes(id)));
-              }}
-            />
-            <Button
-              size="sm"
-              className="mt-2 w-full"
-              onClick={() => {
-                const next: FilterId[] = draft.includes("group") ? [...draft] : ["group", ...draft];
-                if (!next.includes("student")) next.push("student");
-                onShown(next);
-                setOpen(false);
-              }}
-            >
-              Apply
-            </Button>
-          </PopoverContent>
-        </Popover>
-        {actions}
+      <div className="flex flex-wrap items-end gap-3">
+        {shown.includes("attendance") && (
+          <>
+            <Field label="Attendance period">
+              <div className="flex flex-wrap items-center gap-2">
+                <SearchableSelect
+                  value={attendanceRange}
+                  onValueChange={(value) => onAttendance({ range: value as AttendanceRange })}
+                  options={[
+                    { value: "semester_to_date", label: "This semester's dates so far" },
+                    { value: "last_30", label: "Last 30 days" },
+                    { value: "all_dates", label: "All dates" },
+                    { value: "custom", label: "Custom range" },
+                  ]}
+                  className="w-[220px]"
+                />
+                {attendanceRange === "custom" && (
+                  <>
+                    <Input type="date" aria-label="Attendance period from" className="h-9 w-[150px]" value={attendanceFrom} onChange={(event) => onAttendance({ from: event.target.value })} />
+                    <Input type="date" aria-label="Attendance period to" className="h-9 w-[150px]" value={attendanceTo} onChange={(event) => onAttendance({ to: event.target.value })} />
+                  </>
+                )}
+              </div>
+            </Field>
+            <Field label="Attendance %">
+              <BoundControl scale="0–100" op={attendanceOp} a={attendanceA} b={attendanceB} onChange={(op, a, b) => onAttendance({ op, a, b })} />
+            </Field>
+          </>
+        )}
+        {shown.includes("spi") && (
+          <Field label={FILTER_LABEL.spi}>{controls.spi}</Field>
+        )}
       </div>
     </div>
+  );
+}
+
+export function SpiRecordFiltersButton({
+  shown,
+  onShown,
+}: {
+  shown: FilterId[];
+  onShown: (next: FilterId[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<FilterId[]>(shown);
+  const order = [...draft, ...ALL_FILTERS.filter((id) => !draft.includes(id))];
+  return (
+    <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(shown); }}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm">Filters</Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72" align="end">
+        <p className="mb-2 text-xs text-gray-500">Group by and Student stay on.</p>
+        <ColumnOrderList
+          ids={order}
+          label={(id) => FILTER_LABEL[id]}
+          checked={(id) => draft.includes(id)}
+          locked={(id) => id === "group" || id === "student"}
+          onToggle={(id) => {
+            if (id === "group" || id === "student") return;
+            setDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+          }}
+          onReorder={(from, to) => {
+            const next = moveListItem(order, from, to);
+            setDraft(next.filter((id) => draft.includes(id)));
+          }}
+        />
+        <Button
+          size="sm"
+          className="mt-2 w-full"
+          onClick={() => {
+            const next: FilterId[] = draft.includes("group") ? [...draft] : ["group", ...draft];
+            if (!next.includes("student")) next.push("student");
+            onShown(next);
+            setOpen(false);
+          }}
+        >
+          Apply
+        </Button>
+      </PopoverContent>
+    </Popover>
   );
 }
 
