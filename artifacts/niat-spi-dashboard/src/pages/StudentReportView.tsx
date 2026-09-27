@@ -183,8 +183,15 @@ export default function StudentReportView(props: StudentReportViewProps) {
   }
   const visibleSteps = steps.slice(0, 3);
 
+  const classroomKnown = props.classroomTotal > 0;
+  const moduleKnown = props.moduleTotal > 0;
+  const classroomForSkill = classroomKnown ? props.classroomAvg : null;
+  const moduleForSkill = moduleKnown ? props.moduleAvg : null;
+  const skillDebt =
+    (classroomForSkill == null && moduleForSkill == null) ||
+    Math.min(classroomForSkill ?? 100, moduleForSkill ?? 100) < 50;
+
   const meta = [
-    props.userId,
     props.campus || "Campus unavailable",
     props.section || "Batch / section unavailable",
   ].join(" · ");
@@ -402,17 +409,6 @@ export default function StudentReportView(props: StudentReportViewProps) {
                   ))}
                 </ol>
               )}
-              {coursesBelow.length > 0 && (
-                <a
-                  href="/dashboard/recovery"
-                  className="mt-5 flex min-h-11 w-full items-center justify-center rounded-xl bg-[#F25C05] px-4 text-sm font-semibold text-white"
-                >
-                  View recovery class schedule →
-                </a>
-              )}
-              <p className="mt-4 text-xs leading-relaxed text-white/75">
-                Missed a class for a medical reason or emergency? Submit proof within 5 days using Request attendance correction.
-              </p>
             </section>
           </div>
 
@@ -471,10 +467,17 @@ export default function StudentReportView(props: StudentReportViewProps) {
                 >
                   Skill Debt
                 </h2>
-                <span className="inline-flex min-h-8 items-center gap-1 rounded-full bg-[#E7F5EE] px-3 text-xs font-semibold text-[#1E7F4F]">
-                  <Check className="h-3.5 w-3.5" aria-hidden />
-                  No active Skill Debts
-                </span>
+                {skillDebt ? (
+                  <span className="inline-flex min-h-8 items-center gap-1 rounded-full bg-[#FDECEC] px-3 text-xs font-semibold text-[#B91C1C]">
+                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+                    Skill Debt
+                  </span>
+                ) : (
+                  <span className="inline-flex min-h-8 items-center gap-1 rounded-full bg-[#E7F5EE] px-3 text-xs font-semibold text-[#1E7F4F]">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                    No active Skill Debts
+                  </span>
+                )}
               </div>
               <div className="mt-4 grid gap-6 md:grid-cols-2">
                 <div>
