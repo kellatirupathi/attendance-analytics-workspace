@@ -30,6 +30,7 @@ import {
   getSpiAveragesByCampus,
   getSpiAveragesBySection,
   getSpiRecord,
+  getSpiRecordDetail,
   searchSpiStudents,
   type SpiRecordGrain,
   getAttendanceGroupStats,
@@ -335,6 +336,38 @@ const SPI_RECORD_GRAINS = new Set<SpiRecordGrain>([
   "section",
   "student",
 ]);
+
+router.get("/spi-record/detail", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
+  const attendanceFrom = firstQuery(q, "attFrom");
+  const attendanceTo = firstQuery(q, "attTo");
+  const cacheKey = `spi-record-detail-http:v1:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const rows = await getSpiRecordDetail(scope, { attendanceRange, attendanceFrom, attendanceTo });
+    const spiPaths: Record<string, string> = {};
+    for (const row of rows) {
+      if (!spiPaths[row.studentId]) spiPaths[row.studentId] = spiSharePath(row.studentId);
+    }
+    const body = { rows, spiPaths };
+    cacheSet(cacheKey, body, 15 * 60 * 1000);
+    res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching SPI record detail");
+    res.status(500).json({ error: "Failed to fetch SPI record" });
+  }
+});
 
 router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;

@@ -1077,29 +1077,25 @@ export async function searchSpiStudents(
   }));
 }
 
-export async function getSpiRecord(
+type SpiAttendanceWindow = {
+  attendanceRange?: "semester_to_date" | "last_30" | "custom" | "all_dates";
+  attendanceFrom?: string;
+  attendanceTo?: string;
+};
+
+/** Current-semester SPI rows for one attendance window. Filters are optional. */
+export async function getSpiRecordDetail(
   scope: SessionScope,
-  opts: {
-    grain: SpiRecordGrain;
+  opts: SpiAttendanceWindow & {
     semester?: string;
-    allSemesters?: boolean;
     campus?: string;
     section?: string;
     campuses?: string[];
     semesters?: string[];
     sections?: { campus: string; section: string }[];
     studentIds?: string[];
-    attendanceRange?: "semester_to_date" | "last_30" | "custom" | "all_dates";
-    attendanceFrom?: string;
-    attendanceTo?: string;
-    spiOp?: string;
-    spiA?: number;
-    spiB?: number;
-    attendanceOp?: string;
-    attendanceA?: number;
-    attendanceB?: number;
-  },
-): Promise<{ summary: SpiRecordSummary; rows: SpiRecordRow[] }> {
+  } = {},
+): Promise<SpiDetailRow[]> {
   const params: Record<string, unknown> = {};
   const semesters = (opts.semesters?.filter(Boolean) ?? []).length
     ? opts.semesters!.filter(Boolean)
@@ -1262,6 +1258,34 @@ export async function getSpiRecord(
     cacheSet(detailKey, detail, 15 * 60 * 1000);
   }
 
+  return detail;
+}
+
+export async function getSpiRecord(
+  scope: SessionScope,
+  opts: {
+    grain: SpiRecordGrain;
+    semester?: string;
+    allSemesters?: boolean;
+    campus?: string;
+    section?: string;
+    campuses?: string[];
+    semesters?: string[];
+    sections?: { campus: string; section: string }[];
+    studentIds?: string[];
+    attendanceRange?: "semester_to_date" | "last_30" | "custom" | "all_dates";
+    attendanceFrom?: string;
+    attendanceTo?: string;
+    spiOp?: string;
+    spiA?: number;
+    spiB?: number;
+    attendanceOp?: string;
+    attendanceA?: number;
+    attendanceB?: number;
+  },
+): Promise<{ summary: SpiRecordSummary; rows: SpiRecordRow[] }> {
+  const campuses = opts.campuses?.filter(Boolean) ?? (opts.campus ? [opts.campus] : []);
+  const detail = await getSpiRecordDetail(scope, opts);
   return aggregateSpiRecord(detail, opts.grain, {
     spiOp: opts.spiOp,
     spiA: opts.spiA,
