@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,8 @@ export function SpiRecordFilterBar({
   attendanceTo,
   onAttendance,
   onClear,
+  sectionChoices,
+  studentCatalog,
 }: {
   shown: FilterId[];
   grain: Grain;
@@ -95,52 +97,17 @@ export function SpiRecordFilterBar({
     to?: string;
   }) => void;
   onClear: () => void;
+  sectionChoices: SectionChoice[];
+  studentCatalog: StudentChoice[];
 }) {
-  const [sectionChoices, setSectionChoices] = useState<SectionChoice[]>([]);
   const [studentQuery, setStudentQuery] = useState("");
-  const [studentHits, setStudentHits] = useState<StudentChoice[]>([]);
-
-  useEffect(() => {
-    if (!campuses.length) {
-      setSectionChoices([]);
-      return;
-    }
-    let alive = true;
-    Promise.all(
-      campuses.map((campus) =>
-        fetch(`/api/dashboard/filters?campus=${encodeURIComponent(campus)}`, { credentials: "include" })
-          .then((res) => (res.ok ? res.json() : { sections: [] }))
-          .then((body: { sections?: string[] }) =>
-            (body.sections ?? []).map((section) => ({ campus, section })),
-          ),
-      ),
-    ).then((lists) => {
-      if (alive) setSectionChoices(lists.flat());
-    });
-    return () => {
-      alive = false;
-    };
-  }, [campuses]);
-
-  useEffect(() => {
-    const q = studentQuery.trim();
-    if (q.length < 2) {
-      setStudentHits([]);
-      return;
-    }
-    const handle = window.setTimeout(() => {
-      const params = new URLSearchParams({ q });
-      if (campuses.length) params.set("campuses", campuses.join("||"));
-      if (sections.length) {
-        params.set("sections", sections.map((item) => `${item.campus}\t${item.section}`).join("||"));
-      }
-      fetch(`/api/dashboard/spi-record/students?${params.toString()}`, { credentials: "include" })
-        .then((res) => (res.ok ? res.json() : []))
-        .then((rows: StudentChoice[]) => setStudentHits(rows))
-        .catch(() => setStudentHits([]));
-    }, 300);
-    return () => window.clearTimeout(handle);
-  }, [studentQuery, campuses, sections]);
+  const studentHits = useMemo(() => {
+    const q = studentQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    return studentCatalog
+      .filter((item) => item.studentName.toLowerCase().includes(q) || item.studentId.toLowerCase().includes(q))
+      .slice(0, 20);
+  }, [studentCatalog, studentQuery]);
 
   const multiCampus = campuses.length !== 1;
 
@@ -156,7 +123,7 @@ export function SpiRecordFilterBar({
           { value: "section", label: "Section-wise" },
           { value: "student", label: "Student-wise" },
         ]}
-        className="w-[200px]"
+        className="w-[180px]"
       />
     ),
     campus: (
@@ -200,7 +167,7 @@ export function SpiRecordFilterBar({
     student: (
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" className="w-[220px] justify-between">
+          <Button variant="outline" className="w-[180px] justify-between">
             {students.length ? `${students.length} selected` : "All students"}
           </Button>
         </PopoverTrigger>
@@ -247,7 +214,7 @@ export function SpiRecordFilterBar({
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
         {visible(LINE_1).map((id) => (
           <Field key={id} label={FILTER_LABEL[id]}>
             {controls[id]}
@@ -346,7 +313,7 @@ export function SpiRecordFiltersButton({
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+    <label className="flex shrink-0 flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
       {label}
       {children}
     </label>
@@ -368,7 +335,7 @@ function CheckMenu({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="w-[220px] justify-between">{label}</Button>
+        <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
       </PopoverTrigger>
       <PopoverContent className="w-72" align="start">
         <div className="max-h-64 space-y-1 overflow-y-auto">
