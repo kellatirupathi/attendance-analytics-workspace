@@ -315,6 +315,12 @@ function firstQuery(q: Record<string, string | string[] | undefined>, key: strin
   return value?.trim() ?? "";
 }
 
+function boundQueryNumber(value: string): number | undefined {
+  if (!value) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function queryList(q: Record<string, string | string[] | undefined>, key: string): string[] {
   const raw = q[key];
   const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
@@ -360,8 +366,14 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
   const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
   const attendanceFrom = firstQuery(q, "attFrom");
   const attendanceTo = firstQuery(q, "attTo");
+  const spiOp = firstQuery(q, "spiOp");
+  const attendanceOp = firstQuery(q, "attOp");
+  const spiA = boundQueryNumber(firstQuery(q, "spiA"));
+  const spiB = boundQueryNumber(firstQuery(q, "spiB"));
+  const attendanceA = boundQueryNumber(firstQuery(q, "attA"));
+  const attendanceB = boundQueryNumber(firstQuery(q, "attB"));
   const allSemesters = semesters.length === 0 && firstQuery(q, "scope") === "all";
-  const cacheKey = `spi-record:v6:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}`;
+  const cacheKey = `spi-record:v7:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -378,6 +390,12 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
       attendanceRange,
       attendanceFrom,
       attendanceTo,
+      spiOp,
+      spiA,
+      spiB,
+      attendanceOp,
+      attendanceA,
+      attendanceB,
     });
     const body = {
       ...payload,

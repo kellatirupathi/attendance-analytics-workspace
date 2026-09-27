@@ -993,7 +993,7 @@ function spiRecordGrainSql(grain: SpiRecordGrain): { select: string; group: stri
       };
     case "student":
       return {
-        select: `ANY_VALUE(student_name) AS label, university, semester_title AS semester, section_name, student_user_id AS student_id, ANY_VALUE(student_name) AS student_name`,
+        select: `MAX(student_name) AS label, university, semester_title AS semester, section_name, student_user_id AS student_id, MAX(student_name) AS student_name`,
         group: "university, semester_title, section_name, student_user_id",
       };
     default:
@@ -1072,6 +1072,27 @@ export async function searchSpiStudents(
   }));
 }
 
+function spiNumericBoundSql(
+  column: string,
+  op: string | undefined,
+  a: number | undefined,
+  b: number | undefined,
+  params: Record<string, unknown>,
+  key: string,
+): string {
+  if ((op !== "gte" && op !== "lte" && op !== "between") || a == null || Number.isNaN(a)) {
+    return "";
+  }
+  params[`${key}A`] = a;
+  if (op === "between") {
+    if (b == null || Number.isNaN(b)) return "";
+    params[`${key}B`] = b;
+    return ` AND (${column} IS NULL OR (${column} >= @${key}A AND ${column} <= @${key}B))`;
+  }
+  const cmp = op === "gte" ? ">=" : "<=";
+  return ` AND (${column} IS NULL OR ${column} ${cmp} @${key}A)`;
+}
+
 export async function getSpiRecord(
   scope: SessionScope,
   opts: {
@@ -1087,6 +1108,12 @@ export async function getSpiRecord(
     attendanceRange?: "semester_to_date" | "last_30" | "custom" | "all_dates";
     attendanceFrom?: string;
     attendanceTo?: string;
+    spiOp?: string;
+    spiA?: number;
+    spiB?: number;
+    attendanceOp?: string;
+    attendanceA?: number;
+    attendanceB?: number;
   },
 ): Promise<{ summary: SpiRecordSummary; rows: SpiRecordRow[] }> {
   const params: Record<string, unknown> = {};
@@ -1142,6 +1169,15 @@ export async function getSpiRecord(
     attendanceWindow = " AND DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
   }
   Object.assign(params, attendanceParams);
+  const spiBound = spiNumericBoundSql("spi_points", opts.spiOp, opts.spiA, opts.spiB, params, "spiBound");
+  const attendanceBound = spiNumericBoundSql(
+    "attendance_pct",
+    opts.attendanceOp,
+    opts.attendanceA,
+    opts.attendanceB,
+    params,
+    "attBound",
+  );
   const grain = spiRecordGrainSql(opts.grain);
   const groupBy = grain.group ? `GROUP BY ${grain.group}` : "";
   const rows = await bqQuery<{
@@ -1164,11 +1200,21 @@ export async function getSpiRecord(
     skill_debt: string;
     campuses: string;
     attendance_pct: string | null;
+    summary_students: string;
+    summary_campuses: string;
+    summary_avg_spi: string | null;
+    summary_attendance_pct: string | null;
+    summary_level_a_plus: string;
+    summary_level_a: string;
+    summary_level_b: string;
+    summary_level_c: string;
+    summary_level_d: string;
+    summary_skill_debt: string;
   }>(
     `WITH roster AS (
       SELECT
         student_user_id,
-        ANY_VALUE(student_name) AS student_name,
+        MAX(student_name) AS student_name,
         TRIM(institute_name) AS university,
         COALESCE(NULLIF(TRIM(${opts.grain === "section" || opts.grain === "student" ? "batch_section_name" : "ANY_VALUE(batch_section_name)"}), ''), 'Unassigned') AS section_name,
         COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title
@@ -1184,7 +1230,7 @@ export async function getSpiRecord(
       SELECT
         student_user_id,
         university,
-        ANY_VALUE(student_name) AS student_name,
+        MAX(student_name) AS student_name,
         ${opts.grain === "campus" || opts.grain === "all" ? "ANY_VALUE(section_name) AS section_name" : "section_name"},
         ${opts.grain === "campus" || opts.grain === "all" ? "ANY_VALUE(semester_title) AS semester_title" : "semester_title"}
       FROM roster
@@ -1203,11 +1249,12 @@ export async function getSpiRecord(
          = LOWER(REPLACE(CAST(people.student_user_id AS STRING), '-', ''))
       GROUP BY people.student_user_id
     ),
-    attendance AS (
+    attendance_raw AS (
       SELECT
         student_user_id,
         TRIM(institute_name) AS university,
-        ROUND(SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100, 1) AS attendance_pct
+        COUNTIF(${ATTENDED_SQL}) AS present_n,
+        COUNT(*) AS scheduled_n
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attendanceScope}
         ${dimensionExtra}
@@ -1215,6 +1262,20 @@ export async function getSpiRecord(
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
       GROUP BY student_user_id, TRIM(institute_name)
+    ),
+    attendance AS (
+      SELECT
+        student_user_id,
+        university,
+        ROUND(SAFE_DIVIDE(present_n, scheduled_n) * 100, 1) AS attendance_pct
+      FROM attendance_raw
+    ),
+    student_attendance AS (
+      SELECT
+        student_user_id,
+        ROUND(SAFE_DIVIDE(SUM(present_n), SUM(scheduled_n)) * 100, 1) AS attendance_pct
+      FROM attendance_raw
+      GROUP BY student_user_id
     ),
     scored AS (
       SELECT
@@ -1231,6 +1292,23 @@ export async function getSpiRecord(
       FROM people
       LEFT JOIN quiz USING (student_user_id)
       LEFT JOIN attendance USING (student_user_id, university)
+    ),
+    student_scored AS (
+      SELECT
+        ids.student_user_id,
+        quiz.classroom_avg,
+        quiz.module_avg,
+        student_attendance.attendance_pct,
+        ${SPI_POINTS_SQL} AS spi_points,
+        ${SPI_LEVEL_SQL} AS skill_level
+      FROM (SELECT DISTINCT student_user_id FROM roster) ids
+      LEFT JOIN quiz USING (student_user_id)
+      LEFT JOIN student_attendance USING (student_user_id)
+    ),
+    eligible AS (
+      SELECT student_user_id
+      FROM student_scored
+      WHERE TRUE${spiBound}${attendanceBound}
     )
     SELECT
       ${grain.select},
@@ -1247,8 +1325,19 @@ export async function getSpiRecord(
       COUNTIF(skill_level = 'C') AS level_c,
       COUNTIF(skill_level = 'D') AS level_d,
       COUNTIF(skill_level IN ('F', 'Ab')) AS skill_debt,
-      AVG(attendance_pct) AS attendance_pct
+      AVG(attendance_pct) AS attendance_pct,
+      (SELECT COUNT(*) FROM eligible) AS summary_students,
+      (SELECT COUNT(DISTINCT roster.university) FROM roster WHERE roster.student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_campuses,
+      (SELECT AVG(spi_points) FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_avg_spi,
+      (SELECT AVG(attendance_pct) FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_attendance_pct,
+      (SELECT COUNTIF(skill_level = 'A+') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_a_plus,
+      (SELECT COUNTIF(skill_level = 'A') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_a,
+      (SELECT COUNTIF(skill_level = 'B') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_b,
+      (SELECT COUNTIF(skill_level = 'C') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_c,
+      (SELECT COUNTIF(skill_level = 'D') FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_level_d,
+      (SELECT COUNTIF(skill_level IN ('F', 'Ab')) FROM student_scored WHERE student_user_id IN (SELECT student_user_id FROM eligible)) AS summary_skill_debt
     FROM scored
+    WHERE student_user_id IN (SELECT student_user_id FROM eligible)
     ${groupBy}
     ORDER BY 1`,
     params,
@@ -1284,20 +1373,23 @@ export async function getSpiRecord(
       };
     });
 
-  const avgDen = mapped.reduce((sum, row) => sum + row.students, 0);
-  const avgNum = mapped.reduce((sum, row) => sum + (row.avgSpi ?? 0) * row.students, 0);
-  const attNum = mapped.reduce((sum, row) => sum + (row.attendancePct ?? 0) * row.students, 0);
+  const head = rows[0];
+  const round1orNull = (value: string | null | undefined) => {
+    if (value == null) return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.round(n * 10) / 10 : null;
+  };
   const summary: SpiRecordSummary = {
-    students: avgDen,
-    campuses: campuses.length === 1 ? 1 : opts.grain === "campus" ? mapped.length : Number(rows[0]?.campuses ?? 0),
-    avgSpi: avgDen > 0 ? Math.round((avgNum / avgDen) * 10) / 10 : null,
-    attendancePct: avgDen > 0 ? Math.round((attNum / avgDen) * 10) / 10 : null,
-    levelAPlus: mapped.reduce((sum, row) => sum + row.levelAPlus, 0),
-    levelA: mapped.reduce((sum, row) => sum + row.levelA, 0),
-    levelB: mapped.reduce((sum, row) => sum + row.levelB, 0),
-    levelC: mapped.reduce((sum, row) => sum + row.levelC, 0),
-    levelD: mapped.reduce((sum, row) => sum + row.levelD, 0),
-    skillDebt: mapped.reduce((sum, row) => sum + row.skillDebt, 0),
+    students: Number(head?.summary_students ?? 0),
+    campuses: campuses.length === 1 ? 1 : Number(head?.summary_campuses ?? 0),
+    avgSpi: round1orNull(head?.summary_avg_spi),
+    attendancePct: round1orNull(head?.summary_attendance_pct),
+    levelAPlus: Number(head?.summary_level_a_plus ?? 0),
+    levelA: Number(head?.summary_level_a ?? 0),
+    levelB: Number(head?.summary_level_b ?? 0),
+    levelC: Number(head?.summary_level_c ?? 0),
+    levelD: Number(head?.summary_level_d ?? 0),
+    skillDebt: Number(head?.summary_skill_debt ?? 0),
   };
 
   return { summary, rows: mapped };

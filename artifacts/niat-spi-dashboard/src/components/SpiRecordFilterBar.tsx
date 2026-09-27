@@ -17,10 +17,11 @@ export const FILTER_LABEL: Record<FilterId, string> = {
   section: "Section",
   student: "Student",
   spi: "SPI points",
-  attendance: "Attendance %",
+  attendance: "Attendance period",
 };
 
-export const DEFAULT_FILTERS: FilterId[] = ["group", "campus", "semester", "section", "spi", "attendance"];
+export const DEFAULT_FILTERS: FilterId[] = ["group", "campus", "semester", "section", "student", "spi", "attendance"];
+const LINE_1: FilterId[] = ["group", "campus", "semester", "section", "student"];
 const ALL_FILTERS: FilterId[] = ["group", "campus", "semester", "section", "student", "spi", "attendance"];
 
 export interface SectionChoice {
@@ -61,6 +62,7 @@ export function SpiRecordFilterBar({
   attendanceFrom,
   attendanceTo,
   onAttendance,
+  actions,
 }: {
   shown: FilterId[];
   onShown: (next: FilterId[]) => void;
@@ -94,6 +96,7 @@ export function SpiRecordFilterBar({
     from?: string;
     to?: string;
   }) => void;
+  actions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterId[]>(shown);
@@ -237,51 +240,69 @@ export function SpiRecordFilterBar({
     spi: (
       <BoundControl scale="0–10" op={spiOp} a={spiA} b={spiB} onChange={onSpi} />
     ),
-    attendance: (
-      <div className="flex flex-wrap items-end gap-2">
-        <SearchableSelect
-          value={attendanceRange}
-          onValueChange={(value) => onAttendance({ range: value as AttendanceRange })}
-          options={[
-            { value: "semester_to_date", label: "This semester's dates so far" },
-            { value: "last_30", label: "Last 30 days" },
-            { value: "all_dates", label: "All dates" },
-            { value: "custom", label: "Custom range" },
-          ]}
-          className="w-[220px]"
-        />
-        {attendanceRange === "custom" && (
-          <>
-            <Input type="date" aria-label="Attendance from" className="h-9 w-[150px]" value={attendanceFrom} onChange={(event) => onAttendance({ from: event.target.value })} />
-            <Input type="date" aria-label="Attendance to" className="h-9 w-[150px]" value={attendanceTo} onChange={(event) => onAttendance({ to: event.target.value })} />
-          </>
-        )}
-        <BoundControl scale="0–100" op={attendanceOp} a={attendanceA} b={attendanceB} onChange={(op, a, b) => onAttendance({ op, a, b })} />
-      </div>
-    ),
+    attendance: null,
   };
 
+  const visible = (ids: FilterId[]) => ids.filter((id) => shown.includes(id));
+
   return (
-    <>
-      {shown.map((id) => (
-        <Field key={id} label={id === "attendance" ? "Attendance date range" : FILTER_LABEL[id]}>
-          {controls[id]}
-        </Field>
-      ))}
-      <Field label="Filters">
+    <div className="flex w-full flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          {visible(LINE_1).map((id) => (
+            <Field key={id} label={FILTER_LABEL[id]}>
+              {controls[id]}
+            </Field>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          {shown.includes("attendance") && (
+            <>
+              <Field label="Attendance period">
+                <div className="flex flex-wrap items-center gap-2">
+                  <SearchableSelect
+                    value={attendanceRange}
+                    onValueChange={(value) => onAttendance({ range: value as AttendanceRange })}
+                    options={[
+                      { value: "semester_to_date", label: "This semester's dates so far" },
+                      { value: "last_30", label: "Last 30 days" },
+                      { value: "all_dates", label: "All dates" },
+                      { value: "custom", label: "Custom range" },
+                    ]}
+                    className="w-[220px]"
+                  />
+                  {attendanceRange === "custom" && (
+                    <>
+                      <Input type="date" aria-label="Attendance period from" className="h-9 w-[150px]" value={attendanceFrom} onChange={(event) => onAttendance({ from: event.target.value })} />
+                      <Input type="date" aria-label="Attendance period to" className="h-9 w-[150px]" value={attendanceTo} onChange={(event) => onAttendance({ to: event.target.value })} />
+                    </>
+                  )}
+                </div>
+              </Field>
+              <Field label="Attendance %">
+                <BoundControl scale="0–100" op={attendanceOp} a={attendanceA} b={attendanceB} onChange={(op, a, b) => onAttendance({ op, a, b })} />
+              </Field>
+            </>
+          )}
+          {shown.includes("spi") && (
+            <Field label={FILTER_LABEL.spi}>{controls.spi}</Field>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(shown); }}>
           <PopoverTrigger asChild>
-            <Button variant="outline" className="w-[140px] justify-between">Filters</Button>
+            <Button variant="outline" size="sm">Filters</Button>
           </PopoverTrigger>
-          <PopoverContent className="w-72" align="start">
-            <p className="mb-2 text-xs text-gray-500">Drag to set the filter order. Group by stays on.</p>
+          <PopoverContent className="w-72" align="end">
+            <p className="mb-2 text-xs text-gray-500">Group by and Student stay on.</p>
             <ColumnOrderList
               ids={order}
               label={(id) => FILTER_LABEL[id]}
               checked={(id) => draft.includes(id)}
-              locked={(id) => id === "group"}
+              locked={(id) => id === "group" || id === "student"}
               onToggle={(id) => {
-                if (id === "group") return;
+                if (id === "group" || id === "student") return;
                 setDraft((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
               }}
               onReorder={(from, to) => {
@@ -293,7 +314,9 @@ export function SpiRecordFilterBar({
               size="sm"
               className="mt-2 w-full"
               onClick={() => {
-                onShown(draft.includes("group") ? draft : ["group", ...draft]);
+                const next: FilterId[] = draft.includes("group") ? [...draft] : ["group", ...draft];
+                if (!next.includes("student")) next.push("student");
+                onShown(next);
                 setOpen(false);
               }}
             >
@@ -301,8 +324,9 @@ export function SpiRecordFilterBar({
             </Button>
           </PopoverContent>
         </Popover>
-      </Field>
-    </>
+        {actions}
+      </div>
+    </div>
   );
 }
 
