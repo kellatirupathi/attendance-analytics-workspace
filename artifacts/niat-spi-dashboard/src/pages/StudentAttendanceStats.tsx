@@ -253,6 +253,23 @@ export default function StudentAttendanceStats() {
     staleTime: 15 * 60_000,
   });
 
+  const unitCampusKey = campuses.join("||");
+  const unitEnabled = scopeReady && grain === "university_unit" && campuses.length > 0;
+  const { data: unitData, isLoading: unitLoading, isError: unitError, refetch: refetchUnits } = useQuery({
+    queryKey: ["attendance-stats-units", detailParams.toString(), unitCampusKey],
+    enabled: unitEnabled,
+    queryFn: async () => {
+      const params = new URLSearchParams(detailParams);
+      params.set("campuses", unitCampusKey);
+      const res = await fetch(`/api/dashboard/attendance-stats/units?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load unit attendance");
+      return res.json() as Promise<DetailPayload>;
+    },
+    staleTime: 15 * 60_000,
+  });
+
   const campusOptions = useMemo(() => {
     if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
     const names = new Set((data?.students ?? []).map((row) => row.university));
@@ -308,20 +325,28 @@ export default function StudentAttendanceStats() {
       .slice(0, 20);
   }, [studentCatalog, studentQuery]);
 
-  const aggregated = useMemo(
-    () => aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], grain, {
-      campuses,
-      semesters,
-      sections: sections.map((item) => `${item.campus}\t${item.section}`),
-      students: students.map((item) => `${item.campus}\t${item.studentId}`),
-    }),
-    [data, grain, campuses.join("||"), semesters.join("||"), query.get("sections") ?? "", query.get("students") ?? ""],
+  const statsFilters = {
+    campuses,
+    semesters,
+    sections: sections.map((item) => `${item.campus}\t${item.section}`),
+    students: students.map((item) => `${item.campus}\t${item.studentId}`),
+  };
+  const filterKey = `${campuses.join("||")}|${semesters.join("||")}|${query.get("sections") ?? ""}|${query.get("students") ?? ""}`;
+  const summary = useMemo(
+    () => aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], "university", statsFilters).summary,
+    [data, filterKey],
   );
-  const summary = aggregated.summary;
-  const rows = aggregated.rows.map((row) => ({
-    ...row,
-    spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null,
-  }));
+  const tableLoading = grain === "university_unit"
+    ? campuses.length > 0 && unitLoading && !unitData
+    : isLoading;
+  const rows = useMemo(() => {
+    if (grain === "university_unit" && !campuses.length) return [];
+    const source = grain === "university_unit" ? unitData : data;
+    return aggregateAttendanceStats(source?.students ?? [], source?.classes ?? [], grain, statsFilters).rows.map((row) => ({
+      ...row,
+      spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null,
+    }));
+  }, [data, unitData, grain, filterKey]);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase();
@@ -640,10 +665,10 @@ export default function StudentAttendanceStats() {
           })}>
             Clear
           </Button>
-          <Button type="button" variant="outline" className="h-9 gap-2" disabled={filtered.length === 0 || isLoading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
+          <Button type="button" variant="outline" className="h-9 gap-2" disabled={filtered.length === 0 || tableLoading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
             <Download className="h-4 w-4" /> Export this view
           </Button>
-          <Button type="button" variant="outline" className="h-9 gap-2" disabled={isLoading || !scopeReady} onClick={exportAll}>
+          <Button type="button" variant="outline" className="h-9 gap-2" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={exportAll}>
             <Download className="h-4 w-4" /> Export all campuses
           </Button>
         </div>
@@ -652,6 +677,11 @@ export default function StudentAttendanceStats() {
       {isError && (
         <div className="mb-4">
           <ErrorState message="Failed to load attendance stats." onRetry={() => void refetch()} />
+        </div>
+      )}
+      {grain === "university_unit" && unitError && (
+        <div className="mb-4">
+          <ErrorState message="Failed to load unit attendance." onRetry={() => void refetchUnits()} />
         </div>
       )}
 
@@ -672,7 +702,7 @@ export default function StudentAttendanceStats() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? (
+              {tableLoading ? (
                 Array.from({ length: 8 }).map((_, index) => (
                   <TableRow key={index}>
                     <TableCell colSpan={headers.length + 1}><Skeleton className="h-8 w-full" /></TableCell>
@@ -681,7 +711,9 @@ export default function StudentAttendanceStats() {
               ) : paged.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={headers.length + 1} className="h-32 text-center text-gray-500">
-                    No rows for {scopeLabel}.
+                    {grain === "university_unit" && !campuses.length
+                      ? "Select a campus to see unit-wise attendance."
+                      : `No rows for ${scopeLabel}.`}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -737,7 +769,7 @@ export default function StudentAttendanceStats() {
             </TableBody>
           </Table>
         </div>
-        {!isLoading && filtered.length > 0 && (
+        {!tableLoading && filtered.length > 0 && (
           <TablePagination
             page={currentPage}
             totalPages={totalPages}

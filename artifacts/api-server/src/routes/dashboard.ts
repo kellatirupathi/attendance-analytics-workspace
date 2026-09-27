@@ -35,6 +35,7 @@ import {
   type SpiRecordGrain,
   getAttendanceGroupStats,
   getAttendanceStatsDetail,
+  getAttendanceStatsUnits,
   type AttendanceGrain,
 } from "../lib/queries.js";
 import {
@@ -1279,7 +1280,7 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
   });
   const q = req.query as Record<string, string | undefined>;
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-stats-detail-http:v1:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-stats-detail-http:v3:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -1297,6 +1298,47 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
   } catch (err) {
     req.log.error({ err }, "Error fetching attendance stats detail");
     res.status(500).json({ error: "Failed to fetch attendance stats" });
+  }
+});
+
+router.get("/attendance-stats/units", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | undefined>;
+  const requested = (q["campuses"] ?? "")
+    .split("||")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (!requested.length) {
+    res.status(400).json({ error: "Select a campus for unit-wise attendance" });
+    return;
+  }
+  if (scope.campuses?.length && requested.some((name) => !scope.campuses!.includes(name))) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const dates = closedDateScope(q);
+  const cacheKey = `attendance-stats-units-http:v1:${session.role}:${JSON.stringify(scope)}:${requested.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const detail = await getAttendanceStatsUnits(scope, {
+      campuses: requested,
+      dateFrom: dates.dateFrom,
+      dateTo: dates.dateTo,
+    });
+    cacheSet(cacheKey, detail, 15 * 60 * 1000);
+    res.json(detail);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching attendance stats units");
+    res.status(500).json({ error: "Failed to fetch unit attendance" });
   }
 });
 
