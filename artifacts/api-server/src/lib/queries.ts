@@ -151,9 +151,10 @@ export async function getRecoverySemesters(
 export async function getAttendanceSemesters(
   scope: SessionScope,
   campus?: string,
+  opts: { currentOnly?: boolean } = {},
 ): Promise<string[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params, { currentSemester: false });
+  const where = scopeClause(scope, params, opts.currentOnly ? {} : { currentSemester: false });
   let campusFilter = "";
   if (campus) {
     params["campus"] = campus;
@@ -1022,7 +1023,7 @@ export async function searchSpiStudents(
   },
 ): Promise<{ studentId: string; studentName: string; campus: string; section: string }[]> {
   const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params, { currentSemester: false });
+  const where = scopeClause(scope, params);
   params["q"] = `%${opts.search.trim()}%`;
   params["lim"] = Math.min(opts.limit ?? 20, 50);
   let extra = "";
@@ -1055,6 +1056,8 @@ export async function searchSpiStudents(
      WHERE ${where}
        ${extra}
        AND institute_name IS NOT NULL
+       AND semester_title IS NOT NULL
+       AND TRIM(semester_title) != ''
        AND (
          LOWER(student_name) LIKE LOWER(@q)
          OR LOWER(CAST(student_user_id AS STRING)) LIKE LOWER(@q)
@@ -1103,7 +1106,7 @@ export async function getSpiRecord(
     : opts.semester
       ? [opts.semester]
       : [];
-  const where = scopeClause(scope, params, { currentSemester: false });
+  const where = scopeClause(scope, params);
   let dimensionExtra = "";
   let rosterSemester = "TRUE";
   const campuses = opts.campuses?.filter(Boolean) ?? (opts.campus ? [opts.campus] : []);
@@ -1142,7 +1145,7 @@ export async function getSpiRecord(
     attendanceFlag = "DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
   }
 
-  const detailKey = `spi-record-detail:v1:${JSON.stringify({
+  const detailKey = `spi-record-detail:v2:${JSON.stringify({
     scope,
     campuses,
     sections,
@@ -1179,6 +1182,8 @@ export async function getSpiRecord(
           ${dimensionExtra}
           AND institute_name IS NOT NULL
           AND TRIM(institute_name) != ''
+          AND semester_title IS NOT NULL
+          AND TRIM(semester_title) != ''
         GROUP BY student_user_id, university, semester_title, section_name
       ),
       roster AS (

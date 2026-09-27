@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   useGetDashboardFilters,
@@ -183,7 +183,7 @@ export default function SpiRecordDashboard() {
     if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
     return omitExcludedInstitutes(filterOptions?.campuses ?? []);
   }, [filterOptions, isBoa, user?.campuses]);
-  const semesterOptions = useAttendanceSemesters(campuses.length === 1 ? campuses[0] : undefined);
+  const semesterOptions = useAttendanceSemesters(campuses.length === 1 ? campuses[0] : undefined, { currentOnly: true });
 
   const params = new URLSearchParams({ group: grain, attRange: attendanceRange });
   if (campuses.length) params.set("campuses", campuses.join("||"));
@@ -227,6 +227,13 @@ export default function SpiRecordDashboard() {
     const qs = next.toString();
     setLocation(qs ? `/dashboard/spi-record?${qs}` : "/dashboard/spi-record");
   };
+
+  useEffect(() => {
+    if (!semesterOptions.length || !semesters.length) return;
+    const kept = semesters.filter((name) => semesterOptions.includes(name));
+    if (kept.length === semesters.length) return;
+    writeQuery({ semesters: kept.join("||") || undefined });
+  }, [semesterOptions, semesters.join("||")]);
 
   const rows = data?.rows ?? [];
   const viewRows = rows;
@@ -301,7 +308,7 @@ export default function SpiRecordDashboard() {
 
   const scopeBits = [
     campuses.length ? campuses.join(", ") : "All campuses",
-    semesters.length ? semesters.join(", ") : "All semesters",
+    semesters.length ? semesters.join(", ") : "Current semesters",
     sections.length ? sections.map((item) => item.section).join(", ") : "",
   ].filter(Boolean);
   const scopeLabel = scopeBits.join(" · ");
