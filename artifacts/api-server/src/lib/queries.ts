@@ -2494,7 +2494,7 @@ export async function getAssessmentDetail(
           AND subject_title IS NOT NULL
           AND TRIM(subject_title) != ''
           AND UPPER(TRIM(subject_title)) != 'NULL'
-        GROUP BY institute_name, semester_title, section_name, student_key, subject_title
+        GROUP BY 1, 2, 3, 4, 5
       ),
       quiz_student AS (
         SELECT
@@ -2538,6 +2538,8 @@ export async function getAssessmentDetail(
        AND q.student_key = e.student_key
       GROUP BY e.institute_name, e.semester_title, e.section_name, e.subject_title`,
       slotParams,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     bqQuery<{
       institute_name: string;
@@ -2559,8 +2561,10 @@ export async function getAssessmentDetail(
         AND student_user_id IS NOT NULL
         AND semester_title IS NOT NULL
         AND TRIM(semester_title) != ''
-      GROUP BY institute_name, semester_title, section_name, student_user_id`,
+      GROUP BY 1, 2, 3, 4`,
       rosterParams,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
   ]);
   return {
@@ -2644,7 +2648,7 @@ export async function getAssessmentStudentRows(
         AND TRIM(subject_title) != ''
         AND UPPER(TRIM(subject_title)) != 'NULL'
         ${extra}
-      GROUP BY institute_name, semester_title, section_name, student_key, subject_title
+      GROUP BY 1, 2, 3, 4, 5
     ),
     names AS (
       SELECT
@@ -2699,6 +2703,8 @@ export async function getAssessmentStudentRows(
       ON quiz.institute_name = names.institute_name
      AND quiz.student_key = names.student_key`,
     params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   return rows
     .filter((row) => !isExcludedInstitute(row.institute_name))
