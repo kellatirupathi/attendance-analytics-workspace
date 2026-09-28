@@ -350,7 +350,7 @@ router.get("/spi-record/detail", requireSession(), async (req, res): Promise<voi
   const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
   const attendanceFrom = firstQuery(q, "attFrom");
   const attendanceTo = firstQuery(q, "attTo");
-  const cacheKey = `spi-record-detail-http:v1:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}`;
+  const cacheKey = `spi-record-detail-http:v2:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -1280,7 +1280,7 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
   });
   const q = req.query as Record<string, string | undefined>;
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-stats-detail-http:v3:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-stats-detail-http:v4:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -1322,7 +1322,7 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
     return;
   }
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-stats-units-http:v1:${session.role}:${JSON.stringify(scope)}:${requested.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-stats-units-http:v2:${session.role}:${JSON.stringify(scope)}:${requested.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);

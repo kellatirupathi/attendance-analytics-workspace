@@ -1102,7 +1102,21 @@ export async function getSpiRecordDetail(
     : opts.semester
       ? [opts.semester]
       : [];
-  const where = scopeClause(scope, params);
+  const attendanceRange = opts.attendanceRange ?? "semester_to_date";
+  const customReady = attendanceRange === "custom" && Boolean(opts.attendanceFrom && opts.attendanceTo);
+  const where = scopeClause(scope, params, {
+    currentSemester: !customReady && attendanceRange !== "last_30" && attendanceRange !== "all_dates",
+  });
+  let dateSql = "";
+  if (attendanceRange === "semester_to_date") {
+    dateSql = " AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
+  } else if (attendanceRange === "last_30") {
+    dateSql = " AND DATE(date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 30 DAY) AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
+  } else if (customReady) {
+    params["attendanceFrom"] = opts.attendanceFrom;
+    params["attendanceTo"] = opts.attendanceTo;
+    dateSql = " AND DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
+  }
   let dimensionExtra = "";
   let rosterSemester = "TRUE";
   const campuses = opts.campuses?.filter(Boolean) ?? (opts.campus ? [opts.campus] : []);
@@ -1129,19 +1143,7 @@ export async function getSpiRecordDetail(
     params["semesters"] = semesters;
     rosterSemester = "semester_title IN UNNEST(@semesters)";
   }
-  let attendanceFlag = "TRUE";
-  const attendanceRange = opts.attendanceRange ?? "semester_to_date";
-  if (attendanceRange === "semester_to_date") {
-    attendanceFlag = "is_current_semester = 1 AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
-  } else if (attendanceRange === "last_30") {
-    attendanceFlag = "DATE(date) >= DATE_SUB(CURRENT_DATE('Asia/Kolkata'), INTERVAL 30 DAY) AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')";
-  } else if (attendanceRange === "custom" && opts.attendanceFrom && opts.attendanceTo) {
-    params["attendanceFrom"] = opts.attendanceFrom;
-    params["attendanceTo"] = opts.attendanceTo;
-    attendanceFlag = "DATE(date) >= DATE(@attendanceFrom) AND DATE(date) <= DATE(@attendanceTo)";
-  }
-
-  const detailKey = `spi-record-detail:v2:${JSON.stringify({
+  const detailKey = `spi-record-detail:v3:${JSON.stringify({
     scope,
     campuses,
     sections,
@@ -1171,10 +1173,10 @@ export async function getSpiRecordDetail(
           COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title,
           COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name,
           MAX(student_name) AS student_name,
-          COUNTIF(${attendanceFlag}) AS scheduled_n,
-          COUNTIF((${attendanceFlag}) AND ${ATTENDED_SQL}) AS present_n
+          COUNT(*) AS scheduled_n,
+          COUNTIF(${ATTENDED_SQL}) AS present_n
         FROM ${ATTENDANCE_TABLE}
-        WHERE ${where}
+        WHERE ${where}${dateSql}
           ${dimensionExtra}
           AND institute_name IS NOT NULL
           AND TRIM(institute_name) != ''
@@ -4571,8 +4573,10 @@ function attendanceStatsWhere(
   opts: { dateFrom?: string; dateTo?: string; campuses?: string[] },
 ): { where: string; params: Record<string, unknown> } {
   const params: Record<string, unknown> = {};
-  const clauses = [excludeInstituteSql(), "is_current_semester = 1"];
-  if (opts.dateFrom && opts.dateTo) {
+  const hasDates = Boolean(opts.dateFrom && opts.dateTo);
+  const clauses = [excludeInstituteSql()];
+  if (!hasDates) clauses.push("is_current_semester = 1");
+  if (hasDates) {
     params["dateFrom"] = opts.dateFrom;
     params["dateTo"] = opts.dateTo;
     clauses.push("DATE(date) >= DATE(@dateFrom) AND DATE(date) <= DATE(@dateTo)");
@@ -4690,7 +4694,7 @@ export async function getAttendanceStatsDetail(
   opts: { dateFrom?: string; dateTo?: string } = {},
 ): Promise<AttendanceStatsDetail> {
   const { where, params } = attendanceStatsWhere(scope, opts);
-  const detailKey = `attendance-stats-detail:v3:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
+  const detailKey = `attendance-stats-detail:v4:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
   const cached = cacheGet<AttendanceStatsDetail>(detailKey);
   if (cached) return cached;
   const existing = attendanceStatsDetailInFlight.get(detailKey);
@@ -4715,7 +4719,7 @@ export async function getAttendanceStatsUnits(
 ): Promise<AttendanceStatsDetail> {
   const campuses = [...new Set(opts.campuses.map((name) => name.trim()).filter(Boolean))];
   const { where, params } = attendanceStatsWhere(scope, { ...opts, campuses });
-  const detailKey = `attendance-stats-units:v1:${JSON.stringify({
+  const detailKey = `attendance-stats-units:v2:${JSON.stringify({
     scope,
     campuses,
     dateFrom: opts.dateFrom ?? "",

@@ -166,10 +166,13 @@ export default function SpiRecordDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const detailParams = new URLSearchParams({ attRange: attendanceRange });
+  const detailParams = new URLSearchParams();
   if (attendanceRange === "custom" && attendanceFrom && attendanceTo) {
+    detailParams.set("attRange", "custom");
     detailParams.set("attFrom", attendanceFrom);
     detailParams.set("attTo", attendanceTo);
+  } else if (attendanceRange !== "custom") {
+    detailParams.set("attRange", attendanceRange);
   }
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -352,7 +355,7 @@ export default function SpiRecordDashboard() {
   };
 
   const scopeBits = [
-    campuses.length ? campuses.join(", ") : "All campuses",
+    campusScopeLabel(campuses, campusOptions),
     semesters.length ? semesters.join(", ") : "Current semesters",
     sections.length ? sections.map((item) => item.section).join(", ") : "",
   ].filter(Boolean);
@@ -633,6 +636,13 @@ function encodeSections(items: SectionChoice[]): string | undefined {
 
 function encodeStudents(items: StudentChoice[]): string | undefined {
   return items.length ? items.map((item) => [item.studentId, item.campus, item.section, item.studentName].join("\t")).join("||") : undefined;
+}
+
+function campusScopeLabel(selected: string[], options: string[]): string {
+  if (!selected.length) return "All campuses";
+  const everyCampus = options.length > 0 && options.every((name) => selected.includes(name));
+  if (everyCampus) return `${options.length.toLocaleString("en-IN")} campuses`;
+  return selected.join(", ");
 }
 
 function Tile({
