@@ -22,6 +22,8 @@ import {
   getAssessmentCampusSummary,
   getAssessmentSubjects,
   getAssessmentStudents,
+  getAssessmentDetail,
+  getAssessmentStudentRows,
   parseDateRange,
   parseSemester,
   dateRangeCacheKey,
@@ -1238,6 +1240,89 @@ router.get(
       res.json(payload);
     } catch (err) {
       req.log.error({ err }, "Error fetching assessment students");
+      res.status(500).json({ error: "Failed to fetch assessment students" });
+    }
+  },
+);
+
+router.get(
+  "/assessment-detail",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const cacheKey = `assessment-detail:v1:${session.role}:${JSON.stringify(scope)}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const detail = await getAssessmentDetail(scope);
+      cacheSet(cacheKey, detail, 15 * 60 * 1000);
+      res.json(detail);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment detail");
+      res.status(500).json({ error: "Failed to fetch assessment detail" });
+    }
+  },
+);
+
+router.get(
+  "/assessment-student-rows",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const campuses = (q["campuses"] ?? "")
+      .split("||")
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const studentIds = (q["students"] ?? "")
+      .split("||")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const subject = q["subject"]?.trim() || undefined;
+    if (!campuses.length && !studentIds.length) {
+      res.status(400).json({ error: "campus or student required" });
+      return;
+    }
+    if (scope.campuses?.length) {
+      const outside = campuses.filter((name) => !scope.campuses!.includes(name));
+      if (outside.length) {
+        res.status(403).json({ error: "Not permitted for this campus" });
+        return;
+      }
+    }
+    const cacheKey = `assessment-student-rows:v1:${session.role}:${JSON.stringify(scope)}:${campuses.join("||")}:${studentIds.join("||")}:${subject ?? ""}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const students = await getAssessmentStudentRows(scope, {
+        campuses: campuses.length ? campuses : undefined,
+        studentIds: studentIds.length ? studentIds : undefined,
+        subject,
+      });
+      const payload = students.map((student) => ({
+        ...student,
+        spiPath: spiSharePath(student.studentId),
+      }));
+      cacheSet(cacheKey, payload, 15 * 60 * 1000);
+      res.json(payload);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment student rows");
       res.status(500).json({ error: "Failed to fetch assessment students" });
     }
   },

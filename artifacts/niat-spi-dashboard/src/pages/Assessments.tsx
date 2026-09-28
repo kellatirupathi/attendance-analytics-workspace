@@ -13,849 +13,648 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
-import { PageBreadcrumb } from "@/components/PageBreadcrumb";
 import { TableShell, TablePagination } from "@/components/DataTable";
-import {
-  assessmentStudentsPath,
-  assessmentSubjectsPath,
-  assessmentsPath,
-} from "@/components/SubNav";
-import {
-  SearchableSelect,
-  campusSelectOptions,
-} from "@/components/SearchableSelect";
-import {
-  Search,
-  Loader2,
-  ChevronRight,
-  Download,
-  ExternalLink,
-  Lock,
-} from "lucide-react";
+import { SearchableSelect } from "@/components/SearchableSelect";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
+import { ChevronRight, Download, ExternalLink, Lock } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
-import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
-import { omitExcludedInstitutes, isExcludedInstitute } from "@/lib/excludedInstitutes";
+import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  assessmentHeader,
+  buildAssessmentRows,
+  countsFromStudentWork,
+  distinctStudents,
+  filterRoster,
+  filterSlots,
+  type AssessmentCounts,
+  type AssessmentGrain,
+  type AssessmentRosterRow,
+  type AssessmentSlot,
+  type AssessmentViewRow,
+} from "@/lib/assessmentAggregate";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 const PAGE_SIZES = [25, 50, 100];
-const FETCH_LIMIT = 5000;
-const CURRENT_SEMESTER = "current";
+const COLUMN_KEY = "assessment-columns";
 
-function useCampusNames() {
-  const [names, setNames] = useState<string[]>([]);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/dashboard/filters", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: { campuses?: string[] }) => {
-        if (alive) setNames(omitExcludedInstitutes(data.campuses ?? []));
-      })
-      .catch(() => {
-        if (alive) setNames([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return names;
+type Grain = AssessmentGrain;
+type ColumnId = "students" | "cq" | "mq" | "total" | "cqPct" | "mqPct" | "overall";
+
+const ALL_COLUMNS: ColumnId[] = ["students", "cq", "mq", "total", "cqPct", "mqPct", "overall"];
+const DEFAULT_COLUMNS: ColumnId[] = ALL_COLUMNS;
+const COLUMN_LABEL: Record<ColumnId, string> = {
+  students: "Students",
+  cq: "CQ",
+  mq: "MQ",
+  total: "Total",
+  cqPct: "CQ %",
+  mqPct: "MQ %",
+  overall: "Overall %",
+};
+
+interface DetailPayload {
+  slots: AssessmentSlot[];
+  roster: AssessmentRosterRow[];
 }
 
-function withCurrentCampus(names: string[], campus: string) {
-  if (!campus || campus === "all" || names.includes(campus)) return names;
-  return [campus, ...names];
-}
-
-function filterContext(campus: string, semester: string, extras: string[] = []) {
-  const campusLabel = !campus || campus === "all" ? "All campuses" : campus;
-  const semesterLabel = semester || "Current semester";
-  return [campusLabel, semesterLabel, ...extras.filter(Boolean)].join(" · ");
-}
-
-function useSemesters(campus: string) {
-  const [semesters, setSemesters] = useState<string[]>([]);
-  useEffect(() => {
-    if (!campus || campus === "all") {
-      setSemesters([]);
-      return;
-    }
-    let alive = true;
-    fetch(
-      `/api/attendance/recovery/semesters?campus=${encodeURIComponent(campus)}`,
-      { credentials: "include" },
-    )
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: string[]) => {
-        if (alive) setSemesters(data ?? []);
-      })
-      .catch(() => {
-        if (alive) setSemesters([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [campus]);
-  return semesters;
-}
-
-function AssessmentFilters({
-  campus,
-  semester,
-  campusNames,
-  semesters,
-  hideCampus,
-  onCampusChange,
-  onSemesterChange,
-}: {
-  campus: string;
-  semester: string;
-  campusNames: string[];
-  semesters: string[];
-  hideCampus?: boolean;
-  onCampusChange: (campus: string) => void;
-  onSemesterChange: (semester: string) => void;
-}) {
-  const campusAll = !campus || campus === "all";
-  return (
-    <>
-      {!hideCampus && (
-        <SearchableSelect
-          value={campusAll ? "all" : campus}
-          onValueChange={onCampusChange}
-          options={campusSelectOptions(campusNames)}
-          placeholder="All campuses"
-          searchPlaceholder="Search campuses…"
-          className="w-[220px]"
-          disabled={campusNames.length === 0}
-        />
-      )}
-      <SearchableSelect
-        value={semester || CURRENT_SEMESTER}
-        onValueChange={(value) =>
-          onSemesterChange(value === CURRENT_SEMESTER ? "" : value)
-        }
-        options={[
-          { value: CURRENT_SEMESTER, label: "Current semester" },
-          ...semesters.map((s) => ({ value: s, label: s })),
-        ]}
-        placeholder="Current semester"
-        searchPlaceholder="Search semesters…"
-        className="w-[220px]"
-        disabled={campusAll || semesters.length === 0}
-      />
-    </>
-  );
-}
-
-interface AssessmentCounts {
-  classroomCompleted: number;
-  classroomTotal: number;
-  moduleCompleted: number;
-  moduleTotal: number;
-  totalCompleted: number;
-  totalAssigned: number;
-  classroomStudentCompleted: number;
-  classroomStudentTotal: number;
-  moduleStudentCompleted: number;
-  moduleStudentTotal: number;
-  classroomPct: number;
-  modulePct: number;
-  completionPct: number;
-}
-
-interface AssessmentCampus extends AssessmentCounts {
-  instituteName: string;
-  studentCount: number;
-  subjectCount: number;
-}
-
-interface AssessmentSubject extends AssessmentCounts {
-  subjectTitle: string;
-  studentCount: number;
-}
-
-interface AssessmentStudent extends AssessmentCounts {
+interface StudentApiRow extends AssessmentCounts {
   studentId: string;
   studentName: string;
   instituteName: string;
-  sectionName: string | null;
+  semester: string;
+  sectionName: string;
   spiPath: string;
 }
 
-export default function Assessments() {
-  const [location] = useLocation();
-  const path = location.split("?")[0] ?? location;
-  if (path.startsWith("/dashboard/assessments/students")) return <StudentList />;
-  if (path.startsWith("/dashboard/assessments/subjects")) return <SubjectList />;
-  return <CampusList />;
+function splitList(value: string | null): string[] {
+  if (!value) return [];
+  return value.split("||").map((item) => item.trim()).filter(Boolean);
 }
 
-function CampusList() {
+function loadColumns(): ColumnId[] {
+  try {
+    const raw = localStorage.getItem(COLUMN_KEY);
+    if (!raw) return DEFAULT_COLUMNS;
+    const parsed = JSON.parse(raw) as ColumnId[];
+    const known = new Set(ALL_COLUMNS);
+    const next = parsed.filter((id) => known.has(id));
+    return next.length ? next : DEFAULT_COLUMNS;
+  } catch {
+    return DEFAULT_COLUMNS;
+  }
+}
+
+export default function Assessments() {
+  const [location, setLocation] = useLocation();
+  const path = location.split("?")[0] ?? location;
+
+  useEffect(() => {
+    if (!path.startsWith("/dashboard/assessments/")) return;
+    const params = new URLSearchParams(location.split("?")[1] ?? "");
+    const next = new URLSearchParams();
+    if (path.includes("/students")) next.set("group", "student");
+    else if (path.includes("/subjects")) next.set("group", "subject");
+    const campus = params.get("campus");
+    const semester = params.get("semester");
+    if (campus && campus !== "all") next.set("campuses", campus);
+    if (semester) next.set("semesters", semester);
+    const subject = params.get("subject");
+    if (subject) next.set("subject", subject);
+    const qs = next.toString();
+    setLocation(qs ? `/dashboard/assessments?${qs}` : "/dashboard/assessments");
+  }, [path, location, setLocation]);
+
+  if (path.startsWith("/dashboard/assessments/")) return null;
+  return <AssessmentsPage />;
+}
+
+function AssessmentsPage() {
   const { user } = useAuth();
   const isBoa = user?.role === "boa";
+  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
   const [, setLocation] = useLocation();
   const query = useQueryParams();
-  const campusFilter = query.get("campus") || "all";
-  const semester = campusFilter === "all" ? "" : (query.get("semester") ?? "");
-  const campusNames = useCampusNames();
-  const semesters = useSemesters(campusFilter);
-  const [rows, setRows] = useState<AssessmentCampus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
+  const grain = parseGrain(query.get("group"));
+  const legacyCampus = query.get("campus");
+  const campuses = splitList(query.get("campuses")).length
+    ? splitList(query.get("campuses"))
+    : legacyCampus && legacyCampus !== "all"
+      ? [legacyCampus]
+      : [];
+  const legacySemester = query.get("semester");
+  const semesters = splitList(query.get("semesters")).length
+    ? splitList(query.get("semesters"))
+    : legacySemester
+      ? [legacySemester]
+      : [];
+  const sections = splitList(query.get("sections")).map((value) => {
+    const [campus, section] = value.split("\t");
+    return { campus: campus ?? "", section: section ?? "" };
+  }).filter((item) => item.campus && item.section);
+  const subject = query.get("subject") || "";
+  const students = splitList(query.get("students")).map((value) => {
+    const [studentId, campus, studentName] = value.split("\t");
+    return { studentId: studentId ?? "", campus: campus ?? "", studentName: studentName ?? "" };
+  }).filter((item) => item.studentId);
+
+  const [studentQuery, setStudentQuery] = useState("");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
-  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
+  const [columns, setColumns] = useState<ColumnId[]>(loadColumns);
+  const [draftColumns, setDraftColumns] = useState<ColumnId[]>(columns);
+  const [columnsOpen, setColumnsOpen] = useState(false);
 
-  useEffect(() => {
-    if (isBoa && user?.campuses?.length === 1 && user.campuses[0]) {
-      setLocation(
-        assessmentSubjectsPath(user.campuses[0], semester || undefined),
-      );
+  const writeQuery = (patch: Record<string, string | undefined>) => {
+    const params = new URLSearchParams(query);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
     }
-  }, [isBoa, user?.campuses, semester, setLocation]);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setFetchError(false);
-    const params = new URLSearchParams();
-    if (campusFilter !== "all") {
-      params.set("campus", campusFilter);
-      if (semester) params.set("semester", semester);
+    if ("campuses" in patch || "semesters" in patch) {
+      params.delete("campus");
+      params.delete("semester");
     }
     const qs = params.toString();
-    fetch(
-      qs
-        ? `/api/dashboard/assessment-campuses?${qs}`
-        : "/api/dashboard/assessment-campuses",
-      { credentials: "include" },
-    )
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: AssessmentCampus[]) => {
-        if (alive) setRows(data ?? []);
-      })
-      .catch(() => {
-        if (alive) {
-          setRows([]);
-          setFetchError(true);
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
+    setPage(1);
+    setLocation(qs ? `/dashboard/assessments?${qs}` : "/dashboard/assessments");
+  };
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ["assessment-detail"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/assessment-detail", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load assessments");
+      return res.json() as Promise<DetailPayload>;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+
+  const fetchStudentsByCampus = grain === "student" && campuses.length > 0;
+  const fetchStudentsById = students.length > 0 && !fetchStudentsByCampus;
+  const studentParams = new URLSearchParams();
+  if (fetchStudentsByCampus) studentParams.set("campuses", campuses.join("||"));
+  else if (fetchStudentsById) studentParams.set("students", students.map((item) => item.studentId).join("||"));
+  if (subject && (fetchStudentsByCampus || fetchStudentsById)) studentParams.set("subject", subject);
+  const studentEnabled = fetchStudentsByCampus || fetchStudentsById;
+  const {
+    data: studentRows,
+    isLoading: studentLoading,
+    isError: studentError,
+    refetch: refetchStudents,
+  } = useQuery({
+    queryKey: ["assessment-student-rows", studentParams.toString()],
+    enabled: studentEnabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/dashboard/assessment-student-rows?${studentParams.toString()}`, {
+        credentials: "include",
       });
-    return () => {
-      alive = false;
-    };
-  }, [campusFilter, semester]);
+      if (!res.ok) throw new Error("Failed to load students");
+      return res.json() as Promise<StudentApiRow[]>;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
 
-  const filtered = useMemo(() => {
-    const visible = rows.filter((c) => !isExcludedInstitute(c.instituteName));
-    if (campusFilter === "all") return visible;
-    return visible.filter((c) => c.instituteName === campusFilter);
-  }, [rows, campusFilter]);
-
-  const totals = useMemo(() => sumCounts(filtered), [filtered]);
-  const { currentPage, totalPages, paged } = usePaging(
-    filtered,
-    page,
-    pageSize,
-  );
-  const selected = campusFilter === "all" ? null : filtered[0];
-  const studentTotal = filtered.reduce((sum, row) => sum + row.studentCount, 0);
-  const names = campusNames.length
-    ? campusNames
-    : omitExcludedInstitutes(rows.map((c) => c.instituteName));
-
-  return (
-    <div className="flex flex-col">
-      <PageHeader
-        title="Assessments"
-        subtitle={filterContext(
-          campusFilter,
-          semester,
-          selected
-            ? [
-                `${selected.studentCount.toLocaleString()} students`,
-                `${selected.subjectCount.toLocaleString()} subjects`,
-              ]
-            : campusFilter === "all" && !loading
-              ? [
-                  `${filtered.length.toLocaleString()} campuses`,
-                  `${studentTotal.toLocaleString()} students`,
-                ]
-              : [],
-        )}
-      />
-      <Toolbar
-        showSearch={false}
-        extraFilter={
-          <AssessmentFilters
-            campus={campusFilter}
-            semester={semester}
-            campusNames={names}
-            semesters={semesters}
-            hideCampus={hideCampus}
-            onCampusChange={(value) => {
-              setPage(1);
-              setLocation(assessmentsPath(value === "all" ? undefined : value));
-            }}
-            onSemesterChange={(next) => {
-              setPage(1);
-              setLocation(
-                assessmentsPath(campusFilter, next || undefined),
-              );
-            }}
-          />
-        }
-        loading={loading}
-        exportDisabled={filtered.length === 0 || loading}
-        onExport={() => {
-          exportCsv(
-            "assessment-campus-stats.csv",
-            [
-              "Campus",
-              "Students",
-              "Subjects",
-              "CQ unique completed",
-              "CQ unique assigned",
-              "MQ unique completed",
-              "MQ unique assigned",
-              "CQ student %",
-              "MQ student %",
-              "Overall student %",
-            ],
-            filtered.map((c) => [
-              c.instituteName,
-              c.studentCount,
-              c.subjectCount,
-              c.classroomCompleted,
-              c.classroomTotal,
-              c.moduleCompleted,
-              c.moduleTotal,
-              c.classroomPct,
-              c.modulePct,
-              c.completionPct,
-            ]),
-          );
-        }}
-      />
-      {fetchError && (
-        <div className="mb-4">
-          <ErrorState message="Failed to load campus assessment counts." />
-        </div>
-      )}
-      {!loading && filtered.length > 0 && (
-        <SummaryStrip totals={totals} uniqueCounts />
-      )}
-      <CountTable
-        title="Assessment counts by campus"
-        subtitle={`${filtered.length.toLocaleString()} campus${filtered.length === 1 ? "" : "es"} · unique quizzes · click a row for subjects`}
-        loading={loading}
-        empty="No campuses found."
-        firstColumn="Campus"
-        rows={paged}
-        nameOf={(c: AssessmentCampus) => c.instituteName}
-        studentsOf={(c) => c.studentCount}
-        onRowClick={(c) =>
-          setLocation(
-            assessmentSubjectsPath(
-              c.instituteName,
-              campusFilter === c.instituteName ? semester || undefined : undefined,
-            ),
-          )
-        }
-        pagination={{
-          page: currentPage,
-          totalPages,
-          totalItems: filtered.length,
-          pageSize,
-          onPageChange: setPage,
-          onPageSizeChange: (s) => {
-            setPageSize(s);
-            setPage(1);
-          },
-          itemLabel: "campuses",
-        }}
-      />
-    </div>
-  );
-}
-
-function SubjectList() {
-  const { user } = useAuth();
-  const isBoa = user?.role === "boa";
-  const [, setLocation] = useLocation();
-  const query = useQueryParams();
-  const campus = query.get("campus") ?? "";
-  const semester = query.get("semester") ?? "";
-  const campusNames = useCampusNames();
-  const semesters = useSemesters(campus);
-  const [rows, setRows] = useState<AssessmentSubject[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounceValue(search, 300);
-  const [pageSize, setPageSize] = useState(50);
-  const [page, setPage] = useState(1);
-  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
-
-  useEffect(() => {
-    if (!campus) {
-      setLocation(assessmentsPath());
+  const campusOptions = useMemo(() => {
+    if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
+    const names = new Set((data?.roster ?? []).map((row) => row.instituteName));
+    return omitExcludedInstitutes([...names].sort((left, right) => left.localeCompare(right)));
+  }, [data, isBoa, user?.campuses]);
+  const semesterOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const names = new Set<string>();
+    for (const row of data?.roster ?? []) {
+      if (campusSet.size && !campusSet.has(row.instituteName)) continue;
+      names.add(row.semester);
     }
-  }, [campus, setLocation]);
+    return [...names].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  }, [data, campuses]);
+  const sectionChoices = useMemo(() => {
+    if (!campuses.length) return [];
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const seen = new Set<string>();
+    const list: { campus: string; section: string }[] = [];
+    for (const row of data?.roster ?? []) {
+      if (!campusSet.has(row.instituteName)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      const key = `${row.instituteName}\t${row.section}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({ campus: row.instituteName, section: row.section });
+    }
+    return list.sort((left, right) => left.section.localeCompare(right.section, undefined, { numeric: true }));
+  }, [data, campuses, semesters]);
 
   useEffect(() => {
-    if (!campus) return;
-    let alive = true;
-    setLoading(true);
-    setFetchError(false);
-    const params = new URLSearchParams({ campus });
-    if (semester) params.set("semester", semester);
-    fetch(`/api/dashboard/assessment-subjects?${params.toString()}`, {
-      credentials: "include",
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: AssessmentSubject[]) => {
-        if (alive) setRows(data ?? []);
-      })
-      .catch(() => {
-        if (alive) {
-          setRows([]);
-          setFetchError(true);
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
+    if (!semesterOptions.length || !semesters.length) return;
+    const kept = semesters.filter((name) => semesterOptions.includes(name));
+    if (kept.length === semesters.length) return;
+    writeQuery({ semesters: kept.join("||") || undefined });
+  }, [semesterOptions.join("|"), semesters.join("||")]);
+
+  const scope = {
+    campuses,
+    semesters,
+    sections: sections.map((item) => `${item.campus}\t${item.section}`),
+  };
+  const filteredSlots = useMemo(
+    () => filterSlots(data?.slots ?? [], scope),
+    [data, campuses.join("||"), semesters.join("||"), scope.sections.join("||")],
+  );
+  const rosterForCounts = useMemo(
+    () => filterRoster(data?.roster ?? [], scope),
+    [data, campuses.join("||"), semesters.join("||"), scope.sections.join("||")],
+  );
+  const studentKeys = students.map((item) => `${item.campus}\t${item.studentId}`);
+  const headerStudents = distinctStudents(
+    filterRoster(data?.roster ?? [], scope, studentKeys),
+  );
+  const slotHeader = assessmentHeader(filteredSlots);
+  const selectedStudentRows = useMemo(() => {
+    if (!students.length) return [];
+    const keys = new Set(studentKeys);
+    const seen = new Set<string>();
+    const rows: StudentApiRow[] = [];
+    for (const row of studentRows ?? []) {
+      const key = `${row.instituteName}\t${row.studentId}`;
+      if (!keys.has(key) || seen.has(key)) continue;
+      if (semesters.length && !semesters.includes(row.semester)) continue;
+      if (scope.sections.length && !scope.sections.includes(`${row.instituteName}\t${row.sectionName}`)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+    return rows;
+  }, [studentRows, studentKeys.join("||"), semesters.join("||"), scope.sections.join("||")]);
+  const headerCounts = students.length && selectedStudentRows.length
+    ? countsFromStudentWork(selectedStudentRows)
+    : slotHeader;
+
+  const viewRows = useMemo(
+    () => (grain === "student" ? [] : buildAssessmentRows(filteredSlots, rosterForCounts, grain)),
+    [filteredSlots, rosterForCounts, grain],
+  );
+  const visibleStudents = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const sectionSet = new Set(scope.sections);
+    const studentSet = new Set(studentKeys);
+    const seen = new Set<string>();
+    const rows: StudentApiRow[] = [];
+    for (const row of studentRows ?? []) {
+      if (campusSet.size && !campusSet.has(row.instituteName)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      if (sectionSet.size && !sectionSet.has(`${row.instituteName}\t${row.sectionName}`)) continue;
+      if (studentSet.size && !studentSet.has(`${row.instituteName}\t${row.studentId}`)) continue;
+      const key = `${row.instituteName}\t${row.studentId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(row);
+    }
+    return rows.sort((left, right) => left.completionPct - right.completionPct || left.studentName.localeCompare(right.studentName));
+  }, [studentRows, campuses.join("||"), semesters.join("||"), scope.sections.join("||"), studentKeys.join("||")]);
+
+  const tableCount = grain === "student" ? visibleStudents.length : viewRows.length;
+  const totalPages = Math.max(1, Math.ceil(tableCount / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedRows = viewRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pagedStudents = visibleStudents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const catalog = useMemo(() => {
+    const q = studentQuery.trim().toLowerCase();
+    if (q.length < 2) return [];
+    const seen = new Set<string>();
+    const hits: { studentId: string; studentName: string; campus: string; section: string }[] = [];
+    for (const row of rosterForCounts) {
+      const key = `${row.instituteName}\t${row.studentId}`;
+      if (seen.has(key)) continue;
+      if (!row.studentName.toLowerCase().includes(q) && !row.studentId.toLowerCase().includes(q)) continue;
+      seen.add(key);
+      hits.push({
+        studentId: row.studentId,
+        studentName: row.studentName,
+        campus: row.instituteName,
+        section: row.section,
       });
-    return () => {
-      alive = false;
-    };
-  }, [campus, semester]);
+      if (hits.length >= 20) break;
+    }
+    return hits;
+  }, [rosterForCounts, studentQuery]);
 
-  const filtered = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((s) => s.subjectTitle.toLowerCase().includes(q));
-  }, [rows, debouncedSearch]);
+  const multiCampus = campuses.length !== 1;
+  const visibleColumns = columns.filter((id) => (grain === "student" ? id !== "students" : true));
+  const columnOrder = [...draftColumns, ...ALL_COLUMNS.filter((id) => !draftColumns.includes(id))];
 
-  const totals = useMemo(() => sumCounts(filtered), [filtered]);
-  const { currentPage, totalPages, paged } = usePaging(
-    filtered,
-    page,
-    pageSize,
-  );
-  const studentCount = filtered.reduce(
-    (max, row) => Math.max(max, row.studentCount),
-    0,
-  );
+  const applyColumns = () => {
+    const next = columnOrder.filter((id) => draftColumns.includes(id));
+    const saved = next.length ? next : DEFAULT_COLUMNS;
+    setColumns(saved);
+    localStorage.setItem(COLUMN_KEY, JSON.stringify(saved));
+    setColumnsOpen(false);
+  };
 
-  return (
-    <div className="flex flex-col">
-      <PageBreadcrumb
-        items={[
-          {
-            label: "Assessments",
-            onClick: () => setLocation(assessmentsPath()),
-          },
-          { label: campus, current: true },
-        ]}
-      />
-      <PageHeader
-        title={campus || "Subjects"}
-        subtitle={filterContext(
-          campus,
-          semester,
-          loading
-            ? []
-            : [
-                studentCount
-                  ? `${studentCount.toLocaleString()} students`
-                  : "",
-                `${filtered.length.toLocaleString()} subjects`,
-              ],
-        )}
-      />
-      <Toolbar
-        search={search}
-        searchPlaceholder="Search subjects…"
-        showSearch
-        extraFilter={
-          <AssessmentFilters
-            campus={campus}
-            semester={semester}
-            campusNames={withCurrentCampus(campusNames, campus)}
-            semesters={semesters}
-            hideCampus={hideCampus}
-            onCampusChange={(value) => {
-              setPage(1);
-              if (value === "all") {
-                setLocation(assessmentsPath());
-                return;
-              }
-              setLocation(assessmentSubjectsPath(value));
-            }}
-            onSemesterChange={(next) => {
-              setPage(1);
-              setLocation(assessmentSubjectsPath(campus, next || undefined));
-            }}
-          />
-        }
-        loading={loading}
-        exportDisabled={filtered.length === 0 || loading}
-        onSearch={(value) => {
-          setSearch(value);
-          setPage(1);
-        }}
-        onExport={() => {
-          exportCsv(
-            `assessment-subjects-${safeFileName(campus)}.csv`,
-            [
-              "Subject",
-              "Students",
-              "CQ unique completed",
-              "CQ unique assigned",
-              "MQ unique completed",
-              "MQ unique assigned",
-              "CQ student %",
-              "MQ student %",
-              "Overall student %",
-            ],
-            filtered.map((s) => [
-              s.subjectTitle,
-              s.studentCount,
-              s.classroomCompleted,
-              s.classroomTotal,
-              s.moduleCompleted,
-              s.moduleTotal,
-              s.classroomPct,
-              s.modulePct,
-              s.completionPct,
-            ]),
-          );
-        }}
-      />
-      {fetchError && (
-        <div className="mb-4">
-          <ErrorState message="Failed to load subject assessment counts." />
-        </div>
-      )}
-      {!loading && filtered.length > 0 && (
-        <SummaryStrip totals={totals} uniqueCounts />
-      )}
-      <CountTable
-        title={`Assessment counts by subject · ${campus}`}
-        subtitle={`${filtered.length.toLocaleString()} subject${filtered.length === 1 ? "" : "s"} · unique quizzes · click a row for students`}
-        loading={loading}
-        empty="No subjects found for this campus."
-        firstColumn="Subject"
-        rows={paged}
-        nameOf={(s: AssessmentSubject) => s.subjectTitle}
-        studentsOf={(s) => s.studentCount}
-        onRowClick={(s) =>
-          setLocation(
-            assessmentStudentsPath(
-              campus,
-              s.subjectTitle,
-              semester || undefined,
-            ),
-          )
-        }
-        pagination={{
-          page: currentPage,
-          totalPages,
-          totalItems: filtered.length,
-          pageSize,
-          onPageChange: setPage,
-          onPageSizeChange: (s) => {
-            setPageSize(s);
-            setPage(1);
-          },
-          itemLabel: "subjects",
-        }}
-      />
-    </div>
-  );
-}
-
-function StudentList() {
-  const { user } = useAuth();
-  const isBoa = user?.role === "boa";
-  const [, setLocation] = useLocation();
-  const query = useQueryParams();
-  const campus = query.get("campus") ?? "";
-  const subject = query.get("subject") ?? "";
-  const semester = query.get("semester") ?? "";
-  const campusNames = useCampusNames();
-  const semesters = useSemesters(campus);
-  const [rows, setRows] = useState<AssessmentStudent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState(false);
-  const [search, setSearch] = useState("");
-  const debouncedSearch = useDebounceValue(search, 300);
-  const [pageSize, setPageSize] = useState(50);
-  const [page, setPage] = useState(1);
-  const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
-
-  useEffect(() => {
-    if (!campus) {
-      setLocation(assessmentsPath());
+  const exportView = () => {
+    if (grain === "student") {
+      exportCsv(
+        "assessment-students.csv",
+        [...identityHeaders("student", multiCampus), ...visibleColumns.map((id) => COLUMN_LABEL[id])],
+        visibleStudents.map((row) => [
+          row.studentName,
+          ...(multiCampus ? [row.instituteName] : []),
+          row.sectionName,
+          ...visibleColumns.map((id) => studentCell(row, id)),
+        ]),
+      );
       return;
     }
-    if (!subject) {
-      setLocation(assessmentSubjectsPath(campus, semester || undefined));
-    }
-  }, [campus, subject, semester, setLocation]);
-
-  useEffect(() => {
-    if (!campus || !subject) return;
-    let alive = true;
-    setLoading(true);
-    setFetchError(false);
-    const params = new URLSearchParams({
-      campus,
-      subject,
-      limit: String(FETCH_LIMIT),
-    });
-    if (semester) params.set("semester", semester);
-    fetch(`/api/dashboard/assessment-students?${params.toString()}`, {
-      credentials: "include",
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: AssessmentStudent[]) => {
-        if (alive) setRows(data ?? []);
-      })
-      .catch(() => {
-        if (alive) {
-          setRows([]);
-          setFetchError(true);
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [campus, subject, semester]);
-
-  const filtered = useMemo(() => {
-    const q = debouncedSearch.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (s) =>
-        s.studentName.toLowerCase().includes(q) ||
-        s.studentId.toLowerCase().includes(q) ||
-        (s.sectionName ?? "").toLowerCase().includes(q),
+    exportCsv(
+      "assessment-view.csv",
+      [...identityHeaders(grain, multiCampus), ...visibleColumns.map((id) => COLUMN_LABEL[id])],
+      viewRows.map((row) => [
+        ...identityValues(row, grain),
+        ...visibleColumns.map((id) => viewCell(row, id)),
+      ]),
     );
-  }, [rows, debouncedSearch]);
+  };
 
-  const totals = useMemo(() => sumCounts(filtered), [filtered]);
-  const { currentPage, totalPages, paged } = usePaging(
-    filtered,
-    page,
-    pageSize,
+  const exportAll = () => {
+    const allSlots = filterSlots(data?.slots ?? [], { campuses: [], semesters, sections: [] });
+    const allRoster = filterRoster(data?.roster ?? [], { campuses: [], semesters, sections: [] });
+    const rows = buildAssessmentRows(
+      allSlots,
+      allRoster,
+      grain === "student" ? "campus" : grain,
+    );
+    exportCsv(
+      "assessment-all-campuses.csv",
+      [...identityHeaders(grain === "student" ? "campus" : grain), ...visibleColumns.map((id) => COLUMN_LABEL[id])],
+      rows.map((row) => [
+        ...identityValues(row, grain === "student" ? "campus" : grain),
+        ...visibleColumns.map((id) => viewCell(row, id)),
+      ]),
+    );
+  };
+
+  const subtitle = [
+    campusScopeLabel(campuses, campusOptions),
+    semesterScopeLabel(semesters, semesterOptions),
+    subject,
+    `${isLoading && !data ? "—" : headerStudents.toLocaleString("en-IN")} students`,
+  ].filter(Boolean).join(" · ");
+  const tableLoading = isLoading || (grain === "student" && studentEnabled && studentLoading && !studentRows);
+  const showStudentPrompt = grain === "student" && campuses.length === 0 && students.length === 0;
+
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Popover
+        open={columnsOpen}
+        onOpenChange={(open) => {
+          setColumnsOpen(open);
+          if (open) setDraftColumns(columns);
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" size="sm">Columns</Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-72">
+          <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
+          <ColumnOrderList
+            ids={columnOrder}
+            label={(id) => COLUMN_LABEL[id]}
+            checked={(id) => draftColumns.includes(id)}
+            onToggle={(id) =>
+              setDraftColumns((current) =>
+                current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+              )
+            }
+            onReorder={(from, to) => {
+              const next = moveListItem(columnOrder, from, to);
+              setDraftColumns(next.filter((id) => draftColumns.includes(id)));
+            }}
+          />
+          <div className="mt-3">
+            <Button type="button" size="sm" onClick={applyColumns}>Apply</Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Button type="button" variant="outline" size="sm" disabled={tableCount === 0 || tableLoading} onClick={exportView}>
+        <Download className="mr-1 h-4 w-4" /> Export this view
+      </Button>
+      <Button type="button" variant="outline" size="sm" disabled={isLoading || grain === "student"} onClick={exportAll}>
+        <Download className="mr-1 h-4 w-4" /> Export all campuses
+      </Button>
+    </div>
   );
 
   return (
-    <div className="flex flex-col">
-      <PageBreadcrumb
-        items={[
-          {
-            label: "Assessments",
-            onClick: () => setLocation(assessmentsPath()),
-          },
-          {
-            label: campus,
-            onClick: () =>
-              setLocation(assessmentSubjectsPath(campus, semester || undefined)),
-          },
-          { label: subject, current: true },
-        ]}
-      />
-      <PageHeader
-        title={subject || "Students"}
-        subtitle={filterContext(
-          campus,
-          semester,
-          loading
-            ? [subject]
-            : [subject, `${filtered.length.toLocaleString()} students`],
-        )}
-      />
-      <Toolbar
-        search={search}
-        searchPlaceholder="Search student name or ID…"
-        showSearch
-        extraFilter={
-          <AssessmentFilters
-            campus={campus}
-            semester={semester}
-            campusNames={withCurrentCampus(campusNames, campus)}
-            semesters={semesters}
-            hideCampus={hideCampus}
-            onCampusChange={(value) => {
-              setPage(1);
-              if (value === "all") {
-                setLocation(assessmentsPath());
-                return;
-              }
-              setLocation(assessmentSubjectsPath(value));
-            }}
-            onSemesterChange={(next) => {
-              setPage(1);
-              setLocation(
-                assessmentStudentsPath(campus, subject, next || undefined),
-              );
-            }}
-          />
-        }
-        loading={loading}
-        exportDisabled={filtered.length === 0 || loading}
-        onSearch={(value) => {
-          setSearch(value);
-          setPage(1);
-        }}
-        onExport={() => {
-          exportCsv(
-            `assessment-students-${safeFileName(campus)}-${safeFileName(subject)}.csv`,
-            [
-              "Student name",
-              "Student ID",
-              "Section",
-              "CQ completed",
-              "CQ assigned",
-              "MQ completed",
-              "MQ assigned",
-              "Total completed",
-              "Total assigned",
-              "CQ student %",
-              "MQ student %",
-              "Overall student %",
-            ],
-            filtered.map((s) => [
-              s.studentName,
-              s.studentId,
-              s.sectionName ?? "",
-              s.classroomCompleted,
-              s.classroomTotal,
-              s.moduleCompleted,
-              s.moduleTotal,
-              s.totalCompleted,
-              s.totalAssigned,
-              s.classroomPct,
-              s.modulePct,
-              s.completionPct,
-            ]),
-          );
-        }}
-      />
-      {fetchError && (
-        <div className="mb-4">
-          <ErrorState message="Failed to load student assessment counts." />
+    <div className="flex min-w-0 flex-col">
+      <PageHeader title="Assessments" subtitle={subtitle} right={toolbar} />
+      {isLoading && !data ? (
+        <div className="mb-4 mt-4">
+          <Skeleton className="h-24 w-full" />
+        </div>
+      ) : (
+        <div className="mt-4">
+          <SummaryStrip totals={headerCounts} uniqueCounts={students.length === 0} />
         </div>
       )}
-      {!loading && filtered.length > 0 && <SummaryStrip totals={totals} />}
-      <TableShell>
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Assessment counts by student · {subject}
-          </h2>
-          <p className="mt-0.5 text-xs text-gray-500">
-            {filtered.length.toLocaleString()} student
-            {filtered.length === 1 ? "" : "s"} · this student's completed / assigned · incomplete first
-          </p>
+      <div className="mb-4 flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
+        <FilterField label="Group by">
+          <SearchableSelect
+            value={grain}
+            onValueChange={(value) => writeQuery({
+              group: value === "campus" ? undefined : value,
+              subject: value === "student" ? subject || undefined : undefined,
+            })}
+            options={[
+              { value: "campus", label: "Campus-wise" },
+              { value: "subject", label: "Subject-wise" },
+              { value: "section", label: "Section-wise" },
+              { value: "semester", label: "Semester-wise" },
+              { value: "student", label: "Student-wise" },
+            ]}
+            placeholder="Group by"
+            searchPlaceholder="Search…"
+            className="w-[180px]"
+          />
+        </FilterField>
+        {!hideCampus && (
+          <FilterField label="Campus">
+            <CheckMenu
+              label={campuses.length ? `${campuses.length} selected` : "All campuses"}
+              options={campusOptions.map((name) => ({ id: name, label: name }))}
+              selected={campuses}
+              onChange={(next) => {
+                const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
+                const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
+                writeQuery({
+                  campuses: next.join("||") || undefined,
+                  sections: keptSections.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
+                  students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+                  subject: undefined,
+                });
+              }}
+            />
+          </FilterField>
+        )}
+        <FilterField label="Semester">
+          <CheckMenu
+            label={semesters.length ? `${semesters.length} selected` : "Current semesters"}
+            options={semesterOptions.map((name) => ({ id: name, label: name }))}
+            selected={semesters}
+            onChange={(next) => writeQuery({ semesters: next.join("||") || undefined })}
+          />
+        </FilterField>
+        <FilterField label="Section">
+          <CheckMenu
+            label={sections.length ? `${sections.length} selected` : campuses.length ? "All sections" : "Select a campus"}
+            options={sectionChoices.map((item) => ({
+              id: `${item.campus}\t${item.section}`,
+              label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
+            }))}
+            selected={sections.map((item) => `${item.campus}\t${item.section}`)}
+            onChange={(ids) => {
+              const next = ids.map((id) => {
+                const [campus, section] = id.split("\t");
+                return { campus: campus ?? "", section: section ?? "" };
+              });
+              const keptStudents = next.length
+                ? students.filter((item) => next.some((section) => section.campus === item.campus))
+                : [];
+              writeQuery({
+                sections: next.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
+                students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+              });
+            }}
+          />
+        </FilterField>
+        <FilterField label="Student">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-[180px] justify-between">
+                {students.length ? `${students.length} selected` : "All students"}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start">
+              <Input
+                value={studentQuery}
+                placeholder="Search name or ID"
+                onChange={(event) => setStudentQuery(event.target.value)}
+              />
+              <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                {catalog.map((hit) => {
+                  const on = students.some((item) => item.studentId === hit.studentId && item.campus === hit.campus);
+                  return (
+                    <label key={`${hit.campus}-${hit.studentId}`} className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => {
+                          const next = on
+                            ? students.filter((item) => !(item.studentId === hit.studentId && item.campus === hit.campus))
+                            : [...students, hit];
+                          writeQuery({
+                            students: next.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+                          });
+                        }}
+                      />
+                      <span>
+                        {hit.studentName}
+                        <span className="block text-xs text-gray-500">{hit.campus} — {hit.section}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </FilterField>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9"
+          onClick={() => writeQuery({
+            campuses: undefined,
+            semesters: undefined,
+            sections: undefined,
+            students: undefined,
+            campus: undefined,
+            semester: undefined,
+            subject: undefined,
+          })}
+        >
+          Clear
+        </Button>
+      </div>
+
+      {isError && (
+        <div className="mb-4">
+          <ErrorState message="Failed to load assessments." onRetry={() => void refetch()} />
         </div>
+      )}
+      {grain === "student" && studentError && (
+        <div className="mb-4">
+          <ErrorState message="Failed to load student assessments." onRetry={() => void refetchStudents()} />
+        </div>
+      )}
+
+      <TableShell>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-                <Th>Student name</Th>
-                <Th>Student ID</Th>
-                <Th>Section</Th>
-                <Th className="text-right">CQ</Th>
-                <Th className="text-right">MQ</Th>
-                <Th className="text-right">Total</Th>
-                <Th className="text-right">CQ %</Th>
-                <Th className="text-right">MQ %</Th>
-                <Th className="w-[180px] text-right">Overall %</Th>
-                <Th className="w-20 text-right">SPI</Th>
+                {identityHeaders(grain, multiCampus).map((label) => (
+                  <Th key={label}>{label}</Th>
+                ))}
+                {visibleColumns.map((id) => (
+                  <Th key={id} className="text-right">{COLUMN_LABEL[id]}</Th>
+                ))}
+                {grain === "student" ? <Th className="w-20 text-right">SPI</Th> : <Th className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {loading ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell colSpan={10}>
+              {tableLoading ? (
+                Array.from({ length: 8 }).map((_, index) => (
+                  <TableRow key={index}>
+                    <TableCell colSpan={identityHeaders(grain, multiCampus).length + visibleColumns.length + 1}>
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ))
-              ) : paged.length === 0 ? (
+              ) : showStudentPrompt ? (
                 <TableRow>
-                  <TableCell
-                    colSpan={10}
-                    className="h-32 text-center text-gray-500"
-                  >
-                    No students found for this subject.
+                  <TableCell colSpan={identityHeaders(grain, multiCampus).length + visibleColumns.length + 1} className="h-32 text-center text-gray-500">
+                    Select a campus to see student-wise assessments.
                   </TableCell>
                 </TableRow>
+              ) : grain === "student" ? (
+                pagedStudents.length === 0 ? (
+                  <EmptyRow span={identityHeaders(grain, multiCampus).length + visibleColumns.length + 1} message="No students found." />
+                ) : (
+                  pagedStudents.map((row) => (
+                    <TableRow key={`${row.instituteName}-${row.studentId}`} className="border-b border-gray-200 hover:bg-gray-50">
+                      <TableCell className="py-3 font-medium text-gray-900">{row.studentName}</TableCell>
+                      {multiCampus && <TableCell className="text-gray-600">{row.instituteName}</TableCell>}
+                      <TableCell className="text-gray-600">{row.sectionName || "—"}</TableCell>
+                      {visibleColumns.map((id) => (
+                        <TableCell key={id} className="text-right">
+                          <MetricCell id={id} counts={row} students={null} />
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-right">
+                        <a href={row.spiPath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline">
+                          Open <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )
+              ) : pagedRows.length === 0 ? (
+                <EmptyRow span={identityHeaders(grain, multiCampus).length + visibleColumns.length + 1} message="No rows for this view." />
               ) : (
-                paged.map((s) => (
+                pagedRows.map((row) => (
                   <TableRow
-                    key={s.studentId}
-                    className="border-b border-gray-200 hover:bg-gray-50"
+                    key={row.key}
+                    className="cursor-pointer border-b border-gray-200 hover:bg-brand-50/40"
+                    onClick={() => drill(row, grain, writeQuery)}
                   >
-                    <TableCell className="py-3 font-medium text-gray-900">
-                      <div className="max-w-[240px] truncate" title={s.studentName}>
-                        {s.studentName}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-gray-500">
-                      <div className="max-w-[220px] truncate" title={s.studentId}>
-                        {s.studentId}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-gray-600">
-                      {s.sectionName || "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <CountCell
-                        completed={s.classroomCompleted}
-                        total={s.classroomTotal}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <CountCell
-                        completed={s.moduleCompleted}
-                        total={s.moduleTotal}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <CountCell
-                        completed={s.totalCompleted}
-                        total={s.totalAssigned}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-semibold">
-                      {s.classroomTotal > 0 ? `${s.classroomPct}%` : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums font-semibold">
-                      {s.moduleTotal > 0 ? `${s.modulePct}%` : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <PctBar pct={s.completionPct} />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <a
-                        href={s.spiPath}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
-                      >
-                        Open <ExternalLink className="h-3.5 w-3.5" />
-                      </a>
+                    {identityValues(row, grain).map((value, index) => (
+                      <TableCell key={`${row.key}-${index}`} className={index === 0 ? "py-3 font-medium text-gray-900" : "text-gray-600"}>
+                        {value}
+                      </TableCell>
+                    ))}
+                    {visibleColumns.map((id) => (
+                      <TableCell key={id} className="text-right">
+                        <MetricCell id={id} counts={row.counts} students={id === "students" ? row.studentCount : null} />
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right text-gray-300">
+                      <ChevronRight className="ml-auto h-4 w-4" />
                     </TableCell>
                   </TableRow>
                 ))
@@ -863,19 +662,19 @@ function StudentList() {
             </TableBody>
           </Table>
         </div>
-        {!loading && filtered.length > 0 && (
+        {!tableLoading && tableCount > 0 && !showStudentPrompt && (
           <TablePagination
             page={currentPage}
             totalPages={totalPages}
-            totalItems={filtered.length}
+            totalItems={tableCount}
             pageSize={pageSize}
             pageSizeOptions={PAGE_SIZES}
             onPageChange={setPage}
-            onPageSizeChange={(s) => {
-              setPageSize(s);
+            onPageSizeChange={(size) => {
+              setPageSize(size);
               setPage(1);
             }}
-            itemLabel="students"
+            itemLabel={grain === "student" ? "students" : "rows"}
           />
         )}
       </TableShell>
@@ -883,302 +682,192 @@ function StudentList() {
   );
 }
 
-function usePaging<T>(rows: T[], page: number, pageSize: number) {
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = rows.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize,
-  );
-  return { currentPage, totalPages, paged };
+function drill(
+  row: AssessmentViewRow,
+  grain: Exclude<Grain, "student">,
+  writeQuery: (patch: Record<string, string | undefined>) => void,
+) {
+  if (grain === "campus") {
+    writeQuery({ campuses: row.university, group: "subject", sections: undefined, students: undefined, subject: undefined });
+    return;
+  }
+  if (grain === "subject") {
+    writeQuery({
+      campuses: row.university,
+      group: "student",
+      subject: row.subject ?? undefined,
+      sections: undefined,
+      students: undefined,
+    });
+    return;
+  }
+  if (grain === "section") {
+    writeQuery({
+      campuses: row.university,
+      sections: `${row.university}\t${row.section ?? ""}`,
+      group: "student",
+      students: undefined,
+      subject: undefined,
+    });
+    return;
+  }
+  writeQuery({ semesters: row.semester ?? undefined, campuses: row.university });
 }
 
-function safeFileName(value: string) {
-  return value.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-") || "export";
+function parseGrain(value: string | null): Grain {
+  if (value === "subject" || value === "section" || value === "semester" || value === "student") return value;
+  return "campus";
 }
 
-function sumCounts(rows: AssessmentCounts[]): AssessmentCounts {
-  const empty: AssessmentCounts = {
-    classroomCompleted: 0,
-    classroomTotal: 0,
-    moduleCompleted: 0,
-    moduleTotal: 0,
-    totalCompleted: 0,
-    totalAssigned: 0,
-    classroomStudentCompleted: 0,
-    classroomStudentTotal: 0,
-    moduleStudentCompleted: 0,
-    moduleStudentTotal: 0,
-    classroomPct: 0,
-    modulePct: 0,
-    completionPct: 0,
-  };
-  const summed = rows.reduce((acc, row) => {
-    acc.classroomCompleted += row.classroomCompleted;
-    acc.classroomTotal += row.classroomTotal;
-    acc.moduleCompleted += row.moduleCompleted;
-    acc.moduleTotal += row.moduleTotal;
-    acc.totalCompleted += row.totalCompleted;
-    acc.totalAssigned += row.totalAssigned;
-    acc.classroomStudentCompleted +=
-      row.classroomStudentCompleted ?? row.classroomCompleted ?? 0;
-    acc.classroomStudentTotal +=
-      row.classroomStudentTotal ?? row.classroomTotal ?? 0;
-    acc.moduleStudentCompleted +=
-      row.moduleStudentCompleted ?? row.moduleCompleted ?? 0;
-    acc.moduleStudentTotal +=
-      row.moduleStudentTotal ?? row.moduleTotal ?? 0;
-    return acc;
-  }, empty);
-  summed.classroomPct =
-    summed.classroomStudentTotal > 0
-      ? Math.round(
-          (summed.classroomStudentCompleted / summed.classroomStudentTotal) *
-            1000,
-        ) / 10
-      : 0;
-  summed.modulePct =
-    summed.moduleStudentTotal > 0
-      ? Math.round(
-          (summed.moduleStudentCompleted / summed.moduleStudentTotal) * 1000,
-        ) / 10
-      : 0;
-  const studentCompleted =
-    summed.classroomStudentCompleted + summed.moduleStudentCompleted;
-  const studentAssigned =
-    summed.classroomStudentTotal + summed.moduleStudentTotal;
-  summed.completionPct =
-    studentAssigned > 0
-      ? Math.round((studentCompleted / studentAssigned) * 1000) / 10
-      : 0;
-  return summed;
+function identityHeaders(grain: Grain, multiCampus = false): string[] {
+  if (grain === "semester") return ["Campus", "Semester"];
+  if (grain === "section") return ["Campus", "Section"];
+  if (grain === "subject") return ["Campus", "Subject"];
+  if (grain === "student") return multiCampus ? ["Student name", "Campus", "Section"] : ["Student name", "Section"];
+  return ["Campus"];
 }
 
-function Toolbar({
-  search,
-  searchPlaceholder,
-  showSearch,
-  extraFilter,
-  loading,
-  exportDisabled,
-  onSearch,
-  onExport,
+function identityValues(row: AssessmentViewRow, grain: Exclude<Grain, "student">): string[] {
+  if (grain === "semester") return [row.university, row.semester ?? ""];
+  if (grain === "section") return [row.university, row.section ?? ""];
+  if (grain === "subject") return [row.university, row.subject ?? ""];
+  return [row.university];
+}
+
+function viewCell(row: AssessmentViewRow, id: ColumnId): string | number {
+  if (id === "students") return row.studentCount;
+  if (id === "cq") return `${row.counts.classroomCompleted}/${row.counts.classroomTotal}`;
+  if (id === "mq") return `${row.counts.moduleCompleted}/${row.counts.moduleTotal}`;
+  if (id === "total") return `${row.counts.totalCompleted}/${row.counts.totalAssigned}`;
+  if (id === "cqPct") return row.counts.classroomPct;
+  if (id === "mqPct") return row.counts.modulePct;
+  return row.counts.completionPct;
+}
+
+function studentCell(row: AssessmentCounts, id: ColumnId): string | number {
+  if (id === "students") return "";
+  if (id === "cq") return `${row.classroomCompleted}/${row.classroomTotal}`;
+  if (id === "mq") return `${row.moduleCompleted}/${row.moduleTotal}`;
+  if (id === "total") return `${row.totalCompleted}/${row.totalAssigned}`;
+  if (id === "cqPct") return row.classroomPct;
+  if (id === "mqPct") return row.modulePct;
+  return row.completionPct;
+}
+
+function MetricCell({
+  id,
+  counts,
+  students,
 }: {
-  search?: string;
-  searchPlaceholder?: string;
-  showSearch: boolean;
-  extraFilter?: ReactNode;
-  loading: boolean;
-  exportDisabled: boolean;
-  onSearch?: (value: string) => void;
-  onExport: () => void;
+  id: ColumnId;
+  counts: AssessmentCounts;
+  students: number | null;
 }) {
+  if (id === "students") return <span className="tabular-nums text-gray-600">{(students ?? 0).toLocaleString()}</span>;
+  if (id === "cq") return <CountCell completed={counts.classroomCompleted} total={counts.classroomTotal} />;
+  if (id === "mq") return <CountCell completed={counts.moduleCompleted} total={counts.moduleTotal} />;
+  if (id === "total") return <CountCell completed={counts.totalCompleted} total={counts.totalAssigned} />;
+  if (id === "cqPct") return <span className="tabular-nums font-semibold">{counts.classroomStudentTotal > 0 ? `${counts.classroomPct}%` : "—"}</span>;
+  if (id === "mqPct") return <span className="tabular-nums font-semibold">{counts.moduleStudentTotal > 0 ? `${counts.modulePct}%` : "—"}</span>;
+  return <PctBar pct={counts.completionPct} />;
+}
+
+function EmptyRow({ span, message }: { span: number; message: string }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
-      {extraFilter}
-      {showSearch && (
-        <div className="relative min-w-[200px] sm:w-72">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder={searchPlaceholder}
-            value={search}
-            onChange={(e) => onSearch?.(e.target.value)}
-            className="h-9 border-gray-200 pl-9"
-          />
+    <TableRow>
+      <TableCell colSpan={span} className="h-32 text-center text-gray-500">{message}</TableCell>
+    </TableRow>
+  );
+}
+
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="flex shrink-0 flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+      {label}
+      {children}
+    </label>
+  );
+}
+
+function CheckMenu({
+  label,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  options: { id: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const allSelected = options.length > 0 && options.every((option) => selectedSet.has(option.id));
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72" align="start">
+        {options.length > 0 && (
+          <label className="mb-1 flex items-center gap-2 border-b border-gray-200 pb-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => onChange(allSelected ? [] : options.map((option) => option.id))}
+            />
+            Select all
+          </label>
+        )}
+        <div className="max-h-64 space-y-1 overflow-y-auto">
+          {options.map((option) => (
+            <label key={option.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedSet.has(option.id)}
+                onChange={() =>
+                  onChange(
+                    selectedSet.has(option.id)
+                      ? selected.filter((id) => id !== option.id)
+                      : [...selected, option.id],
+                  )
+                }
+              />
+              {option.label}
+            </label>
+          ))}
         </div>
-      )}
-      {loading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-      <Button
-        variant="outline"
-        className="h-9 gap-2 border-gray-200"
-        onClick={onExport}
-        disabled={exportDisabled}
-      >
-        <Download className="h-4 w-4" /> Export
-      </Button>
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function CountTable<T extends AssessmentCounts>({
-  title,
-  subtitle,
-  loading,
-  empty,
-  firstColumn,
-  rows,
-  nameOf,
-  studentsOf,
-  onRowClick,
-  pagination,
-}: {
-  title: string;
-  subtitle: string;
-  loading: boolean;
-  empty: string;
-  firstColumn: string;
-  rows: T[];
-  nameOf: (row: T) => string;
-  studentsOf: (row: T) => number;
-  onRowClick: (row: T) => void;
-  pagination: {
-    page: number;
-    totalPages: number;
-    totalItems: number;
-    pageSize: number;
-    onPageChange: (p: number) => void;
-    onPageSizeChange: (s: number) => void;
-    itemLabel: string;
-  };
-}) {
-  return (
-    <TableShell>
-      <div className="border-b border-gray-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-        <p className="mt-0.5 text-xs text-gray-500">{subtitle}</p>
-      </div>
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-              <Th>{firstColumn}</Th>
-              <Th className="text-right">Students</Th>
-              <Th className="text-right">CQ</Th>
-              <Th className="text-right">MQ</Th>
-              <Th className="text-right">Total</Th>
-              <Th className="text-right">CQ %</Th>
-              <Th className="text-right">MQ %</Th>
-              <Th className="w-[160px] text-right">Overall %</Th>
-              <Th className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={9}>
-                    <Skeleton className="h-8 w-full" />
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} className="h-32 text-center text-gray-500">
-                  {empty}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow
-                  key={nameOf(row)}
-                  className="cursor-pointer border-b border-gray-200 hover:bg-brand-50/40"
-                  onClick={() => onRowClick(row)}
-                >
-                  <TableCell className="py-3 font-medium text-gray-900">
-                    {nameOf(row)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-gray-600">
-                    {studentsOf(row).toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <CountCell
-                      completed={row.classroomCompleted}
-                      total={row.classroomTotal}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <CountCell
-                      completed={row.moduleCompleted}
-                      total={row.moduleTotal}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <CountCell
-                      completed={row.totalCompleted}
-                      total={row.totalAssigned}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-semibold">
-                    {row.classroomStudentTotal > 0
-                      ? `${row.classroomPct}%`
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-semibold">
-                    {row.moduleStudentTotal > 0 ? `${row.modulePct}%` : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <PctBar pct={row.completionPct} />
-                  </TableCell>
-                  <TableCell className="text-right text-gray-300">
-                    <ChevronRight className="ml-auto h-4 w-4" />
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      {!loading && pagination.totalItems > 0 && (
-        <TablePagination
-          page={pagination.page}
-          totalPages={pagination.totalPages}
-          totalItems={pagination.totalItems}
-          pageSize={pagination.pageSize}
-          pageSizeOptions={PAGE_SIZES}
-          onPageChange={pagination.onPageChange}
-          onPageSizeChange={pagination.onPageSizeChange}
-          itemLabel={pagination.itemLabel}
-        />
-      )}
-    </TableShell>
-  );
+function campusScopeLabel(selected: string[], options: string[]): string {
+  if (!selected.length) return "All campuses";
+  const everyCampus = options.length > 0 && options.every((name) => selected.includes(name));
+  if (everyCampus) return `${options.length.toLocaleString("en-IN")} campuses`;
+  return selected.join(", ");
 }
 
-function SummaryStrip({
-  totals,
-  uniqueCounts = false,
-}: {
-  totals: AssessmentCounts;
-  uniqueCounts?: boolean;
-}) {
+function semesterScopeLabel(selected: string[], options: string[]): string {
+  if (!selected.length) return "Current semesters";
+  const every = options.length > 0 && options.every((name) => selected.includes(name));
+  if (every) return `${options.length.toLocaleString("en-IN")} semesters`;
+  return selected.join(", ");
+}
+
+function SummaryStrip({ totals, uniqueCounts = false }: { totals: AssessmentCounts; uniqueCounts?: boolean }) {
   return (
     <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
-      <Kpi
-        label="Classroom quizzes"
-        completed={totals.classroomCompleted}
-        total={totals.classroomTotal}
-        studentPct={totals.classroomPct}
-        uniqueCounts={uniqueCounts}
-      />
-      <Kpi
-        label="Module quizzes"
-        completed={totals.moduleCompleted}
-        total={totals.moduleTotal}
-        studentPct={totals.modulePct}
-        uniqueCounts={uniqueCounts}
-      />
-      <Kpi
-        label="Total (CQ + MQ)"
-        completed={totals.totalCompleted}
-        total={totals.totalAssigned}
-        studentPct={totals.completionPct}
-        uniqueCounts={uniqueCounts}
-      />
+      <Kpi label="Classroom quizzes" completed={totals.classroomCompleted} total={totals.classroomTotal} studentPct={totals.classroomPct} uniqueCounts={uniqueCounts} />
+      <Kpi label="Module quizzes" completed={totals.moduleCompleted} total={totals.moduleTotal} studentPct={totals.modulePct} uniqueCounts={uniqueCounts} />
+      <Kpi label="Total (CQ + MQ)" completed={totals.totalCompleted} total={totals.totalAssigned} studentPct={totals.completionPct} uniqueCounts={uniqueCounts} />
       <div className="bg-white px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-          Skills assessments
-        </p>
-        <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-400">
-          <Lock className="h-3.5 w-3.5" /> Coming soon
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Skills assessments</p>
+        <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-400"><Lock className="h-3.5 w-3.5" /> Coming soon</p>
       </div>
       <div className="bg-white px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-          Final skills assessment
-        </p>
-        <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-400">
-          <Lock className="h-3.5 w-3.5" /> Coming soon
-        </p>
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Final skills assessment</p>
+        <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-400"><Lock className="h-3.5 w-3.5" /> Coming soon</p>
       </div>
     </div>
   );
@@ -1199,48 +888,24 @@ function Kpi({
 }) {
   return (
     <div className="bg-white px-4 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-        {label}
-      </p>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums text-gray-900">
         {completed.toLocaleString()}
-        <span className="text-sm font-normal text-gray-400">
-          {" "}
-          / {total.toLocaleString()}
-        </span>
+        <span className="text-sm font-normal text-gray-400"> / {total.toLocaleString()}</span>
       </p>
-      {uniqueCounts ? (
-        <p className="mt-0.5 text-[11px] text-gray-400">Unique quizzes</p>
-      ) : (
-        <p className="mt-0.5 text-[11px] text-gray-400">Student work</p>
-      )}
-      <p
-        className="mt-0.5 text-xs font-medium tabular-nums"
-        style={{ color: total > 0 ? pctTextColor(studentPct) : undefined }}
-      >
-        {total > 0
-          ? `${studentPct}% student completion`
-          : "No quizzes assigned"}
+      <p className="mt-0.5 text-[11px] text-gray-400">{uniqueCounts ? "Unique quizzes" : "Student work"}</p>
+      <p className="mt-0.5 text-xs font-medium tabular-nums" style={{ color: total > 0 ? pctTextColor(studentPct) : undefined }}>
+        {total > 0 ? `${studentPct}% student completion` : "No quizzes assigned"}
       </p>
     </div>
   );
 }
 
-function CountCell({
-  completed,
-  total,
-}: {
-  completed: number;
-  total: number;
-}) {
-  if (total <= 0) {
-    return <span className="text-gray-400">—</span>;
-  }
+function CountCell({ completed, total }: { completed: number; total: number }) {
+  if (total <= 0) return <span className="text-gray-400">—</span>;
   return (
     <span className="tabular-nums">
-      <span className="font-semibold text-gray-900">
-        {completed.toLocaleString()}
-      </span>
+      <span className="font-semibold text-gray-900">{completed.toLocaleString()}</span>
       <span className="text-gray-400"> / {total.toLocaleString()}</span>
     </span>
   );
@@ -1250,38 +915,16 @@ function PctBar({ pct }: { pct: number }) {
   return (
     <div className="flex items-center justify-end gap-3">
       <div className="hidden h-2 w-24 overflow-hidden rounded-full bg-gray-200 sm:block">
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${Math.min(100, pct)}%`,
-            backgroundColor: pctColor(pct),
-          }}
-        />
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, backgroundColor: pctColor(pct) }} />
       </div>
-      <span
-        className="w-14 font-bold tabular-nums"
-        style={{ color: pctTextColor(pct) }}
-      >
-        {pct}%
-      </span>
+      <span className="w-14 font-bold tabular-nums" style={{ color: pctTextColor(pct) }}>{pct}%</span>
     </div>
   );
 }
 
-function Th({
-  className,
-  children,
-}: {
-  className?: string;
-  children?: React.ReactNode;
-}) {
+function Th({ className, children }: { className?: string; children?: React.ReactNode }) {
   return (
-    <TableHead
-      className={
-        "h-11 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-600 " +
-        (className ?? "")
-      }
-    >
+    <TableHead className={"h-11 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-600 " + (className ?? "")}>
       {children}
     </TableHead>
   );

@@ -2412,6 +2412,306 @@ export async function getAssessmentStudents(
   }));
 }
 
+export interface AssessmentSlotItem {
+  instituteName: string;
+  semester: string;
+  section: string;
+  subject: string;
+  studentCount: number;
+  quizN: number;
+  cqCompletedSum: number;
+  cqTotalMax: number;
+  mqCompletedSum: number;
+  mqTotalMax: number;
+  cqStudentCompleted: number;
+  cqStudentTotal: number;
+  mqStudentCompleted: number;
+  mqStudentTotal: number;
+}
+
+export interface AssessmentRosterItem {
+  instituteName: string;
+  semester: string;
+  section: string;
+  studentId: string;
+  studentName: string;
+}
+
+export interface AssessmentStudentRow extends AssessmentCountRow {
+  studentId: string;
+  studentName: string;
+  instituteName: string;
+  semester: string;
+  sectionName: string;
+}
+
+/**
+ * Current-semester assessment slots (campus × semester × section × subject)
+ * plus the student roster. The page filters and groups these in the browser.
+ * Unique quiz counts stay recoverable: each slot keeps the sum, the student
+ * count, and the max assigned so the client can recompute AVG the same way
+ * the campus rollup does.
+ */
+export async function getAssessmentDetail(
+  scope: SessionScope,
+): Promise<{ slots: AssessmentSlotItem[]; roster: AssessmentRosterItem[] }> {
+  const slotParams: Record<string, unknown> = {};
+  const rosterParams: Record<string, unknown> = {};
+  const attWhere = scopeClause(scope, slotParams);
+  const quizWhere = quizScopeClause(scope, slotParams);
+  const rosterWhere = scopeClause(scope, rosterParams);
+  const [slotRows, rosterRows] = await Promise.all([
+    bqQuery<{
+      institute_name: string;
+      semester_title: string;
+      section_name: string;
+      subject_title: string;
+      student_count: string;
+      quiz_n: string;
+      cq_completed_sum: string;
+      cq_total_max: string;
+      mq_completed_sum: string;
+      mq_total_max: string;
+      cq_student_completed: string;
+      cq_student_total: string;
+      mq_student_completed: string;
+      mq_student_total: string;
+    }>(
+      `WITH enrolled AS (
+        SELECT
+          institute_name,
+          TRIM(semester_title) AS semester_title,
+          COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
+          LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+          subject_title
+        FROM ${ATTENDANCE_TABLE}
+        WHERE ${attWhere}
+          AND institute_name IS NOT NULL
+          AND TRIM(institute_name) != ''
+          AND student_user_id IS NOT NULL
+          AND semester_title IS NOT NULL
+          AND TRIM(semester_title) != ''
+          AND subject_title IS NOT NULL
+          AND TRIM(subject_title) != ''
+          AND UPPER(TRIM(subject_title)) != 'NULL'
+        GROUP BY institute_name, semester_title, section_name, student_key, subject_title
+      ),
+      quiz_student AS (
+        SELECT
+          e.institute_name,
+          e.semester_title,
+          e.section_name,
+          e.subject_title,
+          e.student_key,
+          ${quizPivotSelect("q")}
+        FROM ${QUIZ_TABLE} q
+        INNER JOIN enrolled e
+          ON e.institute_name = q.institute_name
+         AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+         AND ${quizMatchesSubjectSql("e.subject_title", "q")}
+        WHERE ${quizWhere}
+          AND q.institute_name IS NOT NULL
+          AND TRIM(q.institute_name) != ''
+        GROUP BY e.institute_name, e.semester_title, e.section_name, e.subject_title, e.student_key
+      )
+      SELECT
+        e.institute_name,
+        e.semester_title,
+        e.section_name,
+        e.subject_title,
+        COUNT(DISTINCT e.student_key) AS student_count,
+        COUNT(q.student_key) AS quiz_n,
+        IFNULL(SUM(q.cq_completed), 0) AS cq_completed_sum,
+        IFNULL(MAX(q.cq_total), 0) AS cq_total_max,
+        IFNULL(SUM(q.mq_completed), 0) AS mq_completed_sum,
+        IFNULL(MAX(q.mq_total), 0) AS mq_total_max,
+        IFNULL(SUM(q.cq_completed), 0) AS cq_student_completed,
+        IFNULL(SUM(q.cq_total), 0) AS cq_student_total,
+        IFNULL(SUM(q.mq_completed), 0) AS mq_student_completed,
+        IFNULL(SUM(q.mq_total), 0) AS mq_student_total
+      FROM enrolled e
+      LEFT JOIN quiz_student q
+        ON q.institute_name = e.institute_name
+       AND q.semester_title = e.semester_title
+       AND q.section_name = e.section_name
+       AND q.subject_title = e.subject_title
+       AND q.student_key = e.student_key
+      GROUP BY e.institute_name, e.semester_title, e.section_name, e.subject_title`,
+      slotParams,
+    ),
+    bqQuery<{
+      institute_name: string;
+      semester_title: string;
+      section_name: string;
+      student_user_id: string;
+      student_name: string;
+    }>(
+      `SELECT
+        institute_name,
+        TRIM(semester_title) AS semester_title,
+        COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
+        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_user_id,
+        COALESCE(MAX(student_name), '') AS student_name
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${rosterWhere}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+        AND student_user_id IS NOT NULL
+        AND semester_title IS NOT NULL
+        AND TRIM(semester_title) != ''
+      GROUP BY institute_name, semester_title, section_name, student_user_id`,
+      rosterParams,
+    ),
+  ]);
+  return {
+    slots: slotRows
+      .filter((row) => !isExcludedInstitute(row.institute_name))
+      .map((row) => ({
+        instituteName: row.institute_name,
+        semester: row.semester_title,
+        section: row.section_name,
+        subject: row.subject_title,
+        studentCount: Number(row.student_count ?? 0),
+        quizN: Number(row.quiz_n ?? 0),
+        cqCompletedSum: Number(row.cq_completed_sum ?? 0),
+        cqTotalMax: Number(row.cq_total_max ?? 0),
+        mqCompletedSum: Number(row.mq_completed_sum ?? 0),
+        mqTotalMax: Number(row.mq_total_max ?? 0),
+        cqStudentCompleted: Number(row.cq_student_completed ?? 0),
+        cqStudentTotal: Number(row.cq_student_total ?? 0),
+        mqStudentCompleted: Number(row.mq_student_completed ?? 0),
+        mqStudentTotal: Number(row.mq_student_total ?? 0),
+      })),
+    roster: rosterRows
+      .filter((row) => !isExcludedInstitute(row.institute_name))
+      .map((row) => ({
+        instituteName: row.institute_name,
+        semester: row.semester_title,
+        section: row.section_name,
+        studentId: row.student_user_id,
+        studentName: row.student_name || "Unknown student",
+      })),
+  };
+}
+
+/** Per-student quiz totals for the current semester. Loaded only after a campus or student is chosen. */
+export async function getAssessmentStudentRows(
+  scope: SessionScope,
+  opts: { campuses?: string[]; studentIds?: string[]; subject?: string },
+): Promise<AssessmentStudentRow[]> {
+  const params: Record<string, unknown> = {};
+  const { attWhere, quizWhere } = assessmentScopeSql(scope, {}, params);
+  let extra = "";
+  if (opts.campuses?.length) {
+    params["filterCampuses"] = opts.campuses;
+    extra += " AND institute_name IN UNNEST(@filterCampuses)";
+  }
+  if (opts.studentIds?.length) {
+    params["filterStudents"] = opts.studentIds;
+    extra +=
+      " AND LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) IN UNNEST(@filterStudents)";
+  }
+  if (opts.subject) {
+    params["filterSubject"] = opts.subject;
+    extra += " AND subject_title = @filterSubject";
+  }
+  const rows = await bqQuery<{
+    student_user_id: string;
+    student_name: string;
+    institute_name: string;
+    semester_title: string;
+    section_name: string;
+    cq_completed: string;
+    cq_total: string;
+    mq_completed: string;
+    mq_total: string;
+  }>(
+    `WITH enrolled AS (
+      SELECT
+        institute_name,
+        TRIM(semester_title) AS semester_title,
+        COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
+        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+        subject_title
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${attWhere}
+        AND institute_name IS NOT NULL
+        AND TRIM(institute_name) != ''
+        AND student_user_id IS NOT NULL
+        AND semester_title IS NOT NULL
+        AND TRIM(semester_title) != ''
+        AND subject_title IS NOT NULL
+        AND TRIM(subject_title) != ''
+        AND UPPER(TRIM(subject_title)) != 'NULL'
+        ${extra}
+      GROUP BY institute_name, semester_title, section_name, student_key, subject_title
+    ),
+    names AS (
+      SELECT
+        institute_name,
+        semester_title,
+        section_name,
+        student_key,
+        MAX(student_name) AS student_name
+      FROM (
+        SELECT
+          institute_name,
+          TRIM(semester_title) AS semester_title,
+          COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
+          LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+          student_name
+        FROM ${ATTENDANCE_TABLE}
+        WHERE ${attWhere}
+          AND student_user_id IS NOT NULL
+          AND semester_title IS NOT NULL
+          AND TRIM(semester_title) != ''
+          ${extra}
+      )
+      GROUP BY institute_name, semester_title, section_name, student_key
+    ),
+    quiz AS (
+      SELECT
+        e.institute_name,
+        e.student_key,
+        ${quizPivotSelect("q")}
+      FROM ${QUIZ_TABLE} q
+      INNER JOIN (
+        SELECT DISTINCT institute_name, student_key, subject_title FROM enrolled
+      ) e
+        ON e.institute_name = q.institute_name
+       AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
+       AND ${quizMatchesSubjectSql("e.subject_title", "q")}
+      WHERE ${quizWhere}
+      GROUP BY e.institute_name, e.student_key
+    )
+    SELECT
+      names.student_key AS student_user_id,
+      COALESCE(names.student_name, '') AS student_name,
+      names.institute_name,
+      names.semester_title,
+      names.section_name,
+      IFNULL(quiz.cq_completed, 0) AS cq_completed,
+      IFNULL(quiz.cq_total, 0) AS cq_total,
+      IFNULL(quiz.mq_completed, 0) AS mq_completed,
+      IFNULL(quiz.mq_total, 0) AS mq_total
+    FROM names
+    LEFT JOIN quiz
+      ON quiz.institute_name = names.institute_name
+     AND quiz.student_key = names.student_key`,
+    params,
+  );
+  return rows
+    .filter((row) => !isExcludedInstitute(row.institute_name))
+    .map((row) => ({
+      studentId: row.student_user_id,
+      studentName: row.student_name || "Unknown student",
+      instituteName: row.institute_name,
+      semester: row.semester_title,
+      sectionName: row.section_name,
+      ...mapAssessmentCounts(row),
+    }));
+}
+
 export interface QuizRecoveryStudent {
   studentId: string;
   studentName: string;
