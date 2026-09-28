@@ -356,7 +356,7 @@ export default function StudentAttendanceStats() {
   const headers = ["Campus", ...identity, ...visibleColumns.map((id) => columnLabel(id, grain))];
 
   const scopeLabel = [
-    campuses.length ? campuses.join(", ") : "All campuses",
+    campusScopeLabel(campuses, campusOptions),
     semesters.length ? semesters.join(", ") : "Current semesters",
     scopeKind === "day" && day
       ? formatDay(day)
@@ -497,7 +497,7 @@ export default function StudentAttendanceStats() {
       <PageHeader title="Student Attendance Stats" right={toolbar} />
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} hint={scopeLabel} />
-        <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="Present ÷ scheduled. Same students on every Group by." />
+        <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="" />
         <StatTile label="Eligible" value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} at 80% or above`} />
         <StatTile label="Recovery" value={isLoading ? null : summary.recoveryEligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.recoveryEligible)} from 60% to 80%`} />
         <StatTile label="At risk" value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} from 50% to 60%`} />
@@ -853,9 +853,16 @@ function StatTile({ label, value, hint, tone }: { label: string; value: string |
     <div className={cn("rounded-lg border p-4", tone === "rose" ? "border-rose-200 bg-rose-50" : "border-gray-200 bg-white")}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
       {value == null ? <Skeleton className="mt-2 h-8 w-24" /> : <div className="mt-1 text-2xl font-semibold text-gray-900">{value}</div>}
-      <div className="mt-1 text-xs text-gray-500">{hint}</div>
+      {hint ? <div className="mt-1 text-xs text-gray-500">{hint}</div> : null}
     </div>
   );
+}
+
+function campusScopeLabel(selected: string[], options: string[]): string {
+  if (!selected.length) return "All campuses";
+  const everyCampus = options.length > 0 && options.every((name) => selected.includes(name));
+  if (everyCampus) return `${options.length.toLocaleString("en-IN")} campuses`;
+  return selected.join(", ");
 }
 
 function formatDay(iso: string): string {
