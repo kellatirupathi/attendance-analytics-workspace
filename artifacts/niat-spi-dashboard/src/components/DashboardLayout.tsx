@@ -35,7 +35,7 @@ interface NavItem {
 }
 
 const mainNav: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutGrid },
+  { label: "Overview", href: "/dashboard", icon: LayoutGrid },
   { label: "Student Directory", href: "/dashboard/students", icon: UsersRound },
   { label: "Student Attendance Stats", href: "/dashboard/attendance-stats", icon: BarChart3 },
   { label: "SPI Record Dashboard", href: "/dashboard/spi-record", icon: FileBarChart2 },

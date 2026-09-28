@@ -808,12 +808,23 @@ function CheckMenu({
   onChange: (next: string[]) => void;
 }) {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const allSelected = options.length > 0 && options.every((option) => selectedSet.has(option.id));
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
       </PopoverTrigger>
       <PopoverContent className="w-72" align="start">
+        {options.length > 0 && (
+          <label className="mb-1 flex items-center gap-2 border-b border-gray-200 pb-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => onChange(allSelected ? [] : options.map((option) => option.id))}
+            />
+            Select all
+          </label>
+        )}
         <div className="max-h-64 space-y-1 overflow-y-auto">
           {options.map((option) => (
             <label key={option.id} className="flex items-center gap-2 text-sm">
