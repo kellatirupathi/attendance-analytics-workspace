@@ -2458,7 +2458,7 @@ export async function getAssessmentDetail(
   const slotParams: Record<string, unknown> = {};
   const rosterParams: Record<string, unknown> = {};
   const attWhere = scopeClause(scope, slotParams);
-  const quizWhere = quizScopeClause(scope, slotParams);
+  const quizWhere = quizScopeClause(scope, slotParams, "q");
   const rosterWhere = scopeClause(scope, rosterParams);
   const [slotRows, rosterRows] = await Promise.all([
     bqQuery<{
