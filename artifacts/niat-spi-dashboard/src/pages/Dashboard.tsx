@@ -30,7 +30,6 @@ import { useQueryParams } from "@/hooks/useQueryParams";
 import {
   ISO_DATE_RE,
   campusAnalyticsPath,
-  studentsDirectoryPath,
   type DateRange,
 } from "@/lib/dateRange";
 import { roleLabel } from "@/lib/roleLabels";
@@ -142,8 +141,8 @@ const ROLE_LAYOUT: Record<Role, RoleLayout> = {
   instructor: { leader: "section", kpis: ALL_KPIS },
 };
 
-function quickActions(role: Role, range: DateRange): QuickAction[] {
-  const students: QuickAction = { label: "Student Directory", href: studentsDirectoryPath(range), icon: Users, primary: true };
+function quickActions(role: Role, range: DateRange, studentsHref: string): QuickAction[] {
+  const students: QuickAction = { label: "Student Directory", href: studentsHref, icon: Users, primary: true };
   const campuses: QuickAction = { label: "Campus Analytics", href: campusAnalyticsPath(range), icon: Building2 };
   const requests: QuickAction = { label: "Request Inbox", href: "/dashboard/requests", icon: Bell };
   const manageUsers: QuickAction = { label: "Manage Users", href: "/admin/users", icon: UserCog };
@@ -220,6 +219,7 @@ function DashboardHeader({
   meta,
   unreadRequests,
   range,
+  studentsHref,
 }: {
   role: Role;
   name: string;
@@ -227,6 +227,7 @@ function DashboardHeader({
   meta: string;
   unreadRequests: number;
   range: DateRange;
+  studentsHref: string;
 }) {
   return (
     <PageHeader
@@ -235,7 +236,7 @@ function DashboardHeader({
       subtitle={`${theme.subtitle} Signed in as ${name} · ${meta}`}
       right={
         <div className="flex flex-wrap items-center gap-2">
-          {quickActions(role, range).map((a) => (
+          {quickActions(role, range, studentsHref).map((a) => (
             <Link key={a.label} href={a.href}>
               <Button variant={a.primary ? "default" : "outline"} size="sm" className="relative gap-2">
                 <a.icon className="h-4 w-4" />
@@ -492,6 +493,12 @@ export default function Dashboard() {
     for (const [k, v] of spiParams) p.set(k, v);
     return `/dashboard/spi-record?${p.toString()}`;
   };
+  const studentsHref = () => {
+    const p = scopeParams();
+    for (const [k, v] of spiParams) if (k !== "attRange" || v !== "semester_to_date") p.set(k, v);
+    const qs = p.toString();
+    return qs ? `/dashboard/students?${qs}` : "/dashboard/students";
+  };
   const assessmentsHref = () => `/dashboard/assessments?${scopeParams().toString()}`;
 
   const leaderLink = (row: LeaderRow) => {
@@ -613,6 +620,7 @@ export default function Dashboard() {
         meta={pLabel}
         unreadRequests={unreadRequests}
         range={range}
+        studentsHref={studentsHref()}
       />
 
       <OverviewFilterBar

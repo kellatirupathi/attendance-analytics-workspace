@@ -24,11 +24,11 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-function spiPointsOf(classroom: number | null, module: number | null): number {
+export function spiPointsOf(classroom: number | null, module: number | null): number {
   return (((classroom ?? 0) * 10 + (module ?? 0) * 15) / 100) / 10;
 }
 
-function skillLevelOf(classroom: number | null, module: number | null): string {
+export function skillLevelOf(classroom: number | null, module: number | null): string {
   if (classroom == null && module == null) return "Ab";
   const weakest = Math.min(classroom ?? 100, module ?? 100);
   if (weakest < 50) return "F";
