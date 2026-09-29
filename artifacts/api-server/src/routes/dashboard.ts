@@ -38,6 +38,7 @@ import {
   getAttendanceGroupStats,
   getAttendanceStatsDetail,
   getAttendanceStatsUnits,
+  getAttendanceTrend,
   type AttendanceGrain,
 } from "../lib/queries.js";
 import {
@@ -1424,6 +1425,45 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
   } catch (err) {
     req.log.error({ err }, "Error fetching attendance stats units");
     res.status(500).json({ error: "Failed to fetch unit attendance" });
+  }
+});
+
+router.get("/attendance-stats/trend", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const campuses = queryList(q, "campuses");
+  if (scope.campuses?.length && campuses.some((name) => !scope.campuses!.includes(name))) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const semesters = queryList(q, "semesters");
+  const sections = queryList(q, "sections").filter((value) => value.includes("\t"));
+  const dates = closedDateScope({ dateFrom: firstQuery(q, "dateFrom"), dateTo: firstQuery(q, "dateTo") });
+  const cacheKey = `attendance-trend:v1:${session.role}:${JSON.stringify(scope)}:${campuses.slice().sort().join("||")}:${semesters.slice().sort().join("||")}:${sections.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const points = await getAttendanceTrend(scope, {
+      campuses,
+      semesters,
+      sections,
+      dateFrom: dates.dateFrom,
+      dateTo: dates.dateTo,
+    });
+    const body = { points };
+    cacheSet(cacheKey, body, 15 * 60 * 1000);
+    res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching attendance trend");
+    res.status(500).json({ error: "Failed to fetch attendance trend" });
   }
 });
 

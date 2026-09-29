@@ -1,68 +1,56 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { Link, useLocation } from "wouter";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { addDays, differenceInCalendarDays, format, parseISO, subDays } from "date-fns";
+import type { SubjectSummary } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/AuthContext";
-import {
-  useGetDashboardSummary,
-  getGetDashboardSummaryQueryKey,
-  useGetDashboardStudents,
-  getGetDashboardStudentsQueryKey,
-} from "@workspace/api-client-react";
-import type { DashboardSummary, SubjectSummary } from "@workspace/api-client-react";
-import {
-  SearchableSelect,
-  campusSelectOptions,
-} from "@/components/SearchableSelect";
-import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
-import { DateRangeFilter } from "@/components/DateRangeFilter";
+import { AttendanceBySubject } from "@/components/dashboard/blocks";
+import {
+  AttendanceTrend,
+  CompletionBars,
+  InsightsList,
+  Leaderboard,
+  OverviewFilterBar,
+  Section,
+  SectionLink,
+  SkillSplit,
+  StatTile,
+  TierBar,
+  WatchList,
+  type OverviewPeriod,
+  type TrendPoint,
+} from "@/components/dashboard/overview";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
-import { pctColor, pctTextColor } from "@/lib/utils";
+import { pctTextColor } from "@/lib/utils";
+import { exportCsv } from "@/lib/csv";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import {
-  applyDateRange,
+  ISO_DATE_RE,
   campusAnalyticsPath,
-  dashboardPath,
-  dateRangeLabel,
-  readDateRange,
   studentsDirectoryPath,
   type DateRange,
 } from "@/lib/dateRange";
 import { roleLabel } from "@/lib/roleLabels";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
+import type { AttendanceClassRow, AttendanceDetailRow } from "@/lib/attendanceStatsAggregate";
+import type { SpiDetailRow } from "@/lib/spiRecordAggregate";
+import type { AssessmentRosterRow, AssessmentSlot } from "@/lib/assessmentAggregate";
 import {
-  Panel,
-  PanelHead,
-  ViewAllLink,
-  KpiCard,
-  AttendanceBySubject,
-  SubjectHealthDonut,
-  NeedsAttentionList,
-  CampusLeaderboard,
-  SectionsToWatch,
-  SubjectPerformanceList,
-  AcademicPerformance,
-  aggregateAcademics,
-  healthMeta,
-  type AcademicAggregate,
-} from "@/components/dashboard/blocks";
-import {
-  Users,
-  Building2,
-  UserCog,
-  Database,
-  Bell,
-  GraduationCap,
-  BookOpenCheck,
-  Layers,
-  AlertTriangle,
-  TrendingUp,
-  ArrowRight,
-  Sparkles,
-  Inbox,
-} from "lucide-react";
+  assessmentOverview,
+  attendanceOverview,
+  attendancePctOnly,
+  leaderboard,
+  spiOverview,
+  watchList,
+  type LeaderGrain,
+  type LeaderRow,
+  type OverviewFilters,
+} from "@/lib/overviewAggregate";
+import { buildInsights } from "@/lib/overviewInsights";
+import { Users, Building2, UserCog, Database, Bell, Inbox } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -76,6 +64,8 @@ type Role =
   | "boa"
   | "instructor";
 
+type KpiId = "students" | "attendance" | "eligible" | "belowSixty" | "avgSpi" | "skillDebt" | "completion";
+
 interface QuickAction {
   label: string;
   href: string;
@@ -84,99 +74,81 @@ interface QuickAction {
 }
 
 interface RoleTheme {
-  eyebrow: string;
   title: string;
   subtitle: string;
-  academics: boolean;
 }
 
-interface DashCtx {
-  summary: DashboardSummary;
-  academics: AcademicAggregate | null;
-  academicsLoading: boolean;
-  updated: string | null;
-  range: DateRange;
+interface RoleLayout {
+  /** Leaderboard grouping when no single campus is picked. */
+  leader: LeaderGrain;
+  kpis: KpiId[];
+}
+
+interface AttendancePayload {
+  students: AttendanceDetailRow[];
+  classes: AttendanceClassRow[];
+  spiPaths: Record<string, string>;
+}
+
+interface SpiPayload {
+  rows: SpiDetailRow[];
+  spiPaths: Record<string, string>;
+}
+
+interface AssessmentPayload {
+  slots: AssessmentSlot[];
+  roster: AssessmentRosterRow[];
 }
 
 /* ------------------------------------------------------------------ */
-/*  Per-role identity (hero copy + accent + quick actions)             */
+/*  Per-role copy, layout and quick actions                            */
 /* ------------------------------------------------------------------ */
 
 const ROLE_THEME: Record<Role, RoleTheme> = {
   superadmin: {
-    eyebrow: "Command Center",
     title: "System Overview",
-    subtitle:
-      "Full visibility across every campus, subject, and assessment on the platform.",
-    academics: true,
+    subtitle: "Attendance, SPI and assessments across every campus.",
   },
   admin: {
-    eyebrow: "Operations Console",
     title: "Attendance & Access",
-    subtitle:
-      "Monitor performance across all campuses and manage platform access.",
-    academics: true,
+    subtitle: "Performance across all campuses and platform access.",
   },
   hod: {
-    eyebrow: "Department Health",
     title: "Academic Overview",
-    subtitle:
-      "Attendance and academic performance across every subject in the department.",
-    academics: true,
+    subtitle: "Attendance and academic performance across the department.",
   },
   capability_manager: {
-    eyebrow: "Subject Command",
     title: "Subject Performance",
-    subtitle: "Attendance and quiz performance for the subjects you manage.",
-    academics: true,
+    subtitle: "Attendance, SPI and quiz completion for the subjects you manage.",
   },
   boa: {
-    eyebrow: "Campus Operations",
     title: "Campus Overview",
-    subtitle:
-      "Attendance health and correction requests for your assigned campuses.",
-    academics: false,
+    subtitle: "Attendance health, skill levels and requests for your campuses.",
   },
   instructor: {
-    eyebrow: "My Classes",
     title: "Class Overview",
     subtitle: "Attendance and performance for the students you teach.",
-    academics: true,
   },
 };
 
+const ALL_KPIS: KpiId[] = ["students", "attendance", "eligible", "belowSixty", "avgSpi", "skillDebt", "completion"];
+
+const ROLE_LAYOUT: Record<Role, RoleLayout> = {
+  superadmin: { leader: "campus", kpis: ALL_KPIS },
+  admin: { leader: "campus", kpis: ALL_KPIS },
+  hod: { leader: "campus", kpis: ALL_KPIS },
+  capability_manager: { leader: "subject", kpis: ["attendance", "avgSpi", "completion", "skillDebt"] },
+  boa: { leader: "section", kpis: ALL_KPIS },
+  instructor: { leader: "section", kpis: ALL_KPIS },
+};
+
 function quickActions(role: Role, range: DateRange): QuickAction[] {
-  const students: QuickAction = {
-    label: "Student Directory",
-    href: studentsDirectoryPath(range),
-    icon: Users,
-    primary: true,
-  };
-  const campuses: QuickAction = {
-    label: "Campus Analytics",
-    href: campusAnalyticsPath(range),
-    icon: Building2,
-  };
-  const requests: QuickAction = {
-    label: "Request Inbox",
-    href: "/dashboard/requests",
-    icon: Bell,
-  };
-  const manageUsers: QuickAction = {
-    label: "Manage Users",
-    href: "/admin/users",
-    icon: UserCog,
-  };
-  const manageCampuses: QuickAction = {
-    label: "Manage Campuses",
-    href: "/admin/campuses",
-    icon: Building2,
-  };
-  const bigquery: QuickAction = {
-    label: "Data Explorer",
-    href: "/dashboard/bigquery",
-    icon: Database,
-  };
+  const students: QuickAction = { label: "Student Directory", href: studentsDirectoryPath(range), icon: Users, primary: true };
+  const campuses: QuickAction = { label: "Campus Analytics", href: campusAnalyticsPath(range), icon: Building2 };
+  const requests: QuickAction = { label: "Request Inbox", href: "/dashboard/requests", icon: Bell };
+  const manageUsers: QuickAction = { label: "Manage Users", href: "/admin/users", icon: UserCog };
+  const manageCampuses: QuickAction = { label: "Manage Campuses", href: "/admin/campuses", icon: Building2 };
+  const bigquery: QuickAction = { label: "Data Explorer", href: "/dashboard/bigquery", icon: Database };
 
   switch (role) {
     case "superadmin":
@@ -189,58 +161,83 @@ function quickActions(role: Role, range: DateRange): QuickAction[] {
       return [students, campuses];
     case "boa":
       return [{ ...requests, primary: true }, students];
-    case "instructor":
-      return [students];
     default:
       return [students];
   }
 }
 
 /* ------------------------------------------------------------------ */
-/*  Page header + quick actions                                        */
+/*  URL + period helpers                                               */
+/* ------------------------------------------------------------------ */
+
+function splitList(value: string | null): string[] {
+  return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function iso(d: Date): string {
+  return format(d, "yyyy-MM-dd");
+}
+
+/** The closed date dateWindow for attendance-stats, or null for "current semester". */
+function periodWindow(period: OverviewPeriod, from: string, to: string): { dateFrom: string; dateTo: string } | null {
+  if (period === "last_30") {
+    const today = new Date();
+    return { dateFrom: iso(subDays(today, 30)), dateTo: iso(today) };
+  }
+  if (period === "custom" && ISO_DATE_RE.test(from) && ISO_DATE_RE.test(to)) {
+    return from <= to ? { dateFrom: from, dateTo: to } : { dateFrom: to, dateTo: from };
+  }
+  return null;
+}
+
+/** The same-length dateWindow just before the current one. */
+function previousWindow(current: { dateFrom: string; dateTo: string }): { dateFrom: string; dateTo: string } {
+  const start = parseISO(current.dateFrom);
+  const days = differenceInCalendarDays(parseISO(current.dateTo), start) + 1;
+  return { dateFrom: iso(subDays(start, days)), dateTo: iso(addDays(start, -1)) };
+}
+
+function periodLabel(period: OverviewPeriod, dateWindow: { dateFrom: string; dateTo: string } | null): string {
+  if (period === "last_30") return "Last 30 days";
+  if (dateWindow) return `${format(parseISO(dateWindow.dateFrom), "d MMM yyyy")} – ${format(parseISO(dateWindow.dateTo), "d MMM yyyy")}`;
+  return "This semester so far";
+}
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`Failed to load ${url}`);
+  return res.json() as Promise<T>;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Header                                                             */
 /* ------------------------------------------------------------------ */
 
 function DashboardHeader({
   role,
   name,
   theme,
-  updated,
+  meta,
   unreadRequests,
   range,
-  onRangeChange,
 }: {
   role: Role;
   name: string;
   theme: RoleTheme;
-  updated: string | null;
+  meta: string;
   unreadRequests: number;
   range: DateRange;
-  onRangeChange: (next: DateRange) => void;
 }) {
-  const actions = quickActions(role, range);
-  const meta = [
-    `Signed in as ${name}`,
-    dateRangeLabel(range),
-    updated ? `Updated ${updated}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
   return (
     <PageHeader
       badge={roleLabel(role)}
       title={theme.title}
-      subtitle={`${theme.subtitle} ${meta}`}
+      subtitle={`${theme.subtitle} Signed in as ${name} · ${meta}`}
       right={
         <div className="flex flex-wrap items-center gap-2">
-          <DateRangeFilter value={range} onChange={onRangeChange} />
-          {actions.map((a) => (
+          {quickActions(role, range).map((a) => (
             <Link key={a.label} href={a.href}>
-              <Button
-                variant={a.primary ? "default" : "outline"}
-                size="sm"
-                className="relative gap-2"
-              >
+              <Button variant={a.primary ? "default" : "outline"} size="sm" className="relative gap-2">
                 <a.icon className="h-4 w-4" />
                 {a.label}
                 {a.href === "/dashboard/requests" && unreadRequests > 0 && (
@@ -257,401 +254,15 @@ function DashboardHeader({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  KPI presets                                                        */
-/* ------------------------------------------------------------------ */
-
-function AttendanceKpi({ pct }: { pct: number }) {
-  const h = healthMeta(pct);
+function RequestsCta({ unread }: { unread: number }) {
   return (
-    <KpiCard
-      label="Attendance"
-      value={
-        <span className="flex items-baseline gap-2">
-          <span style={{ color: pctTextColor(pct) }}>{pct}%</span>
-          <span
-            className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-            style={{ background: `${h.color}14`, color: h.color }}
-          >
-            <TrendingUp className="h-2.5 w-2.5" />
-            {h.label}
-          </span>
-        </span>
-      }
-      icon={BookOpenCheck}
-      tint={`${h.color}14`}
-      accent={h.color}
-      footer={
-        <div>
-          <div className="mb-1 flex items-center justify-between">
-            <span>Present ÷ scheduled · target ≥ 80%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${Math.min(100, pct)}%`,
-                background: pctColor(pct),
-              }}
-            />
-          </div>
-        </div>
-      }
-    />
-  );
-}
-
-function ScoreKpi({
-  label,
-  avg,
-  icon: Icon,
-  tint,
-  accent,
-}: {
-  label: string;
-  avg: number | null;
-  icon: React.ElementType;
-  tint: string;
-  accent: string;
-}) {
-  return (
-    <KpiCard
-      label={label}
-      value={
-        avg !== null ? (
-          <span style={{ color: pctTextColor(avg) }}>{avg}%</span>
-        ) : (
-          <span className="text-gray-300">—</span>
-        )
-      }
-      icon={Icon}
-      tint={tint}
-      accent={accent}
-      footer={<span>Overall quiz average · not date-filtered</span>}
-    />
-  );
-}
-
-function StudentsKpi({ summary }: { summary: DashboardSummary }) {
-  return (
-    <KpiCard
-      label="Total Students"
-      value={summary.totalStudents.toLocaleString()}
-      icon={GraduationCap}
-      tint="#eff6ff"
-      accent="#2563eb"
-      footer={
-        <span className="inline-flex items-center gap-1.5">
-          <Building2 className="h-3.5 w-3.5 text-gray-400" />
-          Across {summary.totalCampuses} campuses
-        </span>
-      }
-    />
-  );
-}
-
-function CampusesKpi({ summary }: { summary: DashboardSummary }) {
-  return (
-    <KpiCard
-      label="Campuses"
-      value={summary.totalCampuses}
-      icon={Building2}
-      tint="#f5f3ff"
-      accent="#7c3aed"
-      footer={
-        <span className="inline-flex items-center gap-1.5">
-          <Layers className="h-3.5 w-3.5 text-gray-400" />
-          {summary.sectionBreakdown.length} sections tracked
-        </span>
-      }
-    />
-  );
-}
-
-function BelowTargetKpi({ summary }: { summary: DashboardSummary }) {
-  const bad = summary.subjectsBelow80 > 0;
-  const total = summary.subjectBreakdown.length || 1;
-  return (
-    <KpiCard
-      label="Subjects Below 80%"
-      value={
-        <span style={{ color: bad ? "#dc2626" : "#16a34a" }}>
-          {summary.subjectsBelow80}
-        </span>
-      }
-      icon={AlertTriangle}
-      tint={bad ? "#fef2f2" : "#f0fdf4"}
-      accent={bad ? "#dc2626" : "#16a34a"}
-      footer={<span>of {total} subjects need recovery</span>}
-    />
-  );
-}
-
-function SectionsKpi({ summary }: { summary: DashboardSummary }) {
-  return (
-    <KpiCard
-      label="Sections Tracked"
-      value={summary.sectionBreakdown.length}
-      icon={Layers}
-      tint="#fffbeb"
-      accent="#d97706"
-      footer={
-        <span className="inline-flex items-center gap-1.5">
-          <GraduationCap className="h-3.5 w-3.5 text-gray-400" />
-          {summary.totalStudents.toLocaleString()} students
-        </span>
-      }
-    />
-  );
-}
-
-function SubjectsKpi({ summary }: { summary: DashboardSummary }) {
-  return (
-    <KpiCard
-      label="Subjects Tracked"
-      value={summary.subjectBreakdown.length}
-      icon={BookOpenCheck}
-      tint="#eef2ff"
-      accent="#4f46e5"
-      footer={
-        <span className="inline-flex items-center gap-1.5">
-          <AlertTriangle className="h-3.5 w-3.5 text-gray-400" />
-          {summary.subjectsBelow80} below target
-        </span>
-      }
-    />
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Shared full-width panels                                           */
-/* ------------------------------------------------------------------ */
-
-function AcademicPanel({ ctx }: { ctx: DashCtx }) {
-  return (
-    <Panel>
-      <PanelHead
-        title="Academic Performance"
-        subtitle="Overall classroom & module quiz averages · quiz data is not date-filtered"
-        icon={Sparkles}
-        tint="#eff6ff"
-        accent="#2563eb"
-        action={<ViewAllLink href={studentsDirectoryPath(ctx.range)} label="By student" />}
-      />
-      <AcademicPerformance
-        data={ctx.academics}
-        loading={ctx.academicsLoading}
-      />
-    </Panel>
-  );
-}
-
-function SubjectChartPanel({
-  summary,
-  range,
-  span,
-}: {
-  summary: DashboardSummary;
-  range: DateRange;
-  span?: boolean;
-}) {
-  const campuses = omitExcludedInstitutes(
-    summary.campusBreakdown.map((c) => c.instituteName),
-  );
-  const [campus, setCampus] = useState<string>("all");
-  const [subjects, setSubjects] = useState<SubjectSummary[]>(
-    summary.subjectBreakdown,
-  );
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (campus === "all") {
-      setSubjects(summary.subjectBreakdown);
-      return;
-    }
-    let alive = true;
-    setLoading(true);
-    const params = new URLSearchParams({ campus });
-    applyDateRange(params, range);
-    fetch(`/api/dashboard/subjects?${params.toString()}`, {
-      credentials: "include",
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject()))
-      .then((data: SubjectSummary[]) => {
-        if (alive) setSubjects(data ?? []);
-      })
-      .catch(() => {
-        if (alive) setSubjects([]);
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [campus, summary.subjectBreakdown, range.dateFrom, range.dateTo]);
-
-  return (
-    <Panel className={span ? "lg:col-span-2" : undefined}>
-      <PanelHead
-        title="Attendance by Subject"
-        subtitle={
-          campus === "all"
-            ? "All campuses · sorted lowest to highest"
-            : `${campus} · sorted lowest to highest`
-        }
-        icon={BookOpenCheck}
-        tint="#fff3ea"
-        accent="#F25C05"
-        action={
-          campuses.length > 1 ? (
-            <SearchableSelect
-              value={campus}
-              onValueChange={setCampus}
-              options={campusSelectOptions(campuses)}
-              placeholder="All campuses"
-              searchPlaceholder="Search campuses…"
-              className="w-[200px] text-xs"
-            />
-          ) : undefined
-        }
-      />
-      <CardContent className="p-5">
-        {loading ? (
-          <Skeleton className="h-[340px] w-full" />
-        ) : (
-          <AttendanceBySubject subjects={subjects} />
-        )}
-      </CardContent>
-    </Panel>
-  );
-}
-
-function HealthPanel({ summary }: { summary: DashboardSummary }) {
-  return (
-    <Panel>
-      <PanelHead
-        title="Subject Health"
-        subtitle="Distribution overview"
-        icon={Layers}
-        tint="#f0fdf4"
-        accent="#16a34a"
-      />
-      <CardContent className="p-5">
-        <SubjectHealthDonut subjects={summary.subjectBreakdown} />
-      </CardContent>
-    </Panel>
-  );
-}
-
-function NeedsAttentionPanel({
-  summary,
-  range,
-}: {
-  summary: DashboardSummary;
-  range: DateRange;
-}) {
-  return (
-    <Panel>
-      <PanelHead
-        title="Needs Attention"
-        subtitle="Students with the lowest attendance"
-        icon={AlertTriangle}
-        tint="#fef2f2"
-        accent="#dc2626"
-        action={<ViewAllLink href={studentsDirectoryPath(range)} />}
-      />
-      <CardContent className="p-0">
-        <NeedsAttentionList students={summary.needsAttention} />
-      </CardContent>
-    </Panel>
-  );
-}
-
-function CampusPanel({
-  summary,
-  range,
-}: {
-  summary: DashboardSummary;
-  range: DateRange;
-}) {
-  return (
-    <Panel>
-      <PanelHead
-        title="Campus Breakdown"
-        subtitle="Ranked by attendance performance"
-        icon={Building2}
-        tint="#f5f3ff"
-        accent="#7c3aed"
-        action={<ViewAllLink href={campusAnalyticsPath(range)} label="Details" />}
-      />
-      <CardContent className="p-0">
-        <CampusLeaderboard campuses={summary.campusBreakdown} />
-      </CardContent>
-    </Panel>
-  );
-}
-
-function SubjectListPanel({ summary }: { summary: DashboardSummary }) {
-  return (
-    <Panel>
-      <PanelHead
-        title="Subject Performance"
-        subtitle="Attendance per subject, lowest first"
-        icon={BookOpenCheck}
-        tint="#eef2ff"
-        accent="#4f46e5"
-      />
-      <CardContent className="p-0">
-        <SubjectPerformanceList subjects={summary.subjectBreakdown} />
-      </CardContent>
-    </Panel>
-  );
-}
-
-function SectionsPanel({
-  summary,
-  range,
-}: {
-  summary: DashboardSummary;
-  range: DateRange;
-}) {
-  if (summary.sectionBreakdown.length === 0) return null;
-  return (
-    <Panel>
-      <PanelHead
-        title="Sections to Watch"
-        subtitle="Lowest attendance sections across your scope"
-        icon={Layers}
-        tint="#fffbeb"
-        accent="#d97706"
-        action={
-          <Link
-            href={campusAnalyticsPath(range)}
-            className="hidden items-center gap-0.5 text-sm font-semibold text-brand-600 hover:text-brand-700 sm:inline-flex"
-          >
-            All sections <ArrowRight className="h-4 w-4" />
-          </Link>
-        }
-      />
-      <CardContent className="p-5">
-        <SectionsToWatch sections={summary.sectionBreakdown} />
-      </CardContent>
-    </Panel>
-  );
-}
-
-/* Requests call-to-action (BOA / admin) */
-function RequestsCta() {
-  return (
-    <div className="flex flex-col items-start justify-between gap-3 border-x-0 border-y border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center">
+    <div className="flex flex-col items-start justify-between gap-3 border-y border-slate-200 bg-white px-5 py-4 sm:flex-row sm:items-center">
       <div>
         <p className="text-sm font-medium text-slate-900">
           Attendance correction requests
+          {unread > 0 && <span className="ml-2 rounded-full bg-brand-600 px-2 py-0.5 text-[11px] font-bold text-white">{unread} unread</span>}
         </p>
-        <p className="text-xs text-slate-500">
-          Review and action student-submitted corrections for your campuses.
-        </p>
+        <p className="text-xs text-slate-500">Review and action student-submitted corrections for your campuses.</p>
       </div>
       <Link href="/dashboard/requests">
         <Button size="sm" className="gap-2">
@@ -664,304 +275,452 @@ function RequestsCta() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Role compositions                                                  */
+/*  Page                                                               */
 /* ------------------------------------------------------------------ */
-
-function SuperAdminBody({ ctx }: { ctx: DashCtx }) {
-  const s = ctx.summary;
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-        <StudentsKpi summary={s} />
-        <CampusesKpi summary={s} />
-        <AttendanceKpi pct={s.avgAttendancePct} />
-        <BelowTargetKpi summary={s} />
-      </div>
-      <AcademicPanel ctx={ctx} />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SubjectChartPanel summary={s} range={ctx.range} span />
-        <HealthPanel summary={s} />
-      </div>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <NeedsAttentionPanel summary={s} range={ctx.range} />
-        <CampusPanel summary={s} range={ctx.range} />
-      </div>
-      <SectionsPanel summary={s} range={ctx.range} />
-    </>
-  );
-}
-
-function AdminBody({ ctx }: { ctx: DashCtx }) {
-  const s = ctx.summary;
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-        <StudentsKpi summary={s} />
-        <CampusesKpi summary={s} />
-        <AttendanceKpi pct={s.avgAttendancePct} />
-        <BelowTargetKpi summary={s} />
-      </div>
-      <RequestsCta />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <CampusPanel summary={s} range={ctx.range} />
-        <HealthPanel summary={s} />
-        <NeedsAttentionPanel summary={s} range={ctx.range} />
-      </div>
-      <AcademicPanel ctx={ctx} />
-      <SectionsPanel summary={s} range={ctx.range} />
-    </>
-  );
-}
-
-function HodBody({ ctx }: { ctx: DashCtx }) {
-  const s = ctx.summary;
-  const a = ctx.academics;
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-        <AttendanceKpi pct={s.avgAttendancePct} />
-        <ScoreKpi
-          label="Classroom Avg"
-          avg={a?.classroomAvg ?? null}
-          icon={BookOpenCheck}
-          tint="#eff6ff"
-          accent="#2563eb"
-        />
-        <ScoreKpi
-          label="Module Avg"
-          avg={a?.moduleAvg ?? null}
-          icon={Layers}
-          tint="#f5f3ff"
-          accent="#7c3aed"
-        />
-        <BelowTargetKpi summary={s} />
-      </div>
-      <AcademicPanel ctx={ctx} />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SubjectChartPanel summary={s} range={ctx.range} span />
-        <HealthPanel summary={s} />
-      </div>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <SubjectListPanel summary={s} />
-        <NeedsAttentionPanel summary={s} range={ctx.range} />
-      </div>
-    </>
-  );
-}
-
-function CapabilityManagerBody({ ctx }: { ctx: DashCtx }) {
-  const s = ctx.summary;
-  const a = ctx.academics;
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-        <SubjectsKpi summary={s} />
-        <AttendanceKpi pct={s.avgAttendancePct} />
-        <ScoreKpi
-          label="Classroom Avg"
-          avg={a?.classroomAvg ?? null}
-          icon={BookOpenCheck}
-          tint="#eff6ff"
-          accent="#2563eb"
-        />
-        <ScoreKpi
-          label="Module Avg"
-          avg={a?.moduleAvg ?? null}
-          icon={Layers}
-          tint="#f5f3ff"
-          accent="#7c3aed"
-        />
-      </div>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <SubjectChartPanel summary={s} range={ctx.range} span />
-        <HealthPanel summary={s} />
-      </div>
-      <AcademicPanel ctx={ctx} />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <SubjectListPanel summary={s} />
-        <NeedsAttentionPanel summary={s} range={ctx.range} />
-      </div>
-      <SectionsPanel summary={s} range={ctx.range} />
-    </>
-  );
-}
-
-function BoaBody({ ctx }: { ctx: DashCtx }) {
-  const s = ctx.summary;
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-        <StudentsKpi summary={s} />
-        <SectionsKpi summary={s} />
-        <AttendanceKpi pct={s.avgAttendancePct} />
-        <BelowTargetKpi summary={s} />
-      </div>
-      <RequestsCta />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <CampusPanel summary={s} range={ctx.range} />
-        <HealthPanel summary={s} />
-        <NeedsAttentionPanel summary={s} range={ctx.range} />
-      </div>
-      <SectionsPanel summary={s} range={ctx.range} />
-    </>
-  );
-}
-
-function InstructorBody({ ctx }: { ctx: DashCtx }) {
-  const s = ctx.summary;
-  const a = ctx.academics;
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-3">
-        <StudentsKpi summary={s} />
-        <AttendanceKpi pct={s.avgAttendancePct} />
-        <ScoreKpi
-          label="Class Quiz Avg"
-          avg={a?.classroomAvg ?? null}
-          icon={BookOpenCheck}
-          tint="#eff6ff"
-          accent="#2563eb"
-        />
-      </div>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-        <div className="lg:col-span-3">
-          <NeedsAttentionPanel summary={s} range={ctx.range} />
-        </div>
-        <div className="lg:col-span-2">
-          <HealthPanel summary={s} />
-        </div>
-      </div>
-      <SubjectListPanel summary={s} />
-    </>
-  );
-}
-
-function renderBody(role: Role, ctx: DashCtx): React.ReactNode {
-  switch (role) {
-    case "superadmin":
-      return <SuperAdminBody ctx={ctx} />;
-    case "admin":
-      return <AdminBody ctx={ctx} />;
-    case "hod":
-      return <HodBody ctx={ctx} />;
-    case "capability_manager":
-      return <CapabilityManagerBody ctx={ctx} />;
-    case "boa":
-      return <BoaBody ctx={ctx} />;
-    case "instructor":
-      return <InstructorBody ctx={ctx} />;
-    default:
-      return <SuperAdminBody ctx={ctx} />;
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/*  Loading skeleton                                                   */
-/* ------------------------------------------------------------------ */
-
-function LoadingState() {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-px border-x-0 border-y border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-24 rounded-none bg-white" />
-        ))}
-      </div>
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Skeleton className="h-96 lg:col-span-2" />
-        <Skeleton className="h-96" />
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Dashboard (role dispatcher)                                        */
-/* ------------------------------------------------------------------ */
-
-const ACADEMIC_LIMIT = 500;
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const query = useQueryParams();
-  const range = useMemo(() => readDateRange(query), [query]);
   const role = (user?.role as Role) ?? "instructor";
   const theme = ROLE_THEME[role] ?? ROLE_THEME.instructor;
+  const layout = ROLE_LAYOUT[role] ?? ROLE_LAYOUT.instructor;
   const canSeeRequests = ["superadmin", "admin", "boa", "hod"].includes(role);
   const unreadRequests = useUnreadNotificationCount(canSeeRequests);
+  const enabled = Boolean(user) && role !== "instructor";
 
-  const summaryQuery = {
-    dateFrom: range.dateFrom,
-    dateTo: range.dateTo,
-  };
-  const studentQuery = {
-    limit: ACADEMIC_LIMIT,
-    dateFrom: range.dateFrom,
-    dateTo: range.dateTo,
+  const lockedCampus = role === "boa" && user?.campuses?.length === 1 ? user.campuses[0]! : null;
+  const campuses = lockedCampus ? [lockedCampus] : splitList(query.get("campuses"));
+  const semesters = splitList(query.get("semesters"));
+  const sections = splitList(query.get("sections")).filter((value) => value.includes("\t"));
+  const rawPeriod = query.get("attRange");
+  const period: OverviewPeriod = rawPeriod === "last_30" || rawPeriod === "custom" ? rawPeriod : "semester_to_date";
+  const from = query.get("attFrom") || "";
+  const to = query.get("attTo") || "";
+  const dateWindow = periodWindow(period, from, to);
+  const customPending = period === "custom" && !dateWindow;
+  const range: DateRange = dateWindow ?? {};
+
+  const writeQuery = (patch: Record<string, string | undefined>) => {
+    const next = new URLSearchParams(query);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    }
+    const qs = next.toString();
+    setLocation(qs ? `/dashboard?${qs}` : "/dashboard");
   };
 
-  const { data: summary, isLoading, isError, refetch } = useGetDashboardSummary(
-    summaryQuery,
-    {
-      query: {
-        queryKey: getGetDashboardSummaryQueryKey(summaryQuery),
-        staleTime: 30_000,
-        placeholderData: (previousData) => previousData,
-      },
-    },
+  /* ---- data: same endpoints + query keys as the detail pages ---- */
+
+  const attParams = new URLSearchParams();
+  if (dateWindow) {
+    attParams.set("dateFrom", dateWindow.dateFrom);
+    attParams.set("dateTo", dateWindow.dateTo);
+  }
+  const spiParams = new URLSearchParams();
+  if (period === "custom" && dateWindow) {
+    spiParams.set("attRange", "custom");
+    spiParams.set("attFrom", dateWindow.dateFrom);
+    spiParams.set("attTo", dateWindow.dateTo);
+  } else if (period !== "custom") {
+    spiParams.set("attRange", period);
+  }
+
+  const attQuery = useQuery({
+    queryKey: ["attendance-stats-detail", attParams.toString()],
+    enabled: enabled && !customPending,
+    queryFn: () => getJson<AttendancePayload>(`/api/dashboard/attendance-stats/detail?${attParams.toString()}`),
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+  const spiQuery = useQuery({
+    queryKey: ["spi-record-detail", spiParams.toString()],
+    enabled: enabled && !customPending,
+    queryFn: () => getJson<SpiPayload>(`/api/dashboard/spi-record/detail?${spiParams.toString()}`),
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+  const asmQuery = useQuery({
+    queryKey: ["assessment-detail"],
+    enabled,
+    queryFn: () => getJson<AssessmentPayload>("/api/dashboard/assessment-detail"),
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+
+  const prevWindow = dateWindow ? previousWindow(dateWindow) : null;
+  const prevParams = new URLSearchParams();
+  if (prevWindow) {
+    prevParams.set("dateFrom", prevWindow.dateFrom);
+    prevParams.set("dateTo", prevWindow.dateTo);
+  }
+  const prevQuery = useQuery({
+    queryKey: ["attendance-stats-detail", prevParams.toString()],
+    enabled: enabled && Boolean(prevWindow),
+    queryFn: () => getJson<AttendancePayload>(`/api/dashboard/attendance-stats/detail?${prevParams.toString()}`),
+    staleTime: 15 * 60_000,
+  });
+
+  const trendParams = new URLSearchParams(attParams);
+  if (campuses.length) trendParams.set("campuses", campuses.join("||"));
+  if (semesters.length) trendParams.set("semesters", semesters.join("||"));
+  if (sections.length) trendParams.set("sections", sections.join("||"));
+  const trendQuery = useQuery({
+    queryKey: ["attendance-trend", trendParams.toString()],
+    enabled: enabled && !customPending,
+    queryFn: () => getJson<{ points: TrendPoint[] }>(`/api/dashboard/attendance-stats/trend?${trendParams.toString()}`),
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+
+  /* ---- filter options ---- */
+
+  const attRows = attQuery.data?.students;
+  const campusOptions = useMemo(() => {
+    if (lockedCampus) return [lockedCampus];
+    const names = new Set<string>();
+    for (const row of attRows ?? []) names.add(row.university);
+    for (const row of spiQuery.data?.rows ?? []) names.add(row.university);
+    return omitExcludedInstitutes([...names].sort((a, b) => a.localeCompare(b)));
+  }, [attRows, spiQuery.data, lockedCampus]);
+
+  const campusKey = campuses.join("||");
+  const semesterKey = semesters.join("||");
+  const semesterOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const names = new Set<string>();
+    for (const row of attRows ?? []) {
+      if (campusSet.size && !campusSet.has(row.university)) continue;
+      names.add(row.semester);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [attRows, campusKey]);
+
+  const sectionChoices = useMemo(() => {
+    if (!campuses.length) return [];
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const seen = new Map<string, { campus: string; section: string }>();
+    for (const row of attRows ?? []) {
+      if (!campusSet.has(row.university)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      const key = `${row.university}\t${row.section}`;
+      if (!seen.has(key)) seen.set(key, { campus: row.university, section: row.section });
+    }
+    return [...seen.values()].sort((a, b) => a.section.localeCompare(b.section, undefined, { numeric: true }));
+  }, [attRows, campusKey, semesterKey]);
+
+  /* ---- aggregates ---- */
+
+  const filters: OverviewFilters = useMemo(
+    () => ({ campuses, semesters, sections }),
+    [campusKey, semesterKey, sections.join("||")],
+  );
+  const att = useMemo(
+    () => (attQuery.data ? attendanceOverview(attQuery.data.students, attQuery.data.classes, filters) : null),
+    [attQuery.data, filters],
+  );
+  const spi = useMemo(() => (spiQuery.data ? spiOverview(spiQuery.data.rows, filters) : null), [spiQuery.data, filters]);
+  const asm = useMemo(
+    () => (asmQuery.data ? assessmentOverview(asmQuery.data.slots, asmQuery.data.roster, filters) : null),
+    [asmQuery.data, filters],
+  );
+  const prevPct = useMemo(
+    () => (prevWindow && prevQuery.data ? attendancePctOnly(prevQuery.data.students, filters) : null),
+    [prevQuery.data, filters, prevWindow?.dateFrom],
   );
 
-  const { data: students, isLoading: studentsLoading } =
-    useGetDashboardStudents(studentQuery, {
-      query: {
-        enabled: theme.academics,
-        queryKey: getGetDashboardStudentsQueryKey(studentQuery),
-        staleTime: 30_000,
-        placeholderData: (previousData) => previousData,
-      },
+  const grain: LeaderGrain = layout.leader === "subject" ? "subject" : campuses.length === 1 ? "section" : layout.leader;
+  const leaders = useMemo(() => leaderboard(grain, att, spi, asm), [grain, att, spi, asm]);
+  const watch = useMemo(() => watchList(att, spi), [att, spi]);
+  const prevLabel = prevWindow ? (period === "last_30" ? "the 30 days before" : "the previous period of the same length") : null;
+  const insights = useMemo(
+    () =>
+      buildInsights({
+        attendance: att?.header ?? null,
+        previousPct: prevPct,
+        previousLabel: prevLabel,
+        subjects: att?.subjects ?? [],
+        leaders,
+        grain,
+        spi: spi?.summary ?? null,
+        assessments: asm?.header ?? null,
+      }),
+    [att, prevPct, prevLabel, leaders, grain, spi, asm],
+  );
+
+  const subjectBars: SubjectSummary[] = useMemo(
+    () =>
+      (att?.subjects ?? []).map((s) => ({
+        subjectTitle: s.subject,
+        studentCount: s.students,
+        presentCount: s.present,
+        totalCount: s.scheduled,
+        pct: s.pct,
+        presentRecordCount: s.present,
+        totalRecordCount: s.scheduled,
+        recordPct: s.pct,
+      })),
+    [att],
+  );
+
+  /* ---- deep links carry the same filters ---- */
+
+  const scopeParams = (over: { campuses?: string[]; sections?: string[] } = {}) => {
+    const p = new URLSearchParams();
+    const c = over.campuses ?? campuses;
+    const s = over.sections ?? sections;
+    if (c.length) p.set("campuses", c.join("||"));
+    if (semesters.length) p.set("semesters", semesters.join("||"));
+    if (s.length) p.set("sections", s.join("||"));
+    return p;
+  };
+  const attendanceHref = (group?: string, over?: { campuses?: string[]; sections?: string[] }) => {
+    const p = scopeParams(over);
+    if (group) p.set("group", group);
+    if (dateWindow) {
+      p.set("scope", "range");
+      p.set("dateFrom", dateWindow.dateFrom);
+      p.set("dateTo", dateWindow.dateTo);
+    }
+    return `/dashboard/attendance-stats?${p.toString()}`;
+  };
+  const spiHref = (group?: string) => {
+    const p = scopeParams();
+    if (group) p.set("group", group);
+    for (const [k, v] of spiParams) p.set(k, v);
+    return `/dashboard/spi-record?${p.toString()}`;
+  };
+  const assessmentsHref = () => `/dashboard/assessments?${scopeParams().toString()}`;
+
+  const leaderLink = (row: LeaderRow) => {
+    if (grain === "subject") return attendanceHref("university_subject");
+    if (grain === "section" && row.campus && row.section) {
+      return attendanceHref("university_student", { campuses: [row.campus], sections: [`${row.campus}\t${row.section}`] });
+    }
+    return attendanceHref("university_section", { campuses: row.campus ? [row.campus] : [] });
+  };
+
+  const exportLeaders = (rows: LeaderRow[]) => {
+    const heading = grain === "campus" ? "Campus" : grain === "section" ? "Section" : "Subject";
+    const headers = grain === "section"
+      ? ["Campus", heading, "Students", "Attendance %", "Below 60%", "Avg SPI", "Skill debt", "Quiz completion %"]
+      : grain === "campus"
+        ? [heading, "Students", "Attendance %", "Below 60%", "Avg SPI", "Skill debt", "Quiz completion %"]
+        : [heading, "Students", "Attendance %", "Quiz completion %"];
+    const body = rows.map((r) => {
+      const common = [r.students, r.attendancePct ?? "", r.belowSixty, r.avgSpi ?? "", r.skillDebt ?? "", r.completionPct ?? ""];
+      if (grain === "section") return [r.campus ?? "", r.label, ...common];
+      if (grain === "campus") return [r.label, ...common];
+      return [r.label, r.students, r.attendancePct ?? "", r.completionPct ?? ""];
     });
+    exportCsv(`overview-${grain}-${iso(new Date())}.csv`, headers, body);
+  };
 
-  const academics = React.useMemo<AcademicAggregate | null>(
-    () => (students ? aggregateAcademics(students) : null),
-    [students],
-  );
+  /* ---- KPI tiles ---- */
 
-  const updated =
-    summary?.updatedAt != null
-      ? new Date(summary.updatedAt).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : null;
+  const header = att?.header ?? null;
+  const belowSixty = header ? header.atRisk + header.ineligible : null;
+  const attDelta = header?.overallPct != null && prevPct != null
+    ? { value: Math.round((header.overallPct - prevPct) * 10) / 10, label: prevLabel ?? "previous period" }
+    : null;
+  const share = (n: number | null, total: number | undefined) =>
+    n == null || !total ? "" : ` · ${Math.round((n / total) * 100)}%`;
+
+  const tiles: Record<KpiId, React.ReactNode> = {
+    students: (
+      <StatTile
+        key="students"
+        label="Students"
+        value={header ? header.students.toLocaleString("en-IN") : null}
+        hint={header ? `${new Set(att!.byCampus.map((r) => r.university)).size} campuses` : undefined}
+        href={attendanceHref()}
+      />
+    ),
+    attendance: (
+      <StatTile
+        key="attendance"
+        label="Attendance"
+        value={header ? (header.overallPct == null ? "—" : `${header.overallPct.toFixed(1)}%`) : null}
+        valueColor={header?.overallPct != null ? pctTextColor(header.overallPct) : undefined}
+        delta={attDelta}
+        hint="Present ÷ scheduled · target 80%"
+        href={attendanceHref()}
+      />
+    ),
+    eligible: (
+      <StatTile
+        key="eligible"
+        label="Eligible ≥80%"
+        value={header ? header.eligible.toLocaleString("en-IN") : null}
+        hint={header ? `of ${header.students.toLocaleString("en-IN")} students${share(header.eligible, header.students)}` : undefined}
+        href={attendanceHref("university_student")}
+      />
+    ),
+    belowSixty: (
+      <StatTile
+        key="belowSixty"
+        label="Below 60%"
+        value={belowSixty == null ? null : belowSixty.toLocaleString("en-IN")}
+        valueColor={belowSixty ? "#b91c1c" : undefined}
+        hint={header ? `At risk or ineligible${share(belowSixty, header.students)}` : undefined}
+        href={attendanceHref("university_student")}
+      />
+    ),
+    avgSpi: (
+      <StatTile
+        key="avgSpi"
+        label="Avg SPI"
+        value={spi ? (spi.summary.avgSpi == null ? "—" : spi.summary.avgSpi.toFixed(1)) : null}
+        hint={spi ? `0–10 · ${spi.summary.students.toLocaleString("en-IN")} evaluated` : undefined}
+        href={spiHref()}
+      />
+    ),
+    skillDebt: (
+      <StatTile
+        key="skillDebt"
+        label="Skill debt"
+        value={spi ? spi.summary.skillDebt.toLocaleString("en-IN") : null}
+        valueColor={spi?.summary.skillDebt ? "#b91c1c" : undefined}
+        hint={spi ? `students${share(spi.summary.skillDebt, spi.summary.students)}` : undefined}
+        href={spiHref("student")}
+      />
+    ),
+    completion: (
+      <StatTile
+        key="completion"
+        label="Quiz completion"
+        value={asm ? `${asm.header.completionPct.toFixed(1)}%` : null}
+        hint="Classroom + module"
+        href={assessmentsHref()}
+      />
+    ),
+  };
+
+  const failed = attQuery.isError && spiQuery.isError && asmQuery.isError;
+  const loadingAtt = attQuery.isLoading || attQuery.isFetching;
+  const tileCols = layout.kpis.length >= 7 ? "md:grid-cols-4 xl:grid-cols-7" : "md:grid-cols-4";
+  const pLabel = periodLabel(period, dateWindow);
+  const scopeText = campuses.length === 0 ? "All campuses in your scope" : campuses.length === 1 ? campuses[0] : `${campuses.length} campuses`;
 
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       <DashboardHeader
         role={role}
         name={user?.name ?? "—"}
         theme={theme}
-        updated={updated}
+        meta={pLabel}
         unreadRequests={unreadRequests}
         range={range}
-        onRangeChange={(next) => setLocation(dashboardPath(next))}
       />
-      {isLoading ? (
-        <LoadingState />
-      ) : isError || !summary ? (
+
+      <OverviewFilterBar
+        showCampus={!lockedCampus}
+        campuses={campuses}
+        campusOptions={campusOptions}
+        onCampuses={(next) => writeQuery({ campuses: next.join("||") || undefined, sections: undefined })}
+        semesters={semesters}
+        semesterOptions={semesterOptions}
+        onSemesters={(next) => writeQuery({ semesters: next.join("||") || undefined, sections: undefined })}
+        sections={sections}
+        sectionChoices={sectionChoices}
+        onSections={(next) => writeQuery({ sections: next.join("||") || undefined })}
+        period={period}
+        from={from}
+        to={to}
+        onPeriod={(patch) =>
+          writeQuery({
+            attRange: patch.period !== undefined ? (patch.period === "semester_to_date" ? undefined : patch.period) : query.get("attRange") || undefined,
+            attFrom: patch.from !== undefined ? patch.from : from || undefined,
+            attTo: patch.to !== undefined ? patch.to : to || undefined,
+          })
+        }
+        onClear={() => setLocation("/dashboard")}
+      />
+
+      {failed ? (
         <ErrorState
-          message="Failed to load dashboard summary."
-          onRetry={() => refetch()}
+          message="Failed to load the overview."
+          onRetry={() => {
+            attQuery.refetch();
+            spiQuery.refetch();
+            asmQuery.refetch();
+          }}
         />
+      ) : customPending ? (
+        <p className="border-b border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">
+          Pick both a start and an end date for the custom range.
+        </p>
       ) : (
-        <div className="space-y-6">
-          {renderBody(role, {
-            summary,
-            academics,
-            academicsLoading: theme.academics && studentsLoading,
-            updated,
-            range,
-          })}
+        <div className="space-y-6 pt-4">
+          <div className={`grid grid-cols-2 gap-px border-y border-slate-200 bg-slate-200 ${tileCols}`}>
+            {layout.kpis.map((id) => tiles[id])}
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <Section title="Key insights" subtitle={`${scopeText} · ${pLabel}`}>
+              <InsightsList insights={insights} loading={loadingAtt || spiQuery.isLoading} />
+            </Section>
+            <Section
+              title="Attendance trend"
+              subtitle="Weekly present ÷ scheduled"
+              className="lg:col-span-2"
+              action={<SectionLink href={attendanceHref()} />}
+            >
+              <div className="p-5">
+                <AttendanceTrend points={trendQuery.data?.points ?? null} loading={trendQuery.isLoading} />
+                {trendQuery.isError && <p className="text-sm text-slate-500">The trend could not be loaded.</p>}
+              </div>
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            <Section title="Attendance tiers" subtitle="Students by overall attendance" action={<SectionLink href={attendanceHref("university_student")} />}>
+              <div className="p-5"><TierBar header={header} /></div>
+            </Section>
+            <Section title="Skill levels" subtitle="SPI skill level split" action={<SectionLink href={spiHref()} />}>
+              <div className="p-5"><SkillSplit summary={spi?.summary ?? null} /></div>
+            </Section>
+            <Section title="Quiz completion" subtitle="Classroom vs module" action={<SectionLink href={assessmentsHref()} />}>
+              <div className="p-5"><CompletionBars counts={asm?.header ?? null} /></div>
+            </Section>
+          </div>
+
+          <Section
+            title={grain === "campus" ? "Campus comparison" : grain === "section" ? "Section comparison" : "Subject comparison"}
+            subtitle="Sorted by attendance, lowest first · click a column to sort, a name to drill in"
+          >
+            <Leaderboard rows={leaders} grain={grain} loading={loadingAtt} linkFor={leaderLink} onExport={exportLeaders} />
+          </Section>
+
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
+            <Section
+              title="Attendance by subject"
+              subtitle="Lowest first"
+              className="lg:col-span-3"
+              action={<SectionLink href={attendanceHref("university_subject")} />}
+            >
+              <div className="p-5">
+                {att ? <AttendanceBySubject subjects={subjectBars} height={300} /> : <div className="h-[300px]" />}
+              </div>
+            </Section>
+            <Section
+              title="Students needing attention"
+              subtitle="Below 60% attendance or in skill debt"
+              className="lg:col-span-2"
+              action={<SectionLink href={attendanceHref("university_student")} label="All students" />}
+            >
+              <WatchList
+                rows={watch.rows}
+                total={watch.total}
+                loading={loadingAtt}
+                spiPaths={{ ...(attQuery.data?.spiPaths ?? {}), ...(spiQuery.data?.spiPaths ?? {}) }}
+              />
+            </Section>
+          </div>
+
+          {canSeeRequests && <RequestsCta unread={unreadRequests} />}
         </div>
       )}
     </div>
