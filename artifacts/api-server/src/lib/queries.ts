@@ -5047,3 +5047,56 @@ export async function getAttendanceStatsUnits(
     attendanceStatsDetailInFlight.delete(detailKey);
   }
 }
+
+
+export interface AttendanceTrendPoint {
+  week: string;
+  present: number;
+  scheduled: number;
+}
+
+/** Weekly present ÷ scheduled for the Overview trend. Same window rules as attendance-stats/detail. */
+export async function getAttendanceTrend(
+  scope: SessionScope,
+  opts: {
+    dateFrom?: string;
+    dateTo?: string;
+    campuses?: string[];
+    semesters?: string[];
+    sections?: string[];
+  } = {},
+): Promise<AttendanceTrendPoint[]> {
+  const { where, params } = attendanceStatsWhere(scope, opts);
+  let extra = "";
+  if (opts.semesters?.length) {
+    params["trendSemesters"] = opts.semesters;
+    extra += " AND COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') IN UNNEST(@trendSemesters)";
+  }
+  if (opts.sections?.length) {
+    params["trendSections"] = opts.sections;
+    extra += " AND CONCAT(TRIM(institute_name), CHR(9), COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown')) IN UNNEST(@trendSections)";
+  }
+  const rows = await bqQuery<{ week: string; present_n: string; scheduled_n: string }>(
+    `SELECT
+        FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(date), WEEK(MONDAY))) AS week,
+        COUNTIF(${ATTENDED_SQL}) AS present_n,
+        COUNT(*) AS scheduled_n
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${where}${extra}
+        AND student_user_id IS NOT NULL
+        AND date IS NOT NULL
+        AND DATE(date) <= CURRENT_DATE('Asia/Kolkata')
+      GROUP BY week
+      ORDER BY week`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows
+    .map((row) => ({
+      week: String(row.week ?? ""),
+      present: Number(row.present_n) || 0,
+      scheduled: Number(row.scheduled_n) || 0,
+    }))
+    .filter((row) => row.week && row.scheduled > 0);
+}

@@ -311,7 +311,7 @@ export function SpiRecordFiltersButton({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex shrink-0 flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
       {label}
@@ -320,7 +320,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function CheckMenu({
+export function CheckMenu({
   label,
   options,
   selected,
