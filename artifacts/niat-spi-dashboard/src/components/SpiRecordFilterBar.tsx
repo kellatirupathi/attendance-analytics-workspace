@@ -372,7 +372,7 @@ export function CheckMenu({
   );
 }
 
-function BoundControl({
+export function BoundControl({
   scale,
   op,
   a,
