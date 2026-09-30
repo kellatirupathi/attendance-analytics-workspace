@@ -449,7 +449,15 @@ export default function Students() {
 
       {/* ---- summary ---- */}
       <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 md:grid-cols-3 xl:grid-cols-6">
-        <StatTile label="Students" value={loadingTiles ? null : summary.students.toLocaleString("en-IN")} hint="Match these filters" />
+        <StatTile
+          label="Students"
+          value={loadingTiles ? null : summary.students.toLocaleString("en-IN")}
+          hint={
+            filtered.length > summary.students
+              ? `${(filtered.length - summary.students).toLocaleString("en-IN")} listed under two campuses, so the table has ${filtered.length.toLocaleString("en-IN")} rows`
+              : "Match these filters"
+          }
+        />
         <StatTile
           label="Avg attendance"
           value={loadingTiles ? null : fmtPct(summary.avgAttendance)}
@@ -611,7 +619,7 @@ export default function Students() {
                 setPageSize(size);
                 setPage(1);
               }}
-              itemLabel="students"
+              itemLabel={sorted.length > summary.students ? "rows" : "students"}
             />
           )}
         </TableShell>

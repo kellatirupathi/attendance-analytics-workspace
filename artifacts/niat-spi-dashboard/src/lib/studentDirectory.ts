@@ -184,29 +184,38 @@ export interface DirectorySummary {
   skillDebt: number;
 }
 
+/** Counts distinct students (not student × campus rows), the same way SPI Record and Attendance Stats do. */
 export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
+  const people = new Map<string, { present: number; scheduled: number; spi: number; skillDebt: boolean }>();
+  for (const row of rows) {
+    const person = people.get(row.studentId) ?? { present: 0, scheduled: 0, spi: row.spi, skillDebt: row.skillDebt };
+    person.present += row.present;
+    person.scheduled += row.scheduled;
+    people.set(row.studentId, person);
+  }
   let attSum = 0;
   let attN = 0;
   let spiSum = 0;
   let eligible = 0;
   let belowSixty = 0;
   let skillDebt = 0;
-  for (const row of rows) {
-    if (row.attendancePct != null) {
-      attSum += row.attendancePct;
+  for (const person of people.values()) {
+    if (person.scheduled > 0) {
+      const pct = round1((person.present / person.scheduled) * 100);
+      attSum += pct;
       attN += 1;
-      if (row.attendancePct >= 80) eligible += 1;
-      if (row.attendancePct < 60) belowSixty += 1;
+      if (pct >= 80) eligible += 1;
+      if (pct < 60) belowSixty += 1;
     }
-    spiSum += row.spi;
-    if (row.skillDebt) skillDebt += 1;
+    spiSum += person.spi;
+    if (person.skillDebt) skillDebt += 1;
   }
   return {
-    students: rows.length,
+    students: people.size,
     avgAttendance: attN ? round1(attSum / attN) : null,
     eligible,
     belowSixty,
-    avgSpi: rows.length ? round1(spiSum / rows.length) : null,
+    avgSpi: people.size ? round1(spiSum / people.size) : null,
     skillDebt,
   };
 }
