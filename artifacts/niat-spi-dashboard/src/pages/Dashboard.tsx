@@ -49,6 +49,7 @@ import {
   type OverviewFilters,
 } from "@/lib/overviewAggregate";
 import { buildInsights } from "@/lib/overviewInsights";
+import { FEATURES } from "@/lib/featureFlags";
 import { Users, Building2, UserCog, Database, Bell, Inbox } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -141,9 +142,18 @@ const ROLE_LAYOUT: Record<Role, RoleLayout> = {
   instructor: { leader: "section", kpis: ALL_KPIS },
 };
 
+/** Student Attendance Stats, carrying the Overview's closed date range when it has one. */
+function attendanceStatsRangePath(range: DateRange): string {
+  if (!range.dateFrom || !range.dateTo) return "/dashboard/attendance-stats";
+  const p = new URLSearchParams({ scope: "range", dateFrom: range.dateFrom, dateTo: range.dateTo });
+  return `/dashboard/attendance-stats?${p.toString()}`;
+}
+
 function quickActions(role: Role, range: DateRange, studentsHref: string): QuickAction[] {
   const students: QuickAction = { label: "Student Directory", href: studentsHref, icon: Users, primary: true };
-  const campuses: QuickAction = { label: "Campus Analytics", href: campusAnalyticsPath(range), icon: Building2 };
+  const campuses: QuickAction = FEATURES.campusAnalytics
+    ? { label: "Campus Analytics", href: campusAnalyticsPath(range), icon: Building2 }
+    : { label: "Attendance Stats", href: attendanceStatsRangePath(range), icon: Building2 };
   const requests: QuickAction = { label: "Request Inbox", href: "/dashboard/requests", icon: Bell };
   const manageUsers: QuickAction = { label: "Manage Users", href: "/admin/users", icon: UserCog };
   const manageCampuses: QuickAction = { label: "Manage Campuses", href: "/admin/campuses", icon: Building2 };

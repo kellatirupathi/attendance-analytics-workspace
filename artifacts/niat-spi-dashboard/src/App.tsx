@@ -1,11 +1,14 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, ProtectedRoute } from "@/contexts/AuthContext";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PageLoader } from "@/components/PageLoader";
+import { useQueryParams } from "@/hooks/useQueryParams";
+import { FEATURES } from "@/lib/featureFlags";
+import { ISO_DATE_RE } from "@/lib/dateRange";
 
 // Pages load on demand so staff only download the feature they visit.
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -40,6 +43,34 @@ const IncentiveTracker = lazy(() => import("@/pages/IncentiveTracker"));
 const Reports = lazy(() => import("@/pages/Reports"));
 
 const queryClient = new QueryClient();
+
+/**
+ * Old Campus Analytics links land on Student Attendance Stats with the same
+ * campus and dates. With the flag on, /campus-analytics opens the page itself.
+ */
+function CampusAnalyticsRedirect() {
+  const query = useQueryParams();
+  if (FEATURES.campusAnalytics) return <Redirect to="/dashboard/campuses" replace />;
+  const next = new URLSearchParams();
+  const campuses = (query.get("campuses") || query.get("campus") || "")
+    .split("||")
+    .map((name) => name.trim())
+    .filter((name) => name && name !== "all");
+  if (campuses.length) {
+    next.set("campuses", campuses.join("||"));
+    // A campus was chosen, so open the section breakdown, as Campus Analytics did.
+    next.set("group", "university_section");
+  }
+  const dateFrom = query.get("dateFrom") || "";
+  const dateTo = query.get("dateTo") || "";
+  if (ISO_DATE_RE.test(dateFrom) && ISO_DATE_RE.test(dateTo)) {
+    next.set("scope", "range");
+    next.set("dateFrom", dateFrom);
+    next.set("dateTo", dateTo);
+  }
+  const qs = next.toString();
+  return <Redirect to={qs ? `/dashboard/attendance-stats?${qs}` : "/dashboard/attendance-stats"} replace />;
+}
 
 function Protected({
   children,
@@ -129,9 +160,16 @@ function Router() {
           </Protected>
         </Route>
         <Route path="/dashboard/campuses">
-          <Protected>
-            <Campuses />
-          </Protected>
+          {FEATURES.campusAnalytics ? (
+            <Protected>
+              <Campuses />
+            </Protected>
+          ) : (
+            <CampusAnalyticsRedirect />
+          )}
+        </Route>
+        <Route path="/campus-analytics">
+          <CampusAnalyticsRedirect />
         </Route>
         <Route path="/dashboard/reports/skill-debt">
           <Protected>
