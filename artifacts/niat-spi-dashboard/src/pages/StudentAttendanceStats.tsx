@@ -20,6 +20,7 @@ import { ChevronRight, Download } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
 import { useQueryParams } from "@/hooks/useQueryParams";
+import { readSubjects, subjectOptionList } from "@/lib/subjects";
 import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
@@ -177,6 +178,7 @@ export default function StudentAttendanceStats() {
     const [sectionCampus, section] = value.split("\t");
     return { campus: sectionCampus ?? "", section: section ?? "" };
   }).filter((item) => item.campus && item.section);
+  const subjects = readSubjects(query);
   const students = splitList(query.get("students")).map((value) => {
     const [studentId, studentCampus, studentName] = value.split("\t");
     return { studentId: studentId ?? "", campus: studentCampus ?? "", studentName: studentName ?? "" };
@@ -297,6 +299,17 @@ export default function StudentAttendanceStats() {
     }
     return list.sort((left, right) => left.section.localeCompare(right.section, undefined, { numeric: true }));
   }, [data, campuses, semesters]);
+  const subjectOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const names: (string | null)[] = [];
+    for (const row of data?.students ?? []) {
+      if (campusSet.size && !campusSet.has(row.university)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      names.push(row.subject);
+    }
+    return subjectOptionList(names);
+  }, [data, campuses, semesters]);
   const studentCatalog = useMemo(() => {
     const campusSet = new Set(campuses);
     const semesterSet = new Set(semesters);
@@ -327,8 +340,9 @@ export default function StudentAttendanceStats() {
     semesters,
     sections: sections.map((item) => `${item.campus}\t${item.section}`),
     students: students.map((item) => `${item.campus}\t${item.studentId}`),
+    subjects,
   };
-  const filterKey = `${campuses.join("||")}|${semesters.join("||")}|${query.get("sections") ?? ""}|${query.get("students") ?? ""}`;
+  const filterKey = `${campuses.join("||")}|${semesters.join("||")}|${query.get("sections") ?? ""}|${query.get("students") ?? ""}|${subjects.join("||")}`;
   const summary = useMemo(
     () => aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], "university", statsFilters).summary,
     [data, filterKey],
@@ -358,6 +372,7 @@ export default function StudentAttendanceStats() {
   const scopeLabel = [
     campusScopeLabel(campuses, campusOptions),
     semesters.length ? semesters.join(", ") : "Current semesters",
+    subjects.length === 1 ? subjects[0] : subjects.length > 1 ? `${subjects.length} subjects` : "",
     scopeKind === "day" && day
       ? formatDay(day)
       : scopeKind === "range" && dateFrom && dateTo
@@ -409,6 +424,7 @@ export default function StudentAttendanceStats() {
       semesters,
       sections: [],
       students: [],
+      subjects,
     });
     exportRows(
       body.rows.map((row) => ({ ...row, spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null })),
@@ -570,6 +586,14 @@ export default function StudentAttendanceStats() {
               }}
             />
           </FilterField>
+          <FilterField label="Subject">
+            <CheckMenu
+              label={subjects.length ? `${subjects.length} selected` : "All subjects"}
+              options={subjectOptions.map((name) => ({ id: name, label: name }))}
+              selected={subjects}
+              onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
+            />
+          </FilterField>
           <FilterField label="Student">
             <Popover>
               <PopoverTrigger asChild>
@@ -644,6 +668,7 @@ export default function StudentAttendanceStats() {
             semesters: undefined,
             sections: undefined,
             students: undefined,
+            subjects: undefined,
             campus: undefined,
             semester: undefined,
           })}>

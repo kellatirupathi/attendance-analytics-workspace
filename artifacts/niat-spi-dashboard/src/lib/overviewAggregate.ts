@@ -28,6 +28,8 @@ export interface OverviewFilters {
   campuses: string[];
   semesters: string[];
   sections: string[];
+  /** Attendance counts only these subjects' sessions; SPI rows arrive pre-filtered by the server. */
+  subjects: string[];
 }
 
 export type LeaderGrain = "campus" | "section" | "subject";

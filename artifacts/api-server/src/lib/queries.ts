@@ -1094,6 +1094,8 @@ export async function getSpiRecordDetail(
     semesters?: string[];
     sections?: { campus: string; section: string }[];
     studentIds?: string[];
+    /** Limit attendance (and so the roster) to these subjects' sessions. */
+    subjects?: string[];
   } = {},
 ): Promise<SpiDetailRow[]> {
   const params: Record<string, unknown> = {};
@@ -1136,6 +1138,11 @@ export async function getSpiRecordDetail(
     params["studentIds"] = opts.studentIds;
     dimensionExtra += " AND student_user_id IN UNNEST(@studentIds)";
   }
+  const subjects = [...new Set((opts.subjects ?? []).map((name) => name.trim()).filter(Boolean))].sort();
+  if (subjects.length) {
+    params["filterSubjects"] = subjects;
+    dimensionExtra += " AND TRIM(subject_title) IN UNNEST(@filterSubjects)";
+  }
   if (semesters.length === 1) {
     params["semester"] = semesters[0];
     rosterSemester = "semester_title = @semester";
@@ -1148,6 +1155,7 @@ export async function getSpiRecordDetail(
     campuses,
     sections,
     studentIds: opts.studentIds ?? [],
+    subjects,
     semesters,
     attendanceRange,
     attendanceFrom: opts.attendanceFrom ?? "",
@@ -5114,6 +5122,7 @@ export async function getAttendanceTrend(
     campuses?: string[];
     semesters?: string[];
     sections?: string[];
+    subjects?: string[];
   } = {},
 ): Promise<AttendanceTrendPoint[]> {
   const { where, params } = attendanceStatsWhere(scope, opts);
@@ -5125,6 +5134,10 @@ export async function getAttendanceTrend(
   if (opts.sections?.length) {
     params["trendSections"] = opts.sections;
     extra += " AND CONCAT(TRIM(institute_name), CHR(9), COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown')) IN UNNEST(@trendSections)";
+  }
+  if (opts.subjects?.length) {
+    params["trendSubjects"] = opts.subjects;
+    extra += " AND TRIM(subject_title) IN UNNEST(@trendSubjects)";
   }
   const rows = await bqQuery<{ week: string; present_n: string; scheduled_n: string }>(
     `SELECT
@@ -5149,4 +5162,34 @@ export async function getAttendanceTrend(
       scheduled: Number(row.scheduled_n) || 0,
     }))
     .filter((row) => row.week && row.scheduled > 0);
+}
+
+
+export interface SubjectOption {
+  campus: string;
+  semester: string;
+  subject: string;
+}
+
+/** Current-semester subjects per campus and semester, scoped to the user (a Capability Manager gets only theirs). */
+export async function getSubjectOptions(scope: SessionScope): Promise<SubjectOption[]> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause(scope, params);
+  const rows = await bqQuery<{ campus: string; semester: string; subject: string }>(
+    `SELECT DISTINCT
+        TRIM(institute_name) AS campus,
+        COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester,
+        TRIM(subject_title) AS subject
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${where}
+        AND TRIM(IFNULL(institute_name, '')) != ''
+        AND TRIM(IFNULL(subject_title, '')) != ''
+        AND UPPER(TRIM(subject_title)) != 'NULL'`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows
+    .filter((row) => row.campus && !isExcludedInstitute(row.campus))
+    .map((row) => ({ campus: row.campus, semester: row.semester, subject: row.subject }));
 }

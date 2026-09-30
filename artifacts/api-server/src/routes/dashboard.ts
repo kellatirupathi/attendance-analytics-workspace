@@ -39,6 +39,7 @@ import {
   getAttendanceStatsDetail,
   getAttendanceStatsUnits,
   getAttendanceTrend,
+  getSubjectOptions,
   type AttendanceGrain,
 } from "../lib/queries.js";
 import {
@@ -353,14 +354,20 @@ router.get("/spi-record/detail", requireSession(), async (req, res): Promise<voi
   const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
   const attendanceFrom = firstQuery(q, "attFrom");
   const attendanceTo = firstQuery(q, "attTo");
-  const cacheKey = `spi-record-detail-http:v2:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}`;
+  const subjects = queryList(q, "subjects").sort();
+  const cacheKey = `spi-record-detail-http:v3:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${subjects.join("||")}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
     return;
   }
   try {
-    const rows = await getSpiRecordDetail(scope, { attendanceRange, attendanceFrom, attendanceTo });
+    const rows = await getSpiRecordDetail(scope, {
+      attendanceRange,
+      attendanceFrom,
+      attendanceTo,
+      subjects: subjects.length ? subjects : undefined,
+    });
     const spiPaths: Record<string, string> = {};
     for (const row of rows) {
       if (!spiPaths[row.studentId]) spiPaths[row.studentId] = spiSharePath(row.studentId);
@@ -1434,6 +1441,29 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
   }
 });
 
+router.get("/subject-options", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const cacheKey = `subject-options:v1:${session.role}:${JSON.stringify(scope)}`;
+  const cached = cacheGet<object>(cacheKey);
+  if (cached) {
+    res.json(cached);
+    return;
+  }
+  try {
+    const body = { options: await getSubjectOptions(scope) };
+    cacheSet(cacheKey, body, 15 * 60 * 1000);
+    res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching subject options");
+    res.status(500).json({ error: "Failed to fetch subjects" });
+  }
+});
+
 router.get("/attendance-stats/trend", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({
@@ -1449,8 +1479,9 @@ router.get("/attendance-stats/trend", requireSession(), async (req, res): Promis
   }
   const semesters = queryList(q, "semesters");
   const sections = queryList(q, "sections").filter((value) => value.includes("\t"));
+  const subjects = queryList(q, "subjects").sort();
   const dates = closedDateScope({ dateFrom: firstQuery(q, "dateFrom"), dateTo: firstQuery(q, "dateTo") });
-  const cacheKey = `attendance-trend:v1:${session.role}:${JSON.stringify(scope)}:${campuses.slice().sort().join("||")}:${semesters.slice().sort().join("||")}:${sections.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-trend:v2:${session.role}:${JSON.stringify(scope)}:${campuses.slice().sort().join("||")}:${semesters.slice().sort().join("||")}:${sections.slice().sort().join("||")}:${subjects.join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -1461,6 +1492,7 @@ router.get("/attendance-stats/trend", requireSession(), async (req, res): Promis
       campuses,
       semesters,
       sections,
+      subjects,
       dateFrom: dates.dateFrom,
       dateTo: dates.dateTo,
     });
