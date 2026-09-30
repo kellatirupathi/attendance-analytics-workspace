@@ -15,6 +15,7 @@ import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate";
 import {
   assessmentHeader,
   buildAssessmentRows,
+  countsFromStudentWork,
   filterRoster,
   filterSlots,
   type AssessmentCounts,
@@ -141,41 +142,7 @@ export interface AssessmentOverview {
 }
 
 function mergeCounts(rows: AssessmentCounts[]): AssessmentCounts {
-  const out: AssessmentCounts = {
-    classroomCompleted: 0,
-    classroomTotal: 0,
-    moduleCompleted: 0,
-    moduleTotal: 0,
-    totalCompleted: 0,
-    totalAssigned: 0,
-    classroomStudentCompleted: 0,
-    classroomStudentTotal: 0,
-    moduleStudentCompleted: 0,
-    moduleStudentTotal: 0,
-    classroomPct: 0,
-    modulePct: 0,
-    completionPct: 0,
-  };
-  for (const row of rows) {
-    out.classroomCompleted += row.classroomCompleted;
-    out.classroomTotal += row.classroomTotal;
-    out.moduleCompleted += row.moduleCompleted;
-    out.moduleTotal += row.moduleTotal;
-    out.classroomStudentCompleted += row.classroomStudentCompleted;
-    out.classroomStudentTotal += row.classroomStudentTotal;
-    out.moduleStudentCompleted += row.moduleStudentCompleted;
-    out.moduleStudentTotal += row.moduleStudentTotal;
-  }
-  out.totalCompleted = out.classroomCompleted + out.moduleCompleted;
-  out.totalAssigned = out.classroomTotal + out.moduleTotal;
-  out.classroomPct = pct(out.classroomStudentCompleted, out.classroomStudentTotal) ?? 0;
-  out.modulePct = pct(out.moduleStudentCompleted, out.moduleStudentTotal) ?? 0;
-  out.completionPct =
-    pct(
-      out.classroomStudentCompleted + out.moduleStudentCompleted,
-      out.classroomStudentTotal + out.moduleStudentTotal,
-    ) ?? 0;
-  return out;
+  return countsFromStudentWork(rows);
 }
 
 export function assessmentOverview(

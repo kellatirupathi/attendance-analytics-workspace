@@ -13,6 +13,10 @@ export interface AssessmentSlot {
   cqStudentTotal: number;
   mqStudentCompleted: number;
   mqStudentTotal: number;
+  cqScoreSum: number;
+  cqScoreN: number;
+  mqScoreSum: number;
+  mqScoreN: number;
 }
 
 export interface AssessmentRosterRow {
@@ -37,7 +41,18 @@ export interface AssessmentCounts {
   classroomPct: number;
   modulePct: number;
   completionPct: number;
+  /** Sum and count of per-student, per-subject average best-attempt scores (attempted quizzes only). */
+  classroomScoreSum: number;
+  classroomScoreN: number;
+  moduleScoreSum: number;
+  moduleScoreN: number;
+  /** null when nobody has a score yet. */
+  classroomAvgScore: number | null;
+  moduleAvgScore: number | null;
+  avgScore: number | null;
 }
+
+export type AssessmentType = "cq" | "mq";
 
 export type AssessmentGrain = "campus" | "semester" | "section" | "subject" | "student";
 
@@ -55,6 +70,7 @@ export interface AssessmentScope {
   campuses: string[];
   semesters: string[];
   sections: string[];
+  subjects?: string[];
 }
 
 interface SubjectAcc {
@@ -68,6 +84,10 @@ interface SubjectAcc {
   mqStudentCompleted: number;
   mqStudentTotal: number;
   studentCount: number;
+  cqScoreSum: number;
+  cqScoreN: number;
+  mqScoreSum: number;
+  mqScoreN: number;
 }
 
 function emptyAcc(): SubjectAcc {
@@ -82,6 +102,10 @@ function emptyAcc(): SubjectAcc {
     mqStudentCompleted: 0,
     mqStudentTotal: 0,
     studentCount: 0,
+    cqScoreSum: 0,
+    cqScoreN: 0,
+    mqScoreSum: 0,
+    mqScoreN: 0,
   };
 }
 
@@ -96,6 +120,10 @@ function addSlot(acc: SubjectAcc, slot: AssessmentSlot) {
   acc.mqStudentCompleted += slot.mqStudentCompleted;
   acc.mqStudentTotal += slot.mqStudentTotal;
   acc.studentCount += slot.studentCount;
+  acc.cqScoreSum += slot.cqScoreSum ?? 0;
+  acc.cqScoreN += slot.cqScoreN ?? 0;
+  acc.mqScoreSum += slot.mqScoreSum ?? 0;
+  acc.mqScoreN += slot.mqScoreN ?? 0;
 }
 
 function round1(value: number): number {
@@ -105,6 +133,73 @@ function round1(value: number): number {
 function rate(completed: number, total: number): number {
   if (total <= 0) return 0;
   return round1((completed / total) * 100);
+}
+
+function avgOf(sum: number, n: number): number | null {
+  return n > 0 ? round1(sum / n) : null;
+}
+
+/** Fills the percentage and average fields from the raw sums. */
+export function finishCounts(
+  base: Omit<AssessmentCounts, "totalCompleted" | "totalAssigned" | "classroomPct" | "modulePct" | "completionPct" | "classroomAvgScore" | "moduleAvgScore" | "avgScore">,
+): AssessmentCounts {
+  return {
+    ...base,
+    totalCompleted: base.classroomCompleted + base.moduleCompleted,
+    totalAssigned: base.classroomTotal + base.moduleTotal,
+    classroomPct: rate(base.classroomStudentCompleted, base.classroomStudentTotal),
+    modulePct: rate(base.moduleStudentCompleted, base.moduleStudentTotal),
+    completionPct: rate(
+      base.classroomStudentCompleted + base.moduleStudentCompleted,
+      base.classroomStudentTotal + base.moduleStudentTotal,
+    ),
+    classroomAvgScore: avgOf(base.classroomScoreSum, base.classroomScoreN),
+    moduleAvgScore: avgOf(base.moduleScoreSum, base.moduleScoreN),
+    avgScore: avgOf(base.classroomScoreSum + base.moduleScoreSum, base.classroomScoreN + base.moduleScoreN),
+  };
+}
+
+/** Keeps only the chosen quiz types, so totals, completion and the average cover just those. */
+export function selectTypes(counts: AssessmentCounts, types: AssessmentType[]): AssessmentCounts {
+  const cq = types.includes("cq");
+  const mq = types.includes("mq");
+  if (cq && mq) return counts;
+  return finishCounts({
+    classroomCompleted: cq ? counts.classroomCompleted : 0,
+    classroomTotal: cq ? counts.classroomTotal : 0,
+    moduleCompleted: mq ? counts.moduleCompleted : 0,
+    moduleTotal: mq ? counts.moduleTotal : 0,
+    classroomStudentCompleted: cq ? counts.classroomStudentCompleted : 0,
+    classroomStudentTotal: cq ? counts.classroomStudentTotal : 0,
+    moduleStudentCompleted: mq ? counts.moduleStudentCompleted : 0,
+    moduleStudentTotal: mq ? counts.moduleStudentTotal : 0,
+    classroomScoreSum: cq ? counts.classroomScoreSum : 0,
+    classroomScoreN: cq ? counts.classroomScoreN : 0,
+    moduleScoreSum: mq ? counts.moduleScoreSum : 0,
+    moduleScoreN: mq ? counts.moduleScoreN : 0,
+  });
+}
+
+/** Score bound on a 0–100 scale. Blank or non-numeric input means no filter. */
+export function parseScoreBound(op: string, a: string, b: string): { min: number; max: number } | null {
+  const num = (value: string) => {
+    if (!value.trim()) return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null;
+  };
+  const first = num(a);
+  if (first == null) return null;
+  if (op === "gte") return { min: first, max: Infinity };
+  if (op === "lte") return { min: -Infinity, max: first };
+  if (op !== "between") return null;
+  const second = num(b);
+  if (second == null) return null;
+  return { min: Math.min(first, second), max: Math.max(first, second) };
+}
+
+export function passesScore(counts: AssessmentCounts, bound: { min: number; max: number } | null): boolean {
+  if (!bound) return true;
+  return counts.avgScore != null && counts.avgScore >= bound.min && counts.avgScore <= bound.max;
 }
 
 function uniquePair(sum: number, n: number, max: number): { completed: number; total: number } {
@@ -121,6 +216,10 @@ function countsFromAccs(subjects: SubjectAcc[]): AssessmentCounts {
   let classroomStudentTotal = 0;
   let moduleStudentCompleted = 0;
   let moduleStudentTotal = 0;
+  let classroomScoreSum = 0;
+  let classroomScoreN = 0;
+  let moduleScoreSum = 0;
+  let moduleScoreN = 0;
   for (const subject of subjects) {
     const classroom = uniquePair(subject.cqSum, subject.quizN, subject.cqMax);
     const module = uniquePair(subject.mqSum, subject.quizN, subject.mqMax);
@@ -132,25 +231,25 @@ function countsFromAccs(subjects: SubjectAcc[]): AssessmentCounts {
     classroomStudentTotal += subject.cqStudentTotal;
     moduleStudentCompleted += subject.mqStudentCompleted;
     moduleStudentTotal += subject.mqStudentTotal;
+    classroomScoreSum += subject.cqScoreSum;
+    classroomScoreN += subject.cqScoreN;
+    moduleScoreSum += subject.mqScoreSum;
+    moduleScoreN += subject.mqScoreN;
   }
-  return {
+  return finishCounts({
     classroomCompleted,
     classroomTotal,
     moduleCompleted,
     moduleTotal,
-    totalCompleted: classroomCompleted + moduleCompleted,
-    totalAssigned: classroomTotal + moduleTotal,
     classroomStudentCompleted,
     classroomStudentTotal,
     moduleStudentCompleted,
     moduleStudentTotal,
-    classroomPct: rate(classroomStudentCompleted, classroomStudentTotal),
-    modulePct: rate(moduleStudentCompleted, moduleStudentTotal),
-    completionPct: rate(
-      classroomStudentCompleted + moduleStudentCompleted,
-      classroomStudentTotal + moduleStudentTotal,
-    ),
-  };
+    classroomScoreSum,
+    classroomScoreN,
+    moduleScoreSum,
+    moduleScoreN,
+  });
 }
 
 function namedSubject(subject: string): boolean {
@@ -160,6 +259,7 @@ function namedSubject(subject: string): boolean {
 
 export function filterSlots(slots: AssessmentSlot[], scope: AssessmentScope): AssessmentSlot[] {
   return slots.filter((slot) => {
+    if (scope.subjects?.length && !scope.subjects.includes(slot.subject)) return false;
     if (scope.campuses.length && !scope.campuses.includes(slot.instituteName)) return false;
     if (scope.semesters.length && !scope.semesters.includes(slot.semester)) return false;
     if (scope.sections.length && !scope.sections.includes(`${slot.instituteName}\t${slot.section}`)) return false;
@@ -202,43 +302,35 @@ export function assessmentHeader(slots: AssessmentSlot[]): AssessmentCounts {
 
 /** Sum each student's own completed and assigned quizzes. */
 export function countsFromStudentWork(rows: AssessmentCounts[]): AssessmentCounts {
-  const summed = rows.reduce(
-    (acc, row) => {
-      acc.classroomCompleted += row.classroomCompleted;
-      acc.classroomTotal += row.classroomTotal;
-      acc.moduleCompleted += row.moduleCompleted;
-      acc.moduleTotal += row.moduleTotal;
-      acc.classroomStudentCompleted += row.classroomStudentCompleted;
-      acc.classroomStudentTotal += row.classroomStudentTotal;
-      acc.moduleStudentCompleted += row.moduleStudentCompleted;
-      acc.moduleStudentTotal += row.moduleStudentTotal;
-      return acc;
-    },
-    {
-      classroomCompleted: 0,
-      classroomTotal: 0,
-      moduleCompleted: 0,
-      moduleTotal: 0,
-      totalCompleted: 0,
-      totalAssigned: 0,
-      classroomStudentCompleted: 0,
-      classroomStudentTotal: 0,
-      moduleStudentCompleted: 0,
-      moduleStudentTotal: 0,
-      classroomPct: 0,
-      modulePct: 0,
-      completionPct: 0,
-    },
-  );
-  summed.totalCompleted = summed.classroomCompleted + summed.moduleCompleted;
-  summed.totalAssigned = summed.classroomTotal + summed.moduleTotal;
-  summed.classroomPct = rate(summed.classroomStudentCompleted, summed.classroomStudentTotal);
-  summed.modulePct = rate(summed.moduleStudentCompleted, summed.moduleStudentTotal);
-  summed.completionPct = rate(
-    summed.classroomStudentCompleted + summed.moduleStudentCompleted,
-    summed.classroomStudentTotal + summed.moduleStudentTotal,
-  );
-  return summed;
+  const base = {
+    classroomCompleted: 0,
+    classroomTotal: 0,
+    moduleCompleted: 0,
+    moduleTotal: 0,
+    classroomStudentCompleted: 0,
+    classroomStudentTotal: 0,
+    moduleStudentCompleted: 0,
+    moduleStudentTotal: 0,
+    classroomScoreSum: 0,
+    classroomScoreN: 0,
+    moduleScoreSum: 0,
+    moduleScoreN: 0,
+  };
+  for (const row of rows) {
+    base.classroomCompleted += row.classroomCompleted;
+    base.classroomTotal += row.classroomTotal;
+    base.moduleCompleted += row.moduleCompleted;
+    base.moduleTotal += row.moduleTotal;
+    base.classroomStudentCompleted += row.classroomStudentCompleted;
+    base.classroomStudentTotal += row.classroomStudentTotal;
+    base.moduleStudentCompleted += row.moduleStudentCompleted;
+    base.moduleStudentTotal += row.moduleStudentTotal;
+    base.classroomScoreSum += row.classroomScoreSum;
+    base.classroomScoreN += row.classroomScoreN;
+    base.moduleScoreSum += row.moduleScoreSum;
+    base.moduleScoreN += row.moduleScoreN;
+  }
+  return finishCounts(base);
 }
 
 function studentsIn(roster: AssessmentRosterRow[], match: (row: AssessmentRosterRow) => boolean): number {
