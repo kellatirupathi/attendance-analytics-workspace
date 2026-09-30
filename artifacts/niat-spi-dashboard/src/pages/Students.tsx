@@ -37,6 +37,7 @@ import {
   type SortKey,
 } from "@/lib/studentDirectory";
 import { cn, pctTextColor } from "@/lib/utils";
+import { readSubjects, subjectOptionList } from "@/lib/subjects";
 import { ArrowDown, ArrowUp, Copy, Download, ExternalLink, Loader2, Search } from "lucide-react";
 
 type Period = "semester_to_date" | "last_30" | "custom";
@@ -95,6 +96,7 @@ export default function Students() {
   const campuses = lockedCampus ? [lockedCampus] : splitList(query.get("campuses"));
   const semesters = splitList(query.get("semesters"));
   const sections = splitList(query.get("sections")).filter((value) => value.includes("\t"));
+  const subjects = readSubjects(query);
   const tiers = splitList(query.get("tiers")).filter((id): id is AttendanceTierId => TIER_IDS.includes(id as AttendanceTierId));
   const spiOp = (["gte", "lte", "between"].includes(query.get("spiOp") ?? "") ? query.get("spiOp") : "") as BoundOp;
   const spiA = query.get("spiA") ?? "";
@@ -141,6 +143,8 @@ export default function Students() {
   } else if (period !== "custom") {
     detailParams.set("attRange", period);
   }
+  // Attendance in this payload is summed across subjects, so the server narrows it.
+  if (subjects.length) detailParams.set("subjects", subjects.join("||"));
   const customPending = period === "custom" && !customReady;
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
@@ -152,6 +156,16 @@ export default function Students() {
       return res.json() as Promise<DetailPayload>;
     },
     placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+
+  const { data: subjectData } = useQuery({
+    queryKey: ["subject-options"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/subject-options", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load subjects");
+      return res.json() as Promise<{ options: { campus: string; semester: string; subject: string }[] }>;
+    },
     staleTime: 15 * 60_000,
   });
 
@@ -176,6 +190,15 @@ export default function Students() {
     }
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [allRows, campusKey]);
+  const subjectOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    return subjectOptionList(
+      (subjectData?.options ?? [])
+        .filter((item) => (!campusSet.size || campusSet.has(item.campus)) && (!semesterSet.size || semesterSet.has(item.semester)))
+        .map((item) => item.subject),
+    );
+  }, [subjectData, campusKey, semesterKey]);
   const sectionChoices = useMemo(() => {
     if (!campuses.length) return [];
     const campusSet = new Set(campuses);
@@ -219,6 +242,7 @@ export default function Students() {
     (lockedCampus ? 0 : campuses.length ? 1 : 0) +
     (semesters.length ? 1 : 0) +
     (sections.length ? 1 : 0) +
+    (subjects.length ? 1 : 0) +
     (tiers.length ? 1 : 0) +
     (spiOp && spiA ? 1 : 0) +
     (debtOnly ? 1 : 0) +
@@ -298,7 +322,10 @@ export default function Students() {
           ? `${attFrom} to ${attTo}`
           : "Custom range"
         : "This semester so far";
-  const scopeText = campuses.length === 0 ? "All campuses" : campuses.length === 1 ? campuses[0] : `${campuses.length} campuses`;
+  const scopeText = [
+    campuses.length === 0 ? "All campuses" : campuses.length === 1 ? campuses[0] : `${campuses.length} campuses`,
+    subjects.length === 1 ? subjects[0] : subjects.length > 1 ? `${subjects.length} subjects` : "",
+  ].filter(Boolean).join(" · ");
   const multiCampus = campuses.length !== 1;
   const loadingTiles = isLoading || customPending;
 
@@ -358,6 +385,14 @@ export default function Students() {
               }))}
               selected={sections}
               onChange={(next) => writeQuery({ sections: next.join("||") || undefined })}
+            />
+          </Field>
+          <Field label="Subject">
+            <CheckMenu
+              label={subjects.length ? `${subjects.length} selected` : "All subjects"}
+              options={subjectOptions.map((name) => ({ id: name, label: name }))}
+              selected={subjects}
+              onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
             />
           </Field>
           <Field label="Attendance period">

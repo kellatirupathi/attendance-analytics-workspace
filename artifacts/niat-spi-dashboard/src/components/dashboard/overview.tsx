@@ -54,6 +54,9 @@ export function OverviewFilterBar({
   sections,
   sectionChoices,
   onSections,
+  subjects,
+  subjectOptions,
+  onSubjects,
   period,
   from,
   to,
@@ -70,6 +73,9 @@ export function OverviewFilterBar({
   sections: string[];
   sectionChoices: { campus: string; section: string }[];
   onSections: (next: string[]) => void;
+  subjects: string[];
+  subjectOptions: string[];
+  onSubjects: (next: string[]) => void;
   period: OverviewPeriod;
   from: string;
   to: string;
@@ -106,6 +112,14 @@ export function OverviewFilterBar({
           }))}
           selected={sections}
           onChange={onSections}
+        />
+      </Field>
+      <Field label="Subject">
+        <CheckMenu
+          label={subjects.length ? `${subjects.length} selected` : "All subjects"}
+          options={subjectOptions.map((name) => ({ id: name, label: name }))}
+          selected={subjects}
+          onChange={onSubjects}
         />
       </Field>
       <Field label="Attendance period">

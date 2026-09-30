@@ -69,10 +69,25 @@ function namedSubject(subject: string | null): boolean {
   return name.length > 0 && name.toLowerCase() !== "null";
 }
 
+export interface AttendanceFilters {
+  campuses: string[];
+  semesters: string[];
+  sections: string[];
+  students: string[];
+  /** With subjects chosen, only those subjects' sessions count. */
+  subjects?: string[];
+}
+
+function passesSubject(subject: string | null, subjects: string[] | undefined): boolean {
+  if (!subjects?.length) return true;
+  return subjects.includes((subject ?? "").trim());
+}
+
 function passesFilters(
-  row: { university: string; semester: string; section: string; studentId: string },
-  filters: { campuses: string[]; semesters: string[]; sections: string[]; students: string[] },
+  row: { university: string; semester: string; section: string; studentId: string; subject: string | null },
+  filters: AttendanceFilters,
 ): boolean {
+  if (!passesSubject(row.subject, filters.subjects)) return false;
   if (filters.campuses.length && !filters.campuses.includes(row.university)) return false;
   if (filters.semesters.length && !filters.semesters.includes(row.semester)) return false;
   if (filters.sections.length && !filters.sections.includes(`${row.university}\t${row.section}`)) return false;
@@ -84,7 +99,7 @@ export function aggregateAttendanceStats(
   students: AttendanceDetailRow[],
   classes: AttendanceClassRow[],
   grain: AttendanceViewGrain,
-  filters: { campuses: string[]; semesters: string[]; sections: string[]; students: string[] },
+  filters: AttendanceFilters,
 ): { summary: AttendanceHeader; rows: AttendanceViewRow[] } {
   const filtered = students.filter((row) => passesFilters(row, filters));
   const classSessions = new Map<string, number>();
@@ -93,6 +108,7 @@ export function aggregateAttendanceStats(
     studentStamps.add(`${row.university}\t${row.semester}\t${row.section}\t${row.subject ?? ""}\t${row.unit}`);
   }
   for (const row of classes) {
+    if (!passesSubject(row.subject, filters.subjects)) continue;
     if (filters.campuses.length && !filters.campuses.includes(row.university)) continue;
     if (filters.semesters.length && !filters.semesters.includes(row.semester)) continue;
     if (filters.sections.length && !filters.sections.includes(`${row.university}\t${row.section}`)) continue;

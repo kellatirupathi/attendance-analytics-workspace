@@ -49,6 +49,7 @@ import {
   type OverviewFilters,
 } from "@/lib/overviewAggregate";
 import { buildInsights } from "@/lib/overviewInsights";
+import { readSubjects, subjectOptionList } from "@/lib/subjects";
 import { FEATURES } from "@/lib/featureFlags";
 import { Users, Building2, UserCog, Database, Bell, Inbox } from "lucide-react";
 
@@ -304,6 +305,8 @@ export default function Dashboard() {
   const campuses = lockedCampus ? [lockedCampus] : splitList(query.get("campuses"));
   const semesters = splitList(query.get("semesters"));
   const sections = splitList(query.get("sections")).filter((value) => value.includes("\t"));
+  const subjects = readSubjects(query);
+  const subjectKey = subjects.join("||");
   const rawPeriod = query.get("attRange");
   const period: OverviewPeriod = rawPeriod === "last_30" || rawPeriod === "custom" ? rawPeriod : "semester_to_date";
   const from = query.get("attFrom") || "";
@@ -337,6 +340,8 @@ export default function Dashboard() {
   } else if (period !== "custom") {
     spiParams.set("attRange", period);
   }
+  // SPI detail sums attendance across subjects, so the server narrows it.
+  if (subjects.length) spiParams.set("subjects", subjectKey);
 
   const attQuery = useQuery({
     queryKey: ["attendance-stats-detail", attParams.toString()],
@@ -377,6 +382,7 @@ export default function Dashboard() {
   if (campuses.length) trendParams.set("campuses", campuses.join("||"));
   if (semesters.length) trendParams.set("semesters", semesters.join("||"));
   if (sections.length) trendParams.set("sections", sections.join("||"));
+  if (subjects.length) trendParams.set("subjects", subjectKey);
   const trendQuery = useQuery({
     queryKey: ["attendance-trend", trendParams.toString()],
     enabled: enabled && !customPending,
@@ -408,6 +414,18 @@ export default function Dashboard() {
     return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [attRows, campusKey]);
 
+  const subjectOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const names: string[] = [];
+    for (const row of attRows ?? []) {
+      if (campusSet.size && !campusSet.has(row.university)) continue;
+      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
+      if (row.subject) names.push(row.subject);
+    }
+    return subjectOptionList(names);
+  }, [attRows, campusKey, semesterKey]);
+
   const sectionChoices = useMemo(() => {
     if (!campuses.length) return [];
     const campusSet = new Set(campuses);
@@ -425,8 +443,8 @@ export default function Dashboard() {
   /* ---- aggregates ---- */
 
   const filters: OverviewFilters = useMemo(
-    () => ({ campuses, semesters, sections }),
-    [campusKey, semesterKey, sections.join("||")],
+    () => ({ campuses, semesters, sections, subjects }),
+    [campusKey, semesterKey, sections.join("||"), subjectKey],
   );
   const att = useMemo(
     () => (attQuery.data ? attendanceOverview(attQuery.data.students, attQuery.data.classes, filters) : null),
@@ -485,6 +503,7 @@ export default function Dashboard() {
     if (c.length) p.set("campuses", c.join("||"));
     if (semesters.length) p.set("semesters", semesters.join("||"));
     if (s.length) p.set("sections", s.join("||"));
+    if (subjects.length) p.set("subjects", subjectKey);
     return p;
   };
   const attendanceHref = (group?: string, over?: { campuses?: string[]; sections?: string[] }) => {
@@ -644,6 +663,9 @@ export default function Dashboard() {
         sections={sections}
         sectionChoices={sectionChoices}
         onSections={(next) => writeQuery({ sections: next.join("||") || undefined })}
+        subjects={subjects}
+        subjectOptions={subjectOptions}
+        onSubjects={(next) => writeQuery({ subjects: next.join("||") || undefined })}
         period={period}
         from={from}
         to={to}
