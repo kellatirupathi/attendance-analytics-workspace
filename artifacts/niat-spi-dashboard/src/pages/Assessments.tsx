@@ -17,6 +17,7 @@ import { TableShell, TablePagination } from "@/components/DataTable";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
+import { BoundControl } from "@/components/SpiRecordFilterBar";
 import { ChevronRight, Download, ExternalLink, Lock } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -30,7 +31,12 @@ import {
   distinctStudents,
   filterRoster,
   filterSlots,
+  finishCounts,
+  parseScoreBound,
+  passesScore,
+  selectTypes,
   type AssessmentCounts,
+  type AssessmentType,
   type AssessmentGrain,
   type AssessmentRosterRow,
   type AssessmentSlot,
@@ -39,22 +45,37 @@ import {
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 const PAGE_SIZES = [25, 50, 100];
-const COLUMN_KEY = "assessment-columns";
+// v2 adds the score columns; a saved v1 layout would hide them.
+const COLUMN_KEY = "assessment-columns-v2";
 
 type Grain = AssessmentGrain;
-type ColumnId = "students" | "cq" | "mq" | "total" | "cqPct" | "mqPct" | "overall";
+type BoundOp = "" | "gte" | "lte" | "between";
+type ColumnId = "students" | "cq" | "cqPct" | "cqAvg" | "mq" | "mqPct" | "mqAvg" | "total" | "overall" | "avg";
 
-const ALL_COLUMNS: ColumnId[] = ["students", "cq", "mq", "total", "cqPct", "mqPct", "overall"];
+const ALL_COLUMNS: ColumnId[] = ["students", "cq", "cqPct", "cqAvg", "mq", "mqPct", "mqAvg", "total", "overall", "avg"];
 const DEFAULT_COLUMNS: ColumnId[] = ALL_COLUMNS;
 const COLUMN_LABEL: Record<ColumnId, string> = {
   students: "Students",
-  cq: "CQ",
-  mq: "MQ",
-  total: "Total",
-  cqPct: "CQ %",
-  mqPct: "MQ %",
-  overall: "Overall %",
+  cq: "CQ attempted",
+  cqPct: "CQ completion",
+  cqAvg: "CQ avg score",
+  mq: "MQ attempted",
+  mqPct: "MQ completion",
+  mqAvg: "MQ avg score",
+  total: "Total attempted",
+  overall: "Overall completion",
+  avg: "Avg score",
 };
+/** Columns that belong to one quiz type; hidden when that type is filtered out. */
+const COLUMN_TYPE: Partial<Record<ColumnId, AssessmentType>> = {
+  cq: "cq",
+  cqPct: "cq",
+  cqAvg: "cq",
+  mq: "mq",
+  mqPct: "mq",
+  mqAvg: "mq",
+};
+const ALL_TYPES: AssessmentType[] = ["cq", "mq"];
 
 interface DetailPayload {
   slots: AssessmentSlot[];
@@ -68,6 +89,34 @@ interface StudentApiRow extends AssessmentCounts {
   semester: string;
   sectionName: string;
   spiPath: string;
+}
+
+/** The API sends score sums as cq/mq*; fold them into the shared counts shape. */
+function normalizeStudentRow(
+  row: Omit<StudentApiRow, "classroomScoreSum" | "classroomScoreN" | "moduleScoreSum" | "moduleScoreN" | "classroomAvgScore" | "moduleAvgScore" | "avgScore"> & {
+    cqScoreSum?: number;
+    cqScoreN?: number;
+    mqScoreSum?: number;
+    mqScoreN?: number;
+  },
+): StudentApiRow {
+  return {
+    ...row,
+    ...finishCounts({
+      classroomCompleted: row.classroomCompleted,
+      classroomTotal: row.classroomTotal,
+      moduleCompleted: row.moduleCompleted,
+      moduleTotal: row.moduleTotal,
+      classroomStudentCompleted: row.classroomStudentCompleted,
+      classroomStudentTotal: row.classroomStudentTotal,
+      moduleStudentCompleted: row.moduleStudentCompleted,
+      moduleStudentTotal: row.moduleStudentTotal,
+      classroomScoreSum: row.cqScoreSum ?? 0,
+      classroomScoreN: row.cqScoreN ?? 0,
+      moduleScoreSum: row.mqScoreSum ?? 0,
+      moduleScoreN: row.mqScoreN ?? 0,
+    }),
+  };
 }
 
 function splitList(value: string | null): string[] {
@@ -135,7 +184,19 @@ function AssessmentsPage() {
     const [campus, section] = value.split("\t");
     return { campus: campus ?? "", section: section ?? "" };
   }).filter((item) => item.campus && item.section);
-  const subject = query.get("subject") || "";
+  const legacySubject = query.get("subject") || "";
+  const subjects = splitList(query.get("subjects")).length
+    ? splitList(query.get("subjects"))
+    : legacySubject
+      ? [legacySubject]
+      : [];
+  const typesParam = splitList(query.get("types")).filter((id): id is AssessmentType => id === "cq" || id === "mq");
+  const types: AssessmentType[] = typesParam.length ? typesParam : ALL_TYPES;
+  const rawScoreOp = query.get("scoreOp") || "";
+  const scoreOp = (["gte", "lte", "between"].includes(rawScoreOp) ? rawScoreOp : "") as BoundOp;
+  const scoreA = query.get("scoreA") || "";
+  const scoreB = query.get("scoreB") || "";
+  const scoreBound = parseScoreBound(scoreOp, scoreA, scoreB);
   const students = splitList(query.get("students")).map((value) => {
     const [studentId, campus, studentName] = value.split("\t");
     return { studentId: studentId ?? "", campus: campus ?? "", studentName: studentName ?? "" };
@@ -158,6 +219,7 @@ function AssessmentsPage() {
       params.delete("campus");
       params.delete("semester");
     }
+    if ("subjects" in patch) params.delete("subject");
     const qs = params.toString();
     setPage(1);
     setLocation(qs ? `/dashboard/assessments?${qs}` : "/dashboard/assessments");
@@ -179,7 +241,7 @@ function AssessmentsPage() {
   const studentParams = new URLSearchParams();
   if (fetchStudentsByCampus) studentParams.set("campuses", campuses.join("||"));
   else if (fetchStudentsById) studentParams.set("students", students.map((item) => item.studentId).join("||"));
-  if (subject && (fetchStudentsByCampus || fetchStudentsById)) studentParams.set("subject", subject);
+  if (subjects.length && (fetchStudentsByCampus || fetchStudentsById)) studentParams.set("subjects", subjects.join("||"));
   const studentEnabled = fetchStudentsByCampus || fetchStudentsById;
   const {
     data: studentRows,
@@ -194,7 +256,8 @@ function AssessmentsPage() {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to load students");
-      return res.json() as Promise<StudentApiRow[]>;
+      const rows = (await res.json()) as Parameters<typeof normalizeStudentRow>[0][];
+      return rows.map(normalizeStudentRow);
     },
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
@@ -231,6 +294,21 @@ function AssessmentsPage() {
     return list.sort((left, right) => left.section.localeCompare(right.section, undefined, { numeric: true }));
   }, [data, campuses, semesters]);
 
+  const subjectOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    const sectionSet = new Set(sections.map((item) => `${item.campus}\t${item.section}`));
+    const names = new Set<string>();
+    for (const slot of data?.slots ?? []) {
+      if (campusSet.size && !campusSet.has(slot.instituteName)) continue;
+      if (semesterSet.size && !semesterSet.has(slot.semester)) continue;
+      if (sectionSet.size && !sectionSet.has(`${slot.instituteName}\t${slot.section}`)) continue;
+      const name = slot.subject.trim();
+      if (name && name.toLowerCase() !== "null") names.add(slot.subject);
+    }
+    return [...names].sort((left, right) => left.localeCompare(right));
+  }, [data, campuses.join("||"), semesters.join("||"), sections.map((item) => `${item.campus}\t${item.section}`).join("||")]);
+
   useEffect(() => {
     if (!semesterOptions.length || !semesters.length) return;
     const kept = semesters.filter((name) => semesterOptions.includes(name));
@@ -242,10 +320,11 @@ function AssessmentsPage() {
     campuses,
     semesters,
     sections: sections.map((item) => `${item.campus}\t${item.section}`),
+    subjects,
   };
   const filteredSlots = useMemo(
     () => filterSlots(data?.slots ?? [], scope),
-    [data, campuses.join("||"), semesters.join("||"), scope.sections.join("||")],
+    [data, campuses.join("||"), semesters.join("||"), scope.sections.join("||"), subjects.join("||")],
   );
   const rosterForCounts = useMemo(
     () => filterRoster(data?.roster ?? [], scope),
@@ -271,13 +350,17 @@ function AssessmentsPage() {
     }
     return rows;
   }, [studentRows, studentKeys.join("||"), semesters.join("||"), scope.sections.join("||")]);
-  const headerCounts = students.length && selectedStudentRows.length
-    ? countsFromStudentWork(selectedStudentRows)
-    : slotHeader;
+  const typeKey = types.join("||");
+  const scoreKey = scoreBound ? `${scoreBound.min}:${scoreBound.max}` : "";
 
   const viewRows = useMemo(
-    () => (grain === "student" ? [] : buildAssessmentRows(filteredSlots, rosterForCounts, grain)),
-    [filteredSlots, rosterForCounts, grain],
+    () =>
+      grain === "student"
+        ? []
+        : buildAssessmentRows(filteredSlots, rosterForCounts, grain)
+            .map((row) => ({ ...row, counts: selectTypes(row.counts, types) }))
+            .filter((row) => passesScore(row.counts, scoreBound)),
+    [filteredSlots, rosterForCounts, grain, typeKey, scoreKey],
   );
   const visibleStudents = useMemo(() => {
     const campusSet = new Set(campuses);
@@ -294,10 +377,23 @@ function AssessmentsPage() {
       const key = `${row.instituteName}\t${row.studentId}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      rows.push(row);
+      const typed = { ...row, ...selectTypes(row, types) };
+      if (!passesScore(typed, scoreBound)) continue;
+      rows.push(typed);
     }
     return rows.sort((left, right) => left.completionPct - right.completionPct || left.studentName.localeCompare(right.studentName));
-  }, [studentRows, campuses.join("||"), semesters.join("||"), scope.sections.join("||"), studentKeys.join("||")]);
+  }, [studentRows, campuses.join("||"), semesters.join("||"), scope.sections.join("||"), studentKeys.join("||"), typeKey, scoreKey]);
+
+  // With a score filter the tiles add up the rows that pass it (student work), so they match the table.
+  const headerCounts = selectTypes(
+    scoreBound
+      ? countsFromStudentWork(grain === "student" ? visibleStudents : viewRows.map((row) => row.counts))
+      : students.length && selectedStudentRows.length
+        ? countsFromStudentWork(selectedStudentRows)
+        : slotHeader,
+    types,
+  );
+  const uniqueTiles = !scoreBound && students.length === 0;
 
   const tableCount = grain === "student" ? visibleStudents.length : viewRows.length;
   const totalPages = Math.max(1, Math.ceil(tableCount / pageSize));
@@ -327,7 +423,11 @@ function AssessmentsPage() {
   }, [rosterForCounts, studentQuery]);
 
   const multiCampus = campuses.length !== 1;
-  const visibleColumns = columns.filter((id) => (grain === "student" ? id !== "students" : true));
+  const visibleColumns = columns.filter((id) => {
+    if (grain === "student" && id === "students") return false;
+    const type = COLUMN_TYPE[id];
+    return !type || types.includes(type);
+  });
   const columnOrder = [...draftColumns, ...ALL_COLUMNS.filter((id) => !draftColumns.includes(id))];
 
   const applyColumns = () => {
@@ -363,13 +463,15 @@ function AssessmentsPage() {
   };
 
   const exportAll = () => {
-    const allSlots = filterSlots(data?.slots ?? [], { campuses: [], semesters, sections: [] });
+    const allSlots = filterSlots(data?.slots ?? [], { campuses: [], semesters, sections: [], subjects });
     const allRoster = filterRoster(data?.roster ?? [], { campuses: [], semesters, sections: [] });
     const rows = buildAssessmentRows(
       allSlots,
       allRoster,
       grain === "student" ? "campus" : grain,
-    );
+    )
+      .map((row) => ({ ...row, counts: selectTypes(row.counts, types) }))
+      .filter((row) => passesScore(row.counts, scoreBound));
     exportCsv(
       "assessment-all-campuses.csv",
       [...identityHeaders(grain === "student" ? "campus" : grain), ...visibleColumns.map((id) => COLUMN_LABEL[id])],
@@ -383,7 +485,7 @@ function AssessmentsPage() {
   const subtitle = [
     campusScopeLabel(campuses, campusOptions),
     semesterScopeLabel(semesters, semesterOptions),
-    subject,
+    subjects.length === 1 ? subjects[0] : subjects.length > 1 ? `${subjects.length} subjects` : "",
     `${isLoading && !data ? "—" : headerStudents.toLocaleString("en-IN")} students`,
   ].filter(Boolean).join(" · ");
   const tableLoading = isLoading || (grain === "student" && studentEnabled && studentLoading && !studentRows);
@@ -440,17 +542,14 @@ function AssessmentsPage() {
         </div>
       ) : (
         <div className="mt-4">
-          <SummaryStrip totals={headerCounts} uniqueCounts={students.length === 0} />
+          <SummaryStrip totals={headerCounts} uniqueCounts={uniqueTiles} types={types} />
         </div>
       )}
       <div className="mb-4 flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
         <FilterField label="Group by">
           <SearchableSelect
             value={grain}
-            onValueChange={(value) => writeQuery({
-              group: value === "campus" ? undefined : value,
-              subject: value === "student" ? subject || undefined : undefined,
-            })}
+            onValueChange={(value) => writeQuery({ group: value === "campus" ? undefined : value })}
             options={[
               { value: "campus", label: "Campus-wise" },
               { value: "subject", label: "Subject-wise" },
@@ -476,7 +575,6 @@ function AssessmentsPage() {
                   campuses: next.join("||") || undefined,
                   sections: keptSections.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
                   students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
-                  subject: undefined,
                 });
               }}
             />
@@ -554,6 +652,35 @@ function AssessmentsPage() {
             </PopoverContent>
           </Popover>
         </FilterField>
+        <FilterField label="Subject">
+          <CheckMenu
+            label={subjects.length ? `${subjects.length} selected` : "All subjects"}
+            options={subjectOptions.map((name) => ({ id: name, label: name }))}
+            selected={subjects}
+            onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
+          />
+        </FilterField>
+        <TypeMenu
+          selected={types}
+          onChange={(next) =>
+            writeQuery({ types: next.length === ALL_TYPES.length || next.length === 0 ? undefined : next.join("||") })
+          }
+        />
+        <FilterField label="Avg score (0–100%)">
+          <BoundControl
+            scale="0–100"
+            op={scoreOp}
+            a={scoreA}
+            b={scoreB}
+            onChange={(op, a, b) =>
+              writeQuery({
+                scoreOp: op || undefined,
+                scoreA: op ? a || undefined : undefined,
+                scoreB: op === "between" ? b || undefined : undefined,
+              })
+            }
+          />
+        </FilterField>
         <Button
           type="button"
           variant="outline"
@@ -566,6 +693,11 @@ function AssessmentsPage() {
             campus: undefined,
             semester: undefined,
             subject: undefined,
+            subjects: undefined,
+            types: undefined,
+            scoreOp: undefined,
+            scoreA: undefined,
+            scoreB: undefined,
           })}
         >
           Clear
@@ -688,14 +820,14 @@ function drill(
   writeQuery: (patch: Record<string, string | undefined>) => void,
 ) {
   if (grain === "campus") {
-    writeQuery({ campuses: row.university, group: "subject", sections: undefined, students: undefined, subject: undefined });
+    writeQuery({ campuses: row.university, group: "subject", sections: undefined, students: undefined, subjects: undefined });
     return;
   }
   if (grain === "subject") {
     writeQuery({
       campuses: row.university,
       group: "student",
-      subject: row.subject ?? undefined,
+      subjects: row.subject ?? undefined,
       sections: undefined,
       students: undefined,
     });
@@ -707,7 +839,6 @@ function drill(
       sections: `${row.university}\t${row.section ?? ""}`,
       group: "student",
       students: undefined,
-      subject: undefined,
     });
     return;
   }
@@ -734,24 +865,60 @@ function identityValues(row: AssessmentViewRow, grain: Exclude<Grain, "student">
   return [row.university];
 }
 
+const NONE_ASSIGNED = "No quizzes assigned";
+const NOT_ATTEMPTED = "Not attempted";
+
+/** Assigned and completed quizzes for a column's quiz type (overall for the combined columns). */
+function columnParts(counts: AssessmentCounts, id: ColumnId): {
+  completed: number;
+  total: number;
+  studentTotal: number;
+  pct: number;
+  avg: number | null;
+} {
+  if (id === "cq" || id === "cqPct" || id === "cqAvg") {
+    return {
+      completed: counts.classroomCompleted,
+      total: counts.classroomTotal,
+      studentTotal: counts.classroomStudentTotal,
+      pct: counts.classroomPct,
+      avg: counts.classroomAvgScore,
+    };
+  }
+  if (id === "mq" || id === "mqPct" || id === "mqAvg") {
+    return {
+      completed: counts.moduleCompleted,
+      total: counts.moduleTotal,
+      studentTotal: counts.moduleStudentTotal,
+      pct: counts.modulePct,
+      avg: counts.moduleAvgScore,
+    };
+  }
+  return {
+    completed: counts.totalCompleted,
+    total: counts.totalAssigned,
+    studentTotal: counts.classroomStudentTotal + counts.moduleStudentTotal,
+    pct: counts.completionPct,
+    avg: counts.avgScore,
+  };
+}
+
+/** Plain-text cell for CSV export; says why a value is empty. */
+function exportCell(counts: AssessmentCounts, id: ColumnId, studentCount?: number): string | number {
+  if (id === "students") return studentCount ?? "";
+  const part = columnParts(counts, id);
+  if (part.total <= 0) return NONE_ASSIGNED;
+  if (id === "cq" || id === "mq" || id === "total") return `${part.completed}/${part.total}`;
+  if (id === "cqPct" || id === "mqPct" || id === "overall") return part.studentTotal > 0 ? part.pct : NONE_ASSIGNED;
+  return part.avg ?? NOT_ATTEMPTED;
+}
+
 function viewCell(row: AssessmentViewRow, id: ColumnId): string | number {
-  if (id === "students") return row.studentCount;
-  if (id === "cq") return `${row.counts.classroomCompleted}/${row.counts.classroomTotal}`;
-  if (id === "mq") return `${row.counts.moduleCompleted}/${row.counts.moduleTotal}`;
-  if (id === "total") return `${row.counts.totalCompleted}/${row.counts.totalAssigned}`;
-  if (id === "cqPct") return row.counts.classroomPct;
-  if (id === "mqPct") return row.counts.modulePct;
-  return row.counts.completionPct;
+  return exportCell(row.counts, id, row.studentCount);
 }
 
 function studentCell(row: AssessmentCounts, id: ColumnId): string | number {
-  if (id === "students") return "";
-  if (id === "cq") return `${row.classroomCompleted}/${row.classroomTotal}`;
-  if (id === "mq") return `${row.moduleCompleted}/${row.moduleTotal}`;
-  if (id === "total") return `${row.totalCompleted}/${row.totalAssigned}`;
-  if (id === "cqPct") return row.classroomPct;
-  if (id === "mqPct") return row.modulePct;
-  return row.completionPct;
+  return exportCell(row, id);
 }
 
 function MetricCell({
@@ -764,12 +931,17 @@ function MetricCell({
   students: number | null;
 }) {
   if (id === "students") return <span className="tabular-nums text-gray-600">{(students ?? 0).toLocaleString()}</span>;
-  if (id === "cq") return <CountCell completed={counts.classroomCompleted} total={counts.classroomTotal} />;
-  if (id === "mq") return <CountCell completed={counts.moduleCompleted} total={counts.moduleTotal} />;
-  if (id === "total") return <CountCell completed={counts.totalCompleted} total={counts.totalAssigned} />;
-  if (id === "cqPct") return <span className="tabular-nums font-semibold">{counts.classroomStudentTotal > 0 ? `${counts.classroomPct}%` : "—"}</span>;
-  if (id === "mqPct") return <span className="tabular-nums font-semibold">{counts.moduleStudentTotal > 0 ? `${counts.modulePct}%` : "—"}</span>;
-  return <PctBar pct={counts.completionPct} />;
+  const part = columnParts(counts, id);
+  if (part.total <= 0) return <EmptyNote text={NONE_ASSIGNED} />;
+  if (id === "cq" || id === "mq" || id === "total") return <CountCell completed={part.completed} total={part.total} />;
+  if (id === "cqPct" || id === "mqPct") {
+    return part.studentTotal > 0
+      ? <span className="font-semibold tabular-nums" style={{ color: pctTextColor(part.pct) }}>{part.pct}%</span>
+      : <EmptyNote text={NONE_ASSIGNED} />;
+  }
+  if (id === "overall") return <PctBar pct={part.pct} />;
+  if (part.avg == null) return <EmptyNote text={NOT_ATTEMPTED} />;
+  return <span className="font-semibold tabular-nums" style={{ color: pctTextColor(part.avg) }}>{part.avg.toFixed(1)}%</span>;
 }
 
 function EmptyRow({ span, message }: { span: number; message: string }) {
@@ -855,12 +1027,27 @@ function semesterScopeLabel(selected: string[], options: string[]): string {
   return selected.join(", ");
 }
 
-function SummaryStrip({ totals, uniqueCounts = false }: { totals: AssessmentCounts; uniqueCounts?: boolean }) {
+function SummaryStrip({
+  totals,
+  uniqueCounts = false,
+  types,
+}: {
+  totals: AssessmentCounts;
+  uniqueCounts?: boolean;
+  types: AssessmentType[];
+}) {
+  const both = types.includes("cq") && types.includes("mq");
   return (
     <div className="mb-4 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
-      <Kpi label="Classroom quizzes" completed={totals.classroomCompleted} total={totals.classroomTotal} studentPct={totals.classroomPct} uniqueCounts={uniqueCounts} />
-      <Kpi label="Module quizzes" completed={totals.moduleCompleted} total={totals.moduleTotal} studentPct={totals.modulePct} uniqueCounts={uniqueCounts} />
-      <Kpi label="Total (CQ + MQ)" completed={totals.totalCompleted} total={totals.totalAssigned} studentPct={totals.completionPct} uniqueCounts={uniqueCounts} />
+      {types.includes("cq") && (
+        <Kpi label="Classroom quizzes" completed={totals.classroomCompleted} total={totals.classroomTotal} studentPct={totals.classroomPct} avgScore={totals.classroomAvgScore} uniqueCounts={uniqueCounts} />
+      )}
+      {types.includes("mq") && (
+        <Kpi label="Module quizzes" completed={totals.moduleCompleted} total={totals.moduleTotal} studentPct={totals.modulePct} avgScore={totals.moduleAvgScore} uniqueCounts={uniqueCounts} />
+      )}
+      {both && (
+        <Kpi label="Total (CQ + MQ)" completed={totals.totalCompleted} total={totals.totalAssigned} studentPct={totals.completionPct} avgScore={totals.avgScore} uniqueCounts={uniqueCounts} />
+      )}
       <div className="bg-white px-4 py-3">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Skills assessments</p>
         <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-400"><Lock className="h-3.5 w-3.5" /> Coming soon</p>
@@ -878,12 +1065,14 @@ function Kpi({
   completed,
   total,
   studentPct,
+  avgScore,
   uniqueCounts,
 }: {
   label: string;
   completed: number;
   total: number;
   studentPct: number;
+  avgScore: number | null;
   uniqueCounts?: boolean;
 }) {
   return (
@@ -897,17 +1086,78 @@ function Kpi({
       <p className="mt-0.5 text-xs font-medium tabular-nums" style={{ color: total > 0 ? pctTextColor(studentPct) : undefined }}>
         {total > 0 ? `${studentPct}% student completion` : "No quizzes assigned"}
       </p>
+      {total > 0 && (
+        <p className="mt-0.5 text-xs font-medium tabular-nums" style={{ color: avgScore != null ? pctTextColor(avgScore) : undefined }}>
+          {avgScore != null ? `Avg score ${avgScore.toFixed(1)}%` : "Avg score — not attempted yet"}
+        </p>
+      )}
     </div>
   );
 }
 
 function CountCell({ completed, total }: { completed: number; total: number }) {
-  if (total <= 0) return <span className="text-gray-400">—</span>;
+  if (total <= 0) return <EmptyNote text={NONE_ASSIGNED} />;
   return (
     <span className="tabular-nums">
       <span className="font-semibold text-gray-900">{completed.toLocaleString()}</span>
       <span className="text-gray-400"> / {total.toLocaleString()}</span>
+      {completed === 0 && <span className="block text-[11px] font-normal text-gray-400">{NOT_ATTEMPTED}</span>}
     </span>
+  );
+}
+
+function EmptyNote({ text }: { text: string }) {
+  return <span className="whitespace-nowrap text-xs text-gray-400">{text}</span>;
+}
+
+function TypeMenu({ selected, onChange }: { selected: AssessmentType[]; onChange: (next: AssessmentType[]) => void }) {
+  const options: { id: AssessmentType | "skill" | "final"; label: string; disabled?: boolean }[] = [
+    { id: "cq", label: "Classroom quiz" },
+    { id: "mq", label: "Module quiz" },
+    { id: "skill", label: "Skill Assessment", disabled: true },
+    { id: "final", label: "Final Skill Assessment", disabled: true },
+  ];
+  const label = selected.length === ALL_TYPES.length ? "All quiz types" : selected.map((id) => (id === "cq" ? "Classroom" : "Module")).join(", ");
+  return (
+    <div role="group" aria-label="Assessment type" className="flex shrink-0 flex-col gap-1">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Assessment type</span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64" align="start">
+          <div className="space-y-1.5">
+            {options.map((option) => {
+              const on = !option.disabled && selected.includes(option.id as AssessmentType);
+              return (
+                <label
+                  key={option.id}
+                  className={"flex items-center gap-2 text-sm " + (option.disabled ? "cursor-not-allowed text-gray-400" : "")}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={option.disabled}
+                    onChange={() => {
+                      const id = option.id as AssessmentType;
+                      const next = on ? selected.filter((item) => item !== id) : [...selected, id];
+                      // Keep at least one type selected.
+                      if (next.length) onChange(ALL_TYPES.filter((item) => next.includes(item)));
+                    }}
+                  />
+                  {option.label}
+                  {option.disabled && (
+                    <span className="ml-auto inline-flex items-center gap-1 text-[11px]">
+                      <Lock className="h-3 w-3" /> Coming soon
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 

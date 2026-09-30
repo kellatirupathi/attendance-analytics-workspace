@@ -1256,7 +1256,7 @@ router.get(
       campuses: session.campuses,
       subjects: session.subjects,
     });
-    const cacheKey = `assessment-detail:v1:${session.role}:${JSON.stringify(scope)}`;
+    const cacheKey = `assessment-detail:v2:${session.role}:${JSON.stringify(scope)}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -1292,7 +1292,13 @@ router.get(
       .split("||")
       .map((id) => id.trim())
       .filter(Boolean);
-    const subject = q["subject"]?.trim() || undefined;
+    const subjects = [
+      ...new Set(
+        [...(q["subjects"] ?? "").split("||"), q["subject"] ?? ""]
+          .map((name) => name.trim())
+          .filter(Boolean),
+      ),
+    ].sort();
     if (!campuses.length && !studentIds.length) {
       res.status(400).json({ error: "campus or student required" });
       return;
@@ -1304,7 +1310,7 @@ router.get(
         return;
       }
     }
-    const cacheKey = `assessment-student-rows:v1:${session.role}:${JSON.stringify(scope)}:${campuses.join("||")}:${studentIds.join("||")}:${subject ?? ""}`;
+    const cacheKey = `assessment-student-rows:v2:${session.role}:${JSON.stringify(scope)}:${campuses.join("||")}:${studentIds.join("||")}:${subjects.join("||")}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -1314,7 +1320,7 @@ router.get(
       const students = await getAssessmentStudentRows(scope, {
         campuses: campuses.length ? campuses : undefined,
         studentIds: studentIds.length ? studentIds : undefined,
-        subject,
+        subjects: subjects.length ? subjects : undefined,
       });
       const payload = students.map((student) => ({
         ...student,

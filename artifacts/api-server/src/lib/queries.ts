@@ -2427,6 +2427,11 @@ export interface AssessmentSlotItem {
   cqStudentTotal: number;
   mqStudentCompleted: number;
   mqStudentTotal: number;
+  /** Sum and count of each student's average best-attempt score per subject (attempted quizzes only). */
+  cqScoreSum: number;
+  cqScoreN: number;
+  mqScoreSum: number;
+  mqScoreN: number;
 }
 
 export interface AssessmentRosterItem {
@@ -2443,6 +2448,10 @@ export interface AssessmentStudentRow extends AssessmentCountRow {
   instituteName: string;
   semester: string;
   sectionName: string;
+  cqScoreSum: number;
+  cqScoreN: number;
+  mqScoreSum: number;
+  mqScoreN: number;
 }
 
 /**
@@ -2476,6 +2485,10 @@ export async function getAssessmentDetail(
       cq_student_total: string;
       mq_student_completed: string;
       mq_student_total: string;
+      cq_score_sum: string;
+      cq_score_n: string;
+      mq_score_sum: string;
+      mq_score_n: string;
     }>(
       `WITH enrolled AS (
         SELECT
@@ -2528,7 +2541,11 @@ export async function getAssessmentDetail(
         IFNULL(SUM(q.cq_completed), 0) AS cq_student_completed,
         IFNULL(SUM(q.cq_total), 0) AS cq_student_total,
         IFNULL(SUM(q.mq_completed), 0) AS mq_student_completed,
-        IFNULL(SUM(q.mq_total), 0) AS mq_student_total
+        IFNULL(SUM(q.mq_total), 0) AS mq_student_total,
+        IFNULL(SUM(q.cq_avg), 0) AS cq_score_sum,
+        COUNT(q.cq_avg) AS cq_score_n,
+        IFNULL(SUM(q.mq_avg), 0) AS mq_score_sum,
+        COUNT(q.mq_avg) AS mq_score_n
       FROM enrolled e
       LEFT JOIN quiz_student q
         ON q.institute_name = e.institute_name
@@ -2585,6 +2602,10 @@ export async function getAssessmentDetail(
         cqStudentTotal: Number(row.cq_student_total ?? 0),
         mqStudentCompleted: Number(row.mq_student_completed ?? 0),
         mqStudentTotal: Number(row.mq_student_total ?? 0),
+        cqScoreSum: Number(row.cq_score_sum ?? 0),
+        cqScoreN: Number(row.cq_score_n ?? 0),
+        mqScoreSum: Number(row.mq_score_sum ?? 0),
+        mqScoreN: Number(row.mq_score_n ?? 0),
       })),
     roster: rosterRows
       .filter((row) => !isExcludedInstitute(row.institute_name))
@@ -2601,7 +2622,7 @@ export async function getAssessmentDetail(
 /** Per-student quiz totals for the current semester. Loaded only after a campus or student is chosen. */
 export async function getAssessmentStudentRows(
   scope: SessionScope,
-  opts: { campuses?: string[]; studentIds?: string[]; subject?: string },
+  opts: { campuses?: string[]; studentIds?: string[]; subjects?: string[] },
 ): Promise<AssessmentStudentRow[]> {
   const params: Record<string, unknown> = {};
   const { attWhere, quizWhere } = assessmentScopeSql(scope, {}, params);
@@ -2615,9 +2636,9 @@ export async function getAssessmentStudentRows(
     extra +=
       " AND LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) IN UNNEST(@filterStudents)";
   }
-  if (opts.subject) {
-    params["filterSubject"] = opts.subject;
-    extra += " AND subject_title = @filterSubject";
+  if (opts.subjects?.length) {
+    params["filterSubjects"] = opts.subjects;
+    extra += " AND subject_title IN UNNEST(@filterSubjects)";
   }
   const rows = await bqQuery<{
     student_user_id: string;
@@ -2629,6 +2650,10 @@ export async function getAssessmentStudentRows(
     cq_total: string;
     mq_completed: string;
     mq_total: string;
+    cq_score_sum: string;
+    cq_score_n: string;
+    mq_score_sum: string;
+    mq_score_n: string;
   }>(
     `WITH enrolled AS (
       SELECT
@@ -2673,10 +2698,11 @@ export async function getAssessmentStudentRows(
       )
       GROUP BY institute_name, semester_title, section_name, student_key
     ),
-    quiz AS (
+    quiz_subject AS (
       SELECT
         e.institute_name,
         e.student_key,
+        e.subject_title,
         ${quizPivotSelect("q")}
       FROM ${QUIZ_TABLE} q
       INNER JOIN (
@@ -2686,7 +2712,23 @@ export async function getAssessmentStudentRows(
        AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
        AND ${quizMatchesSubjectSql("e.subject_title", "q")}
       WHERE ${quizWhere}
-      GROUP BY e.institute_name, e.student_key
+      GROUP BY e.institute_name, e.student_key, e.subject_title
+    ),
+    -- Per-subject first, so a student's score averages the same unit as the slot rollup.
+    quiz AS (
+      SELECT
+        institute_name,
+        student_key,
+        SUM(cq_completed) AS cq_completed,
+        SUM(cq_total) AS cq_total,
+        SUM(mq_completed) AS mq_completed,
+        SUM(mq_total) AS mq_total,
+        IFNULL(SUM(cq_avg), 0) AS cq_score_sum,
+        COUNT(cq_avg) AS cq_score_n,
+        IFNULL(SUM(mq_avg), 0) AS mq_score_sum,
+        COUNT(mq_avg) AS mq_score_n
+      FROM quiz_subject
+      GROUP BY institute_name, student_key
     )
     SELECT
       names.student_key AS student_user_id,
@@ -2697,7 +2739,11 @@ export async function getAssessmentStudentRows(
       IFNULL(quiz.cq_completed, 0) AS cq_completed,
       IFNULL(quiz.cq_total, 0) AS cq_total,
       IFNULL(quiz.mq_completed, 0) AS mq_completed,
-      IFNULL(quiz.mq_total, 0) AS mq_total
+      IFNULL(quiz.mq_total, 0) AS mq_total,
+      IFNULL(quiz.cq_score_sum, 0) AS cq_score_sum,
+      IFNULL(quiz.cq_score_n, 0) AS cq_score_n,
+      IFNULL(quiz.mq_score_sum, 0) AS mq_score_sum,
+      IFNULL(quiz.mq_score_n, 0) AS mq_score_n
     FROM names
     LEFT JOIN quiz
       ON quiz.institute_name = names.institute_name
@@ -2715,6 +2761,10 @@ export async function getAssessmentStudentRows(
       semester: row.semester_title,
       sectionName: row.section_name,
       ...mapAssessmentCounts(row),
+      cqScoreSum: Number(row.cq_score_sum ?? 0),
+      cqScoreN: Number(row.cq_score_n ?? 0),
+      mqScoreSum: Number(row.mq_score_sum ?? 0),
+      mqScoreN: Number(row.mq_score_n ?? 0),
     }));
 }
 
