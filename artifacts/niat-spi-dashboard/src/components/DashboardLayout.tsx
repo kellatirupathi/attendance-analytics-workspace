@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Logo } from "./LogoMark";
+import { Logo, LogoMark } from "./LogoMark";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLogout } from "@workspace/api-client-react";
 import {
@@ -21,6 +21,8 @@ import {
   ClipboardCheck,
   BookOpenCheck,
   FileBarChart2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
@@ -54,35 +56,69 @@ function NavItemLink({
   active,
   onNavigate,
   badge,
+  collapsed = false,
 }: {
   item: NavItem;
   active: boolean;
   onNavigate?: () => void;
   badge?: number;
+  collapsed?: boolean;
 }) {
+  const hasBadge = badge != null && badge > 0;
   return (
-    <Link href={item.href} onClick={onNavigate}>
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      title={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
+    >
       <div
         className={cn(
-          "group flex items-center gap-3 border-l-2 py-2.5 pl-3 pr-2 text-[13px] font-medium transition-colors cursor-pointer",
+          "group relative flex items-center gap-3 border-l-2 py-2.5 pl-3 pr-2 text-[13px] font-medium transition-colors cursor-pointer",
           active
             ? "border-brand-500 bg-slate-800/80 text-white"
             : "border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200",
         )}
       >
         <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
-        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-        {badge != null && badge > 0 && (
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate whitespace-nowrap transition-opacity duration-200",
+            collapsed && "pointer-events-none opacity-0",
+          )}
+        >
+          {item.label}
+        </span>
+        {hasBadge && !collapsed && (
           <span className="rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
             {badge > 99 ? "99+" : badge}
           </span>
+        )}
+        {hasBadge && collapsed && (
+          <span className="absolute left-7 top-1.5 h-2 w-2 rounded-full bg-brand-600 ring-2 ring-slate-900" aria-hidden />
         )}
       </div>
     </Link>
   );
 }
 
-function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
+function SectionLabel({ collapsed, first, children }: { collapsed: boolean; first?: boolean; children: React.ReactNode }) {
+  if (collapsed) {
+    return <div className={cn("mx-3 border-t border-slate-700/80", first ? "mb-2" : "my-3")} aria-hidden />;
+  }
+  return (
+    <p
+      className={cn(
+        "whitespace-nowrap px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500",
+        !first && "pt-5",
+      )}
+    >
+      {children}
+    </p>
+  );
+}
+
+function ProfileMenu({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const { user } = useAuth();
   const logout = useLogout();
   const [open, setOpen] = useState(false);
@@ -107,7 +143,12 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
         />
       )}
       {open && (
-        <div className="absolute bottom-full left-3 right-3 z-40 mb-2 rounded-md border border-slate-600 bg-slate-800 py-1 md:bottom-0 md:left-full md:right-auto md:mb-0 md:ml-2 md:w-52">
+        <div
+          className={cn(
+            "absolute bottom-full left-3 right-3 z-40 mb-2 rounded-md border border-slate-600 bg-slate-800 py-1 md:bottom-0 md:left-full md:right-auto md:mb-0 md:ml-2 md:w-52",
+            collapsed && "left-full right-auto bottom-0 mb-0 ml-2 w-52",
+          )}
+        >
           <Link
             href="/dashboard/profile"
             onClick={() => {
@@ -145,18 +186,21 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-slate-800/60"
+        title={collapsed ? `${user?.name ?? ""} · ${roleLabel(user?.role)}` : undefined}
+        aria-label={collapsed ? "Open profile menu" : undefined}
       >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-700 text-sm font-semibold text-white">
           {user?.name?.charAt(0).toUpperCase()}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white">{user?.name}</p>
-          <p className="truncate text-xs text-slate-400">{roleLabel(user?.role)}</p>
+        <div className={cn("min-w-0 flex-1 transition-opacity duration-200", collapsed && "opacity-0")}>
+          <p className="truncate whitespace-nowrap text-sm font-medium text-white">{user?.name}</p>
+          <p className="truncate whitespace-nowrap text-xs text-slate-400">{roleLabel(user?.role)}</p>
         </div>
         <ChevronDown
           className={cn(
             "h-4 w-4 shrink-0 text-slate-500 transition-transform",
             open && "rotate-180",
+            collapsed && "hidden",
           )}
         />
       </button>
@@ -164,7 +208,15 @@ function ProfileMenu({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarInner({
+  onNavigate,
+  collapsed = false,
+  onToggle,
+}: {
+  onNavigate?: () => void;
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
   const { user } = useAuth();
   const [location] = useLocation();
   const canManage = user?.role === "superadmin" || user?.role === "admin";
@@ -180,15 +232,32 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
   const renderedMainNav = user?.role === "instructor" ? instructorNav : visibleMainNav;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-900">
-      <div className="border-b border-slate-700/80 px-4 py-4">
-        <Logo inverted className="gap-3" />
+    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-slate-900">
+      <div
+        className={cn(
+          "flex items-center border-b border-slate-700/80 py-4",
+          collapsed ? "flex-col gap-3 px-2" : "justify-between gap-2 px-4",
+        )}
+      >
+        {collapsed ? <LogoMark /> : <Logo inverted className="min-w-0 gap-3" />}
+        {onToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+          >
+            {collapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
+          </button>
+        )}
       </div>
 
-      <nav className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto px-2 py-4">
-        <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+      <nav className={cn("scrollbar-thin flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden py-4", collapsed ? "px-1.5" : "px-2")}>
+        <SectionLabel collapsed={collapsed} first>
           Main
-        </p>
+        </SectionLabel>
         {renderedMainNav.map((item) => (
           <NavItemLink
             key={item.href}
@@ -199,14 +268,13 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
                 location.startsWith(`${item.href}/`))
             }
             onNavigate={onNavigate}
+            collapsed={collapsed}
           />
         ))}
 
         {canRequests && (
           <>
-            <p className="px-3 pb-2 pt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              Operations
-            </p>
+            <SectionLabel collapsed={collapsed}>Operations</SectionLabel>
             <NavItemLink
               item={{
                 label: "Request Inbox",
@@ -216,39 +284,66 @@ function SidebarInner({ onNavigate }: { onNavigate?: () => void }) {
               active={location === "/dashboard/requests"}
               onNavigate={onNavigate}
               badge={unread}
+              collapsed={collapsed}
             />
           </>
         )}
 
         {canManage && (
           <>
-            <p className="px-3 pb-2 pt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              Administration
-            </p>
+            <SectionLabel collapsed={collapsed}>Administration</SectionLabel>
             {adminNav.map((item) => (
               <NavItemLink
                 key={item.href}
                 item={item}
                 active={location === item.href}
                 onNavigate={onNavigate}
+                collapsed={collapsed}
               />
             ))}
           </>
         )}
       </nav>
 
-      <ProfileMenu onNavigate={onNavigate} />
+      <ProfileMenu onNavigate={onNavigate} collapsed={collapsed} />
     </div>
   );
 }
 
+const COLLAPSED_KEY = "dashboard-sidebar-collapsed";
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(readCollapsed);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, isCollapsed ? "1" : "0");
+    } catch {
+      // Storage can be blocked; the toggle still works for this visit.
+    }
+    // Charts size themselves on window resize; nudge them once the width transition ends.
+    const timer = window.setTimeout(() => window.dispatchEvent(new Event("resize")), 220);
+    return () => window.clearTimeout(timer);
+  }, [isCollapsed]);
 
   return (
     <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100">
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[240px] md:flex">
-        <SidebarInner />
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-20 hidden transition-[width] duration-200 ease-in-out motion-reduce:transition-none md:flex",
+          isCollapsed ? "w-16" : "w-[240px]",
+        )}
+      >
+        <SidebarInner collapsed={isCollapsed} onToggle={() => setIsCollapsed((value) => !value)} />
       </aside>
 
       <header className="fixed inset-x-0 top-0 z-20 flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden">
@@ -284,7 +379,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <main className="flex min-h-[100dvh] flex-col overflow-x-hidden overflow-y-auto bg-white pt-14 md:h-[100dvh] md:pl-[240px] md:pt-0">
+      <main
+        className={cn(
+          "flex min-h-[100dvh] min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-white pt-14 transition-[padding] duration-200 ease-in-out motion-reduce:transition-none md:h-[100dvh] md:pt-0",
+          isCollapsed ? "md:pl-16" : "md:pl-[240px]",
+        )}
+      >
         <div className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden pl-2 pr-8 sm:pl-3 sm:pr-10 lg:pr-12">
           {children}
         </div>

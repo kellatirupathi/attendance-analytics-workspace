@@ -139,6 +139,18 @@ export default function StudentReportView(props: StudentReportViewProps) {
         .sort((a, b) => a.pct - b.pct || courseLabel(a.name).localeCompare(courseLabel(b.name))),
     [props.courses],
   );
+  // Sessions with a blank or "null" course still count in the headline attendance,
+  // so show them as one row to keep the table adding up to the headline.
+  const unlinked = useMemo(() => {
+    let attended = 0;
+    let total = 0;
+    for (const course of props.courses) {
+      if (namedCourse(course.name)) continue;
+      attended += course.attended;
+      total += course.total;
+    }
+    return total > 0 ? { attended, total, pct: (attended / total) * 100 } : null;
+  }, [props.courses]);
   const tierPct = eligibilityAttendancePct(
     props.attendancePct,
     courses.map((course) => course.pct),
@@ -444,16 +456,62 @@ export default function StudentReportView(props: StudentReportViewProps) {
                         {courses.map((course) => (
                           <CourseRow key={course.name} course={course} />
                         ))}
+                        {unlinked && (
+                          <tr className="border-t border-[#F3F4F6] text-[#4B5563]">
+                            <td className="py-3 pr-3 font-medium">
+                              <span className="inline-flex items-center gap-1">
+                                Other sessions (no course)
+                                <DataWarning />
+                              </span>
+                            </td>
+                            <td className="py-3 pr-3 tabular-nums">
+                              {unlinked.attended} / {unlinked.total}
+                            </td>
+                            <td className="py-3 pr-3 tabular-nums">{oneDecimal(unlinked.pct)}%</td>
+                            <td className="py-3 pr-3">—</td>
+                            <td className="py-3 text-xs">Not a course</td>
+                          </tr>
+                        )}
                       </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-[#E5E7EB] font-semibold text-[#111827]">
+                          <td className="pt-3 pr-3">Total</td>
+                          <td className="pt-3 pr-3 tabular-nums">
+                            {props.attended} / {props.totalSessions}
+                          </td>
+                          <td className="pt-3 pr-3 tabular-nums">{oneDecimal(props.attendancePct)}%</td>
+                          <td className="pt-3 pr-3" />
+                          <td className="pt-3" />
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                   <ul className="space-y-3 md:hidden">
                     {courses.map((course) => (
                       <CourseCard key={course.name} course={course} />
                     ))}
+                    {unlinked && (
+                      <li className="rounded-xl border border-dashed border-[#E5E7EB] p-3 text-[#4B5563]">
+                        <p className="font-medium">
+                          Other sessions (no course)
+                          <DataWarning />
+                        </p>
+                        <p className="mt-1 text-sm tabular-nums">
+                          {oneDecimal(unlinked.pct)}% · {unlinked.attended} / {unlinked.total} sessions
+                        </p>
+                      </li>
+                    )}
+                    <li className="flex justify-between px-1 text-sm font-semibold text-[#111827]">
+                      <span>Total</span>
+                      <span className="tabular-nums">
+                        {props.attended} / {props.totalSessions} · {oneDecimal(props.attendancePct)}%
+                      </span>
+                    </li>
                   </ul>
                   <p className="mt-3 text-xs text-[#4B5563]">
                     Short of {TIER_ELIGIBLE}% = extra sessions to attend in a row, with no further absences.
+                    {unlinked &&
+                      ` "Other sessions" were recorded without a course name. They count toward your overall attendance but not toward any course.`}
                   </p>
                 </>
               )}
