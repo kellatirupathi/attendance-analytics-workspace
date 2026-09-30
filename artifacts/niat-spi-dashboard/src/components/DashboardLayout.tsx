@@ -27,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
+import { FEATURES } from "@/lib/featureFlags";
 
 const REQUEST_ROLES = ["superadmin", "admin", "boa", "hod"];
 
@@ -223,7 +224,9 @@ function SidebarInner({
   const canRequests = REQUEST_ROLES.includes(user?.role ?? "");
   const unread = useUnreadNotificationCount(canRequests);
   const visibleMainNav = mainNav.filter(
-    (item) => !(user?.role === "boa" && item.href === "/dashboard/campuses"),
+    (item) =>
+      item.href !== "/dashboard/campuses" ||
+      (FEATURES.campusAnalytics && user?.role !== "boa"),
   );
   const instructorNav: NavItem[] = [
     { label: "Report recovery", href: "/instructor", icon: ClipboardCheck },
