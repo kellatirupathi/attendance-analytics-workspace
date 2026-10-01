@@ -12,4 +12,8 @@ export interface SubjectAttendance {
   total: number;
   pct: number;
   meetsRequirement: boolean;
+  courseCategory?: string | null;
+  submitted?: number;
+  presentSubmitted?: number;
+  pctSubmittedOnly?: number | null;
 }

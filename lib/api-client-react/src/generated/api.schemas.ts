@@ -131,6 +131,11 @@ export interface SubjectAttendance {
   total: number;
   pct: number;
   meetsRequirement: boolean;
+  /** Course category from the prod sequence (comma-joined if several) */
+  courseCategory?: string | null;
+  submitted?: number;
+  presentSubmitted?: number;
+  pctSubmittedOnly?: number | null;
 }
 
 export interface SessionRecord {

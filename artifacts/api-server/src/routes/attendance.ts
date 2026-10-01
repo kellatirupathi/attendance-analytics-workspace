@@ -22,6 +22,7 @@ import { assertStudentAccess } from "../lib/studentAccess.js";
 import {
   getStudentOverview,
   getStudentSubjects,
+  courseAttendanceConfigVersion,
   getStudentRecentSessions,
   searchStudents,
   getStudentQuizzes,
@@ -255,7 +256,7 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const cacheKey = `overview:${studentId}`;
+    const cacheKey = `overview:v2:${courseAttendanceConfigVersion()}:${studentId}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
@@ -289,7 +290,7 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const cacheKey = `subjects:${studentId}`;
+    const cacheKey = `subjects:v2:${courseAttendanceConfigVersion()}:${studentId}`;
     const cached = cacheGet<object[]>(cacheKey);
     if (cached) {
       res.json(cached);
