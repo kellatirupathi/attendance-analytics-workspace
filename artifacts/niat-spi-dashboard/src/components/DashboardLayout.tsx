@@ -235,10 +235,12 @@ function SidebarInner({
   const renderedMainNav = user?.role === "instructor" ? instructorNav : visibleMainNav;
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-slate-900">
+    // No overflow clipping here: the profile menu opens outside the sidebar, to its right.
+    // The header and nav clip their own content while the width animates.
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-900">
       <div
         className={cn(
-          "flex items-center border-b border-slate-700/80 py-4",
+          "flex items-center overflow-hidden border-b border-slate-700/80 py-4",
           collapsed ? "flex-col gap-3 px-2" : "justify-between gap-2 px-4",
         )}
       >
