@@ -19,6 +19,16 @@ export interface ReportCourse {
   attended: number;
   total: number;
   pct: number;
+  /** Slots with attendance submitted, and present among them. */
+  submitted?: number;
+  presentSubmitted?: number;
+  /** PRESENT ÷ submitted slots × 100; null when none are submitted. */
+  pctSubmittedOnly?: number | null;
+}
+
+function SubmittedPct({ value }: { value: number | null | undefined }) {
+  if (value == null) return <span className="text-xs text-[#9CA3AF]">None submitted</span>;
+  return <span className="tabular-nums text-[#374151]">{oneDecimal(value)}%</span>;
 }
 
 interface StudentReportViewProps {
@@ -150,6 +160,15 @@ export default function StudentReportView(props: StudentReportViewProps) {
       total += course.total;
     }
     return total > 0 ? { attended, total, pct: (attended / total) * 100 } : null;
+  }, [props.courses]);
+  const totalSubmittedPct = useMemo(() => {
+    let present = 0;
+    let submitted = 0;
+    for (const course of props.courses) {
+      present += course.presentSubmitted ?? 0;
+      submitted += course.submitted ?? 0;
+    }
+    return submitted > 0 ? (present / submitted) * 100 : null;
   }, [props.courses]);
   const tierPct = eligibilityAttendancePct(
     props.attendancePct,
@@ -448,6 +467,7 @@ export default function StudentReportView(props: StudentReportViewProps) {
                           <th className="pb-2 font-semibold">COURSE</th>
                           <th className="pb-2 font-semibold">SESSIONS</th>
                           <th className="pb-2 font-semibold">ATTENDANCE</th>
+                          <th className="pb-2 font-semibold" title="Present ÷ slots with attendance submitted">SUBMITTED ONLY</th>
                           <th className="pb-2 font-semibold">SHORT OF {TIER_ELIGIBLE}%</th>
                           <th className="pb-2 font-semibold">STATUS</th>
                         </tr>
@@ -469,6 +489,7 @@ export default function StudentReportView(props: StudentReportViewProps) {
                             </td>
                             <td className="py-3 pr-3 tabular-nums">{oneDecimal(unlinked.pct)}%</td>
                             <td className="py-3 pr-3">—</td>
+                            <td className="py-3 pr-3">—</td>
                             <td className="py-3 text-xs">Not a course</td>
                           </tr>
                         )}
@@ -480,6 +501,9 @@ export default function StudentReportView(props: StudentReportViewProps) {
                             {props.attended} / {props.totalSessions}
                           </td>
                           <td className="pt-3 pr-3 tabular-nums">{oneDecimal(props.attendancePct)}%</td>
+                          <td className="pt-3 pr-3">
+                            <SubmittedPct value={totalSubmittedPct} />
+                          </td>
                           <td className="pt-3 pr-3" />
                           <td className="pt-3" />
                         </tr>
@@ -712,6 +736,9 @@ function CourseRow({ course }: { course: ReportCourse }) {
           </span>
         </div>
       </td>
+      <td className="py-3 pr-3">
+        <SubmittedPct value={course.pctSubmittedOnly} />
+      </td>
       <td className="py-3 pr-3 font-medium text-[#B91C1C]">
         {short > 0 ? `+${short} sessions` : "—"}
       </td>
@@ -751,6 +778,9 @@ function CourseCard({ course }: { course: ReportCourse }) {
       </div>
       <p className="mt-2 text-xs text-[#374151]">
         Short of {TIER_ELIGIBLE}%: {short > 0 ? `+${short} sessions` : "—"}
+      </p>
+      <p className="mt-1 text-xs text-[#374151]">
+        Submitted only: <SubmittedPct value={course.pctSubmittedOnly} />
       </p>
     </li>
   );

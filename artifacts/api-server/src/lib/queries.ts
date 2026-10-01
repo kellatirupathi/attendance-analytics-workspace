@@ -31,6 +31,7 @@ import {
 import { cacheGet, cacheSet } from "./cache.js";
 import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate.js";
 import type { SessionScope } from "./rbac.js";
+import { getAttendanceExclusions } from "./attendanceExclusions.js";
 import {
   excludeInstituteSql,
   isExcludedInstitute,
@@ -256,51 +257,240 @@ export interface StudentOverview {
   coursesInRecovery: number;
 }
 
+export interface CourseAttendanceRow {
+  instituteName: string;
+  subjectTitle: string;
+  courseCategory: string | null;
+  students: number;
+  present: number;
+  slots: number;
+  presentSubmitted: number;
+  submittedSlots: number;
+  /** PRESENT ÷ all slots × 100 */
+  pct: number;
+  /** PRESENT ÷ slots with attendance submitted × 100; null when none are submitted. */
+  pctSubmittedOnly: number | null;
+}
+
+/**
+ * Never sent empty: BigQuery needs a typed value, and this text can't match a
+ * real (trimmed, upper-cased) category or subject.
+ */
+const NO_MATCH = "\u0000NONE";
+
+/**
+ * The one course-wise attendance query. Every view (student report, BOA,
+ * Training Team / Capability Manager, HOD) calls this; role scope and the
+ * student filter only change its parameters.
+ *
+ * - Attendance rows left-joined to the prod sequence on session_id + section_id,
+ *   hyphens stripped on both sides (their UUID formats differ). The sequence is
+ *   DISTINCT on (session, section, category) so the join doesn't duplicate slots.
+ * - Current semester, SESSION_SLOT only, dated up to today (IST).
+ * - Rows with no subject_title (no linked semester course) are always dropped.
+ * - Categories and subjects in config/attendance-exclusions.json are dropped,
+ *   matched case-insensitively. Rows with no category match nothing, so they stay.
+ */
+export function courseAttendanceSql(where: string): string {
+  return `WITH sequence_category AS (
+      SELECT DISTINCT
+        REPLACE(CAST(session_id AS STRING), '-', '') AS session_key,
+        REPLACE(CAST(section_id AS STRING), '-', '') AS section_key,
+        course_category
+      FROM ${PROD_SEQUENCE_TABLE}
+      WHERE session_id IS NOT NULL AND section_id IS NOT NULL
+    ),
+    slots AS (
+      SELECT
+        TRIM(a.institute_name) AS institute_name,
+        TRIM(a.subject_title) AS subject_title,
+        NULLIF(TRIM(CAST(seq.course_category AS STRING)), '') AS course_category,
+        a.student_user_id,
+        UPPER(a.attendance_status) = 'PRESENT' AS is_present,
+        IFNULL(SAFE_CAST(a.is_attendance_submitted AS INT64), 0) = 1 AS is_submitted
+      FROM ${ATTENDANCE_TABLE} a
+      LEFT JOIN sequence_category seq
+        ON seq.session_key = REPLACE(CAST(a.session_id AS STRING), '-', '')
+       AND seq.section_key = REPLACE(CAST(a.section_id AS STRING), '-', '')
+      WHERE a.is_current_semester = 1
+        AND UPPER(CAST(a.entity_type AS STRING)) = 'SESSION_SLOT'
+        AND DATE(a.date) <= CURRENT_DATE('Asia/Kolkata')
+        AND a.subject_title IS NOT NULL
+        AND TRIM(a.subject_title) != ''
+        AND ${where}
+    )
+    SELECT
+      institute_name,
+      subject_title,
+      course_category,
+      COUNT(DISTINCT student_user_id) AS students,
+      COUNTIF(is_present) AS present,
+      COUNT(*) AS slots,
+      COUNTIF(is_present AND is_submitted) AS present_submitted,
+      COUNTIF(is_submitted) AS submitted_slots
+    FROM slots
+    WHERE UPPER(IFNULL(course_category, '')) NOT IN UNNEST(@excludedCategories)
+      AND UPPER(subject_title) NOT IN UNNEST(@excludedSubjects)
+    GROUP BY institute_name, subject_title, course_category
+    ORDER BY institute_name, subject_title`;
+}
+
+function exclusionParams(): Record<string, unknown> {
+  const { excludedCategories, excludedSubjects } = getAttendanceExclusions();
+  return {
+    excludedCategories: excludedCategories.length ? excludedCategories : [NO_MATCH],
+    excludedSubjects: excludedSubjects.length ? excludedSubjects : [NO_MATCH],
+  };
+}
+
+/** Cache-key part that changes when the exclusion config changes. */
+export function courseAttendanceConfigVersion(): string {
+  return getAttendanceExclusions().version;
+}
+
+export async function getCourseAttendance(opts: {
+  /** One student (the report). Hyphens and case don't matter. */
+  studentId?: string;
+  /** Role scope for staff views; ignored when studentId is set (the route checks access). */
+  scope?: SessionScope;
+  campuses?: string[];
+  subjects?: string[];
+}): Promise<CourseAttendanceRow[]> {
+  const cacheKey = `course-attendance:v1:${courseAttendanceConfigVersion()}:${JSON.stringify({
+    studentId: opts.studentId ? normalizeStudentId(opts.studentId) : "",
+    scope: opts.studentId ? null : opts.scope ?? null,
+    campuses: opts.campuses ?? [],
+    subjects: opts.subjects ?? [],
+  })}`;
+  const cached = cacheGet<CourseAttendanceRow[]>(cacheKey);
+  if (cached) return cached;
+  const result = await loadCourseAttendance(opts);
+  cacheSet(cacheKey, result, 5 * 60 * 1000);
+  return result;
+}
+
+async function loadCourseAttendance(opts: {
+  studentId?: string;
+  scope?: SessionScope;
+  campuses?: string[];
+  subjects?: string[];
+}): Promise<CourseAttendanceRow[]> {
+  const params: Record<string, unknown> = exclusionParams();
+  const clauses: string[] = [excludeInstituteSql("a.institute_name")];
+  if (opts.studentId) {
+    if (!validateStudentId.test(opts.studentId)) return [];
+    params["studentId"] = normalizeStudentId(opts.studentId);
+    clauses.push(studentIdMatch("a.student_user_id"));
+  } else if (opts.scope) {
+    if (opts.scope.campuses?.length) {
+      params["scopeCampuses"] = opts.scope.campuses;
+      clauses.push("a.institute_name IN UNNEST(@scopeCampuses)");
+    }
+    if (opts.scope.subjects?.length) {
+      params["scopeSubjects"] = opts.scope.subjects;
+      clauses.push("a.subject_title IN UNNEST(@scopeSubjects)");
+    }
+  }
+  if (opts.campuses?.length) {
+    params["filterCampuses"] = opts.campuses;
+    clauses.push("TRIM(a.institute_name) IN UNNEST(@filterCampuses)");
+  }
+  if (opts.subjects?.length) {
+    params["filterSubjects"] = opts.subjects;
+    clauses.push("TRIM(a.subject_title) IN UNNEST(@filterSubjects)");
+  }
+  const rows = await bqQuery<{
+    institute_name: string;
+    subject_title: string;
+    course_category: string | null;
+    students: string;
+    present: string;
+    slots: string;
+    present_submitted: string;
+    submitted_slots: string;
+  }>(courseAttendanceSql(clauses.join(" AND ")), params, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS);
+  return rows
+    .filter((row) => !isExcludedInstitute(row.institute_name))
+    .map((row) => {
+      const present = Number(row.present) || 0;
+      const slots = Number(row.slots) || 0;
+      const presentSubmitted = Number(row.present_submitted) || 0;
+      const submittedSlots = Number(row.submitted_slots) || 0;
+      return {
+        instituteName: row.institute_name,
+        subjectTitle: row.subject_title,
+        courseCategory: row.course_category ?? null,
+        students: Number(row.students) || 0,
+        present,
+        slots,
+        presentSubmitted,
+        submittedSlots,
+        pct: pct(present, slots),
+        pctSubmittedOnly: submittedSlots > 0 ? pct(presentSubmitted, submittedSlots) : null,
+      };
+    });
+}
+
+/** Folds rows that share a subject (another campus or category) into one per subject. */
+function mergeBySubject(rows: CourseAttendanceRow[]): SubjectAttendance[] {
+  const bySubject = new Map<string, { present: number; total: number; presentSubmitted: number; submitted: number; categories: Set<string> }>();
+  for (const row of rows) {
+    const item = bySubject.get(row.subjectTitle) ?? { present: 0, total: 0, presentSubmitted: 0, submitted: 0, categories: new Set<string>() };
+    item.present += row.present;
+    item.total += row.slots;
+    item.presentSubmitted += row.presentSubmitted;
+    item.submitted += row.submittedSlots;
+    if (row.courseCategory) item.categories.add(row.courseCategory);
+    bySubject.set(row.subjectTitle, item);
+  }
+  return [...bySubject.entries()]
+    .map(([subjectTitle, item]) => {
+      const percentage = pct(item.present, item.total);
+      return {
+        subjectTitle,
+        courseCategory: [...item.categories].sort().join(", ") || null,
+        present: item.present,
+        total: item.total,
+        pct: percentage,
+        meetsRequirement: percentage >= 80,
+        submitted: item.submitted,
+        presentSubmitted: item.presentSubmitted,
+        pctSubmittedOnly: item.submitted > 0 ? pct(item.presentSubmitted, item.submitted) : null,
+      };
+    })
+    .sort((a, b) => a.subjectTitle.localeCompare(b.subjectTitle));
+}
+
 export async function getStudentOverview(
   studentId: string,
 ): Promise<StudentOverview | null> {
   if (!validateStudentId.test(studentId)) return null;
-  const rows = await bqQuery<{
-    student_user_id: string;
-    student_name: string;
-    institute_name: string;
-    batch_section_name: string;
-    total_sessions: string;
-    present_count: string;
-    subjects_in_recovery: string;
-  }>(
-    `SELECT
-      student_user_id,
-      MAX(student_name) AS student_name,
-      MAX(institute_name) AS institute_name,
-      MAX(batch_section_name) AS batch_section_name,
-      COUNT(*) AS total_sessions,
-      COUNTIF(${ATTENDED_SQL}) AS present_count,
-      COUNTIF(subject_pct < 80) AS subjects_in_recovery
-    FROM (
-      SELECT
+  // Identity comes from any current-semester row; the totals come from the
+  // course-wise query, so the headline always equals the sum of the course table.
+  const [rows, courses] = await Promise.all([
+    bqQuery<{
+      student_user_id: string;
+      student_name: string;
+      institute_name: string;
+      batch_section_name: string;
+    }>(
+      `SELECT
         student_user_id,
-        student_name,
-        institute_name,
-        batch_section_name,
-        attendance_status,
-        subject_title,
-        SAFE_DIVIDE(
-          COUNTIF(${ATTENDED_SQL}) OVER (PARTITION BY student_user_id, subject_title),
-          COUNT(*) OVER (PARTITION BY student_user_id, subject_title)
-        ) * 100 AS subject_pct
+        MAX(student_name) AS student_name,
+        MAX(institute_name) AS institute_name,
+        MAX(batch_section_name) AS batch_section_name
       FROM ${ATTENDANCE_TABLE}
       WHERE ${studentIdMatch('student_user_id')}
         AND is_current_semester = 1
-    )
-    GROUP BY student_user_id`,
-    { studentId: normalizeStudentId(studentId) },
-  );
+      GROUP BY student_user_id`,
+      { studentId: normalizeStudentId(studentId) },
+    ),
+    getStudentSubjects(studentId),
+  ]);
   if (rows.length === 0) return null;
   const r = rows[0]!;
-  const total = Number(r.total_sessions);
-  const present = Number(r.present_count);
-  const absent = total - present;
+  const total = courses.reduce((sum, course) => sum + course.total, 0);
+  const present = courses.reduce((sum, course) => sum + course.present, 0);
   const attendancePct = pct(present, total);
   return {
     studentId: r.student_user_id,
@@ -309,53 +499,31 @@ export async function getStudentOverview(
     sectionName: r.batch_section_name ?? null,
     totalSessions: total,
     presentCount: present,
-    absentCount: absent,
+    absentCount: total - present,
     attendancePct,
     inRecovery: attendancePct < 80,
-    coursesInRecovery: Number(r.subjects_in_recovery),
+    // Courses below 80%, not session rows.
+    coursesInRecovery: courses.filter((course) => !course.meetsRequirement).length,
   };
 }
 
 export interface SubjectAttendance {
   subjectTitle: string;
+  courseCategory: string | null;
   present: number;
   total: number;
   pct: number;
   meetsRequirement: boolean;
+  submitted: number;
+  presentSubmitted: number;
+  pctSubmittedOnly: number | null;
 }
 
 export async function getStudentSubjects(
   studentId: string,
 ): Promise<SubjectAttendance[]> {
   if (!validateStudentId.test(studentId)) return [];
-  const rows = await bqQuery<{
-    subject_title: string;
-    present: string;
-    total: string;
-  }>(
-    `SELECT
-      subject_title,
-      COUNTIF(${ATTENDED_SQL}) AS present,
-      COUNT(*) AS total
-    FROM ${ATTENDANCE_TABLE}
-    WHERE ${studentIdMatch('student_user_id')}
-      AND is_current_semester = 1
-    GROUP BY subject_title
-    ORDER BY subject_title`,
-    { studentId: normalizeStudentId(studentId) },
-  );
-  return rows.map((r) => {
-    const p = Number(r.present);
-    const t = Number(r.total);
-    const percentage = pct(p, t);
-    return {
-      subjectTitle: r.subject_title,
-      present: p,
-      total: t,
-      pct: percentage,
-      meetsRequirement: percentage >= 80,
-    };
-  });
+  return mergeBySubject(await getCourseAttendance({ studentId }));
 }
 
 export interface SessionRecord {

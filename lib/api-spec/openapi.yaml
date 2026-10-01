@@ -1208,6 +1208,20 @@ components:
           type: number
         meetsRequirement:
           type: boolean
+        courseCategory:
+          type: string
+          nullable: true
+          description: Course category from the prod sequence (comma-joined if several)
+        submitted:
+          type: integer
+          description: Slots with attendance submitted
+        presentSubmitted:
+          type: integer
+          description: Present slots among submitted ones
+        pctSubmittedOnly:
+          type: number
+          nullable: true
+          description: PRESENT ÷ submitted slots × 100; null when none are submitted
 
     SessionRecord:
       type: object

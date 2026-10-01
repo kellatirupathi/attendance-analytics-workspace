@@ -845,6 +845,9 @@ export default function SpiReport() {
           attended: subject.present,
           total: subject.total,
           pct: subject.pct,
+          submitted: subject.submitted,
+          presentSubmitted: subject.presentSubmitted,
+          pctSubmittedOnly: subject.pctSubmittedOnly,
         }))}
         classroomAttempted={quizzes?.classroomSummary.attempted ?? 0}
         classroomTotal={quizzes?.classroomSummary.total ?? 0}
