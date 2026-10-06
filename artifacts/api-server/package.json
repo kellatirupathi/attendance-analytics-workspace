@@ -8,6 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:large-json": "node ./test-large-json.mjs",
     "migrate:mongo": "node --enable-source-maps ./dist/migrate-from-mongo.mjs",
     "seed": "pnpm run build && node --enable-source-maps ./dist/seed.mjs",
     "seed:recovery": "pnpm run build && node --enable-source-maps ./dist/seed-recovery.mjs",

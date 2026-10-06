@@ -51,6 +51,7 @@ import {
 import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
 import { spiSharePath } from "../lib/spiToken.js";
+import { sendLargeJson } from "../lib/largeJsonResponse.js";
 import type { Role } from "../lib/rbac.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 
@@ -1380,12 +1381,12 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
   const q = req.query as Record<string, string | undefined>;
   const dates = closedDateScope(q);
   const cacheKey = `attendance-stats-detail-http:v4:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
-  const cached = cacheGet<object>(cacheKey);
-  if (cached) {
-    res.json(cached);
-    return;
-  }
   try {
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      await sendLargeJson(req, res, cached);
+      return;
+    }
     const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
     const spiPaths: Record<string, string> = {};
     for (const row of detail.students) {
@@ -1393,10 +1394,12 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
     }
     const body = { ...detail, spiPaths };
     cacheSet(cacheKey, body, 15 * 60 * 1000);
-    res.json(body);
+    await sendLargeJson(req, res, body);
   } catch (err) {
     req.log.error({ err }, "Error fetching attendance stats detail");
-    res.status(500).json({ error: "Failed to fetch attendance stats" });
+    if (!res.headersSent && !res.destroyed) {
+      res.status(500).json({ error: "Failed to fetch attendance stats" });
+    }
   }
 });
 
@@ -1422,22 +1425,24 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
   }
   const dates = closedDateScope(q);
   const cacheKey = `attendance-stats-units-http:v2:${session.role}:${JSON.stringify(scope)}:${requested.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
-  const cached = cacheGet<object>(cacheKey);
-  if (cached) {
-    res.json(cached);
-    return;
-  }
   try {
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      await sendLargeJson(req, res, cached);
+      return;
+    }
     const detail = await getAttendanceStatsUnits(scope, {
       campuses: requested,
       dateFrom: dates.dateFrom,
       dateTo: dates.dateTo,
     });
     cacheSet(cacheKey, detail, 15 * 60 * 1000);
-    res.json(detail);
+    await sendLargeJson(req, res, detail);
   } catch (err) {
     req.log.error({ err }, "Error fetching attendance stats units");
-    res.status(500).json({ error: "Failed to fetch unit attendance" });
+    if (!res.headersSent && !res.destroyed) {
+      res.status(500).json({ error: "Failed to fetch unit attendance" });
+    }
   }
 });
 

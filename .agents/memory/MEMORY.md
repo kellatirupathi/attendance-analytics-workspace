@@ -5,3 +5,4 @@
 - [Orval Zod split-output barrel](orval-zod-barrel.md) — disable generated index files for Zod split output; the public barrel should export operation schemas only.
 - [Nullable unique identities](drizzle-null-unique.md) — this Drizzle Kit cannot round-trip NULLS NOT DISTINCT; use complementary null/non-null partial unique indexes.
 - [Attendance table session columns](attendance-table-session-columns.md) — overall attendance metadata falsely lists session_type; query entity_type/entity_id instead.
+- [Large-response proxy failures](large-response-proxy.md) — an app-side 200 can become an empty browser 500 when buffered JSON exceeds the HTTP/1 frontend limit; verify wire transfer, not just SQL.

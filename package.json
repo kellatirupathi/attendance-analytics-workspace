@@ -10,7 +10,7 @@
     "typecheck:apps": "pnpm --parallel --filter @workspace/api-server --filter @workspace/niat-spi-dashboard run typecheck",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "validate:release": "pnpm run test:release-readiness && pnpm run build:libs && pnpm run typecheck:apps && pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/niat-spi-dashboard run build"
+    "validate:release": "pnpm run test:release-readiness && pnpm --filter @workspace/api-server run test:large-json && pnpm run build:libs && pnpm run typecheck:apps && pnpm --filter @workspace/api-server run build && pnpm --filter @workspace/niat-spi-dashboard run build"
   },
   "private": true,
   "devDependencies": {
