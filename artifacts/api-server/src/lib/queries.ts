@@ -37,6 +37,13 @@ import {
   isExcludedInstitute,
 } from "./excludedInstitutes.js";
 
+import {
+  ATTENDANCE_TABLE,
+  ATTENDED_SQL,
+  SESSION_TITLE_SQL,
+  SESSION_IDENTITY_SQL,
+} from "./attendance-contract.js";
+
 /**
  * Matches a student id column against @studentId regardless of UUID hyphens.
  * The warehouse is inconsistent: the attendance table stores hyphenated
@@ -45,52 +52,8 @@ import {
 function studentIdMatch(column: string): string {
   return `LOWER(REPLACE(CAST(${column} AS STRING), '-', '')) = @studentId`;
 }
-
-const ATTENDANCE_TABLE =
-  "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.niat_students_overall_attendance_details`";
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
-
-/**
- * SPI attendance: sessions attended / sessions scheduled.
- * Attended = PRESENT. Scheduled = every student-session row, including
- * ABSENT and OFF_DAY. Lecture, MCQ practice, and module quiz slots all count.
- */
-const ATTENDED_SQL = `UPPER(attendance_status) = 'PRESENT'`;
-
-/**
- * This table has entity_type + time, not session_title. Although BigQuery's
- * INFORMATION_SCHEMA currently advertises session_type, querying it fails;
- * real rows expose entity_type instead.
- * Keep the alias so existing APIs and the UI still receive sessionTitle.
- */
-const SESSION_TITLE_SQL = `TRIM(CONCAT(
-  COALESCE(NULLIF(CAST(entity_type AS STRING), ''), 'SESSION'),
-  IF(
-    session_start_end_time IS NULL OR TRIM(CAST(session_start_end_time AS STRING)) = '',
-    '',
-    CONCAT(' · ', CAST(session_start_end_time AS STRING))
-  )
-))`;
-
-/**
- * One class held: session_id when present, then entity_id, otherwise the
- * display label plus date, scoped by subject so campus rollups do not collapse
- * two subjects.
- * Never use COUNT(*) for "total sessions" — that is student×session rows.
- */
-const SESSION_IDENTITY_SQL = `CONCAT(
-  COALESCE(subject_title, ''),
-  '|',
-  COALESCE(
-    NULLIF(CAST(session_id AS STRING), ''),
-    NULLIF(CAST(entity_id AS STRING), ''),
-    ${SESSION_TITLE_SQL}
-  ),
-  '|',
-  COALESCE(CAST(DATE(date) AS STRING), '')
-)`;
-
 interface AttendanceRollupRow {
   student_count: string;
   present_student_count: string;

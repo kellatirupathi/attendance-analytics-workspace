@@ -19,6 +19,10 @@ const queryModulePath = resolve(
   "artifacts/api-server/src/lib/queries.ts",
 );
 
+const attendanceContractPath = resolve(
+  workspaceRoot,
+  "artifacts/api-server/src/lib/attendance-contract.ts",
+);
 function assertReleaseBuildOrder(releaseCommand: string) {
   const steps = releaseCommand.split("&&").map((step) => step.trim());
   const appTypecheckIndex = steps.indexOf(appTypecheck);
@@ -159,5 +163,74 @@ test("release readiness rejects a dashboard build before application typecheckin
     assertReleaseBuildOrder(
       `${dashboardProductionBuild} && ${appTypecheck} && ${apiProductionBuild}`,
     ),
+  );
+});
+
+test("live warehouse supports every shared attendance rollup field and session identity", async () => {
+  const { validateAttendanceContract } = await import(attendanceContractPath);
+  // Never skip missing credentials: release readiness requires live verification.
+  await validateAttendanceContract();
+});
+
+test("attendance contract probes shared SQL without scanning or returning student rows", async () => {
+  const contract = await import(attendanceContractPath);
+  const calls: string[] = [];
+  await contract.validateAttendanceContract(async (sql: string) => {
+    calls.push(sql);
+    return [];
+  });
+  assert.deepEqual(calls, [contract.ATTENDANCE_CONTRACT_SQL]);
+  for (const field of contract.ATTENDANCE_ROLLUP_FIELDS) {
+    assert.ok(calls[0].includes(field), `contract must query ${field}`);
+  }
+  assert.ok(calls[0].includes(contract.SESSION_IDENTITY_SQL));
+  assert.match(calls[0], /WHERE FALSE\s+LIMIT 0/);
+  assert.doesNotMatch(calls[0], /\bsession_type\b/);
+  const source = await readFile(queryModulePath, "utf8");
+  assert.match(source, /import\s*\{[^}]*SESSION_IDENTITY_SQL[^}]*\}\s*from "\.\/attendance-contract\.js"/);
+});
+
+test("attendance contract names every missing or unqueryable field and table", async () => {
+  const contract = await import(attendanceContractPath);
+  for (const field of contract.ATTENDANCE_ROLLUP_FIELDS) {
+    await assert.rejects(
+      contract.validateAttendanceContract(async (sql: string) => {
+        if (new RegExp(`\\b${field}\\b`).test(sql)) {
+          throw new Error(`Unrecognized name: ${field}`);
+        }
+        return [];
+      }),
+      (error: Error) => {
+        assert.ok(error.message.includes(contract.ATTENDANCE_TABLE));
+        assert.ok(error.message.includes(`field ${field}:`));
+        return true;
+      },
+    );
+  }
+});
+
+test("attendance contract fails for an unqueryable session identity expression", async () => {
+  const contract = await import(attendanceContractPath);
+  await assert.rejects(
+    contract.validateAttendanceContract(async (sql: string) => {
+      if (sql.includes(contract.SESSION_IDENTITY_SQL)) {
+        throw new Error("No matching signature for COALESCE");
+      }
+      return [];
+    }),
+    (error: Error) => {
+      assert.ok(error.message.includes(contract.ATTENDANCE_TABLE));
+      assert.match(error.message, /expression session_identity/);
+      assert.match(error.message, /entity_id/);
+      return true;
+    },
+  );
+});
+
+test("attendance contract never treats authorization or transport failure as success", async () => {
+  const { validateAttendanceContract } = await import(attendanceContractPath);
+  await assert.rejects(
+    validateAttendanceContract(async () => { throw new Error("Access denied"); }),
+    /Attendance warehouse contract failed.*niat_students_overall_attendance_details[\s\S]*Access denied/,
   );
 });
