@@ -24,6 +24,13 @@ export interface ReportCourse {
   presentSubmitted?: number;
   /** PRESENT ÷ submitted slots × 100; null when none are submitted. */
   pctSubmittedOnly?: number | null;
+  /** Scheduled sessions dated up to today; null when the course isn't on the student's schedule. */
+  sessionsHeld?: number | null;
+}
+
+/** A scheduled course with no attendance rows yet: shown, but left out of every percentage. */
+function notStarted(course: ReportCourse): boolean {
+  return course.total === 0;
 }
 
 function SubmittedPct({ value }: { value: number | null | undefined }) {
@@ -146,9 +153,15 @@ export default function StudentReportView(props: StudentReportViewProps) {
     () =>
       props.courses
         .filter((course) => namedCourse(course.name))
-        .sort((a, b) => a.pct - b.pct || courseLabel(a.name).localeCompare(courseLabel(b.name))),
+        .sort(
+          (a, b) =>
+            Number(notStarted(a)) - Number(notStarted(b)) ||
+            a.pct - b.pct ||
+            courseLabel(a.name).localeCompare(courseLabel(b.name)),
+        ),
     [props.courses],
   );
+  const activeCourses = courses.filter((course) => !notStarted(course));
   // Sessions with a blank or "null" course still count in the headline attendance,
   // so show them as one row to keep the table adding up to the headline.
   const unlinked = useMemo(() => {
@@ -172,13 +185,13 @@ export default function StudentReportView(props: StudentReportViewProps) {
   }, [props.courses]);
   const tierPct = eligibilityAttendancePct(
     props.attendancePct,
-    courses.map((course) => course.pct),
+    activeCourses.map((course) => course.pct),
     "overall",
   );
   const tier = getTier(tierPct);
-  const coursesAtTarget = courses.filter((course) => course.pct >= TIER_ELIGIBLE).length;
-  const coursesBelow = courses.filter((course) => course.pct < TIER_ELIGIBLE);
-  const attendanceMet = courses.length > 0 && coursesBelow.length === 0;
+  const coursesAtTarget = activeCourses.filter((course) => course.pct >= TIER_ELIGIBLE).length;
+  const coursesBelow = activeCourses.filter((course) => course.pct < TIER_ELIGIBLE);
+  const attendanceMet = activeCourses.length > 0 && coursesBelow.length === 0;
   const classroomPct = ratioPct(props.classroomAttempted, props.classroomTotal);
   const modulePct = ratioPct(props.moduleAttempted, props.moduleTotal);
   const classroomMet =
@@ -193,7 +206,7 @@ export default function StudentReportView(props: StudentReportViewProps) {
   const steps: string[] = [];
   if (coursesBelow.length > 0) {
     const countLabel =
-      coursesBelow.length === courses.length
+      coursesBelow.length === activeCourses.length
         ? `all ${coursesBelow.length} course${coursesBelow.length === 1 ? "" : "s"}`
         : `${coursesBelow.length} course${coursesBelow.length === 1 ? "" : "s"}`;
     steps.push(
@@ -326,7 +339,7 @@ export default function StudentReportView(props: StudentReportViewProps) {
             footer={
               noAttendance
                 ? "No classes recorded yet"
-                : `${props.attended} / ${props.totalSessions} sessions · ${coursesAtTarget} of ${courses.length} courses at ${TIER_ELIGIBLE}%`
+                : `${props.attended} / ${props.totalSessions} sessions · ${coursesAtTarget} of ${activeCourses.length} courses at ${TIER_ELIGIBLE}%`
             }
           />
           <StatCard
@@ -713,7 +726,46 @@ function CourseStatus({ course }: { course: ReportCourse }) {
   return { courseTier, short, warn };
 }
 
+/** "No sessions yet" when none are held; otherwise sessions were held but none recorded for the student. */
+function notStartedLabel(course: ReportCourse): { status: string; detail: string; warn: boolean } {
+  const held = course.sessionsHeld ?? 0;
+  if (held === 0) return { status: "NOT STARTED", detail: "No sessions yet", warn: false };
+  return {
+    status: "NO RECORDS",
+    detail: `No attendance recorded · ${held} session${held === 1 ? "" : "s"} held`,
+    warn: true,
+  };
+}
+
+function NotStartedPill({ label }: { label: string }) {
+  return (
+    <span className="inline-flex shrink-0 rounded-full bg-[#F3F4F6] px-2 py-1 text-[10px] font-bold tracking-wide text-[#4B5563]">
+      {label}
+    </span>
+  );
+}
+
 function CourseRow({ course }: { course: ReportCourse }) {
+  if (notStarted(course)) {
+    const label = notStartedLabel(course);
+    return (
+      <tr className="border-t border-[#F3F4F6] text-[#4B5563]">
+        <td className="py-3 pr-3 font-medium text-[#111827]">
+          <span className="inline-flex items-center gap-1">
+            {course.name || "Unnamed course"}
+            {label.warn && <DataWarning />}
+          </span>
+        </td>
+        <td className="py-3 pr-3 tabular-nums">0 / 0</td>
+        <td className="py-3 pr-3 text-xs">{label.detail}</td>
+        <td className="py-3 pr-3">—</td>
+        <td className="py-3 pr-3">—</td>
+        <td className="py-3">
+          <NotStartedPill label={label.status} />
+        </td>
+      </tr>
+    );
+  }
   const { courseTier, short, warn } = CourseStatus({ course });
   return (
     <tr className="border-t border-[#F3F4F6]">
@@ -755,6 +807,21 @@ function CourseRow({ course }: { course: ReportCourse }) {
 }
 
 function CourseCard({ course }: { course: ReportCourse }) {
+  if (notStarted(course)) {
+    const label = notStartedLabel(course);
+    return (
+      <li className="rounded-xl border border-[#E5E7EB] p-3">
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-medium text-[#111827]">
+            {course.name || "Unnamed course"}
+            {label.warn && <DataWarning />}
+          </p>
+          <NotStartedPill label={label.status} />
+        </div>
+        <p className="mt-2 text-sm text-[#4B5563]">{label.detail} · 0 / 0 sessions</p>
+      </li>
+    );
+  }
   const { courseTier, short, warn } = CourseStatus({ course });
   return (
     <li className="rounded-xl border border-[#E5E7EB] p-3">
