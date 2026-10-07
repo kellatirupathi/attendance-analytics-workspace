@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -331,26 +331,62 @@ export function CheckMenu({
   selected: string[];
   onChange: (next: string[]) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const allSelected = options.length > 0 && options.every((option) => selectedSet.has(option.id));
+  const term = search.trim().toLowerCase();
+  const shown = term ? options.filter((option) => option.label.toLowerCase().includes(term)) : options;
+  const allShownSelected = shown.length > 0 && shown.every((option) => selectedSet.has(option.id));
+  const shownIds = new Set(shown.map((option) => option.id));
+  // Select all / Clear act only on the options the search is showing; selections outside it are kept.
+  const selectShown = () => onChange([...selected, ...shown.filter((option) => !selectedSet.has(option.id)).map((option) => option.id)]);
+  const clearShown = () => onChange(term ? selected.filter((id) => !shownIds.has(id)) : []);
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => { if (!open) setSearch(""); }}>
       <PopoverTrigger asChild>
         <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
       </PopoverTrigger>
-      <PopoverContent className="w-72" align="start">
+      <PopoverContent
+        className="w-72"
+        align="start"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          searchRef.current?.focus();
+        }}
+      >
         {options.length > 0 && (
-          <label className="mb-1 flex items-center gap-2 border-b border-gray-200 pb-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={() => onChange(allSelected ? [] : options.map((option) => option.id))}
+          <>
+            <Input
+              ref={searchRef}
+              className="mb-2 h-8"
+              placeholder="Search…"
+              aria-label={`Search ${label}`}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
             />
-            Select all
-          </label>
+            <div className="mb-1 flex items-center justify-between gap-2 border-b border-gray-200 pb-2 text-sm font-medium">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={allShownSelected}
+                  disabled={!shown.length}
+                  onChange={() => (allShownSelected ? clearShown() : selectShown())}
+                />
+                Select all
+              </label>
+              <button
+                type="button"
+                className="text-xs font-medium text-gray-500 hover:text-gray-900 disabled:opacity-40"
+                disabled={!shown.some((option) => selectedSet.has(option.id))}
+                onClick={clearShown}
+              >
+                Clear
+              </button>
+            </div>
+          </>
         )}
         <div className="max-h-64 space-y-1 overflow-y-auto">
-          {options.map((option) => (
+          {shown.map((option) => (
             <label key={option.id} className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -366,6 +402,7 @@ export function CheckMenu({
               {option.label}
             </label>
           ))}
+          {options.length > 0 && !shown.length && <p className="py-2 text-center text-sm text-gray-500">No matches</p>}
         </div>
       </PopoverContent>
     </Popover>

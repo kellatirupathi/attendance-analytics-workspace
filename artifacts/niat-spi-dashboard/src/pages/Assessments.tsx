@@ -17,7 +17,7 @@ import { TableShell, TablePagination } from "@/components/DataTable";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
-import { BoundControl } from "@/components/SpiRecordFilterBar";
+import { BoundControl, CheckMenu } from "@/components/SpiRecordFilterBar";
 import { ChevronRight, Download, ExternalLink, Lock } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -958,58 +958,6 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
       {label}
       {children}
     </label>
-  );
-}
-
-function CheckMenu({
-  label,
-  options,
-  selected,
-  onChange,
-}: {
-  label: string;
-  options: { id: string; label: string }[];
-  selected: string[];
-  onChange: (next: string[]) => void;
-}) {
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const allSelected = options.length > 0 && options.every((option) => selectedSet.has(option.id));
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72" align="start">
-        {options.length > 0 && (
-          <label className="mb-1 flex items-center gap-2 border-b border-gray-200 pb-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={() => onChange(allSelected ? [] : options.map((option) => option.id))}
-            />
-            Select all
-          </label>
-        )}
-        <div className="max-h-64 space-y-1 overflow-y-auto">
-          {options.map((option) => (
-            <label key={option.id} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={selectedSet.has(option.id)}
-                onChange={() =>
-                  onChange(
-                    selectedSet.has(option.id)
-                      ? selected.filter((id) => id !== option.id)
-                      : [...selected, option.id],
-                  )
-                }
-              />
-              {option.label}
-            </label>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 
