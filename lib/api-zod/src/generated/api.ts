@@ -122,7 +122,8 @@ export const FetchStudentSubjectsResponseItem = zod.object({
   "courseCategory": zod.string().nullish(),
   "submitted": zod.number().optional(),
   "presentSubmitted": zod.number().optional(),
-  "pctSubmittedOnly": zod.number().nullish()
+  "pctSubmittedOnly": zod.number().nullish(),
+  "sessionsHeld": zod.number().nullish()
 })
 export const FetchStudentSubjectsResponse = zod.array(FetchStudentSubjectsResponseItem)
 

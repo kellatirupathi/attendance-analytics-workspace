@@ -761,17 +761,19 @@ export default function SpiReport() {
   };
 
   const attendanceBelow = recoverySubjects;
+  // Scheduled courses with no sessions recorded yet have nothing to meet.
+  const subjectsWithSessions = (subjects ?? []).filter((subject) => subject.total > 0);
   const attendanceRow: {
     state: EligibilityState;
     detail: string;
   } = !subjects
     ? { state: "unavailable", detail: "Not available" }
-    : subjects.length === 0
+    : subjectsWithSessions.length === 0
       ? { state: "unavailable", detail: "No courses recorded yet" }
       : attendanceBelow.length === 0
         ? {
             state: "met",
-            detail: `All ${subjects.length} course${subjects.length === 1 ? "" : "s"} at or above 80%`,
+            detail: `All ${subjectsWithSessions.length} course${subjectsWithSessions.length === 1 ? "" : "s"} at or above 80%`,
           }
         : {
             state: "not_met",
@@ -848,6 +850,7 @@ export default function SpiReport() {
           submitted: subject.submitted,
           presentSubmitted: subject.presentSubmitted,
           pctSubmittedOnly: subject.pctSubmittedOnly,
+          sessionsHeld: subject.sessionsHeld,
         }))}
         classroomAttempted={quizzes?.classroomSummary.attempted ?? 0}
         classroomTotal={quizzes?.classroomSummary.total ?? 0}

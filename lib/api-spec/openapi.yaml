@@ -1222,6 +1222,10 @@ components:
           type: number
           nullable: true
           description: PRESENT ÷ submitted slots × 100; null when none are submitted
+        sessionsHeld:
+          type: integer
+          nullable: true
+          description: Scheduled sessions dated up to today for this subject; null when it isn't on the student's schedule
 
     SessionRecord:
       type: object

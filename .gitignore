@@ -56,3 +56,6 @@ attached_assets/Pasted--type-service-account-*
 # Local environment
 .env
 .env.local
+
+# Local-only credentials (e.g. .secrets/bigquery-service-account.json)
+.secrets/

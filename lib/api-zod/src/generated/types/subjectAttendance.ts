@@ -16,4 +16,6 @@ export interface SubjectAttendance {
   submitted?: number;
   presentSubmitted?: number;
   pctSubmittedOnly?: number | null;
+  /** Scheduled sessions dated up to today for this subject; null when it isn't on the student's schedule */
+  sessionsHeld?: number | null;
 }

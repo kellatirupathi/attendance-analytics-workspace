@@ -517,13 +517,103 @@ export interface SubjectAttendance {
   submitted: number;
   presentSubmitted: number;
   pctSubmittedOnly: number | null;
+  /** Scheduled sessions dated up to today for this subject; null when it isn't on the student's schedule. */
+  sessionsHeld?: number | null;
 }
 
+interface ScheduledSubject {
+  subjectTitle: string;
+  courseCategory: string | null;
+  sessionsHeld: number;
+}
+
+/**
+ * Every NIAT subject on the prod sequence for the sections the student has
+ * current-semester attendance rows in, with how many of its sessions are dated
+ * up to today (IST). University courses aren't on the prod sequence, and the
+ * excluded categories and subjects are dropped the same way as courseAttendanceSql.
+ */
+async function getStudentScheduledSubjects(studentId: string): Promise<ScheduledSubject[]> {
+  const rows = await bqQuery<{
+    subject_title: string;
+    course_category: string | null;
+    sessions_held: string;
+  }>(
+    `WITH student_sections AS (
+      SELECT DISTINCT REPLACE(CAST(section_id AS STRING), '-', '') AS section_key
+      FROM ${ATTENDANCE_TABLE}
+      WHERE ${studentIdMatch("student_user_id")}
+        AND is_current_semester = 1
+        AND section_id IS NOT NULL
+    )
+    SELECT
+      TRIM(s.course_title) AS subject_title,
+      NULLIF(TRIM(CAST(s.course_category AS STRING)), '') AS course_category,
+      COUNT(DISTINCT IF(DATE(s.session_start_datetime) <= CURRENT_DATE('Asia/Kolkata'), s.session_id, NULL)) AS sessions_held
+    FROM ${PROD_SEQUENCE_TABLE} s
+    JOIN student_sections ss
+      ON ss.section_key = REPLACE(CAST(s.section_id AS STRING), '-', '')
+    WHERE s.is_current_semester = 1
+      AND s.course_title IS NOT NULL
+      AND TRIM(s.course_title) != ''
+      AND ${excludeInstituteSql("s.institute_name")}
+      AND UPPER(IFNULL(TRIM(CAST(s.course_category AS STRING)), '')) NOT IN UNNEST(@excludedCategories)
+      AND UPPER(TRIM(s.course_title)) NOT IN UNNEST(@excludedSubjects)
+    GROUP BY subject_title, course_category`,
+    { ...exclusionParams(), studentId: normalizeStudentId(studentId) },
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows.map((row) => ({
+    subjectTitle: row.subject_title,
+    courseCategory: row.course_category ?? null,
+    sessionsHeld: Number(row.sessions_held) || 0,
+  }));
+}
+
+/**
+ * The report's course list: every scheduled subject, plus any subject the
+ * student has attendance for that the schedule doesn't list. A scheduled
+ * subject with no attendance rows yet is kept at 0 / 0 and counts as meeting
+ * the requirement, so it never adds to the totals or to courses in recovery.
+ */
 export async function getStudentSubjects(
   studentId: string,
 ): Promise<SubjectAttendance[]> {
   if (!validateStudentId.test(studentId)) return [];
-  return mergeBySubject(await getCourseAttendance({ studentId }));
+  const [attended, scheduled] = await Promise.all([
+    getCourseAttendance({ studentId }).then(mergeBySubject),
+    getStudentScheduledSubjects(studentId),
+  ]);
+  const scheduledByTitle = new Map<string, ScheduledSubject>();
+  for (const subject of scheduled) {
+    const key = subject.subjectTitle.toLowerCase();
+    const existing = scheduledByTitle.get(key);
+    // A course split across categories comes back once per category.
+    if (existing) existing.sessionsHeld = Math.max(existing.sessionsHeld, subject.sessionsHeld);
+    else scheduledByTitle.set(key, { ...subject });
+  }
+  const subjects: SubjectAttendance[] = attended.map((subject) => ({
+    ...subject,
+    sessionsHeld: scheduledByTitle.get(subject.subjectTitle.toLowerCase())?.sessionsHeld ?? null,
+  }));
+  const shown = new Set(attended.map((subject) => subject.subjectTitle.toLowerCase()));
+  for (const [key, subject] of scheduledByTitle) {
+    if (shown.has(key)) continue;
+    subjects.push({
+      subjectTitle: subject.subjectTitle,
+      courseCategory: subject.courseCategory,
+      present: 0,
+      total: 0,
+      pct: 0,
+      meetsRequirement: true,
+      submitted: 0,
+      presentSubmitted: 0,
+      pctSubmittedOnly: null,
+      sessionsHeld: subject.sessionsHeld,
+    });
+  }
+  return subjects.sort((a, b) => a.subjectTitle.localeCompare(b.subjectTitle));
 }
 
 export interface SessionRecord {
