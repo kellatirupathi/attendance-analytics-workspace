@@ -36,8 +36,9 @@ export interface DirectoryFilters {
   spiOp: BoundOp;
   spiA: string;
   spiB: string;
-  debtOnly: boolean;
-  needsAttention: boolean;
+  attOp: BoundOp;
+  attA: string;
+  attB: string;
   quiz: QuizFilter;
 }
 
@@ -97,12 +98,12 @@ export function buildDirectoryRows(detail: SpiDetailRow[]): DirectoryRow[] {
   return [...byKey.values()];
 }
 
-/** Parses an SPI bound; blank or non-numeric input means "no filter". */
-export function parseSpiBound(op: BoundOp, a: string, b: string): { min: number; max: number } | null {
+/** Parses a bound clamped to 0–`ceiling`; blank or non-numeric input means "no filter". */
+export function parseBound(op: BoundOp, a: string, b: string, ceiling: number): { min: number; max: number } | null {
   const num = (value: string) => {
     if (!value.trim()) return null;
     const n = Number(value);
-    return Number.isFinite(n) ? Math.min(10, Math.max(0, n)) : null;
+    return Number.isFinite(n) ? Math.min(ceiling, Math.max(0, n)) : null;
   };
   const first = num(a);
   if (!op || first == null) return null;
@@ -118,7 +119,8 @@ export function filterDirectory(rows: DirectoryRow[], filters: DirectoryFilters)
   const semesterSet = new Set(filters.semesters);
   const sectionSet = new Set(filters.sections);
   const tierSet = new Set(filters.tiers);
-  const spiBound = parseSpiBound(filters.spiOp, filters.spiA, filters.spiB);
+  const spiBound = parseBound(filters.spiOp, filters.spiA, filters.spiB, 10);
+  const attBound = parseBound(filters.attOp, filters.attA, filters.attB, 100);
   const text = filters.search.trim().toLowerCase();
   const idText = compactId(text);
 
@@ -128,8 +130,7 @@ export function filterDirectory(rows: DirectoryRow[], filters: DirectoryFilters)
     if (sectionSet.size && !row.sections.some((name) => sectionSet.has(`${row.campus}\t${name}`))) return false;
     if (tierSet.size && (row.tier == null || !tierSet.has(row.tier))) return false;
     if (spiBound && (row.spi < spiBound.min || row.spi > spiBound.max)) return false;
-    if (filters.debtOnly && !row.skillDebt) return false;
-    if (filters.needsAttention && !((row.attendancePct != null && row.attendancePct < 60) || row.skillDebt)) return false;
+    if (attBound && (row.attendancePct == null || row.attendancePct < attBound.min || row.attendancePct > attBound.max)) return false;
     if (filters.quiz === "missing_classroom" && row.classroom != null) return false;
     if (filters.quiz === "missing_module" && row.module != null) return false;
     if (filters.quiz === "missing_both" && (row.classroom != null || row.module != null)) return false;

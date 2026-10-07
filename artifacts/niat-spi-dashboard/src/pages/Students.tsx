@@ -101,8 +101,9 @@ export default function Students() {
   const spiOp = (["gte", "lte", "between"].includes(query.get("spiOp") ?? "") ? query.get("spiOp") : "") as BoundOp;
   const spiA = query.get("spiA") ?? "";
   const spiB = query.get("spiB") ?? "";
-  const debtOnly = query.get("debt") === "1";
-  const needsAttention = query.get("attention") === "1";
+  const attOp = (["gte", "lte", "between"].includes(query.get("attOp") ?? "") ? query.get("attOp") : "") as BoundOp;
+  const attA = query.get("attA") ?? "";
+  const attB = query.get("attB") ?? "";
   const rawQuiz = query.get("quiz") ?? "";
   const quiz = (["missing_classroom", "missing_module", "missing_both"].includes(rawQuiz) ? rawQuiz : "") as QuizFilter;
   const rawPeriod = query.get("attRange");
@@ -226,8 +227,9 @@ export default function Students() {
     spiOp,
     spiA,
     spiB,
-    debtOnly,
-    needsAttention,
+    attOp,
+    attA,
+    attB,
     quiz,
   };
   const filterKey = JSON.stringify(filters);
@@ -245,8 +247,7 @@ export default function Students() {
     (subjects.length ? 1 : 0) +
     (tiers.length ? 1 : 0) +
     (spiOp && spiA ? 1 : 0) +
-    (debtOnly ? 1 : 0) +
-    (needsAttention ? 1 : 0) +
+    (attOp && attA ? 1 : 0) +
     (quiz ? 1 : 0) +
     (filters.search ? 1 : 0);
 
@@ -444,6 +445,15 @@ export default function Students() {
               })}
             </div>
           </GroupField>
+          <Field label="Attendance % (0–100)">
+            <BoundControl
+              scale="0–100"
+              op={attOp}
+              a={attA}
+              b={attB}
+              onChange={(op, a, b) => writeQuery({ attOp: op || undefined, attA: op ? a || undefined : undefined, attB: op === "between" ? b || undefined : undefined })}
+            />
+          </Field>
           <Field label={`SPI points (0–10 · highest now ${maxSpi == null ? "—" : maxSpi.toFixed(1)})`}>
             <BoundControl
               scale="0–10"
@@ -467,12 +477,6 @@ export default function Students() {
             />
           </Field>
           <div className="flex items-end gap-2">
-            <ToggleChip on={debtOnly} onClick={() => writeQuery({ debt: debtOnly ? undefined : "1" })}>
-              Skill debt only
-            </ToggleChip>
-            <ToggleChip on={needsAttention} onClick={() => writeQuery({ attention: needsAttention ? undefined : "1" })}>
-              Needs attention
-            </ToggleChip>
             {activeCount > 0 && (
               <Button type="button" variant="ghost" size="sm" className="h-9 text-red-600 hover:text-red-700" onClick={clearAll}>
                 Clear ({activeCount})
@@ -513,14 +517,12 @@ export default function Students() {
           value={loadingTiles ? null : summary.avgSpi == null ? "—" : summary.avgSpi.toFixed(1)}
           hint="0–10 · classroom 10% + module 15% so far"
         />
-        <ClickTile active={debtOnly} onClick={() => writeQuery({ debt: "1" })}>
-          <StatTile
-            label="Skill debt"
-            value={loadingTiles ? null : summary.skillDebt.toLocaleString("en-IN")}
-            valueColor={summary.skillDebt ? "#b91c1c" : undefined}
-            hint="Click to list them"
-          />
-        </ClickTile>
+        <StatTile
+          label="Skill debt"
+          value={loadingTiles ? null : summary.skillDebt.toLocaleString("en-IN")}
+          valueColor={summary.skillDebt ? "#b91c1c" : undefined}
+          hint="Skill level F or no quiz"
+        />
       </div>
 
       {/* ---- table ---- */}
@@ -683,22 +685,6 @@ function GroupField({ label, children }: { label: string; children: React.ReactN
       <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
       {children}
     </div>
-  );
-}
-
-function ToggleChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      onClick={onClick}
-      className={cn(
-        "h-9 rounded-md border px-3 text-xs font-medium transition-colors",
-        on ? "border-brand-600 bg-brand-50 text-brand-700" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
