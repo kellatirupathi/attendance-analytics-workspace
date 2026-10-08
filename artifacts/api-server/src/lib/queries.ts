@@ -38,11 +38,18 @@ import {
 } from "./excludedInstitutes.js";
 
 import {
-  ATTENDANCE_TABLE,
+  ATTENDANCE_TABLE as RAW_ATTENDANCE_TABLE,
   ATTENDED_SQL,
   SESSION_TITLE_SQL,
   SESSION_IDENTITY_SQL,
 } from "./attendance-contract.js";
+import { eligibleAttendanceSource } from "./eligibleStudents.js";
+
+/**
+ * Every attendance query reads eligible students only (see eligibleStudents.ts).
+ * The live contract check in attendance-contract.ts still probes the raw table.
+ */
+const ATTENDANCE_TABLE = eligibleAttendanceSource(RAW_ATTENDANCE_TABLE);
 
 /**
  * Matches a student id column against @studentId regardless of UUID hyphens.
