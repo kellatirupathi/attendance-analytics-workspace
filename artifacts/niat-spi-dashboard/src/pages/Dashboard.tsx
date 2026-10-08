@@ -25,6 +25,7 @@ import {
 } from "@/components/dashboard/overview";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { pctTextColor } from "@/lib/utils";
+import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
 import { exportCsv } from "@/lib/csv";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import {
@@ -546,10 +547,11 @@ export default function Dashboard() {
         ? [heading, "Students", "Attendance %", "Below 60%", "Avg SPI", "Skill debt", "Quiz completion %"]
         : [heading, "Students", "Attendance %", "Quiz completion %"];
     const body = rows.map((r) => {
-      const common = [r.students, r.attendancePct ?? "", r.belowSixty, r.avgSpi ?? "", r.skillDebt ?? "", r.completionPct ?? ""];
+      const attendance = r.noSessions ? NO_SESSIONS_LABEL : r.attendancePct ?? "";
+      const common = [r.students, attendance, r.belowSixty, r.avgSpi ?? "", r.skillDebt ?? "", r.completionPct ?? ""];
       if (grain === "section") return [r.campus ?? "", r.label, ...common];
       if (grain === "campus") return [r.label, ...common];
-      return [r.label, r.students, r.attendancePct ?? "", r.completionPct ?? ""];
+      return [r.label, r.students, attendance, r.completionPct ?? ""];
     });
     exportCsv(`overview-${grain}-${iso(new Date())}.csv`, headers, body);
   };

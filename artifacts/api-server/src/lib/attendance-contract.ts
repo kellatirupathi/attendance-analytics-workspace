@@ -3,7 +3,18 @@ import { bqQuery } from "./bigquery.js";
 export const ATTENDANCE_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.niat_students_overall_attendance_details`";
 
-export const ATTENDED_SQL = `UPPER(attendance_status) = 'PRESENT'`;
+/**
+ * Attendance counts session slots only. ATTENDANCE_SLOT rows (day-level
+ * attendance with no session) stay in the table so those students still appear
+ * on rosters, but they are never scheduled or present.
+ */
+export const SESSION_SLOT_SQL = `UPPER(CAST(entity_type AS STRING)) = 'SESSION_SLOT'`;
+
+/** A row that counts as one scheduled session. */
+export const SCHEDULED_SQL = SESSION_SLOT_SQL;
+
+/** A scheduled session the student attended. */
+export const ATTENDED_SQL = `(${SESSION_SLOT_SQL} AND UPPER(attendance_status) = 'PRESENT')`;
 
 // Overall attendance exposes entity_type, not the session_type advertised
 // by its metadata. Keep this expression shared with the live contract check.
@@ -47,6 +58,7 @@ export const ATTENDANCE_ROLLUP_FIELDS = [
 
 const expressions: Record<string, string> = {
   attended: ATTENDED_SQL,
+  scheduled: SCHEDULED_SQL,
   session_identity: SESSION_IDENTITY_SQL,
   current_semester: "is_current_semester = 1",
   attendance_date: "DATE(date)",

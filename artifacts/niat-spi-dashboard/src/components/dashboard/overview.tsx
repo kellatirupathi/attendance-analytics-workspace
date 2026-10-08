@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { CheckMenu, Field } from "@/components/SpiRecordFilterBar";
-import { ATTENDANCE_TIERS } from "@/lib/attendanceTiers";
+import { ATTENDANCE_TIERS, NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
 import { cn, pctTextColor } from "@/lib/utils";
 import type { AttendanceHeader } from "@/lib/attendanceStatsAggregate";
 import type { AssessmentCounts } from "@/lib/assessmentAggregate";
@@ -512,7 +512,7 @@ export function Leaderboard({
                 </td>
                 <td className="px-5 py-2 text-right tabular-nums">{fmtInt(row.students)}</td>
                 <td className="px-5 py-2 text-right font-medium tabular-nums" style={row.attendancePct != null ? { color: pctTextColor(row.attendancePct) } : undefined}>
-                  {fmtPct(row.attendancePct)}
+                  {row.noSessions ? <span className="text-xs font-normal text-slate-500">{NO_SESSIONS_LABEL}</span> : fmtPct(row.attendancePct)}
                 </td>
                 {grain !== "subject" && (
                   <>
