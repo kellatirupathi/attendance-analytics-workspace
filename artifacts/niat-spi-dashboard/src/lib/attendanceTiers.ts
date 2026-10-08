@@ -1,6 +1,9 @@
 /** Attendance eligibility tiers. Change these numbers in this file only. */
 
 export const TIER_ELIGIBLE = 80;
+
+/** Shown instead of a percentage when a campus or group has no session slots (e.g. only day-level attendance). */
+export const NO_SESSIONS_LABEL = "No sessions";
 export const TIER_RECOVERY = 60;
 export const TIER_AT_RISK = 50;
 

@@ -45,6 +45,7 @@ import {
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Search, Download, SlidersHorizontal, Loader2 } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
+import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { isExcludedInstitute, omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -179,6 +180,7 @@ export default function Campuses() {
       campuses.filter((c) => {
         if (campusFilter !== "all" && c.instituteName !== campusFilter)
           return false;
+        if (band !== "all" && c.totalRecordCount === 0) return false;
         if (!matchesBand(c.pct, band)) return false;
         if (q && !c.instituteName.toLowerCase().includes(q)) return false;
         return true;
@@ -265,7 +267,7 @@ export default function Campuses() {
           c.sectionCount,
           c.subjectCount,
           c.studentCount,
-          c.pct,
+          c.totalRecordCount > 0 ? c.pct : NO_SESSIONS_LABEL,
         ]),
       );
     } else if (drill === "section") {
@@ -483,7 +485,7 @@ export default function Campuses() {
                     <TableCell className="text-right tabular-nums text-gray-600">
                       {c.studentCount.toLocaleString()}
                     </TableCell>
-                    <AttendanceCell pct={c.pct} />
+                    {c.totalRecordCount > 0 ? <AttendanceCell pct={c.pct} /> : <NoSessionsCell />}
                   </TableRow>
                 ))
               ) : drill === "section" ? (
@@ -633,6 +635,10 @@ export default function Campuses() {
       </Sheet>
     </div>
   );
+}
+
+function NoSessionsCell() {
+  return <TableCell className="text-right text-xs text-gray-500">{NO_SESSIONS_LABEL}</TableCell>;
 }
 
 function AttendanceCell({ pct }: { pct: number }) {

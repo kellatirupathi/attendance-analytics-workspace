@@ -37,6 +37,8 @@ export interface AttendanceViewRow {
   grainPct: number;
   present: number;
   scheduled: number;
+  /** Scheduled sessions for the whole campus; 0 means the campus has no session slots. */
+  campusScheduled: number;
   sessions: number;
   students: number;
   absences: number;
@@ -213,6 +215,7 @@ export function aggregateAttendanceStats(
       grainPct: pct(present, scheduled) ?? 0,
       present,
       scheduled,
+      campusScheduled: campus?.scheduled ?? 0,
       sessions,
       students: members.size,
       absences: Math.max(scheduled - present, 0),

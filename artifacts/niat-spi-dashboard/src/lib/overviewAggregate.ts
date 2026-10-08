@@ -184,6 +184,8 @@ export interface LeaderRow {
   label: string;
   students: number;
   attendancePct: number | null;
+  /** The group has students but no session slots. */
+  noSessions: boolean;
   belowSixty: number;
   avgSpi: number | null;
   skillDebt: number | null;
@@ -207,6 +209,7 @@ export function leaderboard(
         subject: null,
         students: 0,
         attendancePct: null,
+        noSessions: false,
         belowSixty: 0,
         avgSpi: null,
         skillDebt: null,
@@ -240,7 +243,8 @@ export function leaderboard(
       section: grain === "section" ? item.section : null,
     });
     row.students = item.students;
-    row.attendancePct = item.grainPct;
+    row.attendancePct = item.scheduled > 0 ? item.grainPct : null;
+    row.noSessions = item.scheduled === 0;
     row.belowSixty = item.atRisk + item.ineligible;
   }
   const spiRows = grain === "campus" ? spi?.byCampus ?? [] : spi?.bySection ?? [];

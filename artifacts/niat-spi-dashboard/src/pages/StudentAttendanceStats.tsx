@@ -20,6 +20,7 @@ import { ChevronRight, Download } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
 import { pctColor, pctTextColor, cn } from "@/lib/utils";
+import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { readSubjects, subjectOptionList } from "@/lib/subjects";
 import { exportCsv } from "@/lib/csv";
@@ -119,6 +120,7 @@ interface StatsRow {
   grainPct: number;
   present: number;
   scheduled: number;
+  campusScheduled: number;
   sessions: number;
   students: number;
   absences: number;
@@ -145,7 +147,10 @@ function columnLabel(id: ColumnId, grain: Grain): string {
 }
 
 function cellValue(row: StatsRow, id: ColumnId): string | number {
-  if (id === "overallPct" || id === "grainPct") return `${row[id]}%`;
+  if (id === "overallPct" || id === "grainPct") {
+    const scheduled = id === "grainPct" ? row.scheduled : row.campusScheduled;
+    return scheduled > 0 ? `${row[id]}%` : NO_SESSIONS_LABEL;
+  }
   if (TIER_COLUMNS.has(id)) {
     if (!row.students) return "—";
     return `${Math.round((Number(row[id]) / row.students) * 100)}%`;
@@ -750,9 +755,9 @@ export default function StudentAttendanceStats() {
                         key={id}
                         className="text-right tabular-nums"
                         style={
-                          id === "overallPct"
+                          id === "overallPct" && row.campusScheduled > 0
                             ? { color: pctTextColor(row.overallPct) }
-                            : id === "grainPct"
+                            : id === "grainPct" && row.scheduled > 0
                               ? { color: pctColor(row.grainPct) }
                               : undefined
                         }

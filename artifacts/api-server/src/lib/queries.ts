@@ -40,6 +40,7 @@ import {
 import {
   ATTENDANCE_TABLE as RAW_ATTENDANCE_TABLE,
   ATTENDED_SQL,
+  SCHEDULED_SQL,
   SESSION_TITLE_SQL,
   SESSION_IDENTITY_SQL,
 } from "./attendance-contract.js";
@@ -614,6 +615,7 @@ export async function getStudentRecentSessions(
     FROM ${ATTENDANCE_TABLE}
     WHERE ${studentIdMatch('student_user_id')}
       AND is_current_semester = 1
+      AND ${SCHEDULED_SQL}
     ORDER BY date DESC
     LIMIT 500`,
     { studentId: normalizeStudentId(studentId) },
@@ -664,7 +666,7 @@ export async function searchStudents(
       MAX(institute_name) AS institute_name,
       MAX(batch_section_name) AS batch_section_name,
       COUNTIF(${ATTENDED_SQL}) AS present,
-      COUNT(*) AS total
+      COUNTIF(${SCHEDULED_SQL}) AS total
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
       AND (LOWER(student_name) LIKE LOWER(@q)
@@ -689,7 +691,7 @@ export async function searchStudents(
 }
 
 function attendanceHavingClause(band: string | undefined): string {
-  const pct = `SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100`;
+  const pct = `SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100`;
   switch (band) {
     case "below50":
       return `${pct} < 50`;
@@ -929,7 +931,7 @@ export async function getStudentsList(
         MAX(institute_name) AS institute_name,
         MAX(batch_section_name) AS batch_section_name,
         COUNTIF(${ATTENDED_SQL}) AS present,
-        COUNT(*) AS total
+        COUNTIF(${SCHEDULED_SQL}) AS total
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
       ${searchFilter}
@@ -1409,7 +1411,7 @@ export async function getSpiRecordDetail(
           COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester_title,
           COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name,
           MAX(student_name) AS student_name,
-          COUNT(*) AS scheduled_n,
+          COUNTIF(${SCHEDULED_SQL}) AS scheduled_n,
           COUNTIF(${ATTENDED_SQL}) AS present_n
         FROM ${ATTENDANCE_TABLE}
         WHERE ${where}${dateSql}
@@ -1584,9 +1586,9 @@ export async function getCampusSummary(
       COUNT(DISTINCT batch_section_name) AS section_count,
       COUNT(DISTINCT subject_title) AS subject_count,
       COUNT(DISTINCT IF((${inWindow}) AND ${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
-      COUNT(DISTINCT IF(${inWindow}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
+      COUNT(DISTINCT IF((${inWindow}) AND ${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_record_count,
-      COUNTIF(${inWindow}) AS total_record_count
+      COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}) AS total_record_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${rosterWhere}
     GROUP BY TRIM(institute_name)
@@ -1622,7 +1624,7 @@ export async function getSectionSummary(
       COALESCE(batch_section_name, 'Unknown') AS batch_section_name,
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_count,
-      COUNTIF(${inWindow}) AS total_count
+      COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
     GROUP BY institute_name, COALESCE(batch_section_name, 'Unknown')
@@ -1681,15 +1683,15 @@ export async function getSubjectSummary(
       subject_title,
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNT(DISTINCT IF((${inWindow}) AND ${ATTENDED_SQL}, student_user_id, NULL)) AS present_student_count,
-      COUNT(DISTINCT IF(${inWindow}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
+      COUNT(DISTINCT IF((${inWindow}) AND ${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_record_count,
-      COUNTIF(${inWindow}) AS total_record_count
+      COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}) AS total_record_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${rosterWhere}
     GROUP BY subject_title
     ORDER BY SAFE_DIVIDE(
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}),
-      NULLIF(COUNTIF(${inWindow}), 0)
+      NULLIF(COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}), 0)
     ) ASC`,
     params,
     BQ_LOCATION,
@@ -1750,7 +1752,7 @@ export async function getSubjectSessions(
       CAST(date AS STRING) AS date,
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNTIF(${ATTENDED_SQL}) AS present_count,
-      COUNT(*) AS total_count
+      COUNTIF(${SCHEDULED_SQL}) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}${extra}
     GROUP BY session_title, date
@@ -1820,7 +1822,7 @@ export async function getCampusSessions(
       CAST(date AS STRING) AS date,
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNTIF(${ATTENDED_SQL}) AS present_count,
-      COUNT(*) AS total_count
+      COUNTIF(${SCHEDULED_SQL}) AS total_count
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}${extra}
     GROUP BY subject_title, session_title, date
@@ -1828,7 +1830,7 @@ export async function getCampusSessions(
       subject_title,
       SAFE_DIVIDE(
         COUNTIF(${ATTENDED_SQL}),
-        COUNT(*)
+        COUNTIF(${SCHEDULED_SQL})
       ) ASC`,
     params,
   );
@@ -2065,8 +2067,8 @@ export async function getCampusSubjectRecovery(
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name,
         COUNTIF(${ATTENDED_SQL}) AS present_count,
-        COUNT(*) AS total_count,
-        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
+        COUNTIF(${SCHEDULED_SQL}) AS total_count,
+        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
         AND institute_name = @campus
@@ -2122,7 +2124,7 @@ export async function getCampusSubjectRecovery(
   }>(
     `SELECT
       subject_title,
-      SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
+      SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
     FROM ${ATTENDANCE_TABLE}
     WHERE ${where}
       AND institute_name = @campus
@@ -2174,8 +2176,8 @@ export async function getRecoveryStudents(
        MAX(student_name) AS student_name,
        MAX(batch_section_name) AS batch_section_name,
        COUNTIF(${ATTENDED_SQL}) AS present_count,
-       COUNT(*) AS total_count,
-       SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
+       COUNTIF(${SCHEDULED_SQL}) AS total_count,
+       SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
      FROM ${ATTENDANCE_TABLE}
      WHERE ${where}
        AND institute_name = @campus
@@ -3114,8 +3116,8 @@ export async function getCampusQuizRecovery(
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name,
         COUNTIF(${ATTENDED_SQL}) AS present_count,
-        COUNT(*) AS total_count,
-        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
+        COUNTIF(${SCHEDULED_SQL}) AS total_count,
+        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attWhere}
         AND institute_name = @campus
@@ -3224,8 +3226,8 @@ export async function getQuizRecoveryStudents(
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name,
         COUNTIF(${ATTENDED_SQL}) AS present_count,
-        COUNT(*) AS total_count,
-        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNT(*)) * 100 AS subject_pct
+        COUNTIF(${SCHEDULED_SQL}) AS total_count,
+        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
       FROM ${ATTENDANCE_TABLE}
       WHERE ${attWhere}
         AND institute_name = @campus
@@ -3428,7 +3430,7 @@ export async function getAttendanceBySessionId(
     `SELECT
        session_id,
        COUNTIF(${ATTENDED_SQL}) AS present_count,
-       COUNT(*) AS total_count
+       COUNTIF(${SCHEDULED_SQL}) AS total_count
      FROM ${ATTENDANCE_TABLE}
      WHERE institute_name = @campus
        AND ${excludeInstituteSql()}
@@ -5042,7 +5044,8 @@ export async function getAttendanceGroupStats(
         COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown') AS section,
         student_user_id AS student_id,
         student_name,
-        ${SESSION_IDENTITY_SQL} AS session_key,
+        IF(${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL) AS session_key,
+        ${SCHEDULED_SQL} AS is_scheduled,
         ${ATTENDED_SQL} AS is_present
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}
@@ -5054,7 +5057,7 @@ export async function getAttendanceGroupStats(
         university, subject, section, student_id,
         ANY_VALUE(student_name) AS student_name,
         COUNTIF(is_present) AS present_n,
-        COUNT(*) AS scheduled_n
+        COUNTIF(is_scheduled) AS scheduled_n
       FROM base
       GROUP BY university, subject, section, student_id
     ),
@@ -5221,7 +5224,7 @@ async function loadAttendanceStatsDetail(
           student_user_id AS student_id,
           MAX(student_name) AS student_name,
           COUNTIF(${ATTENDED_SQL}) AS present_n,
-          COUNT(*) AS scheduled_n
+          COUNTIF(${SCHEDULED_SQL}) AS scheduled_n
         FROM ${ATTENDANCE_TABLE}
         WHERE ${where}
           AND student_user_id IS NOT NULL
@@ -5240,7 +5243,7 @@ async function loadAttendanceStatsDetail(
     }>(
       `SELECT
           ${ATTENDANCE_STATS_DIMS}${unitSelect},
-          COUNT(DISTINCT ${SESSION_IDENTITY_SQL}) AS sessions_n
+          COUNT(DISTINCT IF(${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS sessions_n
         FROM ${ATTENDANCE_TABLE}
         WHERE ${where}
         GROUP BY university, semester, subject, section${unitGroup}`,
@@ -5371,7 +5374,7 @@ export async function getAttendanceTrend(
     `SELECT
         FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(date), WEEK(MONDAY))) AS week,
         COUNTIF(${ATTENDED_SQL}) AS present_n,
-        COUNT(*) AS scheduled_n
+        COUNTIF(${SCHEDULED_SQL}) AS scheduled_n
       FROM ${ATTENDANCE_TABLE}
       WHERE ${where}${extra}
         AND student_user_id IS NOT NULL

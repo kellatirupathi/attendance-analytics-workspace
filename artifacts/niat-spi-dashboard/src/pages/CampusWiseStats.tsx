@@ -22,6 +22,7 @@ import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 import { subjectColor } from "@/lib/subjectColors";
 import { Search, Loader2, ChevronRight, Download } from "lucide-react";
 import { pctColor, pctTextColor } from "@/lib/utils";
+import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
@@ -203,7 +204,7 @@ function CampusList({
         c.subjectCount,
         c.presentRecordCount,
         c.totalRecordCount,
-        c.pct,
+        c.totalRecordCount > 0 ? c.pct : NO_SESSIONS_LABEL,
       ]),
     );
   };
@@ -334,7 +335,7 @@ function CampusList({
                       {c.totalRecordCount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <PctBar pct={c.pct} />
+                      {c.totalRecordCount > 0 ? <PctBar pct={c.pct} /> : <span className="text-xs text-gray-500">{NO_SESSIONS_LABEL}</span>}
                     </TableCell>
                     <TableCell className="text-right text-gray-300">
                       <ChevronRight className="ml-auto h-4 w-4" />
