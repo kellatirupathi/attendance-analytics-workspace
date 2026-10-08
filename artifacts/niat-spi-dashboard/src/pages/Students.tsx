@@ -498,10 +498,10 @@ export default function Students() {
           }
         />
         <StatTile
-          label="Avg attendance"
+          label="Attendance"
           value={loadingTiles ? null : fmtPct(summary.avgAttendance)}
           valueColor={summary.avgAttendance != null ? pctTextColor(summary.avgAttendance) : undefined}
-          hint="Mean of student attendance"
+          hint="Sessions attended ÷ scheduled"
         />
         <StatTile label="Eligible ≥80%" value={loadingTiles ? null : summary.eligible.toLocaleString("en-IN")} hint="Attendance" />
         <ClickTile active={tiers.length === 2 && tiers.includes("at_risk") && tiers.includes("ineligible")} onClick={() => writeQuery({ tiers: "at_risk||ineligible" })}>

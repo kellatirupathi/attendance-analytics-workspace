@@ -194,8 +194,8 @@ export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
     person.scheduled += row.scheduled;
     people.set(row.studentId, person);
   }
-  let attSum = 0;
-  let attN = 0;
+  let present = 0;
+  let scheduled = 0;
   let spiSum = 0;
   let eligible = 0;
   let belowSixty = 0;
@@ -203,8 +203,8 @@ export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
   for (const person of people.values()) {
     if (person.scheduled > 0) {
       const pct = round1((person.present / person.scheduled) * 100);
-      attSum += pct;
-      attN += 1;
+      present += person.present;
+      scheduled += person.scheduled;
       if (pct >= 80) eligible += 1;
       if (pct < 60) belowSixty += 1;
     }
@@ -213,7 +213,8 @@ export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
   }
   return {
     students: people.size,
-    avgAttendance: attN ? round1(attSum / attN) : null,
+    // Sessions attended ÷ sessions scheduled across all students, as on the Overview.
+    avgAttendance: scheduled ? round1((present / scheduled) * 100) : null,
     eligible,
     belowSixty,
     avgSpi: people.size ? round1(spiSum / people.size) : null,

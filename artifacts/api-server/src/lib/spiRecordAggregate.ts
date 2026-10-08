@@ -18,6 +18,8 @@ interface PersonScore {
   classroom: number | null;
   module: number | null;
   attendance: number | null;
+  present: number;
+  scheduled: number;
 }
 
 function round1(value: number): number {
@@ -58,6 +60,11 @@ function passesBound(value: number | null, op?: string, a?: number, b?: number):
     return value >= Math.min(a, b) && value <= Math.max(a, b);
   }
   return true;
+}
+
+/** Attendance %: sessions attended ÷ sessions scheduled, over all students together. */
+function ratioPct(present: number, scheduled: number): number | null {
+  return scheduled > 0 ? round1((present / scheduled) * 100) : null;
 }
 
 function mean(values: number[]): number | null {
@@ -113,7 +120,8 @@ export function aggregateSpiRecord(
     attendancePct: number | null;
   }>;
 } {
-  const campusPct = new Map<string, number | null>();
+  /** Sessions attended and scheduled per student × campus; percentages are always total ÷ total. */
+  const campusTotals = new Map<string, { present: number; scheduled: number }>();
   const seenCampus = new Set<string>();
   const byStudent = new Map<string, SpiDetailRow[]>();
   for (const row of detail) {
@@ -123,10 +131,7 @@ export function aggregateSpiRecord(
     const campusKey = `${row.studentId}\t${row.university}`;
     if (!seenCampus.has(campusKey)) {
       seenCampus.add(campusKey);
-      campusPct.set(
-        campusKey,
-        row.scheduledN > 0 ? round1((row.presentN / row.scheduledN) * 100) : null,
-      );
+      campusTotals.set(campusKey, { present: row.presentN, scheduled: row.scheduledN });
     }
   }
 
@@ -152,6 +157,8 @@ export function aggregateSpiRecord(
       classroom: first.classroomAvg,
       module: first.moduleAvg,
       attendance: scheduled > 0 ? round1((present / scheduled) * 100) : null,
+      present,
+      scheduled,
     });
   }
 
@@ -205,11 +212,15 @@ export function aggregateSpiRecord(
 
   const rows = [...buckets.values()].map((bucket) => {
     const members = [...bucket.ids].map((id) => eligible.get(id)!);
-    const attendanceValues = members
-      .map((person) => bucket.university
-        ? campusPct.get(`${person.studentId}\t${bucket.university}`) ?? null
-        : person.attendance)
-      .filter((value): value is number => value != null);
+    let present = 0;
+    let scheduled = 0;
+    for (const person of members) {
+      const totals = bucket.university
+        ? campusTotals.get(`${person.studentId}\t${bucket.university}`)
+        : person;
+      present += totals?.present ?? 0;
+      scheduled += totals?.scheduled ?? 0;
+    }
     const level = (name: string) => members.filter((person) => person.skill === name).length;
     return {
       university: bucket.university,
@@ -229,7 +240,7 @@ export function aggregateSpiRecord(
       levelC: level("C"),
       levelD: level("D"),
       skillDebt: level("F") + level("Ab"),
-      attendancePct: mean(attendanceValues),
+      attendancePct: ratioPct(present, scheduled),
     };
   }).sort((a, b) =>
     (a.university ?? "").localeCompare(b.university ?? "")
@@ -240,16 +251,16 @@ export function aggregateSpiRecord(
   );
 
   const summaryPeople = [...eligible.values()];
-  const summaryAttendance = summaryPeople
-    .map((person) => person.attendance)
-    .filter((value): value is number => value != null);
   const summary = {
     students: summaryPeople.length,
     campuses: bounds.singleCampus
       ? 1
       : new Set(detail.filter((row) => eligible.has(row.studentId)).map((row) => row.university)).size,
     avgSpi: mean(summaryPeople.map((person) => person.spi)),
-    attendancePct: mean(summaryAttendance),
+    attendancePct: ratioPct(
+      summaryPeople.reduce((sum, person) => sum + person.present, 0),
+      summaryPeople.reduce((sum, person) => sum + person.scheduled, 0),
+    ),
     levelAPlus: summaryPeople.filter((person) => person.skill === "A+").length,
     levelA: summaryPeople.filter((person) => person.skill === "A").length,
     levelB: summaryPeople.filter((person) => person.skill === "B").length,
