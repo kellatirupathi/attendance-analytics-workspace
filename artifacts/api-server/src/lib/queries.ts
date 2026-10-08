@@ -44,7 +44,7 @@ import {
   SESSION_TITLE_SQL,
   SESSION_IDENTITY_SQL,
 } from "./attendance-contract.js";
-import { eligibleAttendanceSource } from "./eligibleStudents.js";
+import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
 
 /**
  * Every attendance query reads eligible students only (see eligibleStudents.ts).
@@ -499,10 +499,13 @@ interface ScheduledSubject {
 }
 
 /**
- * Every NIAT subject on the prod sequence for the sections the student has
- * current-semester attendance rows in, with how many of its sessions are dated
- * up to today (IST). University courses aren't on the prod sequence, and the
- * excluded categories and subjects are dropped the same way as courseAttendanceSql.
+ * Every NIAT subject on the prod sequence for the student's current-semester
+ * sections at their current campus (their campus in the student master view),
+ * with how many of its sessions are dated up to today (IST). A student who
+ * moved campus keeps sections from their old campus out of the list; one with
+ * no attendance at their master-view campus keeps all their sections.
+ * University courses aren't on the prod sequence, and the excluded categories
+ * and subjects are dropped the same way as courseAttendanceSql.
  */
 async function getStudentScheduledSubjects(studentId: string): Promise<ScheduledSubject[]> {
   const rows = await bqQuery<{
@@ -510,12 +513,27 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     course_category: string | null;
     sessions_held: string;
   }>(
-    `WITH student_sections AS (
-      SELECT DISTINCT REPLACE(CAST(section_id AS STRING), '-', '') AS section_key
-      FROM ${ATTENDANCE_TABLE}
+    `WITH student_rows AS (
+      -- The raw table: the shared source relabels a mover's old rows with their current campus.
+      SELECT DISTINCT
+        TRIM(institute_name) AS campus,
+        REPLACE(CAST(section_id AS STRING), '-', '') AS section_key
+      FROM ${RAW_ATTENDANCE_TABLE}
       WHERE ${studentIdMatch("student_user_id")}
         AND is_current_semester = 1
         AND section_id IS NOT NULL
+    ),
+    master_campus AS (
+      SELECT DISTINCT TRIM(institute_name) AS campus
+      FROM ${STUDENT_MASTER_TABLE}
+      WHERE ${studentIdMatch("user_id")}
+        AND institute_name IS NOT NULL
+    ),
+    student_sections AS (
+      SELECT DISTINCT section_key
+      FROM student_rows
+      WHERE campus IN (SELECT campus FROM master_campus)
+         OR NOT EXISTS (SELECT 1 FROM student_rows r JOIN master_campus USING (campus))
     )
     SELECT
       TRIM(s.course_title) AS subject_title,
