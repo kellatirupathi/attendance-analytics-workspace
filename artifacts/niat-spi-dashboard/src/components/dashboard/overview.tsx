@@ -16,7 +16,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowDown, ArrowUp, ChevronRight, Download, TrendingDown, TrendingUp, AlertTriangle, Info, CheckCircle2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Download, TrendingDown, TrendingUp, AlertTriangle, Info, CheckCircle2, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,6 +65,8 @@ export function OverviewFilterBar({
   to,
   onPeriod,
   onClear,
+  updating,
+  rangeMessage,
 }: {
   showCampus: boolean;
   campuses: string[];
@@ -84,6 +86,10 @@ export function OverviewFilterBar({
   to: string;
   onPeriod: (patch: { period?: OverviewPeriod; from?: string; to?: string }) => void;
   onClear: () => void;
+  /** Some data is reloading after a filter change. */
+  updating?: boolean;
+  /** Shown next to the custom date fields when the range is incomplete or reversed. */
+  rangeMessage?: { tone: "hint" | "error"; text: string; onSwap?: () => void } | null;
 }) {
   const multiCampus = campuses.length !== 1;
   const chips: { key: string; group: string; label: string; onRemove: () => void }[] = [
@@ -155,8 +161,39 @@ export function OverviewFilterBar({
           />
           {period === "custom" && (
             <>
-              <Input type="date" aria-label="Attendance period from" className="h-9 w-[150px]" value={from} onChange={(event) => onPeriod({ from: event.target.value })} />
-              <Input type="date" aria-label="Attendance period to" className="h-9 w-[150px]" value={to} onChange={(event) => onPeriod({ to: event.target.value })} />
+              <Input
+                type="date"
+                aria-label="Attendance period from"
+                aria-invalid={rangeMessage?.tone === "error" || undefined}
+                aria-describedby={rangeMessage ? "overview-range-message" : undefined}
+                className="h-9 w-[150px]"
+                value={from}
+                onChange={(event) => onPeriod({ from: event.target.value })}
+              />
+              <Input
+                type="date"
+                aria-label="Attendance period to"
+                aria-invalid={rangeMessage?.tone === "error" || undefined}
+                aria-describedby={rangeMessage ? "overview-range-message" : undefined}
+                className="h-9 w-[150px]"
+                value={to}
+                onChange={(event) => onPeriod({ to: event.target.value })}
+              />
+              {rangeMessage && (
+                <p
+                  id="overview-range-message"
+                  role={rangeMessage.tone === "error" ? "alert" : "status"}
+                  className={cn("flex items-center gap-2 text-xs", rangeMessage.tone === "error" ? "text-red-700" : "text-slate-600")}
+                >
+                  {rangeMessage.tone === "error" && <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+                  {rangeMessage.text}
+                  {rangeMessage.onSwap && (
+                    <Button type="button" variant="outline" size="sm" className="h-7" onClick={rangeMessage.onSwap}>
+                      Swap dates
+                    </Button>
+                  )}
+                </p>
+              )}
             </>
           )}
         </div>
@@ -164,6 +201,13 @@ export function OverviewFilterBar({
       <Button type="button" variant="outline" size="sm" onClick={onClear}>
         Reset filters
       </Button>
+      <span role="status" aria-live="polite" className="flex h-9 items-center gap-1.5 text-xs text-slate-600">
+        {updating && (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Updating…
+          </>
+        )}
+      </span>
       {chips.length > 0 && (
         <ul className="flex w-full flex-wrap items-center gap-1.5" aria-label="Active filters">
           {chips.map((chip) => (
@@ -200,6 +244,8 @@ export function StatTile({
   href,
   delta,
   valueColor,
+  updating,
+  onRetry,
 }: {
   label: string;
   value: string | null;
@@ -207,14 +253,34 @@ export function StatTile({
   href?: string;
   delta?: { value: number; label: string } | null;
   valueColor?: string;
+  /** Previous filter's value is showing while new data loads. */
+  updating?: boolean;
+  /** Set when this tile's data failed to load; shows an error with Retry instead of the value. */
+  onRetry?: () => void;
 }) {
+  if (onRetry) {
+    return (
+      <div className="h-full bg-white px-4 py-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+        <p className="mt-2 flex items-center gap-1.5 text-sm text-red-700">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" /> Couldn't load
+        </p>
+        <button type="button" onClick={onRetry} className={cn("mt-1 text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
+          Retry
+        </button>
+      </div>
+    );
+  }
   const body = (
-    <div className={cn("h-full bg-white px-4 py-4", href && "transition-colors hover:bg-slate-50")}>
+    <div
+      className={cn("h-full bg-white px-4 py-4", href && "transition-colors hover:bg-slate-50")}
+      aria-busy={updating || undefined}
+    >
       <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
       {value == null ? (
         <Skeleton className="mt-2 h-8 w-20" />
       ) : (
-        <div className="mt-2 flex items-baseline gap-2">
+        <div className={cn("mt-2 flex items-baseline gap-2 transition-opacity", updating && "opacity-60")}>
           <span className="text-2xl font-semibold tabular-nums text-slate-900" style={valueColor ? { color: valueColor } : undefined}>
             {value}
           </span>
@@ -259,12 +325,15 @@ export function Section({
   subtitle,
   action,
   className,
+  updating,
   children,
 }: {
   title: string;
   subtitle?: string;
   action?: ReactNode;
   className?: string;
+  /** Previous filter's data is showing while new data loads. */
+  updating?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -276,7 +345,9 @@ export function Section({
         </div>
         {action}
       </div>
-      {children}
+      <div className={cn("transition-opacity", updating && "opacity-60")} aria-busy={updating || undefined}>
+        {children}
+      </div>
     </section>
   );
 }
@@ -286,6 +357,34 @@ export function SectionLink({ href, label = "Details" }: { href: string; label?:
     <Link href={href} className={cn("inline-flex items-center gap-0.5 text-xs font-medium text-brand-800 hover:text-brand-900", FOCUS_RING)}>
       {label} <ChevronRight className="h-3.5 w-3.5" />
     </Link>
+  );
+}
+
+/** A section's own load error, so one failed source does not leave it loading forever. */
+export function SectionError({ what, onRetry }: { what: string; onRetry: () => void }) {
+  return (
+    <div role="alert" className="flex flex-wrap items-center justify-between gap-3 p-5 text-sm">
+      <p className="flex items-center gap-2 text-slate-700">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-red-700" aria-hidden="true" />
+        Couldn't load {what}.
+      </p>
+      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+/** One-line note when part of a section's data (e.g. SPI columns) failed to load. */
+export function SourceNote({ text, onRetry }: { text: string; onRetry: () => void }) {
+  return (
+    <p role="alert" className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-amber-50 px-5 py-2 text-xs text-amber-900">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {text}
+      <button type="button" onClick={onRetry} className={cn("font-medium underline", FOCUS_RING)}>
+        Retry
+      </button>
+    </p>
   );
 }
 

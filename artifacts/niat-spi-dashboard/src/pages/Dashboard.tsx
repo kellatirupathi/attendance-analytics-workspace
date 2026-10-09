@@ -15,8 +15,10 @@ import {
   Leaderboard,
   OverviewFilterBar,
   Section,
+  SectionError,
   SectionLink,
   SkillSplit,
+  SourceNote,
   StatTile,
   TierBar,
   WatchList,
@@ -195,8 +197,9 @@ function periodWindow(period: OverviewPeriod, from: string, to: string): { dateF
     const today = new Date();
     return { dateFrom: iso(subDays(today, 30)), dateTo: iso(today) };
   }
-  if (period === "custom" && ISO_DATE_RE.test(from) && ISO_DATE_RE.test(to)) {
-    return from <= to ? { dateFrom: from, dateTo: to } : { dateFrom: to, dateTo: from };
+  // A reversed range is not applied; the filter bar says so and offers to swap.
+  if (period === "custom" && ISO_DATE_RE.test(from) && ISO_DATE_RE.test(to) && from <= to) {
+    return { dateFrom: from, dateTo: to };
   }
   return null;
 }
@@ -313,7 +316,10 @@ export default function Dashboard() {
   const from = query.get("attFrom") || "";
   const to = query.get("attTo") || "";
   const dateWindow = periodWindow(period, from, to);
+  // An incomplete or reversed custom range keeps showing "This semester so far" until it is valid.
   const customPending = period === "custom" && !dateWindow;
+  const appliedPeriod: OverviewPeriod = customPending ? "semester_to_date" : period;
+  const rangeReversed = customPending && ISO_DATE_RE.test(from) && ISO_DATE_RE.test(to);
   const range: DateRange = dateWindow ?? {};
 
   const writeQuery = (patch: Record<string, string | undefined>) => {
@@ -338,22 +344,22 @@ export default function Dashboard() {
     spiParams.set("attRange", "custom");
     spiParams.set("attFrom", dateWindow.dateFrom);
     spiParams.set("attTo", dateWindow.dateTo);
-  } else if (period !== "custom") {
-    spiParams.set("attRange", period);
+  } else if (appliedPeriod !== "custom") {
+    spiParams.set("attRange", appliedPeriod);
   }
   // SPI detail sums attendance across subjects, so the server narrows it.
   if (subjects.length) spiParams.set("subjects", subjectKey);
 
   const attQuery = useQuery({
     queryKey: ["attendance-stats-detail", attParams.toString()],
-    enabled: enabled && !customPending,
+    enabled,
     queryFn: () => getJson<AttendancePayload>(`/api/dashboard/attendance-stats/detail?${attParams.toString()}`),
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
   });
   const spiQuery = useQuery({
     queryKey: ["spi-record-detail", spiParams.toString()],
-    enabled: enabled && !customPending,
+    enabled,
     queryFn: () => getJson<SpiPayload>(`/api/dashboard/spi-record/detail?${spiParams.toString()}`),
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
@@ -386,7 +392,7 @@ export default function Dashboard() {
   if (subjects.length) trendParams.set("subjects", subjectKey);
   const trendQuery = useQuery({
     queryKey: ["attendance-trend", trendParams.toString()],
-    enabled: enabled && !customPending,
+    enabled,
     queryFn: () => getJson<{ points: TrendPoint[] }>(`/api/dashboard/attendance-stats/trend?${trendParams.toString()}`),
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
@@ -556,6 +562,17 @@ export default function Dashboard() {
     exportCsv(`overview-${grain}-${iso(new Date())}.csv`, headers, body);
   };
 
+  /* ---- per-source load state: stale while refetching, or failed ---- */
+
+  const attUpdating = attQuery.isPlaceholderData;
+  const spiUpdating = spiQuery.isPlaceholderData;
+  const trendUpdating = trendQuery.isPlaceholderData;
+  const retryAtt = attQuery.isError ? () => void attQuery.refetch() : undefined;
+  const retrySpi = spiQuery.isError ? () => void spiQuery.refetch() : undefined;
+  const retryAsm = asmQuery.isError ? () => void asmQuery.refetch() : undefined;
+  const attTile = { updating: attUpdating, onRetry: retryAtt };
+  const spiTile = { updating: spiUpdating, onRetry: retrySpi };
+
   /* ---- KPI tiles ---- */
 
   const header = att?.header ?? null;
@@ -570,6 +587,7 @@ export default function Dashboard() {
     students: (
       <StatTile
         key="students"
+        {...attTile}
         label="Students"
         value={header ? header.students.toLocaleString("en-IN") : null}
         hint={header ? `${new Set(att!.byCampus.map((r) => r.university)).size} campuses` : undefined}
@@ -579,6 +597,7 @@ export default function Dashboard() {
     attendance: (
       <StatTile
         key="attendance"
+        {...attTile}
         label="Attendance"
         value={header ? (header.overallPct == null ? "—" : `${header.overallPct.toFixed(1)}%`) : null}
         valueColor={header?.overallPct != null ? pctReadableColor(header.overallPct) : undefined}
@@ -590,6 +609,7 @@ export default function Dashboard() {
     eligible: (
       <StatTile
         key="eligible"
+        {...attTile}
         label="Eligible ≥80%"
         value={header ? header.eligible.toLocaleString("en-IN") : null}
         hint={header ? `of ${header.students.toLocaleString("en-IN")} students${share(header.eligible, header.students)}` : undefined}
@@ -599,6 +619,7 @@ export default function Dashboard() {
     belowSixty: (
       <StatTile
         key="belowSixty"
+        {...attTile}
         label="Below 60%"
         value={belowSixty == null ? null : belowSixty.toLocaleString("en-IN")}
         valueColor={belowSixty ? "#b91c1c" : undefined}
@@ -609,6 +630,7 @@ export default function Dashboard() {
     avgSpi: (
       <StatTile
         key="avgSpi"
+        {...spiTile}
         label="Avg SPI"
         value={spi ? (spi.summary.avgSpi == null ? "—" : spi.summary.avgSpi.toFixed(1)) : null}
         hint={spi ? `0–10 · ${spi.summary.students.toLocaleString("en-IN")} evaluated` : undefined}
@@ -618,6 +640,7 @@ export default function Dashboard() {
     skillDebt: (
       <StatTile
         key="skillDebt"
+        {...spiTile}
         label="Skill debt"
         value={spi ? spi.summary.skillDebt.toLocaleString("en-IN") : null}
         valueColor={spi?.summary.skillDebt ? "#b91c1c" : undefined}
@@ -628,6 +651,7 @@ export default function Dashboard() {
     completion: (
       <StatTile
         key="completion"
+        onRetry={retryAsm}
         label="Quiz completion"
         value={asm ? `${asm.header.completionPct.toFixed(1)}%` : null}
         hint="Classroom + module · all dates, not period-filtered"
@@ -641,6 +665,15 @@ export default function Dashboard() {
   const tileCols = layout.kpis.length >= 7 ? "md:grid-cols-4 xl:grid-cols-7" : "md:grid-cols-4";
   const pLabel = periodLabel(period, dateWindow);
   const headerHasRequests = quickActions(role, range, "").some((a) => a.href === "/dashboard/requests");
+  const rangeMessage = customPending
+    ? rangeReversed
+      ? {
+          tone: "error" as const,
+          text: "Start date is after end date. Showing this semester so far.",
+          onSwap: () => writeQuery({ attFrom: to, attTo: from }),
+        }
+      : { tone: "hint" as const, text: "Pick both dates to apply the range. Showing this semester so far." }
+    : null;
   const scopeText = campuses.length === 0 ? "All campuses in your scope" : campuses.length === 1 ? campuses[0] : `${campuses.length} campuses`;
 
   return (
@@ -680,6 +713,8 @@ export default function Dashboard() {
           })
         }
         onClear={() => setLocation("/dashboard")}
+        updating={attUpdating || spiUpdating || trendUpdating}
+        rangeMessage={rangeMessage}
       />
 
       {failed ? (
@@ -691,10 +726,6 @@ export default function Dashboard() {
             asmQuery.refetch();
           }}
         />
-      ) : customPending ? (
-        <p className="border-b border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-500">
-          Pick both a start and an end date for the custom range.
-        </p>
       ) : (
         <div className="space-y-6 pt-4">
           <div className={`grid grid-cols-2 gap-px border-y border-slate-200 bg-slate-200 ${tileCols}`}>
@@ -702,39 +733,63 @@ export default function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-            <Section title="Key insights" subtitle={`${scopeText} · ${pLabel}`}>
-              <InsightsList insights={insights} loading={loadingAtt || spiQuery.isLoading} />
+            <Section title="Key insights" subtitle={`${scopeText} · ${pLabel}`} updating={attUpdating || spiUpdating}>
+              {retryAtt ? (
+                <SectionError what="attendance insights" onRetry={retryAtt} />
+              ) : (
+                <InsightsList insights={insights} loading={loadingAtt || spiQuery.isLoading} />
+              )}
             </Section>
             <Section
               title="Attendance trend"
               subtitle="Weekly present ÷ scheduled"
               className="lg:col-span-2"
               action={<SectionLink href={attendanceHref()} />}
+              updating={trendUpdating}
             >
-              <div className="p-5">
-                <AttendanceTrend points={trendQuery.data?.points ?? null} loading={trendQuery.isLoading} />
-                {trendQuery.isError && <p className="text-sm text-slate-500">The trend could not be loaded.</p>}
-              </div>
+              {trendQuery.isError ? (
+                <SectionError what="the attendance trend" onRetry={() => void trendQuery.refetch()} />
+              ) : (
+                <div className="p-5">
+                  <AttendanceTrend points={trendQuery.data?.points ?? null} loading={trendQuery.isLoading} />
+                </div>
+              )}
             </Section>
           </div>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-            <Section title="Attendance tiers" subtitle="Students by overall attendance" action={<SectionLink href={attendanceHref("university_student")} />}>
-              <div className="p-5"><TierBar header={header} /></div>
+            <Section
+              title="Attendance tiers"
+              subtitle="Students by overall attendance"
+              action={<SectionLink href={attendanceHref("university_student")} />}
+              updating={attUpdating}
+            >
+              {retryAtt ? <SectionError what="attendance" onRetry={retryAtt} /> : <div className="p-5"><TierBar header={header} /></div>}
             </Section>
-            <Section title="Skill levels" subtitle="SPI skill level split" action={<SectionLink href={spiHref()} />}>
-              <div className="p-5"><SkillSplit summary={spi?.summary ?? null} /></div>
+            <Section title="Skill levels" subtitle="SPI skill level split" action={<SectionLink href={spiHref()} />} updating={spiUpdating}>
+              {retrySpi ? <SectionError what="SPI data" onRetry={retrySpi} /> : <div className="p-5"><SkillSplit summary={spi?.summary ?? null} /></div>}
             </Section>
             <Section title="Quiz completion" subtitle="Classroom vs module" action={<SectionLink href={assessmentsHref()} />}>
-              <div className="p-5"><CompletionBars counts={asm?.header ?? null} /></div>
+              {retryAsm ? <SectionError what="quiz data" onRetry={retryAsm} /> : <div className="p-5"><CompletionBars counts={asm?.header ?? null} /></div>}
             </Section>
           </div>
 
           <Section
             title={grain === "campus" ? "Campus comparison" : grain === "section" ? "Section comparison" : "Subject comparison"}
             subtitle="Sorted by attendance, lowest first · click a column to sort, a name to drill in"
+            updating={attUpdating || spiUpdating}
           >
-            <Leaderboard rows={leaders} grain={grain} loading={loadingAtt} linkFor={leaderLink} onExport={exportLeaders} />
+            {retryAtt ? (
+              <SectionError what="attendance" onRetry={retryAtt} />
+            ) : (
+              <>
+                {retrySpi && grain !== "subject" && (
+                  <SourceNote text="SPI data couldn't load, so the SPI and skill debt columns show —." onRetry={retrySpi} />
+                )}
+                {retryAsm && <SourceNote text="Quiz data couldn't load, so quiz completion shows —." onRetry={retryAsm} />}
+                <Leaderboard rows={leaders} grain={grain} loading={loadingAtt} linkFor={leaderLink} onExport={exportLeaders} />
+              </>
+            )}
           </Section>
 
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
@@ -743,23 +798,36 @@ export default function Dashboard() {
               subtitle="Lowest first"
               className="lg:col-span-3"
               action={<SectionLink href={attendanceHref("university_subject")} />}
+              updating={attUpdating}
             >
-              <div className="p-5">
-                {att ? <AttendanceBySubject subjects={subjectBars} height={300} /> : <div className="h-[300px]" />}
-              </div>
+              {retryAtt ? (
+                <SectionError what="attendance by subject" onRetry={retryAtt} />
+              ) : (
+                <div className="p-5">
+                  {att ? <AttendanceBySubject subjects={subjectBars} height={300} /> : <div className="h-[300px]" />}
+                </div>
+              )}
             </Section>
             <Section
               title="Students needing attention"
               subtitle="Below 60% attendance or in skill debt"
               className="lg:col-span-2"
               action={<SectionLink href={attendanceHref("university_student")} label="All students" />}
+              updating={attUpdating || spiUpdating}
             >
-              <WatchList
-                rows={watch.rows}
-                total={watch.total}
-                loading={loadingAtt}
-                spiPaths={{ ...(attQuery.data?.spiPaths ?? {}), ...(spiQuery.data?.spiPaths ?? {}) }}
-              />
+              {retryAtt ? (
+                <SectionError what="attendance" onRetry={retryAtt} />
+              ) : (
+                <>
+                  {retrySpi && <SourceNote text="SPI data couldn't load, so students in skill debt are not flagged." onRetry={retrySpi} />}
+                  <WatchList
+                    rows={watch.rows}
+                    total={watch.total}
+                    loading={loadingAtt}
+                    spiPaths={{ ...(attQuery.data?.spiPaths ?? {}), ...(spiQuery.data?.spiPaths ?? {}) }}
+                  />
+                </>
+              )}
             </Section>
           </div>
 
