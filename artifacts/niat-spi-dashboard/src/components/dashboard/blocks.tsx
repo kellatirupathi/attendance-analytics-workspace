@@ -291,7 +291,7 @@ export function AttendanceBySubject({
           />
           <XAxis
             dataKey="name"
-            tick={{ fontSize: 11, fill: "#6b7280" }}
+            tick={{ fontSize: 12, fill: "#64748b" }}
             tickLine={false}
             axisLine={{ stroke: "#e5e7eb" }}
             interval={0}
@@ -300,7 +300,7 @@ export function AttendanceBySubject({
             height={70}
           />
           <YAxis
-            tick={{ fontSize: 11, fill: "#9ca3af" }}
+            tick={{ fontSize: 12, fill: "#64748b" }}
             tickLine={false}
             axisLine={false}
             domain={[0, 100]}

@@ -16,3 +16,10 @@ export function pctTextColor(pct: number): string {
   if (pct >= 65) return "#d97706";
   return "#dc2626";
 }
+
+/** Same tiers as pctTextColor, in shades that reach 4.5:1 contrast on white (green-700 / amber-700 / red-700). */
+export function pctReadableColor(pct: number): string {
+  if (pct >= 80) return "#15803d";
+  if (pct >= 65) return "#b45309";
+  return "#b91c1c";
+}

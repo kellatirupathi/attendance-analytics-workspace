@@ -16,20 +16,23 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowDown, ArrowUp, ChevronRight, Download, TrendingDown, TrendingUp, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Download, TrendingDown, TrendingUp, AlertTriangle, Info, CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { CheckMenu, Field } from "@/components/SpiRecordFilterBar";
 import { ATTENDANCE_TIERS, NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
-import { cn, pctTextColor } from "@/lib/utils";
+import { cn, pctReadableColor } from "@/lib/utils";
 import type { AttendanceHeader } from "@/lib/attendanceStatsAggregate";
 import type { AssessmentCounts } from "@/lib/assessmentAggregate";
 import type { LeaderGrain, LeaderRow, SpiOverview, WatchStudent } from "@/lib/overviewAggregate";
 import type { Insight } from "@/lib/overviewInsights";
 
 export type OverviewPeriod = "semester_to_date" | "last_30" | "custom";
+
+/** Visible keyboard focus for links and buttons on the overview. */
+const FOCUS_RING = "rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2";
 
 function fmtInt(n: number | null | undefined): string {
   return n == null ? "—" : n.toLocaleString("en-IN");
@@ -83,6 +86,22 @@ export function OverviewFilterBar({
   onClear: () => void;
 }) {
   const multiCampus = campuses.length !== 1;
+  const chips: { key: string; group: string; label: string; onRemove: () => void }[] = [
+    ...(showCampus
+      ? campuses.map((c) => ({ key: `c:${c}`, group: "Campus", label: c, onRemove: () => onCampuses(campuses.filter((x) => x !== c)) }))
+      : []),
+    ...semesters.map((s) => ({ key: `m:${s}`, group: "Semester", label: s, onRemove: () => onSemesters(semesters.filter((x) => x !== s)) })),
+    ...sections.map((id) => {
+      const [campus = "", section = id] = id.split("\t");
+      return {
+        key: `s:${id}`,
+        group: "Section",
+        label: multiCampus ? `${campus} — ${section}` : section,
+        onRemove: () => onSections(sections.filter((x) => x !== id)),
+      };
+    }),
+    ...subjects.map((s) => ({ key: `j:${s}`, group: "Subject", label: s, onRemove: () => onSubjects(subjects.filter((x) => x !== s)) })),
+  ];
   return (
     <div className="flex flex-wrap items-end gap-3 border-y border-slate-200 bg-white px-5 py-3">
       {showCampus && (
@@ -143,8 +162,29 @@ export function OverviewFilterBar({
         </div>
       </Field>
       <Button type="button" variant="outline" size="sm" onClick={onClear}>
-        Clear
+        Reset filters
       </Button>
+      {chips.length > 0 && (
+        <ul className="flex w-full flex-wrap items-center gap-1.5" aria-label="Active filters">
+          {chips.map((chip) => (
+            <li key={chip.key}>
+              <button
+                type="button"
+                onClick={chip.onRemove}
+                aria-label={`Remove filter ${chip.group}: ${chip.label}`}
+                className={cn(
+                  "inline-flex items-center gap-1 border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100",
+                  FOCUS_RING,
+                )}
+              >
+                <span className="text-slate-500">{chip.group}:</span>
+                <span className="font-medium">{chip.label}</span>
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -170,7 +210,7 @@ export function StatTile({
 }) {
   const body = (
     <div className={cn("h-full bg-white px-4 py-4", href && "transition-colors hover:bg-slate-50")}>
-      <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
       {value == null ? (
         <Skeleton className="mt-2 h-8 w-20" />
       ) : (
@@ -195,7 +235,11 @@ export function StatTile({
       {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
     </div>
   );
-  return href ? <Link href={href} className="block h-full">{body}</Link> : body;
+  return href ? (
+    <Link href={href} className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600">
+      {body}
+    </Link>
+  ) : body;
 }
 
 export function TileGrid({ children }: { children: ReactNode }) {
@@ -239,7 +283,7 @@ export function Section({
 
 export function SectionLink({ href, label = "Details" }: { href: string; label?: string }) {
   return (
-    <Link href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-brand-600 hover:text-brand-700">
+    <Link href={href} className={cn("inline-flex items-center gap-0.5 text-xs font-medium text-brand-800 hover:text-brand-900", FOCUS_RING)}>
       {label} <ChevronRight className="h-3.5 w-3.5" />
     </Link>
   );
@@ -364,7 +408,7 @@ function TrendTooltip({ active, payload }: { active?: boolean; payload?: { paylo
     <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
       <p className="font-medium text-slate-800">Week of {format(parseISO(d.week), "d MMM yyyy")}</p>
       <p className="mt-0.5 tabular-nums text-slate-700">
-        {d.pct.toFixed(1)}% attendance · {fmtInt(d.scheduled)} records
+        {d.pct.toFixed(1)}% attendance · {fmtInt(d.scheduled)} sessions scheduled
       </p>
     </div>
   );
@@ -385,7 +429,7 @@ export function AttendanceTrend({ points, loading }: { points: TrendPoint[] | nu
           <XAxis
             dataKey="week"
             tickFormatter={(v: string) => format(parseISO(v), "d MMM")}
-            tick={{ fontSize: 11, fill: "#6b7280" }}
+            tick={{ fontSize: 12, fill: "#64748b" }}
             tickLine={false}
             axisLine={{ stroke: "#e5e7eb" }}
             minTickGap={24}
@@ -394,7 +438,7 @@ export function AttendanceTrend({ points, loading }: { points: TrendPoint[] | nu
             domain={[0, 100]}
             ticks={[0, 25, 50, 75, 100]}
             tickFormatter={(v: number) => `${v}%`}
-            tick={{ fontSize: 11, fill: "#9ca3af" }}
+            tick={{ fontSize: 12, fill: "#64748b" }}
             tickLine={false}
             axisLine={false}
           />
@@ -402,7 +446,7 @@ export function AttendanceTrend({ points, loading }: { points: TrendPoint[] | nu
             y={80}
             stroke="#94a3b8"
             strokeDasharray="4 4"
-            label={{ value: "80% target", position: "insideTopRight", fontSize: 10, fill: "#64748b" }}
+            label={{ value: "80% target", position: "insideTopRight", fontSize: 11, fill: "#64748b" }}
           />
           <Tooltip content={<TrendTooltip />} cursor={{ stroke: "#cbd5e1" }} />
           <Line
@@ -484,12 +528,12 @@ export function Leaderboard({
       <div className="max-h-[420px] overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-white">
-            <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               {visible.map((c) => (
                 <th key={c.key} className={cn("px-5 py-2 font-medium", c.key !== "label" && "text-right")}>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1 hover:text-slate-800"
+                    className={cn("inline-flex items-center gap-1 hover:text-slate-800", FOCUS_RING)}
                     onClick={() =>
                       setSort((cur) => (cur.key === c.key ? { key: c.key, dir: cur.dir === 1 ? -1 : 1 } : { key: c.key, dir: c.key === "label" ? 1 : -1 }))
                     }
@@ -505,13 +549,13 @@ export function Leaderboard({
             {sorted.map((row) => (
               <tr key={row.key} className="border-b border-slate-100 hover:bg-slate-50">
                 <td className="px-5 py-2">
-                  <Link href={linkFor(row)} className="font-medium text-slate-900 hover:text-brand-700 hover:underline">
+                  <Link href={linkFor(row)} className={cn("font-medium text-slate-900 hover:text-brand-700 hover:underline", FOCUS_RING)}>
                     {row.label || "—"}
                   </Link>
                   {grain === "section" && row.campus && <span className="block text-xs text-slate-500">{row.campus}</span>}
                 </td>
                 <td className="px-5 py-2 text-right tabular-nums">{fmtInt(row.students)}</td>
-                <td className="px-5 py-2 text-right font-medium tabular-nums" style={row.attendancePct != null ? { color: pctTextColor(row.attendancePct) } : undefined}>
+                <td className="px-5 py-2 text-right font-medium tabular-nums" style={row.attendancePct != null ? { color: pctReadableColor(row.attendancePct) } : undefined}>
                   {row.noSessions ? <span className="text-xs font-normal text-slate-500">{NO_SESSIONS_LABEL}</span> : fmtPct(row.attendancePct)}
                 </td>
                 {grain !== "subject" && (
@@ -558,7 +602,7 @@ export function WatchList({
             <li key={`${s.campus}-${s.studentId}`} className="flex items-center justify-between gap-3 px-5 py-2.5">
               <div className="min-w-0">
                 {href ? (
-                  <Link href={href} className="hover:underline">{name}</Link>
+                  <Link href={href} className={cn("hover:underline", FOCUS_RING)}>{name}</Link>
                 ) : (
                   name
                 )}
@@ -573,7 +617,7 @@ export function WatchList({
                 )}
                 <span
                   className="w-14 text-right font-semibold tabular-nums"
-                  style={s.attendancePct != null ? { color: pctTextColor(s.attendancePct) } : undefined}
+                  style={s.attendancePct != null ? { color: pctReadableColor(s.attendancePct) } : undefined}
                 >
                   {fmtPct(s.attendancePct)}
                 </span>
@@ -617,7 +661,7 @@ export function InsightsList({ insights, loading }: { insights: Insight[]; loadi
         const tone = TONE_ICON[item.tone];
         return (
           <li key={i} className="flex items-start gap-2.5 text-sm text-slate-800">
-            <tone.icon className={cn("mt-0.5 h-4 w-4 shrink-0", tone.color)} aria-label={item.tone} />
+            <tone.icon className={cn("mt-0.5 h-4 w-4 shrink-0", tone.color)} aria-hidden="true" />
             <span>{item.text}</span>
           </li>
         );
