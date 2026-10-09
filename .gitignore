@@ -68,3 +68,7 @@ findings_log.csv
 
 # Daily POC updates (written by the daily-update skill)
 /daily_updates/
+
+# Python bytecode caches (e.g. from skill scripts)
+__pycache__/
+*.pyc
