@@ -65,3 +65,6 @@ findings_log.csv
 
 # Data exports at the repo root (may hold student data); keep them out of git
 /*.csv
+
+# Daily POC updates (written by the daily-update skill)
+/daily_updates/
