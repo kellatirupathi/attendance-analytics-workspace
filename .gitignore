@@ -59,3 +59,9 @@ attached_assets/Pasted--type-service-account-*
 
 # Local-only credentials (e.g. .secrets/bigquery-service-account.json)
 .secrets/
+
+# Local findings log (written by the findings-log skill)
+findings_log.csv
+
+# Data exports at the repo root (may hold student data); keep them out of git
+/*.csv
