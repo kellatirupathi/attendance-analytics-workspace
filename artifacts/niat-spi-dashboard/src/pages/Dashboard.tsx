@@ -24,7 +24,7 @@ import {
   type TrendPoint,
 } from "@/components/dashboard/overview";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
-import { pctTextColor } from "@/lib/utils";
+import { pctReadableColor } from "@/lib/utils";
 import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
 import { exportCsv } from "@/lib/csv";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -254,7 +254,7 @@ function DashboardHeader({
                 <a.icon className="h-4 w-4" />
                 {a.label}
                 {a.href === "/dashboard/requests" && unreadRequests > 0 && (
-                  <span className="ml-1 rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  <span className="ml-1 rounded-full bg-brand-800 px-1.5 py-0.5 text-xs font-bold text-white">
                     {unreadRequests > 99 ? "99+" : unreadRequests}
                   </span>
                 )}
@@ -273,7 +273,7 @@ function RequestsCta({ unread }: { unread: number }) {
       <div>
         <p className="text-sm font-medium text-slate-900">
           Attendance correction requests
-          {unread > 0 && <span className="ml-2 rounded-full bg-brand-600 px-2 py-0.5 text-[11px] font-bold text-white">{unread} unread</span>}
+          {unread > 0 && <span className="ml-2 rounded-full bg-brand-800 px-2 py-0.5 text-xs font-bold text-white">{unread} unread</span>}
         </p>
         <p className="text-xs text-slate-500">Review and action student-submitted corrections for your campuses.</p>
       </div>
@@ -581,7 +581,7 @@ export default function Dashboard() {
         key="attendance"
         label="Attendance"
         value={header ? (header.overallPct == null ? "—" : `${header.overallPct.toFixed(1)}%`) : null}
-        valueColor={header?.overallPct != null ? pctTextColor(header.overallPct) : undefined}
+        valueColor={header?.overallPct != null ? pctReadableColor(header.overallPct) : undefined}
         delta={attDelta}
         hint="Present ÷ scheduled · target 80%"
         href={attendanceHref()}
@@ -630,7 +630,7 @@ export default function Dashboard() {
         key="completion"
         label="Quiz completion"
         value={asm ? `${asm.header.completionPct.toFixed(1)}%` : null}
-        hint="Classroom + module"
+        hint="Classroom + module · all dates, not period-filtered"
         href={assessmentsHref()}
       />
     ),
@@ -640,6 +640,7 @@ export default function Dashboard() {
   const loadingAtt = attQuery.isLoading || attQuery.isFetching;
   const tileCols = layout.kpis.length >= 7 ? "md:grid-cols-4 xl:grid-cols-7" : "md:grid-cols-4";
   const pLabel = periodLabel(period, dateWindow);
+  const headerHasRequests = quickActions(role, range, "").some((a) => a.href === "/dashboard/requests");
   const scopeText = campuses.length === 0 ? "All campuses in your scope" : campuses.length === 1 ? campuses[0] : `${campuses.length} campuses`;
 
   return (
@@ -762,7 +763,8 @@ export default function Dashboard() {
             </Section>
           </div>
 
-          {canSeeRequests && <RequestsCta unread={unreadRequests} />}
+          {/* Only when the header has no Request Inbox button (superadmin), so the prompt is not shown twice. */}
+          {canSeeRequests && !headerHasRequests && <RequestsCta unread={unreadRequests} />}
         </div>
       )}
     </div>
