@@ -26,8 +26,7 @@ import {
   type TrendPoint,
 } from "@/components/dashboard/overview";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
-import { pctReadableColor } from "@/lib/utils";
-import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
+import { NO_SESSIONS_LABEL, getTier } from "@/lib/attendanceTiers";
 import { exportCsv } from "@/lib/csv";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import {
@@ -600,9 +599,9 @@ export default function Dashboard() {
         {...attTile}
         label="Attendance"
         value={header ? (header.overallPct == null ? "—" : `${header.overallPct.toFixed(1)}%`) : null}
-        valueColor={header?.overallPct != null ? pctReadableColor(header.overallPct) : undefined}
+        valueColor={header?.overallPct != null ? getTier(header.overallPct).color : undefined}
         delta={attDelta}
-        hint="Present ÷ scheduled · target 80%"
+        hint={header?.overallPct != null ? `${getTier(header.overallPct).label} · target 80%` : "Present ÷ scheduled · target 80%"}
         href={attendanceHref()}
       />
     ),
