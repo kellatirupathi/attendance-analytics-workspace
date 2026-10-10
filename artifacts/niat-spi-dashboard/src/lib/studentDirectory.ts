@@ -2,7 +2,7 @@
  * Student Directory rows, filters and sorting, built from the spi-record/detail
  * payload so SPI, skill level and attendance match SPI Record and the Overview.
  */
-import { getTier, TIER_ELIGIBLE, TIER_RECOVERY, type AttendanceTierId } from "./attendanceTiers";
+import { attendancePct, getTier, TIER_ELIGIBLE, TIER_RECOVERY, type AttendanceTierId } from "./attendanceTiers";
 import { skillLevelOf, spiPointsOf, type SpiDetailRow } from "./spiRecordAggregate";
 
 export interface DirectoryRow {
@@ -69,7 +69,7 @@ export function buildDirectoryRows(detail: SpiDetailRow[]): DirectoryRow[] {
     const key = `${row.university}\t${row.studentId}`;
     let item = byKey.get(key);
     if (!item) {
-      const pct = row.scheduledN > 0 ? round1((row.presentN / row.scheduledN) * 100) : null;
+      const pct = attendancePct(row.presentN, row.scheduledN);
       const skill = skillLevelOf(row.classroomAvg, row.moduleAvg);
       item = {
         key,
@@ -202,7 +202,7 @@ export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
   let skillDebt = 0;
   for (const person of people.values()) {
     if (person.scheduled > 0) {
-      const pct = round1((person.present / person.scheduled) * 100);
+      const pct = attendancePct(person.present, person.scheduled)!;
       present += person.present;
       scheduled += person.scheduled;
       if (pct >= TIER_ELIGIBLE) eligible += 1;
@@ -214,7 +214,7 @@ export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
   return {
     students: people.size,
     // Sessions attended ÷ sessions scheduled across all students, as on the Overview.
-    avgAttendance: scheduled ? round1((present / scheduled) * 100) : null,
+    avgAttendance: attendancePct(present, scheduled),
     eligible,
     belowSixty,
     avgSpi: people.size ? round1(spiSum / people.size) : null,

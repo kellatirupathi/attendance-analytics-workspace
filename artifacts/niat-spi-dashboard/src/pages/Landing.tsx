@@ -344,8 +344,11 @@ export default function Landing() {
                   ))}
                 </div>
                 <p className="mt-6 text-sm text-gray-500 italic">
-                  The SPI formula combines these weights with your attendance
-                  multiplier.
+                  Each course score uses these weights: 10% classroom quizzes,
+                  15% module quizzes, 25% skill assessments and 50% the final
+                  skill assessment. You earn SPI only when you meet every
+                  eligibility criterion, including at least {TIER_ELIGIBLE}%
+                  attendance in every course.
                 </p>
               </div>
 

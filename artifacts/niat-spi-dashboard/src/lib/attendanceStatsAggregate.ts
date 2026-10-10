@@ -1,4 +1,4 @@
-import { TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "./attendanceTiers";
+import { TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY, attendancePct } from "./attendanceTiers";
 
 export interface AttendanceDetailRow {
   university: string;
@@ -59,13 +59,9 @@ export interface AttendanceHeader {
   ineligible: number;
 }
 
-function round1(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
+/** Attendance % cut to one decimal, so tier checks below are exact (see attendancePct). */
 function pct(present: number, scheduled: number): number | null {
-  if (scheduled <= 0) return null;
-  return round1((present / scheduled) * 100);
+  return attendancePct(present, scheduled);
 }
 
 function namedSubject(subject: string | null): boolean {

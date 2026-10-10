@@ -12,7 +12,7 @@ import {
   type AttendanceViewRow,
 } from "./attendanceStatsAggregate";
 import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate";
-import { TIER_RECOVERY } from "./attendanceTiers";
+import { TIER_RECOVERY, attendancePct } from "./attendanceTiers";
 import {
   assessmentHeader,
   buildAssessmentRows,
@@ -34,14 +34,6 @@ export interface OverviewFilters {
 }
 
 export type LeaderGrain = "campus" | "section" | "subject";
-
-function round1(value: number): number {
-  return Math.round(value * 10) / 10;
-}
-
-function pct(part: number, whole: number): number | null {
-  return whole > 0 ? round1((part / whole) * 100) : null;
-}
 
 /* ------------------------------------------------------------------ */
 /*  Attendance                                                         */
@@ -81,7 +73,7 @@ export function attendanceOverview(
     merged.set(name, item);
   }
   const subjects = [...merged.values()]
-    .map((item) => ({ ...item, pct: pct(item.present, item.scheduled) ?? 0 }))
+    .map((item) => ({ ...item, pct: attendancePct(item.present, item.scheduled) ?? 0 }))
     .filter((item) => item.scheduled > 0)
     .sort((a, b) => a.pct - b.pct);
   return {
