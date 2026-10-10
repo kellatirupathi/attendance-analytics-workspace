@@ -16,14 +16,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ArrowDown, ArrowUp, ChevronRight, Download, TrendingDown, TrendingUp, AlertTriangle, Info, CheckCircle2, Loader2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Download, TrendingDown, TrendingUp, AlertTriangle, Info, CheckCircle2, Loader2, X, ChevronsUpDown, RotateCcw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { CheckMenu, Field } from "@/components/SpiRecordFilterBar";
-import { ATTENDANCE_TIERS, NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
-import { cn, pctReadableColor } from "@/lib/utils";
+import { ATTENDANCE_TIERS, NO_SESSIONS_LABEL, getTier, type AttendanceTierId } from "@/lib/attendanceTiers";
+import { cn } from "@/lib/utils";
 import type { AttendanceHeader } from "@/lib/attendanceStatsAggregate";
 import type { AssessmentCounts } from "@/lib/assessmentAggregate";
 import type { LeaderGrain, LeaderRow, SpiOverview, WatchStudent } from "@/lib/overviewAggregate";
@@ -40,6 +40,42 @@ function fmtInt(n: number | null | undefined): string {
 
 function fmtPct(n: number | null | undefined): string {
   return n == null ? "—" : `${n.toFixed(1)}%`;
+}
+
+const TIER_ICON: Record<AttendanceTierId, typeof CheckCircle2> = {
+  eligible: CheckCircle2,
+  recovery: RotateCcw,
+  at_risk: AlertTriangle,
+  ineligible: XCircle,
+};
+
+/** Short names so the tag fits in a table cell; the full tier name and range are in the tooltip. */
+const TIER_SHORT: Record<AttendanceTierId, string> = {
+  eligible: "Eligible",
+  recovery: "Recovery",
+  at_risk: "At risk",
+  ineligible: "Ineligible",
+};
+
+/** Attendance % with its tier as icon + text, so the meaning does not rely on colour alone. */
+function TierPct({ pct, className }: { pct: number | null | undefined; className?: string }) {
+  if (pct == null) return <span className={cn("tabular-nums", className)}>—</span>;
+  const tier = getTier(pct);
+  const Icon = TIER_ICON[tier.id];
+  return (
+    <span className={cn("inline-flex items-center justify-end gap-2", className)} title={`${tier.label} (${tier.hint})`}>
+      <span className="font-semibold tabular-nums" style={{ color: tier.color }}>
+        {fmtPct(pct)}
+      </span>
+      <span
+        className="inline-flex w-[5.5rem] items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium"
+        style={{ color: tier.color, background: tier.bg }}
+      >
+        <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+        {TIER_SHORT[tier.id]}
+      </span>
+    </span>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -629,7 +665,11 @@ export function Leaderboard({
           <thead className="sticky top-0 bg-white">
             <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               {visible.map((c) => (
-                <th key={c.key} className={cn("px-5 py-2 font-medium", c.key !== "label" && "text-right")}>
+                <th
+                  key={c.key}
+                  className={cn("px-5 py-2 font-medium", c.key !== "label" && "text-right")}
+                  aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
+                >
                   <button
                     type="button"
                     className={cn("inline-flex items-center gap-1 hover:text-slate-800", FOCUS_RING)}
@@ -638,7 +678,13 @@ export function Leaderboard({
                     }
                   >
                     {c.label}
-                    {sort.key === c.key && (sort.dir === 1 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
+                    {sort.key !== c.key ? (
+                      <ChevronsUpDown className="h-3 w-3 text-slate-400" aria-hidden="true" />
+                    ) : sort.dir === 1 ? (
+                      <ArrowUp className="h-3 w-3 text-slate-800" aria-hidden="true" />
+                    ) : (
+                      <ArrowDown className="h-3 w-3 text-slate-800" aria-hidden="true" />
+                    )}
                   </button>
                 </th>
               ))}
@@ -654,8 +700,8 @@ export function Leaderboard({
                   {grain === "section" && row.campus && <span className="block text-xs text-slate-500">{row.campus}</span>}
                 </td>
                 <td className="px-5 py-2 text-right tabular-nums">{fmtInt(row.students)}</td>
-                <td className="px-5 py-2 text-right font-medium tabular-nums" style={row.attendancePct != null ? { color: pctReadableColor(row.attendancePct) } : undefined}>
-                  {row.noSessions ? <span className="text-xs font-normal text-slate-500">{NO_SESSIONS_LABEL}</span> : fmtPct(row.attendancePct)}
+                <td className="px-5 py-2 text-right">
+                  {row.noSessions ? <span className="text-xs text-slate-500">{NO_SESSIONS_LABEL}</span> : <TierPct pct={row.attendancePct} />}
                 </td>
                 {grain !== "subject" && (
                   <>
@@ -714,12 +760,7 @@ export function WatchList({
                 {s.skillDebt && (
                   <span className="rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-700">Skill debt</span>
                 )}
-                <span
-                  className="w-14 text-right font-semibold tabular-nums"
-                  style={s.attendancePct != null ? { color: pctReadableColor(s.attendancePct) } : undefined}
-                >
-                  {fmtPct(s.attendancePct)}
-                </span>
+                <TierPct pct={s.attendancePct} />
               </div>
             </li>
           );
