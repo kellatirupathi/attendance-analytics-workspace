@@ -1,3 +1,5 @@
+import { TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "./attendanceTiers";
+
 export interface AttendanceDetailRow {
   university: string;
   semester: string;
@@ -146,9 +148,9 @@ export function aggregateAttendanceStats(
   for (const person of people.values()) {
     const rate = pct(person.present, person.scheduled);
     if (rate == null) continue;
-    if (rate >= 80) summary.eligible += 1;
-    else if (rate >= 60) summary.recoveryEligible += 1;
-    else if (rate >= 50) summary.atRisk += 1;
+    if (rate >= TIER_ELIGIBLE) summary.eligible += 1;
+    else if (rate >= TIER_RECOVERY) summary.recoveryEligible += 1;
+    else if (rate >= TIER_AT_RISK) summary.atRisk += 1;
     else summary.ineligible += 1;
   }
 
@@ -191,9 +193,9 @@ export function aggregateAttendanceStats(
     for (const member of members.values()) {
       const rate = pct(member.present, member.scheduled);
       if (rate == null) continue;
-      if (rate >= 80) eligible += 1;
-      else if (rate >= 60) recoveryEligible += 1;
-      else if (rate >= 50) atRisk += 1;
+      if (rate >= TIER_ELIGIBLE) eligible += 1;
+      else if (rate >= TIER_RECOVERY) recoveryEligible += 1;
+      else if (rate >= TIER_AT_RISK) atRisk += 1;
       else ineligible += 1;
     }
     const stamps = new Set<string>();

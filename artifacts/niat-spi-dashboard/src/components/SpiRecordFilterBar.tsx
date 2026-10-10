@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -205,7 +205,7 @@ export function SpiRecordFilterBar({
       </Popover>
     ),
     spi: (
-      <BoundControl scale="0–10" op={spiOp} a={spiA} b={spiB} onChange={onSpi} />
+      <BoundControl name="SPI points" min={0} max={10} op={spiOp} a={spiA} b={spiB} onChange={onSpi} />
     ),
     attendance: null,
   };
@@ -246,7 +246,7 @@ export function SpiRecordFilterBar({
               </div>
             </Field>
             <Field label="Attendance %">
-              <BoundControl scale="0–100" op={attendanceOp} a={attendanceA} b={attendanceB} onChange={(op, a, b) => onAttendance({ op, a, b })} />
+              <BoundControl name="Attendance %" min={0} max={100} op={attendanceOp} a={attendanceA} b={attendanceB} onChange={(op, a, b) => onAttendance({ op, a, b })} />
             </Field>
           </>
         )}
@@ -409,37 +409,94 @@ export function CheckMenu({
   );
 }
 
+const BOUND_NUMBER = /^\d+(\.\d+)?$/;
+
+function boundValueError(value: string, min: number, max: number): string | null {
+  const text = value.trim();
+  if (!text) return null;
+  const n = Number(text);
+  if (!BOUND_NUMBER.test(text) || n < min || n > max) return `Enter a number from ${min} to ${max}.`;
+  return null;
+}
+
+function boundError(op: BoundOp, a: string, b: string, min: number, max: number): string | null {
+  if (!op) return null;
+  const error = boundValueError(a, min, max) ?? (op === "between" ? boundValueError(b, min, max) : null);
+  if (error) return error;
+  if (op === "between" && a.trim() && b.trim() && Number(a) > Number(b)) return "The first number must not be larger than the second.";
+  return null;
+}
+
+/**
+ * A ≥ / ≤ / between filter. Typing is checked here: a value that is not a
+ * number in [min, max] shows an error and is not passed to onChange, so the
+ * list never filters on a half-typed or out-of-range value.
+ */
 export function BoundControl({
-  scale,
+  name,
+  min,
+  max,
   op,
   a,
   b,
   onChange,
 }: {
-  scale: string;
+  /** What is being filtered, for the inputs' accessible names, e.g. "Attendance %". */
+  name: string;
+  min: number;
+  max: number;
   op: BoundOp;
   a: string;
   b: string;
   onChange: (op: BoundOp, a: string, b: string) => void;
 }) {
+  const [draftA, setDraftA] = useState(a);
+  const [draftB, setDraftB] = useState(b);
+  useEffect(() => setDraftA(a), [a]);
+  useEffect(() => setDraftB(b), [b]);
+  const errorId = useId();
+  const error = boundError(op, draftA, draftB, min, max);
+  const scale = `${min}–${max}`;
+  const firstLabel = op === "gte" ? `${name} minimum` : op === "lte" ? `${name} maximum` : `${name} from`;
+
+  const update = (nextA: string, nextB: string) => {
+    setDraftA(nextA);
+    setDraftB(nextB);
+    if (!boundError(op, nextA, nextB, min, max)) onChange(op, nextA, nextB);
+  };
+  const inputProps = {
+    className: "h-9 w-[72px] normal-case tracking-normal",
+    inputMode: "decimal" as const,
+    placeholder: scale,
+    "aria-invalid": error ? true : undefined,
+    "aria-describedby": error ? errorId : undefined,
+  };
+
   return (
-    <div className="flex items-center gap-1">
-      <SearchableSelect
-        value={op || "any"}
-        onValueChange={(value) => onChange(value === "any" ? "" : value as BoundOp, a, b)}
-        options={[
-          { value: "any", label: "Any" },
-          { value: "gte", label: "≥" },
-          { value: "lte", label: "≤" },
-          { value: "between", label: "Between" },
-        ]}
-        className="w-[110px]"
-      />
-      {op && (
-        <Input className="h-9 w-[72px]" inputMode="decimal" placeholder={scale} value={a} onChange={(event) => onChange(op, event.target.value, b)} />
-      )}
-      {op === "between" && (
-        <Input className="h-9 w-[72px]" inputMode="decimal" placeholder={scale} value={b} onChange={(event) => onChange(op, a, event.target.value)} />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1">
+        <SearchableSelect
+          value={op || "any"}
+          onValueChange={(value) => onChange(value === "any" ? "" : value as BoundOp, a, b)}
+          options={[
+            { value: "any", label: "Any" },
+            { value: "gte", label: "≥" },
+            { value: "lte", label: "≤" },
+            { value: "between", label: "Between" },
+          ]}
+          className="w-[110px]"
+        />
+        {op && (
+          <Input {...inputProps} aria-label={firstLabel} value={draftA} onChange={(event) => update(event.target.value, draftB)} />
+        )}
+        {op === "between" && (
+          <Input {...inputProps} aria-label={`${name} to`} value={draftB} onChange={(event) => update(draftA, event.target.value)} />
+        )}
+      </div>
+      {error && (
+        <p id={errorId} aria-live="polite" className="max-w-[260px] text-xs font-normal normal-case tracking-normal text-red-700">
+          {error} Not applied.
+        </p>
       )}
     </div>
   );

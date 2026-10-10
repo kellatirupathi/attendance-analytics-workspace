@@ -668,7 +668,9 @@ function AssessmentsPage() {
         />
         <FilterField label="Avg score (0–100%)">
           <BoundControl
-            scale="0–100"
+            name="Avg score %"
+            min={0}
+            max={100}
             op={scoreOp}
             a={scoreA}
             b={scoreB}

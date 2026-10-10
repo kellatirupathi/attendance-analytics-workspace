@@ -2,7 +2,7 @@
  * Student Directory rows, filters and sorting, built from the spi-record/detail
  * payload so SPI, skill level and attendance match SPI Record and the Overview.
  */
-import { getTier, type AttendanceTierId } from "./attendanceTiers";
+import { getTier, TIER_ELIGIBLE, TIER_RECOVERY, type AttendanceTierId } from "./attendanceTiers";
 import { skillLevelOf, spiPointsOf, type SpiDetailRow } from "./spiRecordAggregate";
 
 export interface DirectoryRow {
@@ -205,8 +205,8 @@ export function summarizeDirectory(rows: DirectoryRow[]): DirectorySummary {
       const pct = round1((person.present / person.scheduled) * 100);
       present += person.present;
       scheduled += person.scheduled;
-      if (pct >= 80) eligible += 1;
-      if (pct < 60) belowSixty += 1;
+      if (pct >= TIER_ELIGIBLE) eligible += 1;
+      if (pct < TIER_RECOVERY) belowSixty += 1;
     }
     spiSum += person.spi;
     if (person.skillDebt) skillDebt += 1;
