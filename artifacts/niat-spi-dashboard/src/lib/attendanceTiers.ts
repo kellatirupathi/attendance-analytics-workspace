@@ -52,6 +52,17 @@ export const ATTENDANCE_TIERS: AttendanceTier[] = [
   },
 ];
 
+/**
+ * Attendance % = present ÷ scheduled, cut (not rounded) to one decimal.
+ * Cutting keeps tier checks exact: 79.96% becomes 79.9%, below the 80% line,
+ * so a shown % never crosses a tier the student has not reached. Integer
+ * maths avoids float noise (57/100 must give 57.0, not 56.9).
+ */
+export function attendancePct(present: number, scheduled: number): number | null {
+  if (scheduled <= 0) return null;
+  return Math.floor((present * 1000) / scheduled) / 10;
+}
+
 export function getTier(pct: number): AttendanceTier {
   if (pct >= TIER_ELIGIBLE) return ATTENDANCE_TIERS[0]!;
   if (pct >= TIER_RECOVERY) return ATTENDANCE_TIERS[1]!;
