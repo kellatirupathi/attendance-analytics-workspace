@@ -59,6 +59,11 @@ export function getTier(pct: number): AttendanceTier {
   return ATTENDANCE_TIERS[3]!;
 }
 
+/** Text colour for an attendance %, taken from its tier so a number always matches its badge. */
+export function tierTextColor(pct: number): string {
+  return getTier(pct).color;
+}
+
 /**
  * Which attendance figure picks the header tier.
  * "overall" is attended / total. Switch to "lowest" to use the weakest course.

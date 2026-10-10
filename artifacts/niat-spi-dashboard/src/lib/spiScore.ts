@@ -1,3 +1,5 @@
+import { TIER_ELIGIBLE, TIER_RECOVERY } from "./attendanceTiers";
+
 /**
  * SPI score from available quiz averages (policy weights).
  *
@@ -37,8 +39,8 @@ export function spiStanding(points: number): SpiStanding {
 export type AttendanceStanding = SpiStanding;
 
 export function attendanceStanding(attendancePct: number): SpiStanding {
-  if (attendancePct >= 80) return "good";
-  if (attendancePct >= 60) return "recovery";
+  if (attendancePct >= TIER_ELIGIBLE) return "good";
+  if (attendancePct >= TIER_RECOVERY) return "recovery";
   return "at_risk";
 }
 

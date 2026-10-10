@@ -44,8 +44,7 @@ import {
 } from "@/components/SearchableSelect";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Search, Download, SlidersHorizontal, Loader2 } from "lucide-react";
-import { pctColor, pctTextColor } from "@/lib/utils";
-import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
+import { NO_SESSIONS_LABEL, tierTextColor } from "@/lib/attendanceTiers";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { isExcludedInstitute, omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -522,7 +521,7 @@ export default function Campuses() {
                     <TableCell className="text-right">
                       <span
                         className="font-bold tabular-nums"
-                        style={{ color: pctTextColor(s.attendancePct) }}
+                        style={{ color: tierTextColor(s.attendancePct) }}
                       >
                         {s.attendancePct}%
                       </span>
@@ -650,13 +649,13 @@ function AttendanceCell({ pct }: { pct: number }) {
             className="h-full rounded-full"
             style={{
               width: `${Math.min(100, pct)}%`,
-              backgroundColor: pctColor(pct),
+              backgroundColor: tierTextColor(pct),
             }}
           />
         </div>
         <span
           className="w-14 font-bold tabular-nums"
-          style={{ color: pctTextColor(pct) }}
+          style={{ color: tierTextColor(pct) }}
         >
           {pct}%
         </span>

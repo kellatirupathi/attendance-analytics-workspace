@@ -11,8 +11,12 @@ export function pctColor(pct: number): string {
   return "#ef4444";
 }
 
+/**
+ * Text colour for score-style percentages (quizzes, SPI). Shades pass 4.5:1 on white.
+ * Attendance % uses tierTextColor in lib/attendanceTiers.ts instead.
+ */
 export function pctTextColor(pct: number): string {
-  if (pct >= 80) return "#16a34a";
-  if (pct >= 65) return "#d97706";
-  return "#dc2626";
+  if (pct >= 80) return "#1E7F4F";
+  if (pct >= 65) return "#B45309";
+  return "#B91C1C";
 }

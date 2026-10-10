@@ -12,6 +12,7 @@ import {
   type AttendanceViewRow,
 } from "./attendanceStatsAggregate";
 import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate";
+import { TIER_RECOVERY } from "./attendanceTiers";
 import {
   assessmentHeader,
   buildAssessmentRows,
@@ -317,7 +318,7 @@ export function watchList(
     people.set(key, person);
   }
   const flagged = [...people.values()]
-    .filter((person) => (person.attendancePct != null && person.attendancePct < 60) || person.skillDebt)
+    .filter((person) => (person.attendancePct != null && person.attendancePct < TIER_RECOVERY) || person.skillDebt)
     .sort((a, b) =>
       (a.attendancePct ?? 101) - (b.attendancePct ?? 101)
       || Number(b.skillDebt) - Number(a.skillDebt)

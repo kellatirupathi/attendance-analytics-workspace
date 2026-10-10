@@ -12,7 +12,7 @@ import {
   ExternalLink,
   Search,
 } from "lucide-react";
-import { pctTextColor } from "@/lib/utils";
+import { tierTextColor } from "@/lib/attendanceTiers";
 import { exportCsv } from "@/lib/csv";
 import { useToast } from "@/hooks/use-toast";
 
@@ -292,7 +292,7 @@ export default function RecoveryQuizSubjectDetail() {
                       <td className="px-5 py-3.5">
                         <div className="flex justify-center">
                           <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${pctTextColor(student.attendancePct)} bg-white border border-slate-200 shadow-xs`}
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold bg-white border border-slate-200 shadow-xs`} style={{ color: tierTextColor(student.attendancePct) }}
                           >
                             {student.attendancePct.toFixed(1)}%
                           </span>

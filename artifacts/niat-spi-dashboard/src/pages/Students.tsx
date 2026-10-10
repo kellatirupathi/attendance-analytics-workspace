@@ -24,7 +24,7 @@ import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useToast } from "@/hooks/use-toast";
 import { exportCsv } from "@/lib/csv";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
-import { ATTENDANCE_TIERS, type AttendanceTierId } from "@/lib/attendanceTiers";
+import { ATTENDANCE_TIERS, tierTextColor, type AttendanceTierId } from "@/lib/attendanceTiers";
 import type { SpiDetailRow } from "@/lib/spiRecordAggregate";
 import {
   buildDirectoryRows,
@@ -329,6 +329,9 @@ export default function Students() {
   ].filter(Boolean).join(" · ");
   const multiCampus = campuses.length !== 1;
   const loadingTiles = isLoading || customPending;
+  // On a failed load the summary is built from no rows, so its zeros are not real: show "—" instead.
+  const tileValue = (value: string) => (isError ? "—" : loadingTiles ? null : value);
+  const errorHint = "Couldn't load";
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -447,7 +450,9 @@ export default function Students() {
           </GroupField>
           <Field label="Attendance % (0–100)">
             <BoundControl
-              scale="0–100"
+              name="Attendance %"
+              min={0}
+              max={100}
               op={attOp}
               a={attA}
               b={attB}
@@ -456,7 +461,9 @@ export default function Students() {
           </Field>
           <Field label={`SPI points (0–10 · highest now ${maxSpi == null ? "—" : maxSpi.toFixed(1)})`}>
             <BoundControl
-              scale="0–10"
+              name="SPI points"
+              min={0}
+              max={10}
               op={spiOp}
               a={spiA}
               b={spiB}
@@ -490,38 +497,40 @@ export default function Students() {
       <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 md:grid-cols-3 xl:grid-cols-6">
         <StatTile
           label="Students"
-          value={loadingTiles ? null : summary.students.toLocaleString("en-IN")}
+          value={tileValue(summary.students.toLocaleString("en-IN"))}
           hint={
-            filtered.length > summary.students
+            isError
+              ? errorHint
+              : filtered.length > summary.students
               ? `${(filtered.length - summary.students).toLocaleString("en-IN")} listed under two campuses, so the table has ${filtered.length.toLocaleString("en-IN")} rows`
               : "Match these filters"
           }
         />
         <StatTile
           label="Attendance"
-          value={loadingTiles ? null : fmtPct(summary.avgAttendance)}
-          valueColor={summary.avgAttendance != null ? pctTextColor(summary.avgAttendance) : undefined}
-          hint="Sessions attended ÷ scheduled"
+          value={tileValue(fmtPct(summary.avgAttendance))}
+          valueColor={!isError && summary.avgAttendance != null ? tierTextColor(summary.avgAttendance) : undefined}
+          hint={isError ? errorHint : "Sessions attended ÷ scheduled"}
         />
-        <StatTile label="Eligible ≥80%" value={loadingTiles ? null : summary.eligible.toLocaleString("en-IN")} hint="Attendance" />
+        <StatTile label="Eligible ≥80%" value={tileValue(summary.eligible.toLocaleString("en-IN"))} hint={isError ? errorHint : "Attendance"} />
         <ClickTile active={tiers.length === 2 && tiers.includes("at_risk") && tiers.includes("ineligible")} onClick={() => writeQuery({ tiers: "at_risk||ineligible" })}>
           <StatTile
             label="Below 60%"
-            value={loadingTiles ? null : summary.belowSixty.toLocaleString("en-IN")}
-            valueColor={summary.belowSixty ? "#b91c1c" : undefined}
-            hint="Click to list them"
+            value={tileValue(summary.belowSixty.toLocaleString("en-IN"))}
+            valueColor={!isError && summary.belowSixty ? "#b91c1c" : undefined}
+            hint={isError ? errorHint : "Click to list them"}
           />
         </ClickTile>
         <StatTile
           label="Avg SPI"
-          value={loadingTiles ? null : summary.avgSpi == null ? "—" : summary.avgSpi.toFixed(1)}
-          hint="0–10 · classroom 10% + module 15% so far"
+          value={tileValue(summary.avgSpi == null ? "—" : summary.avgSpi.toFixed(1))}
+          hint={isError ? errorHint : "0–10 · classroom 10% + module 15% so far"}
         />
         <StatTile
           label="Skill debt"
-          value={loadingTiles ? null : summary.skillDebt.toLocaleString("en-IN")}
-          valueColor={summary.skillDebt ? "#b91c1c" : undefined}
-          hint="Skill level F or no quiz"
+          value={tileValue(summary.skillDebt.toLocaleString("en-IN"))}
+          valueColor={!isError && summary.skillDebt ? "#b91c1c" : undefined}
+          hint={isError ? errorHint : "Skill level F or no quiz"}
         />
       </div>
 
@@ -604,11 +613,11 @@ export default function Students() {
                         <TableCell className="text-gray-600">{row.semesters.join(", ") || "—"}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">
                           <span className="tabular-nums">
-                            <span className="font-bold" style={row.attendancePct != null ? { color: pctTextColor(row.attendancePct) } : undefined}>
+                            <span className="font-bold" style={row.attendancePct != null ? { color: tierTextColor(row.attendancePct) } : undefined}>
                               {fmtPct(row.attendancePct)}
                             </span>
                             {row.scheduled > 0 && (
-                              <span className="ml-1 text-xs text-gray-400">({row.present}/{row.scheduled})</span>
+                              <span className="ml-1 text-xs text-gray-500">({row.present}/{row.scheduled})</span>
                             )}
                           </span>
                           {tier && (
@@ -634,7 +643,7 @@ export default function Students() {
                               Open <ExternalLink className="h-3.5 w-3.5" />
                             </a>
                           ) : (
-                            <span className="text-gray-300">—</span>
+                            <NoData />
                           )}
                         </TableCell>
                       </TableRow>
@@ -669,7 +678,7 @@ function PctCell({ value }: { value: number | null }) {
   return (
     <TableCell className="text-right">
       {value == null ? (
-        <span className="text-gray-300">—</span>
+        <NoData />
       ) : (
         <span className="font-semibold tabular-nums" style={{ color: pctTextColor(value) }}>
           {value.toFixed(1)}%
@@ -697,5 +706,14 @@ function ClickTile({ active, onClick, children }: { active: boolean; onClick: ()
     >
       {children}
     </button>
+  );
+}
+
+function NoData() {
+  return (
+    <>
+      <span aria-hidden className="text-gray-500">—</span>
+      <span className="sr-only">No data</span>
+    </>
   );
 }

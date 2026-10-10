@@ -25,7 +25,7 @@ import {
   Loader2,
   Download,
 } from "lucide-react";
-import { pctTextColor } from "@/lib/utils";
+import { tierTextColor } from "@/lib/attendanceTiers";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
@@ -284,7 +284,7 @@ export default function SubjectAttendanceStudents() {
                     <TableCell className="text-right">
                       <span
                         className="font-bold tabular-nums"
-                        style={{ color: pctTextColor(s.attendancePct) }}
+                        style={{ color: tierTextColor(s.attendancePct) }}
                       >
                         {s.attendancePct}%
                       </span>
