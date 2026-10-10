@@ -19,7 +19,7 @@ import {
   Loader2,
   ChevronRight,
 } from "lucide-react";
-import { pctTextColor } from "@/lib/utils";
+import { tierTextColor } from "@/lib/attendanceTiers";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -331,7 +331,7 @@ export default function Recovery() {
                             {subject.subjectTitle}
                           </h4>
                         </div>
-                        <span className={`shrink-0 rounded bg-white shadow-sm border border-slate-100 px-2.5 py-0.5 text-xs font-bold ${pctTextColor(subject.attendancePct)}`}>
+                        <span className={`shrink-0 rounded bg-white shadow-sm border border-slate-100 px-2.5 py-0.5 text-xs font-bold`} style={{ color: tierTextColor(subject.attendancePct) }}>
                           {subject.attendancePct.toFixed(1)}%
                         </span>
                       </div>

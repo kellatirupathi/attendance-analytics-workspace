@@ -423,7 +423,8 @@ function mergeBySubject(rows: CourseAttendanceRow[]): SubjectAttendance[] {
         present: item.present,
         total: item.total,
         pct: percentage,
-        meetsRequirement: percentage >= 80,
+        // Compare the exact ratio, not the rounded %, so 79.96% is not "met" (same rule as the recovery SQL).
+        meetsRequirement: item.total > 0 && (item.present / item.total) * 100 >= 80,
         submitted: item.submitted,
         presentSubmitted: item.presentSubmitted,
         pctSubmittedOnly: item.submitted > 0 ? pct(item.presentSubmitted, item.submitted) : null,

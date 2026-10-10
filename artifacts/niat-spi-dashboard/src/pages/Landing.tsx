@@ -3,6 +3,7 @@ import { Logo } from "@/components/LogoMark";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ATTENDANCE_TIERS, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -260,7 +261,7 @@ export default function Landing() {
                   icon: AlertTriangle,
                   tone: "bg-orange-50 text-orange-600",
                   title: "Recovery mode",
-                  body: "Drop below 80% and you enter Recovery Mode. Below 65% and you risk severe academic penalties on your record.",
+                  body: `Drop below ${TIER_ELIGIBLE}% in any subject and you enter Recovery Mode. Below ${TIER_RECOVERY}% you are At Risk, and below ${TIER_AT_RISK}% recovery can no longer restore your eligibility.`,
                 },
                 {
                   icon: TrendingUp,
@@ -360,37 +361,17 @@ export default function Landing() {
                     </p>
                   </div>
                   <CardContent className="pt-6 space-y-3">
-                    {[
-                      {
-                        band: "Healthy",
-                        range: "80% and above",
-                        tone: "bg-green-50 border-green-200 text-green-800",
-                        dot: "bg-green-500",
-                      },
-                      {
-                        band: "Recovery",
-                        range: "65% – 79%",
-                        tone: "bg-orange-50 border-orange-200 text-orange-800",
-                        dot: "bg-orange-500",
-                      },
-                      {
-                        band: "Critical",
-                        range: "Below 65%",
-                        tone: "bg-red-50 border-red-200 text-red-800",
-                        dot: "bg-red-500",
-                      },
-                    ].map((b) => (
+                    {ATTENDANCE_TIERS.map((tier) => (
                       <div
-                        key={b.band}
-                        className={`flex items-center justify-between px-4 py-3 rounded-xl border ${b.tone}`}
+                        key={tier.id}
+                        className="flex items-center justify-between rounded-xl border px-4 py-3"
+                        style={{ background: tier.bg, borderColor: tier.color, color: tier.color }}
                       >
                         <span className="flex items-center gap-2 font-semibold">
-                          <span
-                            className={`w-2.5 h-2.5 rounded-full ${b.dot}`}
-                          />
-                          {b.band}
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ background: tier.color }} />
+                          {tier.label}
                         </span>
-                        <span className="text-sm font-medium">{b.range}</span>
+                        <span className="text-sm font-medium">{tier.hint}</span>
                       </div>
                     ))}
                   </CardContent>

@@ -21,8 +21,7 @@ import { useQueryParams } from "@/hooks/useQueryParams";
 import { isExcludedInstitute } from "@/lib/excludedInstitutes";
 import { subjectColor } from "@/lib/subjectColors";
 import { Search, Loader2, ChevronRight, Download } from "lucide-react";
-import { pctColor, pctTextColor } from "@/lib/utils";
-import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
+import { NO_SESSIONS_LABEL, tierTextColor } from "@/lib/attendanceTiers";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { exportCsv } from "@/lib/csv";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
@@ -748,13 +747,13 @@ function PctBar({ pct }: { pct: number }) {
           className="h-full rounded-full"
           style={{
             width: `${Math.min(100, pct)}%`,
-            backgroundColor: pctColor(pct),
+            backgroundColor: tierTextColor(pct),
           }}
         />
       </div>
       <span
         className="w-14 font-bold tabular-nums"
-        style={{ color: pctTextColor(pct) }}
+        style={{ color: tierTextColor(pct) }}
       >
         {pct}%
       </span>

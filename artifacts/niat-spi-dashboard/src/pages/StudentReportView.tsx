@@ -186,7 +186,8 @@ export default function StudentReportView(props: StudentReportViewProps) {
   const tierPct = eligibilityAttendancePct(
     props.attendancePct,
     activeCourses.map((course) => course.pct),
-    "overall",
+    // Policy: minimum 80% per course, so the weakest course decides the tier.
+    "lowest",
   );
   const tier = getTier(tierPct);
   const coursesAtTarget = activeCourses.filter((course) => course.pct >= TIER_ELIGIBLE).length;
@@ -270,7 +271,7 @@ export default function StudentReportView(props: StudentReportViewProps) {
                 SPI ELIGIBILITY STATUS
               </p>
               <p className="text-sm font-semibold text-[#111827]">
-                Attendance {oneDecimal(tierPct)}%
+                {activeCourses.length > 1 ? "Lowest subject" : "Attendance"} {oneDecimal(tierPct)}%
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -333,7 +334,7 @@ export default function StudentReportView(props: StudentReportViewProps) {
             hint="target 80%"
             bar={
               noAttendance ? null : (
-                <MarkerBar pct={props.attendancePct} color={tier.color} />
+                <MarkerBar pct={props.attendancePct} color={getTier(props.attendancePct).color} />
               )
             }
             footer={

@@ -19,8 +19,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ChevronRight, Download } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
-import { pctColor, pctTextColor, cn } from "@/lib/utils";
-import { NO_SESSIONS_LABEL } from "@/lib/attendanceTiers";
+import { cn } from "@/lib/utils";
+import { NO_SESSIONS_LABEL, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY, tierTextColor } from "@/lib/attendanceTiers";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { readSubjects, subjectOptionList } from "@/lib/subjects";
 import { exportCsv } from "@/lib/csv";
@@ -100,10 +100,10 @@ const COLUMN_LABEL: Record<ColumnId, string> = {
   sessions: "Sessions",
   students: "Students",
   absences: "Absences",
-  eligible: "Eligible (≥ 80%)",
-  recoveryEligible: "Recovery (60–80%)",
-  atRisk: "At risk (50–60%)",
-  ineligible: "Ineligible (< 50%)",
+  eligible: `Eligible (≥ ${TIER_ELIGIBLE}%)`,
+  recoveryEligible: `Recovery (${TIER_RECOVERY}–${TIER_ELIGIBLE - 1}%)`,
+  atRisk: `At risk (${TIER_AT_RISK}–${TIER_RECOVERY - 1}%)`,
+  ineligible: `Ineligible (< ${TIER_AT_RISK}%)`,
 };
 
 const TIER_COLUMNS = new Set<ColumnId>(["eligible", "recoveryEligible", "atRisk", "ineligible"]);
@@ -520,10 +520,10 @@ export default function StudentAttendanceStats() {
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} hint={scopeLabel} />
         <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="" />
-        <StatTile label="Eligible" value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} at 80% or above`} />
-        <StatTile label="Recovery" value={isLoading ? null : summary.recoveryEligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.recoveryEligible)} from 60% to 80%`} />
-        <StatTile label="At risk" value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} from 50% to 60%`} />
-        <StatTile label="Ineligible" value={isLoading ? null : summary.ineligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.ineligible)} below 50%`} tone="rose" />
+        <StatTile label="Eligible" value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} at ${TIER_ELIGIBLE}% or above`} />
+        <StatTile label="Recovery" value={isLoading ? null : summary.recoveryEligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.recoveryEligible)} at ${TIER_RECOVERY}–${TIER_ELIGIBLE - 1}%`} />
+        <StatTile label="At risk" value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} at ${TIER_AT_RISK}–${TIER_RECOVERY - 1}%`} />
+        <StatTile label="Ineligible" value={isLoading ? null : summary.ineligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.ineligible)} below ${TIER_AT_RISK}%`} tone="rose" />
       </div>
       <div className="mb-4 flex flex-col gap-3">
         <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
@@ -756,9 +756,9 @@ export default function StudentAttendanceStats() {
                         className="text-right tabular-nums"
                         style={
                           id === "overallPct" && row.campusScheduled > 0
-                            ? { color: pctTextColor(row.overallPct) }
+                            ? { color: tierTextColor(row.overallPct) }
                             : id === "grainPct" && row.scheduled > 0
-                              ? { color: pctColor(row.grainPct) }
+                              ? { color: tierTextColor(row.grainPct) }
                               : undefined
                         }
                       >

@@ -34,7 +34,8 @@ import {
   Trash2,
   Wallet,
 } from "lucide-react";
-import { cn, pctTextColor } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { tierTextColor } from "@/lib/attendanceTiers";
 import { exportCsv } from "@/lib/csv";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -502,7 +503,7 @@ export default function RecoverySubjectDetail() {
           subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""}`}
           right={
             <div className="flex items-center gap-3">
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold bg-white border ${pctTextColor(selectedSubjectData.attendancePct)}`}>
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold bg-white border`} style={{ color: tierTextColor(selectedSubjectData.attendancePct) }}>
                 {selectedSubjectData.attendancePct.toFixed(1)}% overall
               </span>
               <Button onClick={handleExport} variant="outline" size="sm">
@@ -642,7 +643,7 @@ export default function RecoverySubjectDetail() {
                         <td className="px-5 py-3.5 text-slate-600">{student.sectionName || "-"}</td>
                         <td className="px-5 py-3.5">
                           <div className="flex justify-center">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${pctTextColor(student.attendancePct)} bg-white border border-slate-200 shadow-xs`}>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold bg-white border border-slate-200 shadow-xs`} style={{ color: tierTextColor(student.attendancePct) }}>
                               {student.attendancePct.toFixed(1)}%
                             </span>
                           </div>
@@ -703,7 +704,7 @@ export default function RecoverySubjectDetail() {
                             <span className="text-slate-500 text-xs font-medium uppercase tracking-wider">Not taught</span>
                           ) : session.attendancePct !== null ? (
                             <div className="flex flex-col items-center justify-center">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${pctTextColor(session.attendancePct)} bg-white border border-slate-200 shadow-xs mb-0.5`}>
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold bg-white border border-slate-200 shadow-xs mb-0.5`} style={{ color: tierTextColor(session.attendancePct) }}>
                                 {session.attendancePct.toFixed(1)}%
                               </span>
                               <span className="text-[10px] text-slate-400 font-medium tabular-nums">{session.presentCount}/{session.totalCount}</span>
@@ -1523,7 +1524,7 @@ export default function RecoverySubjectDetail() {
           subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""}`}
           right={
             <div className="flex items-center gap-3">
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold bg-white border ${pctTextColor(selectedSubjectData.attendancePct)}`}>
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold bg-white border`} style={{ color: tierTextColor(selectedSubjectData.attendancePct) }}>
                 {selectedSubjectData.attendancePct.toFixed(1)}% overall
               </span>
               <Button onClick={handleExport} variant="outline" size="sm">
@@ -1746,7 +1747,7 @@ export default function RecoverySubjectDetail() {
                         <td className="px-5 py-3.5 text-slate-600">{student.sectionName || "-"}</td>
                         <td className="px-5 py-3.5">
                           <div className="flex justify-center">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${pctTextColor(student.attendancePct)} bg-white border border-slate-200 shadow-xs`}>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold bg-white border border-slate-200 shadow-xs`} style={{ color: tierTextColor(student.attendancePct) }}>
                               {student.attendancePct.toFixed(1)}%
                             </span>
                           </div>
@@ -1841,7 +1842,7 @@ export default function RecoverySubjectDetail() {
                               <span className="text-slate-400 text-[11px] font-bold uppercase tracking-wider">Not Taught</span>
                             ) : (
                               <div className="flex flex-col items-center justify-center">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${pctTextColor(row.attendancePct)} bg-white border border-slate-200 shadow-xs`}>
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold bg-white border border-slate-200 shadow-xs`} style={{ color: tierTextColor(row.attendancePct) }}>
                                   {row.attendancePct.toFixed(1)}%
                                 </span>
                                 <span className="text-xs text-slate-500 mt-1 tabular-nums font-medium">

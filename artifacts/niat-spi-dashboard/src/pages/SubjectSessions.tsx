@@ -22,7 +22,7 @@ import {
   Download,
   ExternalLink,
 } from "lucide-react";
-import { pctColor, pctTextColor } from "@/lib/utils";
+import { tierTextColor } from "@/lib/attendanceTiers";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
@@ -407,13 +407,13 @@ function SessionList({
                             className="h-full rounded-full"
                             style={{
                               width: `${Math.min(100, s.pct)}%`,
-                              backgroundColor: pctColor(s.pct),
+                              backgroundColor: tierTextColor(s.pct),
                             }}
                           />
                         </div>
                         <span
                           className="w-14 font-bold tabular-nums"
-                          style={{ color: pctTextColor(s.pct) }}
+                          style={{ color: tierTextColor(s.pct) }}
                         >
                           {s.pct}%
                         </span>
@@ -626,7 +626,7 @@ function SessionStudents({
           Session attendance:{" "}
           <span
             className="font-semibold tabular-nums"
-            style={{ color: pctTextColor(pct) }}
+            style={{ color: tierTextColor(pct) }}
           >
             {pct}%
           </span>
