@@ -436,6 +436,122 @@ export const GetDashboardStudentsResponse = zod.array(GetDashboardStudentsRespon
 
 
 /**
+ * Slot model: expected attempts = students x conducted quizzes; completion = attempted / expected; avg score = score sum / attempted; overall score = score sum / expected (absent = 0). Rates are derived from raw sums (sum first, divide last) and are null when the denominator is 0.
+ * @summary Assessment metrics for one quiz type, grouped, with roll-ups
+ */
+export const getAssessmentSummaryQueryTypeDefault = `cq`;
+export const getAssessmentSummaryQueryGroupByDefault = `campus`;
+
+export const GetAssessmentSummaryQueryParams = zod.object({
+  "type": zod.enum(['cq', 'mq', 'all']).default(getAssessmentSummaryQueryTypeDefault),
+  "groupBy": zod.enum(['campus', 'subject', 'section', 'semester', 'student']).default(getAssessmentSummaryQueryGroupByDefault),
+  "semester": zod.coerce.string().optional().describe('Derived semester label (e.g. \"Semester 1\") or \"current\" for every current semester'),
+  "campuses": zod.coerce.string().optional().describe('Campus names joined with \"||\"'),
+  "sections": zod.coerce.string().optional().describe('campus + TAB + section, joined with \"||\"'),
+  "subjects": zod.coerce.string().optional().describe('Subject names joined with \"||\"'),
+  "student": zod.coerce.string().optional().describe('Student name or ID search')
+})
+
+export const GetAssessmentSummaryResponse = zod.object({
+  "overall": zod.object({
+  "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
+  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "students": zod.number(),
+  "expectedAttempts": zod.number(),
+  "attempted": zod.number(),
+  "notAttempted": zod.number(),
+  "scoreSum": zod.number(),
+  "completionPct": zod.number().nullable(),
+  "avgScoreAttempted": zod.number().nullable(),
+  "overallScore": zod.number().nullable(),
+  "conductedPct": zod.number().nullable()
+}),
+  "rows": zod.array(zod.object({
+  "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
+  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "students": zod.number(),
+  "expectedAttempts": zod.number(),
+  "attempted": zod.number(),
+  "notAttempted": zod.number(),
+  "scoreSum": zod.number(),
+  "completionPct": zod.number().nullable(),
+  "avgScoreAttempted": zod.number().nullable(),
+  "overallScore": zod.number().nullable(),
+  "conductedPct": zod.number().nullable()
+}).and(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "campus": zod.string().nullable(),
+  "section": zod.string().nullable(),
+  "semester": zod.string().nullable(),
+  "batch": zod.string().nullable(),
+  "semesterTitle": zod.string().nullable(),
+  "startDate": zod.string().nullable(),
+  "endDate": zod.string().nullable(),
+  "termWise": zod.boolean(),
+  "studentId": zod.string().nullable(),
+  "spiPath": zod.string().nullable(),
+  "semesters": zod.array(zod.object({
+  "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
+  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "students": zod.number(),
+  "expectedAttempts": zod.number(),
+  "attempted": zod.number(),
+  "notAttempted": zod.number(),
+  "scoreSum": zod.number(),
+  "completionPct": zod.number().nullable(),
+  "avgScoreAttempted": zod.number().nullable(),
+  "overallScore": zod.number().nullable(),
+  "conductedPct": zod.number().nullable()
+}).and(zod.object({
+  "id": zod.string(),
+  "campus": zod.string(),
+  "batch": zod.string(),
+  "title": zod.string(),
+  "semester": zod.string(),
+  "startDate": zod.string().nullable(),
+  "endDate": zod.string().nullable(),
+  "termWise": zod.boolean()
+})))
+}))),
+  "semesters": zod.array(zod.object({
+  "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
+  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "students": zod.number(),
+  "expectedAttempts": zod.number(),
+  "attempted": zod.number(),
+  "notAttempted": zod.number(),
+  "scoreSum": zod.number(),
+  "completionPct": zod.number().nullable(),
+  "avgScoreAttempted": zod.number().nullable(),
+  "overallScore": zod.number().nullable(),
+  "conductedPct": zod.number().nullable()
+}).and(zod.object({
+  "id": zod.string(),
+  "campus": zod.string(),
+  "batch": zod.string(),
+  "title": zod.string(),
+  "semester": zod.string(),
+  "startDate": zod.string().nullable(),
+  "endDate": zod.string().nullable(),
+  "termWise": zod.boolean()
+}))),
+  "needsCampus": zod.boolean().describe('Student-wise needs a campus'),
+  "options": zod.object({
+  "campuses": zod.array(zod.string()),
+  "semesters": zod.array(zod.string()),
+  "sections": zod.array(zod.object({
+  "campus": zod.string(),
+  "section": zod.string()
+})),
+  "subjects": zod.array(zod.string())
+})
+})
+
+
+
+
+/**
  * @summary Campus-wise classroom and module quiz counts
  */
 export const GetAssessmentCampusesResponseItem = zod.object({

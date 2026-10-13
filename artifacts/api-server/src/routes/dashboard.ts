@@ -23,6 +23,9 @@ import {
   getAssessmentSubjects,
   getAssessmentStudents,
   getAssessmentDetail,
+  getAssessmentSummary,
+  type SummaryGroupBy,
+  type SummaryType,
   getAssessmentStudentRows,
   parseDateRange,
   parseSemester,
@@ -1250,6 +1253,60 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching assessment students");
       res.status(500).json({ error: "Failed to fetch assessment students" });
+    }
+  },
+);
+
+const SUMMARY_TYPE_VALUES: SummaryType[] = ["cq", "mq", "all"];
+const SUMMARY_GROUP_VALUES: SummaryGroupBy[] = ["campus", "subject", "section", "semester", "student"];
+
+/** Assessments page: slot-model metrics with roll-ups for one assessment type and group-by. */
+router.get(
+  "/assessments/summary",
+  requireSession(),
+  async (req, res): Promise<void> => {
+    const session = req.session!;
+    const scope = scopeForSession({
+      role: session.role as Role,
+      campuses: session.campuses,
+      subjects: session.subjects,
+    });
+    const q = req.query as Record<string, string | undefined>;
+    const list = (key: string) => [...new Set((q[key] ?? "").split("||").map((v) => v.trim()).filter(Boolean))].sort();
+    const type = (q["type"] ?? "cq") as SummaryType;
+    const groupBy = (q["groupBy"] ?? "campus") as SummaryGroupBy;
+    if (!SUMMARY_TYPE_VALUES.includes(type) || !SUMMARY_GROUP_VALUES.includes(groupBy)) {
+      res.status(400).json({ error: "Invalid type or groupBy" });
+      return;
+    }
+    const semesterParam = (q["semester"] ?? "").trim();
+    const semester = semesterParam === "current" ? "" : semesterParam;
+    const campuses = list("campuses");
+    const sections = list("sections").filter((s) => s.includes("\t"));
+    const subjects = list("subjects");
+    const student = (q["student"] ?? "").trim().slice(0, 100);
+    if (scope.campuses?.length && campuses.some((name) => !scope.campuses!.includes(name))) {
+      res.status(403).json({ error: "Not permitted for this campus" });
+      return;
+    }
+    const opts = { type, groupBy, semester, campuses, sections, subjects, student };
+    const cacheKey = `assessments-summary:v1:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const summary = await getAssessmentSummary(scope, opts);
+      const payload = {
+        ...summary,
+        rows: summary.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
+      };
+      cacheSet(cacheKey, payload, 15 * 60 * 1000);
+      res.json(payload);
+    } catch (err) {
+      req.log.error({ err }, "Error fetching assessment summary");
+      res.status(500).json({ error: "Failed to fetch assessment summary" });
     }
   },
 );

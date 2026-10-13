@@ -42,8 +42,28 @@ const METRIC_COLUMNS: TableColumn[] = [
 
 export const OPTIONAL_METRIC_COLUMNS = METRIC_COLUMNS.map((c) => ({ key: c.key, label: c.label }));
 
+/** A full row object for the roll-up ("All campuses") line and its CSV export. */
+export function rollupRow(m: AssessmentMetrics & { scoreSum: number }, label: string): SummaryRow {
+  return {
+    ...m,
+    id: "__all",
+    name: label,
+    campus: null,
+    section: null,
+    semester: null,
+    batch: null,
+    semesterTitle: null,
+    startDate: null,
+    endDate: null,
+    termWise: false,
+    studentId: null,
+    spiPath: null,
+    semesters: [],
+  };
+}
+
 export function columnsFor(groupBy: SummaryGroupBy, campusOnSemesterRows = true): TableColumn[] {
-  const text = (key: string, label: string, get: (r: SummaryRow) => string | undefined, extra?: Partial<TableColumn>): TableColumn => ({
+  const text = (key: string, label: string, get: (r: SummaryRow) => string | null | undefined, extra?: Partial<TableColumn>): TableColumn => ({
     key,
     label,
     kind: "identity",
@@ -127,16 +147,18 @@ export function AssessmentTable({
   updating,
   onRetry,
   onShowSemesters,
+  emptyText = "No assessments match these filters.",
 }: {
   groupBy: SummaryGroupBy;
   columns: TableColumn[];
   rows: SummaryRow[];
-  rollup: AssessmentMetrics | null;
+  rollup: (AssessmentMetrics & { scoreSum: number }) | null;
   rollupLabel: string;
   loading: boolean;
   updating: boolean;
   onRetry?: () => void;
   onShowSemesters?: (row: SummaryRow) => void;
+  emptyText?: string;
 }) {
   const [sort, setSort] = useState<Sort>({ key: "completion", dir: 1 });
   const [page, setPage] = useState(1);
@@ -157,7 +179,7 @@ export function AssessmentTable({
 
   if (onRetry) return <SectionError what="the table" onRetry={onRetry} />;
   if (loading && !rows.length) return <div className="p-5"><Skeleton className="h-64 w-full" /></div>;
-  if (!rows.length) return <p className="p-5 text-sm text-slate-600">No assessments match these filters.</p>;
+  if (!rows.length) return <p className="p-5 text-sm text-slate-600">{emptyText}</p>;
 
   const cellAlign = (c: TableColumn) => (c.align === "right" ? "text-right" : "text-left");
   const sticky = "sticky left-0 z-10";
@@ -167,13 +189,13 @@ export function AssessmentTable({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[56rem] text-sm">
           <thead>
-            <tr className="border-b border-slate-200 bg-white text-xs uppercase tracking-wide text-slate-600">
+            <tr className="border-b border-slate-200 bg-white text-left text-xs uppercase tracking-wide text-slate-500">
               {columns.map((c, i) => (
                 <th
                   key={c.key}
                   scope="col"
                   aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
-                  className={cn("whitespace-nowrap bg-white px-4 py-2 font-medium", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100"))}
+                  className={cn("whitespace-nowrap bg-white px-5 py-2 font-medium", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100"))}
                 >
                   <button
                     type="button"
@@ -198,8 +220,8 @@ export function AssessmentTable({
             {rollup && (
               <tr className="border-b-2 border-slate-200 bg-slate-50 font-semibold">
                 {columns.map((c, i) => (
-                  <td key={c.key} className={cn("px-4 py-2.5", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100 bg-slate-50"))}>
-                    {i === 0 ? rollupLabel : c.kind === "metric" ? c.render({ ...rollup, id: "__all", name: rollupLabel, semesters: [] }) : ""}
+                  <td key={c.key} className={cn("px-5 py-2.5", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100 bg-slate-50"))}>
+                    {i === 0 ? rollupLabel : c.kind === "metric" ? c.render(rollupRow(rollup, rollupLabel)) : ""}
                   </td>
                 ))}
                 {(showSemesters || groupBy === "student") && <td className="px-4 py-2.5" />}
@@ -208,7 +230,7 @@ export function AssessmentTable({
             {shown.map((row) => (
               <tr key={row.id} className="group border-b border-slate-100 hover:bg-slate-50">
                 {columns.map((c, i) => (
-                  <td key={c.key} className={cn("px-4 py-2", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100 bg-white group-hover:bg-slate-50"))}>
+                  <td key={c.key} className={cn("px-5 py-2", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100 bg-white group-hover:bg-slate-50"))}>
                     {c.render(row)}
                   </td>
                 ))}

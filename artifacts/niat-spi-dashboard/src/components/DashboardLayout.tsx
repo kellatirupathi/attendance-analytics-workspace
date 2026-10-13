@@ -20,7 +20,6 @@ import {
   AlertTriangle,
   ClipboardCheck,
   BookOpenCheck,
-  FlaskConical,
   FileBarChart2,
   PanelLeftClose,
   PanelLeftOpen,
@@ -44,8 +43,6 @@ const mainNav: NavItem[] = [
   { label: "Student Attendance Stats", href: "/dashboard/attendance-stats", icon: BarChart3 },
   { label: "SPI Record Dashboard", href: "/dashboard/spi-record", icon: FileBarChart2 },
   { label: "Assessments", href: "/dashboard/assessments", icon: BookOpenCheck },
-  // Redesign preview with sample data; replaces the page above once live data is connected.
-  { label: "Assessments (preview)", href: "/dashboard/assessments-preview", icon: FlaskConical },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
   { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
 ];

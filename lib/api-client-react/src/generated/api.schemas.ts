@@ -538,3 +538,125 @@ dataset: string;
 table: string;
 limit?: number;
 };
+
+export interface AssessmentSummaryMetrics {
+  /** Distinct quizzes scheduled in the current semester window */
+  scheduled: number;
+  /** Scheduled quizzes whose date has passed */
+  conducted: number;
+  students: number;
+  expectedAttempts: number;
+  attempted: number;
+  notAttempted: number;
+  scoreSum: number;
+  /** @nullable */
+  completionPct: number | null;
+  /** @nullable */
+  avgScoreAttempted: number | null;
+  /** @nullable */
+  overallScore: number | null;
+  /** @nullable */
+  conductedPct: number | null;
+}
+
+export type AssessmentSummarySemester = AssessmentSummaryMetrics & {
+  id: string;
+  campus: string;
+  batch: string;
+  title: string;
+  semester: string;
+  /** @nullable */
+  startDate: string | null;
+  /** @nullable */
+  endDate: string | null;
+  termWise: boolean;
+};
+
+export type AssessmentSummaryRow = AssessmentSummaryMetrics & {
+  id: string;
+  name: string;
+  /** @nullable */
+  campus: string | null;
+  /** @nullable */
+  section: string | null;
+  /** @nullable */
+  semester: string | null;
+  /** @nullable */
+  batch: string | null;
+  /** @nullable */
+  semesterTitle: string | null;
+  /** @nullable */
+  startDate: string | null;
+  /** @nullable */
+  endDate: string | null;
+  termWise: boolean;
+  /** @nullable */
+  studentId: string | null;
+  /** @nullable */
+  spiPath: string | null;
+  semesters: AssessmentSummarySemester[];
+};
+
+export type AssessmentSummaryOptionsSectionsItem = {
+  campus: string;
+  section: string;
+};
+
+export type AssessmentSummaryOptions = {
+  campuses: string[];
+  semesters: string[];
+  sections: AssessmentSummaryOptionsSectionsItem[];
+  subjects: string[];
+};
+
+export interface AssessmentSummary {
+  overall: AssessmentSummaryMetrics;
+  rows: AssessmentSummaryRow[];
+  semesters: AssessmentSummarySemester[];
+  /** Student-wise needs a campus, section or student search */
+  needsCampus: boolean;
+  options: AssessmentSummaryOptions;
+}
+
+export type GetAssessmentSummaryType = typeof GetAssessmentSummaryType[keyof typeof GetAssessmentSummaryType];
+
+export const GetAssessmentSummaryType = {
+  cq: 'cq',
+  mq: 'mq',
+  all: 'all',
+} as const;
+
+export type GetAssessmentSummaryGroupBy = typeof GetAssessmentSummaryGroupBy[keyof typeof GetAssessmentSummaryGroupBy];
+
+export const GetAssessmentSummaryGroupBy = {
+  campus: 'campus',
+  subject: 'subject',
+  section: 'section',
+  semester: 'semester',
+  student: 'student',
+} as const;
+
+export type GetAssessmentSummaryParams = {
+type?: GetAssessmentSummaryType;
+groupBy?: GetAssessmentSummaryGroupBy;
+/**
+ * Derived semester label (e.g. "Semester 1") or "current" for every current semester
+ */
+semester?: string;
+/**
+ * Campus names joined with "||"
+ */
+campuses?: string;
+/**
+ * campus + TAB + section, joined with "||"
+ */
+sections?: string;
+/**
+ * Subject names joined with "||"
+ */
+subjects?: string;
+/**
+ * Student name or ID search
+ */
+student?: string;
+};

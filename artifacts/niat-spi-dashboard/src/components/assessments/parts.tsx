@@ -59,7 +59,7 @@ export function CompletionCell({ pct }: { pct: number | null }) {
   );
 }
 
-export function fmtDateRange(start?: string, end?: string): string {
+export function fmtDateRange(start?: string | null, end?: string | null): string {
   if (!start || !end) return "–";
   const f = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
   return `${f(start)} – ${f(end)}`;
