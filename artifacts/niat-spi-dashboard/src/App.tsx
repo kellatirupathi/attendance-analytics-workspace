@@ -15,6 +15,7 @@ const NotFound = lazy(() => import("@/pages/not-found"));
 const Landing = lazy(() => import("@/pages/Landing"));
 const StaffLogin = lazy(() => import("@/pages/StaffLogin"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const AssessmentsPreview = lazy(() => import("@/pages/AssessmentsPreview"));
 const SpiReport = lazy(() => import("@/pages/SpiReport"));
 const Students = lazy(() => import("@/pages/Students"));
 const Campuses = lazy(() => import("@/pages/Campuses"));
@@ -157,6 +158,11 @@ function Router() {
         <Route path="/dashboard/assessments">
           <Protected>
             <Assessments />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/assessments-preview">
+          <Protected>
+            <AssessmentsPreview />
           </Protected>
         </Route>
         <Route path="/dashboard/campuses">
