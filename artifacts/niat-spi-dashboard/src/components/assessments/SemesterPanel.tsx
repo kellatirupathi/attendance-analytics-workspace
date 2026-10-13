@@ -48,7 +48,7 @@ export const SemesterPanel = forwardRef<
       // One campus: each batch on its own semester and dates (section-level window).
       return scoped
         .slice()
-        .sort((a, b) => a.startDate.localeCompare(b.startDate))
+        .sort((a, b) => (a.startDate ?? "").localeCompare(b.startDate ?? ""))
         .map((s) => ({ ...s, key: s.id, label: `${s.batch} · ${s.semester}`, detail: `${s.title} · ${fmtDateRange(s.startDate, s.endDate)}` }));
     }
     // All campuses: add raw counts per derived semester, then divide once.

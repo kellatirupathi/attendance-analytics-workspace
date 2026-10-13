@@ -45,6 +45,11 @@ import {
   SESSION_IDENTITY_SQL,
 } from "./attendance-contract.js";
 import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
+import {
+  buildAssessmentOptionsSql,
+  buildAssessmentSummarySql,
+  type SummaryGroupBy,
+} from "./assessmentSummarySql.js";
 
 /**
  * Every attendance query reads eligible students only (see eligibleStudents.ts).
@@ -5442,4 +5447,251 @@ export async function getSubjectOptions(scope: SessionScope): Promise<SubjectOpt
   return rows
     .filter((row) => row.campus && !isExcludedInstitute(row.campus))
     .map((row) => ({ campus: row.campus, semester: row.semester, subject: row.subject }));
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  Assessments summary (GET /api/dashboard/assessments/summary)       */
+/* ------------------------------------------------------------------ */
+
+const WORKSPACE = "kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace";
+const SUMMARY_TABLES = {
+  attendance: ATTENDANCE_TABLE,
+  quiz: QUIZ_TABLE,
+  semesterDetails: `\`${WORKSPACE}.niat_institute_batch_section_semester_details\``,
+  sessionResources: `\`${WORKSPACE}.niat_scheduled_session_wise_resource_details\``,
+  resourceTypes: `\`${WORKSPACE}.niat_session_wise_resource_details\``,
+};
+
+export type SummaryType = "cq" | "mq" | "all";
+export type { SummaryGroupBy };
+
+const SUMMARY_TYPES: Record<SummaryType, string[]> = {
+  cq: ["CLASSROOM_QUIZ"],
+  mq: ["MODULE_QUIZ"],
+  all: ["CLASSROOM_QUIZ", "MODULE_QUIZ"],
+};
+
+export interface SummaryMetrics {
+  scheduled: number;
+  conducted: number;
+  students: number;
+  expectedAttempts: number;
+  attempted: number;
+  notAttempted: number;
+  scoreSum: number;
+  completionPct: number | null;
+  avgScoreAttempted: number | null;
+  overallScore: number | null;
+  conductedPct: number | null;
+}
+
+export interface SummarySemester extends SummaryMetrics {
+  id: string;
+  campus: string;
+  batch: string;
+  title: string;
+  semester: string;
+  startDate: string | null;
+  endDate: string | null;
+  termWise: boolean;
+}
+
+export interface SummaryRow extends SummaryMetrics {
+  id: string;
+  name: string;
+  campus: string | null;
+  section: string | null;
+  semester: string | null;
+  batch: string | null;
+  semesterTitle: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  termWise: boolean;
+  studentId: string | null;
+  semesters: SummarySemester[];
+}
+
+export interface AssessmentSummaryResult {
+  overall: SummaryMetrics;
+  rows: SummaryRow[];
+  semesters: SummarySemester[];
+  /** Student-wise needs a campus, section or student search; rows stay empty until then. */
+  needsCampus: boolean;
+  options: { campuses: string[]; semesters: string[]; sections: { campus: string; section: string }[]; subjects: string[] };
+}
+
+interface SummarySqlRow {
+  g: string | null;
+  p: string | null;
+  gg: string;
+  gp: string;
+  r_campus: string | null;
+  r_section: string | null;
+  r_subject: string | null;
+  r_batch: string | null;
+  r_period_title: string | null;
+  r_derived: string | null;
+  r_term_wise: boolean | string | null;
+  r_start: string | null;
+  r_end: string | null;
+  r_student_id: string | null;
+  r_student_name: string | null;
+  students: string;
+  expected_attempts: string | null;
+  attempted: string | null;
+  score_sum: string | null;
+  scheduled: string | null;
+  conducted: string | null;
+}
+
+/** Rates from raw sums (sum first, divide last). null when the denominator is 0, never 0%. */
+function summaryMetrics(r: SummarySqlRow): SummaryMetrics {
+  const expected = Number(r.expected_attempts) || 0;
+  const attempted = Number(r.attempted) || 0;
+  const scoreSum = Number(r.score_sum) || 0;
+  const scheduled = Number(r.scheduled) || 0;
+  const conducted = Number(r.conducted) || 0;
+  const ratio = (a: number, b: number, k = 1) => (b > 0 ? Math.round((a / b) * k * 100) / 100 : null);
+  return {
+    scheduled,
+    conducted,
+    students: Number(r.students) || 0,
+    expectedAttempts: expected,
+    attempted,
+    notAttempted: Math.max(0, expected - attempted),
+    scoreSum: Math.round(scoreSum * 100) / 100,
+    completionPct: ratio(attempted, expected, 100),
+    avgScoreAttempted: ratio(scoreSum, attempted),
+    overallScore: ratio(scoreSum, expected),
+    conductedPct: ratio(conducted, scheduled, 100),
+  };
+}
+
+const isTrue = (v: boolean | string | null) => v === true || v === "true";
+
+function summarySemester(r: SummarySqlRow): SummarySemester {
+  return {
+    id: r.p ?? "",
+    campus: r.r_campus ?? "",
+    batch: r.r_batch ?? "",
+    title: r.r_period_title ?? "",
+    semester: r.r_derived ?? "",
+    startDate: r.r_start,
+    endDate: r.r_end,
+    termWise: isTrue(r.r_term_wise),
+    ...summaryMetrics(r),
+  };
+}
+
+function summaryRow(groupBy: SummaryGroupBy, r: SummarySqlRow, semesters: SummarySemester[]): SummaryRow {
+  const name =
+    groupBy === "campus" ? r.r_campus
+      : groupBy === "subject" ? r.r_subject
+        : groupBy === "section" ? r.r_section
+          : groupBy === "semester" ? r.r_campus
+            : r.r_student_name || r.r_student_id;
+  return {
+    id: r.g ?? "",
+    name: name ?? "—",
+    campus: groupBy === "subject" ? null : r.r_campus,
+    section: groupBy === "section" || groupBy === "student" ? r.r_section : null,
+    semester: groupBy === "section" || groupBy === "semester" || groupBy === "student" ? r.r_derived : null,
+    batch: groupBy === "semester" ? r.r_batch : null,
+    semesterTitle: groupBy === "semester" ? r.r_period_title : null,
+    startDate: groupBy === "semester" ? r.r_start : null,
+    endDate: groupBy === "semester" ? r.r_end : null,
+    termWise: groupBy === "semester" ? isTrue(r.r_term_wise) : false,
+    studentId: groupBy === "student" ? r.r_student_id : null,
+    semesters,
+    ...summaryMetrics(r),
+  };
+}
+
+export async function getAssessmentSummary(
+  scope: SessionScope,
+  opts: {
+    type: SummaryType;
+    groupBy: SummaryGroupBy;
+    /** Derived semester label (e.g. "Semester 1"), or "" for every current semester. */
+    semester: string;
+    campuses: string[];
+    sections: string[];
+    subjects: string[];
+    student: string;
+  },
+): Promise<AssessmentSummaryResult> {
+  const needsCampus = opts.groupBy === "student" && !opts.campuses.length && !opts.sections.length && !opts.student.trim();
+  // Student-wise across every campus would return every student; show campus totals until a campus is picked.
+  const groupBy: SummaryGroupBy = needsCampus ? "campus" : opts.groupBy;
+
+  const params: Record<string, unknown> = {
+    types: SUMMARY_TYPES[opts.type],
+    fCampuses: opts.campuses,
+    fSections: opts.sections,
+    fSubjects: opts.subjects,
+    fSemester: opts.semester,
+    fStudent: opts.student.trim(),
+  };
+  const attWhere = scopeClause(scope, params);
+  const quizWhere = quizScopeClause(scope, params, "q");
+  const optionParams: Record<string, unknown> = {};
+  const optionWhere = scopeClause(scope, optionParams);
+
+  const [rows, optionRows] = await Promise.all([
+    bqQuery<SummarySqlRow>(
+      buildAssessmentSummarySql(SUMMARY_TABLES, groupBy, attWhere, quizWhere),
+      params,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+    bqQuery<{ campus: string; derived: string; section: string; subject: string }>(
+      buildAssessmentOptionsSql(SUMMARY_TABLES, optionWhere),
+      optionParams,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+  ]);
+
+  const bit = (v: string) => v === "1";
+  const overallRow = rows.find((r) => bit(r.gg) && bit(r.gp));
+  // Semester-wise rows are the periods, so they double as the semester panel.
+  const semesters = rows
+    .filter((r) => (groupBy === "semester" ? !bit(r.gg) : bit(r.gg) && !bit(r.gp)))
+    .map(summarySemester);
+  const rowSemesters = new Map<string, SummarySemester[]>();
+  for (const r of rows.filter((x) => !bit(x.gg) && !bit(x.gp))) {
+    const list = rowSemesters.get(r.g ?? "") ?? [];
+    list.push(summarySemester(r));
+    rowSemesters.set(r.g ?? "", list);
+  }
+  const groupRows = needsCampus
+    ? []
+    : rows
+        .filter((r) => !bit(r.gg) && bit(r.gp))
+        .map((r) => summaryRow(groupBy, r, rowSemesters.get(r.g ?? "") ?? []));
+
+  const scoped = optionRows.filter((r) => r.campus && !isExcludedInstitute(r.campus));
+  // Semester choices list every current semester; the other lists follow the chosen semester.
+  const keep = scoped.filter((r) => !opts.semester || r.derived === opts.semester);
+  const uniq = (values: string[]) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sectionMap = new Map<string, { campus: string; section: string }>();
+  for (const r of keep) {
+    if (opts.campuses.length && !opts.campuses.includes(r.campus)) continue;
+    sectionMap.set(`${r.campus}\t${r.section}`, { campus: r.campus, section: r.section });
+  }
+
+  const empty: SummarySqlRow = { g: null, p: null, gg: "1", gp: "1", r_campus: null, r_section: null, r_subject: null, r_batch: null, r_period_title: null, r_derived: null, r_term_wise: null, r_start: null, r_end: null, r_student_id: null, r_student_name: null, students: "0", expected_attempts: "0", attempted: "0", score_sum: "0", scheduled: "0", conducted: "0" };
+  return {
+    overall: summaryMetrics(overallRow ?? empty),
+    rows: groupRows,
+    semesters,
+    needsCampus,
+    options: {
+      campuses: uniq(keep.map((r) => r.campus)),
+      semesters: uniq(scoped.map((r) => r.derived)),
+      sections: [...sectionMap.values()].sort((a, b) => a.section.localeCompare(b.section, undefined, { numeric: true })),
+      subjects: uniq(keep.filter((r) => !opts.campuses.length || opts.campuses.includes(r.campus)).map((r) => r.subject)),
+    },
+  };
 }

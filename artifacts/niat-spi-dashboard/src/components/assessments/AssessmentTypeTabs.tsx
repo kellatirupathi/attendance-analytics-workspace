@@ -2,9 +2,11 @@ import { useRef, type KeyboardEvent } from "react";
 import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ASSESSMENT_TYPES, type AssessmentTypeId } from "@/lib/assessmentMetrics";
-import { FOCUS_RING } from "./parts";
 
-/** Segmented control for the assessment type. Locked types are shown but cannot be picked. */
+/**
+ * Assessment type tabs, styled like SubNav. Each tab shows its SPI weight;
+ * locked types are visible but cannot be picked.
+ */
 export function AssessmentTypeTabs({
   value,
   onChange,
@@ -26,46 +28,37 @@ export function AssessmentTypeTabs({
   };
 
   return (
-    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-      <div role="tablist" aria-label="Assessment type" className="inline-flex min-w-max gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
-        {ASSESSMENT_TYPES.map((t, i) => {
-          const selected = t.id === value;
-          return (
-            <button
-              key={t.id}
-              ref={(el) => {
-                refs.current[i] = el;
-              }}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              aria-disabled={t.locked || undefined}
-              tabIndex={selected ? 0 : -1}
-              onKeyDown={onKeyDown}
-              onClick={() => !t.locked && onChange(t.id)}
-              title={t.locked ? "Coming soon" : undefined}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
-                FOCUS_RING,
-                selected ? "bg-white font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-700 hover:bg-white/70",
-                t.locked && "cursor-not-allowed text-slate-500 hover:bg-transparent",
-              )}
-            >
-              {t.locked && <Lock className="h-3.5 w-3.5" aria-hidden="true" />}
-              {t.label}
-              <span
-                className={cn(
-                  "rounded px-1.5 py-0.5 text-xs font-medium tabular-nums",
-                  selected ? "bg-brand-50 text-brand-800" : "bg-slate-200/70 text-slate-700",
-                )}
-              >
-                {t.spiWeight}%
-              </span>
-              {t.locked && <span className="text-xs text-slate-500">Coming soon</span>}
-            </button>
-          );
-        })}
-      </div>
+    <div role="tablist" aria-label="Assessment type" className="flex items-center gap-1 overflow-x-auto border-b border-gray-200">
+      {ASSESSMENT_TYPES.map((t, i) => {
+        const active = t.id === value;
+        return (
+          <button
+            key={t.id}
+            ref={(el) => {
+              refs.current[i] = el;
+            }}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            aria-disabled={t.locked || undefined}
+            tabIndex={active ? 0 : -1}
+            onKeyDown={onKeyDown}
+            onClick={() => !t.locked && onChange(t.id)}
+            title={t.locked ? "Coming soon" : undefined}
+            className={cn(
+              "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600",
+              active ? "border-brand-600 text-brand-700" : "border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900",
+              t.locked && "cursor-not-allowed text-gray-500 hover:border-transparent hover:text-gray-500",
+            )}
+          >
+            {t.locked && <Lock className="h-3.5 w-3.5" aria-hidden="true" />}
+            {t.label}
+            <span className="text-xs font-normal tabular-nums text-gray-500">{t.spiWeight}%</span>
+            {t.locked && <span className="text-xs font-normal text-gray-500">· Coming soon</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }

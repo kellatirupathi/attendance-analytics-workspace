@@ -36,6 +36,8 @@ import type {
   FetchStudentRecentSessionsParams,
   FetchStudentSubjectsParams,
   GetDashboardFiltersParams,
+  GetAssessmentSummaryParams,
+  AssessmentSummary,
   GetDashboardStudentsParams,
   GetDashboardSummaryParams,
   GetSubjectProdSequenceParams,
@@ -1502,6 +1504,87 @@ export function useGetDashboardFilters<TData = Awaited<ReturnType<typeof getDash
 
 
 
+
+
+
+export const getGetAssessmentSummaryUrl = (params?: GetAssessmentSummaryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/dashboard/assessments/summary?${stringifiedParams}` : `/api/dashboard/assessments/summary`
+}
+
+/**
+ * Slot model: expected attempts = students x conducted quizzes; completion = attempted / expected; avg score = score sum / attempted; overall score = score sum / expected (absent = 0). Rates are derived from raw sums (sum first, divide last) and are null when the denominator is 0.
+ * @summary Assessment metrics for one quiz type, grouped, with roll-ups
+ */
+export const getAssessmentSummary = async (params?: GetAssessmentSummaryParams, options?: RequestInit): Promise<AssessmentSummary> => {
+
+  return customFetch<AssessmentSummary>(getGetAssessmentSummaryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAssessmentSummaryQueryKey = (params?: GetAssessmentSummaryParams,) => {
+    return [
+    `/api/dashboard/assessments/summary`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetAssessmentSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getAssessmentSummary>>, TError = ErrorType<unknown>>(params?: GetAssessmentSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAssessmentSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAssessmentSummaryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAssessmentSummary>>> = ({ signal }) => getAssessmentSummary(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAssessmentSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAssessmentSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getAssessmentSummary>>>
+export type GetAssessmentSummaryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Assessment metrics for one quiz type, grouped, with roll-ups
+ */
+
+export function useGetAssessmentSummary<TData = Awaited<ReturnType<typeof getAssessmentSummary>>, TError = ErrorType<unknown>>(
+ params?: GetAssessmentSummaryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAssessmentSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAssessmentSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 
 export const getGetDashboardStudentsUrl = (params?: GetDashboardStudentsParams,) => {

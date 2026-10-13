@@ -503,6 +503,35 @@ paths:
                 items:
                   $ref: "#/components/schemas/DashboardStudent"
 
+  /dashboard/assessments/summary:
+    get:
+      operationId: getAssessmentSummary
+      tags: [dashboard]
+      summary: Assessment metrics for one quiz type, grouped, with roll-ups
+      description: >
+        Slot model: expected attempts = students x conducted quizzes; completion = attempted / expected;
+        avg score = score sum / attempted; overall score = score sum / expected (absent = 0).
+        Rates are derived from raw sums (sum first, divide last) and are null when the denominator is 0.
+      parameters:
+        - { name: type, in: query, required: false, schema: { type: string, enum: [cq, mq, all], default: cq } }
+        - { name: groupBy, in: query, required: false, schema: { type: string, enum: [campus, subject, section, semester, student], default: campus } }
+        - { name: semester, in: query, required: false, description: 'Derived semester label (e.g. "Semester 1") or "current" for every current semester', schema: { type: string } }
+        - { name: campuses, in: query, required: false, description: Campus names joined with "||", schema: { type: string } }
+        - { name: sections, in: query, required: false, description: 'campus + TAB + section, joined with "||"', schema: { type: string } }
+        - { name: subjects, in: query, required: false, description: Subject names joined with "||", schema: { type: string } }
+        - { name: student, in: query, required: false, description: Student name or ID search, schema: { type: string } }
+      responses:
+        "200":
+          description: Overall roll-up, grouped rows with their semesters, the semester panel and filter options
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssessmentSummary"
+        "400":
+          description: Invalid type or groupBy
+        "403":
+          description: Campus outside the user's scope
+
   /dashboard/assessment-campuses:
     get:
       operationId: getAssessmentCampuses
@@ -1513,6 +1542,83 @@ components:
         completionPct:
           type: number
 
+    AssessmentSummaryMetrics:
+      type: object
+      required: [scheduled, conducted, students, expectedAttempts, attempted, notAttempted, scoreSum, completionPct, avgScoreAttempted, overallScore, conductedPct]
+      properties:
+        scheduled: { type: integer, description: Distinct quizzes scheduled in the current semester window }
+        conducted: { type: integer, description: Scheduled quizzes whose date has passed }
+        students: { type: integer }
+        expectedAttempts: { type: integer }
+        attempted: { type: integer }
+        notAttempted: { type: integer }
+        scoreSum: { type: number }
+        completionPct: { type: number, nullable: true }
+        avgScoreAttempted: { type: number, nullable: true }
+        overallScore: { type: number, nullable: true }
+        conductedPct: { type: number, nullable: true }
+    AssessmentSummarySemester:
+      allOf:
+        - $ref: "#/components/schemas/AssessmentSummaryMetrics"
+        - type: object
+          required: [id, campus, batch, title, semester, startDate, endDate, termWise]
+          properties:
+            id: { type: string }
+            campus: { type: string }
+            batch: { type: string }
+            title: { type: string }
+            semester: { type: string }
+            startDate: { type: string, nullable: true }
+            endDate: { type: string, nullable: true }
+            termWise: { type: boolean }
+    AssessmentSummaryRow:
+      allOf:
+        - $ref: "#/components/schemas/AssessmentSummaryMetrics"
+        - type: object
+          required: [id, name, campus, section, semester, batch, semesterTitle, startDate, endDate, termWise, studentId, spiPath, semesters]
+          properties:
+            id: { type: string }
+            name: { type: string }
+            campus: { type: string, nullable: true }
+            section: { type: string, nullable: true }
+            semester: { type: string, nullable: true }
+            batch: { type: string, nullable: true }
+            semesterTitle: { type: string, nullable: true }
+            startDate: { type: string, nullable: true }
+            endDate: { type: string, nullable: true }
+            termWise: { type: boolean }
+            studentId: { type: string, nullable: true }
+            spiPath: { type: string, nullable: true }
+            semesters:
+              type: array
+              items: { $ref: "#/components/schemas/AssessmentSummarySemester" }
+    AssessmentSummary:
+      type: object
+      required: [overall, rows, semesters, needsCampus, options]
+      properties:
+        overall: { $ref: "#/components/schemas/AssessmentSummaryMetrics" }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/AssessmentSummaryRow" }
+        semesters:
+          type: array
+          items: { $ref: "#/components/schemas/AssessmentSummarySemester" }
+        needsCampus: { type: boolean, description: Student-wise needs a campus, section or student search }
+        options:
+          type: object
+          required: [campuses, semesters, sections, subjects]
+          properties:
+            campuses: { type: array, items: { type: string } }
+            semesters: { type: array, items: { type: string } }
+            sections:
+              type: array
+              items:
+                type: object
+                required: [campus, section]
+                properties:
+                  campus: { type: string }
+                  section: { type: string }
+            subjects: { type: array, items: { type: string } }
     AssessmentCampus:
       allOf:
         - $ref: "#/components/schemas/AssessmentCounts"

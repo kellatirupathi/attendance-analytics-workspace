@@ -54,8 +54,11 @@ export const COURSE_WEIGHTS: Record<string, number> = {
   "Statistical Computing Lab": 1,
 };
 
+const COURSE_WEIGHT_BY_KEY = new Map(Object.entries(COURSE_WEIGHTS).map(([name, w]) => [name.toLowerCase(), w]));
+
+/** Course weight for a subject title, ignoring case and extra spaces ("AI For Finance" = "AI for Finance"). */
 export function courseWeight(subject: string): number | null {
-  return COURSE_WEIGHTS[subject.trim()] ?? null;
+  return COURSE_WEIGHT_BY_KEY.get(subject.trim().replace(/\s+/g, " ").toLowerCase()) ?? null;
 }
 
 /** Raw counts. Every rate below is derived from these, never stored. */
