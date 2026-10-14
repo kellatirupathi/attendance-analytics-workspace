@@ -740,41 +740,22 @@ export async function getDashboardFilterOptions(
   scope: SessionScope,
   opts: { campus?: string } = {},
 ): Promise<DashboardFilterOptions> {
-  const params: Record<string, unknown> = {};
-  const where = scopeClause(scope, params);
-  let sectionCampusFilter = "";
-  if (opts.campus) {
-    params["filterCampus"] = opts.campus.trim();
-    sectionCampusFilter = "AND TRIM(institute_name) = @filterCampus";
+  // Campus and section names come from the shared current-semester attendance
+  // snapshot (same eligible students, same scope rules) instead of two more
+  // full scans of the attendance view.
+  const detail = await getAttendanceStatsDetail(scope);
+  const campus = opts.campus?.trim();
+  const campuses = new Set<string>();
+  const sections = new Set<string>();
+  for (const row of [...detail.students, ...detail.classes]) {
+    campuses.add(row.university);
+    // "Unknown" stands for a blank section in the snapshot; the old query left blanks out too.
+    if ((!campus || row.university === campus) && row.section !== "Unknown") sections.add(row.section);
   }
-
-  const sectionRows = await bqQuery<{ batch_section_name: string }>(
-    `SELECT DISTINCT batch_section_name
-     FROM ${ATTENDANCE_TABLE}
-     WHERE ${where} ${sectionCampusFilter}
-       AND batch_section_name IS NOT NULL
-     ORDER BY batch_section_name`,
-    params,
-    BQ_LOCATION,
-    BQ_HEAVY_QUERY_TIMEOUT_MS,
-  );
-  const campusRows = opts.campus
-    ? []
-    : await bqQuery<{ institute_name: string }>(
-        `SELECT DISTINCT institute_name
-         FROM ${ATTENDANCE_TABLE}
-         WHERE ${where} AND institute_name IS NOT NULL
-         ORDER BY institute_name`,
-        params,
-        BQ_LOCATION,
-        BQ_HEAVY_QUERY_TIMEOUT_MS,
-      );
-
+  const byName = (a: string, b: string) => a.localeCompare(b);
   return {
-    campuses: campusRows
-      .map((r) => r.institute_name)
-      .filter((name) => !isExcludedInstitute(name)),
-    sections: sectionRows.map((r) => r.batch_section_name),
+    campuses: campus ? [] : [...campuses].filter((name) => !isExcludedInstitute(name)).sort(byName),
+    sections: [...sections].sort(byName),
     updatedAt: new Date().toISOString(),
   };
 }
