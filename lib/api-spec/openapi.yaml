@@ -1544,11 +1544,12 @@ components:
 
     AssessmentSummaryMetrics:
       type: object
-      required: [scheduled, conducted, students, expectedAttempts, attempted, notAttempted, scoreSum, completionPct, avgScoreAttempted, overallScore, conductedPct]
+      required: [scheduled, conducted, students, campuses, expectedAttempts, attempted, notAttempted, scoreSum, completionPct, avgScoreAttempted, overallScore, conductedPct]
       properties:
         scheduled: { type: integer, description: Distinct quizzes scheduled in the current semester window }
-        conducted: { type: integer, description: Scheduled quizzes whose date has passed }
+        conducted: { type: integer, description: Scheduled quizzes whose session is completed or partially completed and whose date has passed }
         students: { type: integer }
+        campuses: { type: integer, description: Distinct campuses in the row }
         expectedAttempts: { type: integer }
         attempted: { type: integer }
         notAttempted: { type: integer }
@@ -1603,7 +1604,7 @@ components:
         semesters:
           type: array
           items: { $ref: "#/components/schemas/AssessmentSummarySemester" }
-        needsCampus: { type: boolean, description: Student-wise needs a campus, section or student search }
+        needsCampus: { type: boolean, description: Section-wise needs a campus; Student-wise a campus, section or student search }
         options:
           type: object
           required: [campuses, semesters, sections, subjects]

@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "wouter";
-import { ArrowDown, ArrowUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronsUpDown, ExternalLink } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronsUpDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionError } from "@/components/dashboard/overview";
 import { cn } from "@/lib/utils";
-import { courseWeight, fmtInt, fmtPct, fmtScore, type AssessmentMetrics } from "@/lib/assessmentMetrics";
-import type { SummaryGroupBy, SummaryRow } from "@/lib/assessmentSummary";
+import { fmtInt, fmtPct, fmtScore } from "@/lib/assessmentMetrics";
+import type { SemesterMetrics, SummaryGroupBy, SummaryMetrics, SummaryRow } from "@/lib/assessmentSummary";
 import { CompletionCell, FOCUS_RING, TermWiseTag, fmtDateRange } from "./parts";
 
 export interface TableColumn {
@@ -21,10 +21,14 @@ export interface TableColumn {
   csv: (row: SummaryRow) => string | number;
 }
 
-const conductedText = (m: AssessmentMetrics) => (m.scheduled ? `${fmtInt(m.conducted)} / ${fmtInt(m.scheduled)}` : "–");
+const conductedText = (m: SummaryMetrics) => (m.scheduled ? `${fmtInt(m.conducted)} / ${fmtInt(m.scheduled)}` : "–");
+const num = (n: number) => <span className="tabular-nums">{fmtInt(n)}</span>;
 
-const METRIC_COLUMNS: TableColumn[] = [
-  {
+/** Every metric column, by key. Each view picks its own set and order (VIEW_METRICS). */
+const METRICS: Record<string, TableColumn> = {
+  campuses: { key: "campuses", label: "Campuses", kind: "metric", align: "right", sortValue: (r) => r.campuses, render: (r) => num(r.campuses), csv: (r) => r.campuses },
+  students: { key: "students", label: "Students", kind: "metric", align: "right", sortValue: (r) => r.students, render: (r) => num(r.students), csv: (r) => r.students },
+  conducted: {
     key: "conducted",
     label: "Conducted / scheduled",
     kind: "metric",
@@ -33,17 +37,26 @@ const METRIC_COLUMNS: TableColumn[] = [
     render: (r) => <span className="tabular-nums">{conductedText(r)}</span>,
     csv: (r) => conductedText(r),
   },
-  { key: "students", label: "Students", kind: "metric", align: "right", sortValue: (r) => r.students, render: (r) => <span className="tabular-nums">{fmtInt(r.students)}</span>, csv: (r) => r.students },
-  { key: "completion", label: "Completion", kind: "metric", align: "right", sortValue: (r) => r.completionPct, render: (r) => <CompletionCell pct={r.completionPct} />, csv: (r) => fmtPct(r.completionPct) },
-  { key: "notAttempted", label: "Not attempted", kind: "metric", align: "right", sortValue: (r) => r.notAttempted, render: (r) => <span className="tabular-nums">{fmtInt(r.expectedAttempts ? r.notAttempted : null)}</span>, csv: (r) => (r.expectedAttempts ? r.notAttempted : "–") },
-  { key: "avg", label: "Avg (attempted)", kind: "metric", align: "right", sortValue: (r) => r.avgScoreAttempted, render: (r) => <span className="tabular-nums">{fmtScore(r.avgScoreAttempted)}</span>, csv: (r) => fmtScore(r.avgScoreAttempted) },
-  { key: "overall", label: "Overall (absent = 0)", kind: "metric", align: "right", sortValue: (r) => r.overallScore, render: (r) => <span className="font-medium tabular-nums">{fmtScore(r.overallScore)}</span>, csv: (r) => fmtScore(r.overallScore) },
-];
+  // Student-wise: the student's own conducted quizzes, i.e. their expected attempts (the roll-up adds them up).
+  studentConducted: { key: "studentConducted", label: "Conducted", kind: "metric", align: "right", sortValue: (r) => r.expectedAttempts, render: (r) => num(r.expectedAttempts), csv: (r) => r.expectedAttempts },
+  expected: { key: "expected", label: "Expected attempts", kind: "metric", align: "right", sortValue: (r) => r.expectedAttempts, render: (r) => num(r.expectedAttempts), csv: (r) => r.expectedAttempts },
+  attempted: { key: "attempted", label: "Attempted", kind: "metric", align: "right", sortValue: (r) => r.attempted, render: (r) => num(r.attempted), csv: (r) => r.attempted },
+  notAttempted: { key: "notAttempted", label: "Not attempted", kind: "metric", align: "right", sortValue: (r) => r.notAttempted, render: (r) => <span className="tabular-nums">{fmtInt(r.expectedAttempts ? r.notAttempted : null)}</span>, csv: (r) => (r.expectedAttempts ? r.notAttempted : "–") },
+  completion: { key: "completion", label: "Completion", kind: "metric", align: "right", sortValue: (r) => r.completionPct, render: (r) => <CompletionCell pct={r.completionPct} />, csv: (r) => fmtPct(r.completionPct) },
+  avg: { key: "avg", label: "Avg (attempted)", kind: "metric", align: "right", sortValue: (r) => r.avgScoreAttempted, render: (r) => <span className="tabular-nums">{fmtScore(r.avgScoreAttempted)}</span>, csv: (r) => fmtScore(r.avgScoreAttempted) },
+  overall: { key: "overall", label: "Overall (absent = 0)", kind: "metric", align: "right", sortValue: (r) => r.overallScore, render: (r) => <span className="font-medium tabular-nums">{fmtScore(r.overallScore)}</span>, csv: (r) => fmtScore(r.overallScore) },
+};
 
-export const OPTIONAL_METRIC_COLUMNS = METRIC_COLUMNS.map((c) => ({ key: c.key, label: c.label }));
+const VIEW_METRICS: Record<SummaryGroupBy, string[]> = {
+  campus: ["students", "conducted", "expected", "attempted", "notAttempted", "completion", "avg", "overall"],
+  subject: ["campuses", "students", "conducted", "completion", "notAttempted", "avg", "overall"],
+  section: ["students", "conducted", "completion", "notAttempted", "avg", "overall"],
+  semester: ["students", "conducted", "expected", "attempted", "completion", "avg", "overall"],
+  student: ["studentConducted", "attempted", "notAttempted", "completion", "avg", "overall"],
+};
 
 /** A full row object for the roll-up ("All campuses") line and its CSV export. */
-export function rollupRow(m: AssessmentMetrics & { scoreSum: number }, label: string): SummaryRow {
+export function rollupRow(m: SummaryMetrics, label: string): SummaryRow {
   return {
     ...m,
     id: "__all",
@@ -62,7 +75,8 @@ export function rollupRow(m: AssessmentMetrics & { scoreSum: number }, label: st
   };
 }
 
-export function columnsFor(groupBy: SummaryGroupBy, campusOnSemesterRows = true): TableColumn[] {
+/** Columns of one Group by view. Section-wise adds a Campus column only when several campuses are picked. */
+export function columnsFor(groupBy: SummaryGroupBy, opts: { multiCampus?: boolean } = {}): TableColumn[] {
   const text = (key: string, label: string, get: (r: SummaryRow) => string | null | undefined, extra?: Partial<TableColumn>): TableColumn => ({
     key,
     label,
@@ -78,35 +92,23 @@ export function columnsFor(groupBy: SummaryGroupBy, campusOnSemesterRows = true)
   let identity: TableColumn[];
   switch (groupBy) {
     case "subject":
-      identity = [
-        name("Subject"),
-        {
-          key: "weight",
-          label: "Course weight",
-          kind: "identity",
-          align: "right",
-          sortValue: (r) => courseWeight(r.name),
-          render: (r) => <span className="tabular-nums">{courseWeight(r.name) ?? "–"}</span>,
-          csv: (r) => courseWeight(r.name) ?? "",
-        },
-      ];
+      identity = [name("Subject")];
       break;
     case "section":
-      identity = [name("Section"), text("campus", "Campus", (r) => r.campus), text("semester", "Semester", (r) => r.semester)];
+      identity = [name("Section"), ...(opts.multiCampus ? [text("campus", "Campus", (r) => r.campus)] : []), text("semester", "Semester", (r) => r.semester)];
       break;
     case "semester":
       identity = [
-        ...(campusOnSemesterRows ? [name("Campus")] : []),
+        name("Campus"),
         text("batch", "Batch", (r) => r.batch),
-        text("semesterTitle", "Semester title", (r) => r.semesterTitle, {
+        text("semester", "Semester (derived)", (r) => r.semester, {
           render: (r) => (
-            <span className="inline-flex items-center gap-2">
-              {r.semesterTitle ?? "–"}
+            <span className="inline-flex items-center gap-2 whitespace-nowrap" title={r.semesterTitle ?? undefined}>
+              {r.semester ?? "–"}
               {r.termWise && <TermWiseTag />}
             </span>
           ),
         }),
-        text("semester", "Derived semester", (r) => r.semester),
         text("dates", "Dates", (r) => fmtDateRange(r.startDate, r.endDate), { sortValue: (r) => r.startDate ?? "", render: (r) => <span className="whitespace-nowrap tabular-nums">{fmtDateRange(r.startDate, r.endDate)}</span> }),
       ];
       break;
@@ -114,15 +116,52 @@ export function columnsFor(groupBy: SummaryGroupBy, campusOnSemesterRows = true)
       identity = [
         name("Student"),
         text("studentId", "Student ID", (r) => r.studentId, { render: (r) => <span className="font-mono text-xs">{r.studentId}</span> }),
-        text("campus", "Campus", (r) => r.campus),
         text("section", "Section", (r) => r.section),
       ];
       break;
     default:
       identity = [name("Campus")];
   }
-  const metrics = groupBy === "student" ? METRIC_COLUMNS.filter((c) => c.key !== "students") : METRIC_COLUMNS;
-  return [...identity, ...metrics];
+  return [...identity, ...VIEW_METRICS[groupBy].map((key) => METRICS[key]!)];
+}
+
+/** One campus's batches, each on its own current semester and dates. Opens under the campus row. */
+function SemesterSplit({ semesters }: { semesters: SemesterMetrics[] }) {
+  if (!semesters.length) return <p className="px-5 py-3 text-sm text-slate-600">No semesters for this campus.</p>;
+  const rows = semesters.slice().sort((a, b) => (a.startDate ?? "").localeCompare(b.startDate ?? ""));
+  const heads = ["Batch · semester", "Dates", "Students", "Conducted / scheduled", "Expected attempts", "Attempted", "Completion", "Avg (attempted)", "Overall (absent = 0)"];
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-brand-100 text-left text-xs uppercase tracking-wide text-slate-500">
+          {heads.map((h, i) => (
+            <th key={h} scope="col" className={cn("whitespace-nowrap px-4 py-2 font-medium", i > 1 && "text-right", i === 0 && "pl-12")}>{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((s) => (
+          <tr key={s.id} className="border-b border-brand-100 last:border-b-0">
+            <td className="py-2 pl-12 pr-4">
+              <span className="flex flex-wrap items-center gap-2 font-medium text-slate-900">
+                {s.batch} · {s.semester}
+                {s.termWise && <TermWiseTag />}
+              </span>
+              <span className="block text-xs text-slate-600">{s.title}</span>
+            </td>
+            <td className="whitespace-nowrap px-4 py-2 tabular-nums">{fmtDateRange(s.startDate, s.endDate)}</td>
+            <td className="px-4 py-2 text-right tabular-nums">{fmtInt(s.students)}</td>
+            <td className="px-4 py-2 text-right tabular-nums">{conductedText(s)}</td>
+            <td className="px-4 py-2 text-right tabular-nums">{fmtInt(s.expectedAttempts)}</td>
+            <td className="px-4 py-2 text-right tabular-nums">{fmtInt(s.attempted)}</td>
+            <td className="px-4 py-2 text-right"><CompletionCell pct={s.completionPct} /></td>
+            <td className="px-4 py-2 text-right tabular-nums">{fmtScore(s.avgScoreAttempted)}</td>
+            <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtScore(s.overallScore)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 type Sort = { key: string; dir: 1 | -1 };
@@ -144,21 +183,23 @@ export function AssessmentTable({
   rollup,
   rollupLabel,
   loading,
-  updating,
   onRetry,
-  onShowSemesters,
-  emptyText = "No assessments match these filters.",
+  expandedId,
+  onToggleExpand,
+  emptyState,
 }: {
   groupBy: SummaryGroupBy;
   columns: TableColumn[];
   rows: SummaryRow[];
-  rollup: (AssessmentMetrics & { scoreSum: number }) | null;
+  rollup: SummaryMetrics | null;
   rollupLabel: string;
   loading: boolean;
-  updating: boolean;
   onRetry?: () => void;
-  onShowSemesters?: (row: SummaryRow) => void;
-  emptyText?: string;
+  /** Campus-wise: the campus whose semester split is open. */
+  expandedId?: string;
+  onToggleExpand?: (row: SummaryRow) => void;
+  /** Shown instead of the table when there are no rows. */
+  emptyState?: ReactNode;
 }) {
   const [sort, setSort] = useState<Sort>({ key: "completion", dir: 1 });
   const [page, setPage] = useState(1);
@@ -175,17 +216,19 @@ export function AssessmentTable({
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const current = Math.min(page, totalPages);
   const shown = sorted.slice((current - 1) * pageSize, current * pageSize);
-  const showSemesters = Boolean(onShowSemesters) && groupBy === "campus";
+  const expandable = groupBy === "campus" && Boolean(onToggleExpand);
+  const withLink = groupBy === "student";
+  const span = columns.length + (withLink ? 1 : 0);
 
   if (onRetry) return <SectionError what="the table" onRetry={onRetry} />;
   if (loading && !rows.length) return <div className="p-5"><Skeleton className="h-64 w-full" /></div>;
-  if (!rows.length) return <p className="p-5 text-sm text-slate-600">{emptyText}</p>;
+  if (!rows.length) return <>{emptyState ?? <p className="p-5 text-sm text-slate-600">No assessments match these filters.</p>}</>;
 
   const cellAlign = (c: TableColumn) => (c.align === "right" ? "text-right" : "text-left");
   const sticky = "sticky left-0 z-10";
 
   return (
-    <div aria-busy={updating || undefined} className={cn("transition-opacity", updating && "opacity-60")}>
+    <div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[56rem] text-sm">
           <thead>
@@ -213,7 +256,7 @@ export function AssessmentTable({
                   </button>
                 </th>
               ))}
-              {(showSemesters || groupBy === "student") && <th scope="col" className="bg-white px-4 py-2"><span className="sr-only">Actions</span></th>}
+              {withLink && <th scope="col" className="bg-white px-4 py-2"><span className="sr-only">SPI report</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -224,36 +267,59 @@ export function AssessmentTable({
                     {i === 0 ? rollupLabel : c.kind === "metric" ? c.render(rollupRow(rollup, rollupLabel)) : ""}
                   </td>
                 ))}
-                {(showSemesters || groupBy === "student") && <td className="px-4 py-2.5" />}
+                {withLink && <td className="px-4 py-2.5" />}
               </tr>
             )}
-            {shown.map((row) => (
-              <tr key={row.id} className="group border-b border-slate-100 hover:bg-slate-50">
-                {columns.map((c, i) => (
-                  <td key={c.key} className={cn("px-5 py-2", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100 bg-white group-hover:bg-slate-50"))}>
-                    {c.render(row)}
-                  </td>
-                ))}
-                {showSemesters && (
-                  <td className="px-4 py-2 text-right">
-                    <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => onShowSemesters!(row)} aria-label={`Show semesters for ${row.name}`}>
-                      Semesters
-                    </Button>
-                  </td>
-                )}
-                {groupBy === "student" && (
-                  <td className="whitespace-nowrap px-4 py-2 text-right">
-                    {row.spiPath ? (
-                      <Link href={row.spiPath} className={cn("inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
-                        View SPI report <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                      </Link>
-                    ) : (
-                      <span className="text-xs text-slate-500" title="Available once live data is connected">View SPI report</span>
+            {shown.map((row) => {
+              const open = expandable && expandedId === row.id;
+              return (
+                <Fragment key={row.id}>
+                  <tr className={cn("group border-b border-slate-100", open ? "bg-brand-50" : "hover:bg-slate-50")}>
+                    {columns.map((c, i) => (
+                      <td
+                        key={c.key}
+                        className={cn(
+                          "px-5 py-2",
+                          cellAlign(c),
+                          i === 0 && cn(sticky, "border-r border-slate-100", open ? "bg-brand-50" : "bg-white group-hover:bg-slate-50"),
+                        )}
+                      >
+                        {i === 0 && expandable ? (
+                          <button
+                            type="button"
+                            aria-expanded={open}
+                            onClick={() => onToggleExpand!(row)}
+                            className={cn("inline-flex items-center gap-1.5 text-left font-medium text-slate-900 hover:text-brand-800", FOCUS_RING)}
+                          >
+                            {open ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />}
+                            {row.name}
+                            <span className="sr-only">{open ? ": hide semesters" : ": show semesters"}</span>
+                          </button>
+                        ) : (
+                          c.render(row)
+                        )}
+                      </td>
+                    ))}
+                    {withLink && (
+                      <td className="whitespace-nowrap px-4 py-2 text-right">
+                        {row.spiPath && (
+                          <Link href={row.spiPath} className={cn("inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
+                            View SPI report <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </Link>
+                        )}
+                      </td>
                     )}
-                  </td>
-                )}
-              </tr>
-            ))}
+                  </tr>
+                  {open && (
+                    <tr className="border-b border-slate-200 bg-brand-50/40">
+                      <td colSpan={span} className="p-0">
+                        <SemesterSplit semesters={row.semesters} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

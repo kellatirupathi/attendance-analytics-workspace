@@ -13,7 +13,10 @@
  * institute such as Aurora sit on different semesters at the same time.
  *
  * Distinct assessments (scheduled / conducted) come from the session resources: quiz units of the
- * section's current semester, conducted once the session date has passed.
+ * section's current semester, conducted once the session date has passed and the session is marked
+ * COMPLETED or PARTIALLY_COMPLETED (PENDING / STARTED sessions are scheduled, not conducted).
+ * Student-wise rows carry the student's own slots as conducted / scheduled; the period and overall
+ * rows still count distinct units.
  *
  * GROUPING SETS ((g), (g, p), (p), ()) returns rows, row × semester, the semester panel and the
  * overall roll-up in one pass; COUNT(DISTINCT) keeps student and assessment counts exact at every level.
@@ -28,6 +31,9 @@ export interface SummarySqlTables {
   sessionResources: string;
   resourceTypes: string;
 }
+
+/** Session statuses that count a scheduled quiz as conducted. */
+const CONDUCTED_STATUSES = ["COMPLETED", "PARTIALLY_COMPLETED"];
 
 /** Row key per group-by, over the roster alias r. The period key is campus · batch · derived semester. */
 const GROUP_KEY: Record<SummaryGroupBy, string> = {
@@ -130,7 +136,7 @@ export function buildAssessmentSummarySql(
   quizWhere: string,
 ): string {
   const g = GROUP_KEY[groupBy];
-  const withUnits = groupBy !== "student";
+  const byStudent = groupBy === "student";
   // Semester-wise rows are the periods themselves, so BigQuery folds (row_key) into (period_key):
   // group by the period only and tag each row as a row (gp = 1); the server reuses them for the panel.
   const bySemester = groupBy === "semester";
@@ -181,54 +187,49 @@ export function buildAssessmentSummarySql(
       ANY_VALUE(student_id) AS r_student_id,
       ANY_VALUE(student_name) AS r_student_name,
       COUNT(DISTINCT student_key) AS students,
+      COUNT(DISTINCT campus) AS campuses,
       SUM(q_total) AS slots_total,
       SUM(q_expected) AS expected_attempts,
       SUM(q_attempted) AS attempted,
       SUM(q_score) AS score_sum
     FROM slots
     GROUP BY GROUPING SETS (${keys.sets})
-  )${
-    withUnits
-      ? `,
+  ),
   units AS (
     -- Distinct quiz units of each section's current semester, matched to the roster's subjects.
     SELECT DISTINCT
-      s.row_key, s.period_key,
+      ${byStudent ? "" : "s.row_key, "}s.period_key,
       ${KEY("res.resource_id")} AS unit,
-      res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata') AS done
+      res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata')
+        AND UPPER(TRIM(IFNULL(res.session_status, ''))) IN (${CONDUCTED_STATUSES.map((s) => `'${s}'`).join(", ")}) AS done
     FROM ${t.sessionResources} res
     JOIN ${t.resourceTypes} rt
       ON rt.session_id = res.session_id AND rt.resource_id = res.resource_id
-    JOIN (SELECT DISTINCT row_key, section_key, subject, period_key, start_d, end_d FROM slots) s
+    JOIN (SELECT DISTINCT ${byStudent ? "" : "row_key, "}section_key, subject, period_key, start_d, end_d FROM slots) s
       ON s.section_key = ${KEY("res.section_id")}
      AND LOWER(TRIM(IFNULL(res.semester_course_title, ''))) = LOWER(s.subject)
     WHERE UPPER(rt.derived_unit_type) IN UNNEST(@types)
       AND DATE(res.session_start_datetime) BETWEEN s.start_d AND s.end_d
   ),
   unit_counts AS (
+    -- Student-wise counts units per period and overall only; a unit list per student would be huge.
     SELECT
-      ${keys.g} AS g,
+      ${byStudent ? "CAST(NULL AS STRING)" : keys.g} AS g,
       period_key AS p,
-      ${keys.gg} AS gg,
-      ${keys.gp} AS gp,
+      ${byStudent ? "1" : keys.gg} AS gg,
+      ${byStudent ? "GROUPING(period_key)" : keys.gp} AS gp,
       COUNT(DISTINCT unit) AS scheduled,
       COUNT(DISTINCT IF(done, unit, NULL)) AS conducted
     FROM units
-    GROUP BY GROUPING SETS (${keys.sets})
-  )`
-      : ""
-  }
+    GROUP BY GROUPING SETS (${byStudent ? "(period_key), ()" : keys.sets})
+  )
 SELECT
   m.*,
-  ${withUnits ? "IFNULL(u.scheduled, 0)" : "m.slots_total"} AS scheduled,
-  ${withUnits ? "IFNULL(u.conducted, 0)" : "m.expected_attempts"} AS conducted
+  ${byStudent ? "IF(m.gg = 1, IFNULL(u.scheduled, 0), m.slots_total)" : "IFNULL(u.scheduled, 0)"} AS scheduled,
+  ${byStudent ? "IF(m.gg = 1, IFNULL(u.conducted, 0), m.expected_attempts)" : "IFNULL(u.conducted, 0)"} AS conducted
 FROM metrics m
-${
-  withUnits
-    ? `LEFT JOIN unit_counts u
-  ON u.gg = m.gg AND u.gp = m.gp AND IFNULL(u.g, '') = IFNULL(m.g, '') AND IFNULL(u.p, '') = IFNULL(m.p, '')`
-    : ""
-}`;
+LEFT JOIN unit_counts u
+  ON u.gg = m.gg AND u.gp = m.gp AND IFNULL(u.g, '') = IFNULL(m.g, '') AND IFNULL(u.p, '') = IFNULL(m.p, '')`;
 }
 
 /** Filter options for the page: campuses, current derived semesters, sections and subjects in scope. */

@@ -6,7 +6,7 @@ import { FOCUS_RING } from "./parts";
 
 const TERMS: [string, string][] = [
   ["Scheduled", "All assessments planned for a campus and semester."],
-  ["Conducted", "Scheduled assessments whose date has passed. Only conducted assessments enter any calculation."],
+  ["Conducted", "Scheduled assessments whose date has passed and whose session is marked completed or partially completed. Only conducted assessments enter any calculation."],
   ["Roster", "Active students of that campus and semester."],
   ["Expected attempts", "Students × conducted assessments: one slot per student per conducted assessment."],
   ["Attempted", "A slot with a submitted attempt. A submitted 0 counts as attempted; absent and unsubmitted slots do not."],

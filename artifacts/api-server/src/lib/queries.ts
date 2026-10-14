@@ -5476,6 +5476,8 @@ export interface SummaryMetrics {
   scheduled: number;
   conducted: number;
   students: number;
+  /** Distinct campuses in the row (Subject-wise: campuses teaching the subject). */
+  campuses: number;
   expectedAttempts: number;
   attempted: number;
   notAttempted: number;
@@ -5516,7 +5518,7 @@ export interface AssessmentSummaryResult {
   overall: SummaryMetrics;
   rows: SummaryRow[];
   semesters: SummarySemester[];
-  /** Student-wise needs a campus, section or student search; rows stay empty until then. */
+  /** Section-wise needs a campus; Student-wise a campus, section or student search. Rows stay empty until then. */
   needsCampus: boolean;
   options: { campuses: string[]; semesters: string[]; sections: { campus: string; section: string }[]; subjects: string[] };
 }
@@ -5538,6 +5540,7 @@ interface SummarySqlRow {
   r_student_id: string | null;
   r_student_name: string | null;
   students: string;
+  campuses: string | null;
   expected_attempts: string | null;
   attempted: string | null;
   score_sum: string | null;
@@ -5557,6 +5560,7 @@ function summaryMetrics(r: SummarySqlRow): SummaryMetrics {
     scheduled,
     conducted,
     students: Number(r.students) || 0,
+    campuses: Number(r.campuses) || 0,
     expectedAttempts: expected,
     attempted,
     notAttempted: Math.max(0, expected - attempted),
@@ -5621,8 +5625,10 @@ export async function getAssessmentSummary(
     student: string;
   },
 ): Promise<AssessmentSummaryResult> {
-  const needsCampus = opts.groupBy === "student" && !opts.campuses.length && !opts.sections.length && !opts.student.trim();
-  // Student-wise across every campus would return every student; show campus totals until a campus is picked.
+  const noCampus = !opts.campuses.length && !opts.sections.length;
+  const needsCampus =
+    (opts.groupBy === "section" && noCampus) || (opts.groupBy === "student" && noCampus && !opts.student.trim());
+  // Section- and Student-wise list one campus at a time; until one is picked, run the campus query for the KPI cards.
   const groupBy: SummaryGroupBy = needsCampus ? "campus" : opts.groupBy;
 
   const params: Record<string, unknown> = {
@@ -5681,7 +5687,7 @@ export async function getAssessmentSummary(
     sectionMap.set(`${r.campus}\t${r.section}`, { campus: r.campus, section: r.section });
   }
 
-  const empty: SummarySqlRow = { g: null, p: null, gg: "1", gp: "1", r_campus: null, r_section: null, r_subject: null, r_batch: null, r_period_title: null, r_derived: null, r_term_wise: null, r_start: null, r_end: null, r_student_id: null, r_student_name: null, students: "0", expected_attempts: "0", attempted: "0", score_sum: "0", scheduled: "0", conducted: "0" };
+  const empty: SummarySqlRow = { g: null, p: null, gg: "1", gp: "1", r_campus: null, r_section: null, r_subject: null, r_batch: null, r_period_title: null, r_derived: null, r_term_wise: null, r_start: null, r_end: null, r_student_id: null, r_student_name: null, students: "0", campuses: "0", expected_attempts: "0", attempted: "0", score_sum: "0", scheduled: "0", conducted: "0" };
   return {
     overall: summaryMetrics(overallRow ?? empty),
     rows: groupRows,
