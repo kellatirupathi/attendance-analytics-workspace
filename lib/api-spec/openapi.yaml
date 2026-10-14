@@ -520,9 +520,14 @@ paths:
         - { name: sections, in: query, required: false, description: 'campus + TAB + section, joined with "||"', schema: { type: string } }
         - { name: subjects, in: query, required: false, description: Subject names joined with "||", schema: { type: string } }
         - { name: student, in: query, required: false, description: Student name or ID search, schema: { type: string } }
+        - { name: page, in: query, required: false, description: 1-based page of rows, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, required: false, description: Rows per page (at most 200), schema: { type: integer, default: 50 } }
+        - { name: sort, in: query, required: false, description: Table column key to sort rows by (default completion), schema: { type: string } }
+        - { name: dir, in: query, required: false, schema: { type: string, enum: [asc, desc], default: asc } }
+        - { name: export, in: query, required: false, description: '"1" returns every row on one page, for CSV', schema: { type: string } }
       responses:
         "200":
-          description: Overall roll-up, grouped rows with their semesters, the semester panel and filter options
+          description: Overall roll-up, one sorted page of grouped rows with their semesters, the semester panel and filter options
           content:
             application/json:
               schema:
@@ -1595,12 +1600,17 @@ components:
               items: { $ref: "#/components/schemas/AssessmentSummarySemester" }
     AssessmentSummary:
       type: object
-      required: [overall, rows, semesters, needsCampus, options]
+      required: [overall, rows, total, page, pageSize, totalPages, semesters, needsCampus, options]
       properties:
         overall: { $ref: "#/components/schemas/AssessmentSummaryMetrics" }
         rows:
+          description: One page of rows
           type: array
           items: { $ref: "#/components/schemas/AssessmentSummaryRow" }
+        total: { type: integer, description: Rows across all pages }
+        page: { type: integer }
+        pageSize: { type: integer }
+        totalPages: { type: integer }
         semesters:
           type: array
           items: { $ref: "#/components/schemas/AssessmentSummarySemester" }

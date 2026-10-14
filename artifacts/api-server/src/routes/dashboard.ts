@@ -24,6 +24,7 @@ import {
   getAssessmentStudents,
   getAssessmentDetail,
   getAssessmentSummary,
+  type AssessmentSummaryResult,
   type SummaryGroupBy,
   type SummaryType,
   getAssessmentStudentRows,
@@ -40,6 +41,8 @@ import {
   type SpiRecordGrain,
   getAttendanceGroupStats,
   getAttendanceStatsDetail,
+  attendanceStatsVersion,
+  spiRecordVersion,
   getAttendanceStatsUnits,
   getAttendanceTrend,
   getSubjectOptions,
@@ -55,6 +58,35 @@ import { REQUIRED_PCT } from "../lib/rbac.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "../lib/cache.js";
 import { spiSharePath } from "../lib/spiToken.js";
 import { sendLargeJson } from "../lib/largeJsonResponse.js";
+import { pageOf, readPageRequest } from "../lib/pagination.js";
+import { DEFAULT_ASSESSMENT_SORT, sortSummaryRows } from "../lib/assessmentSummarySort.js";
+import {
+  aggregateAttendanceStats,
+  attendanceFilterOptions,
+  searchAttendanceStudents,
+  type AttendanceFilters,
+  type AttendanceViewGrain,
+  type AttendanceViewRow,
+} from "../lib/attendanceStatsAggregate.js";
+import { aggregateSpiRecord } from "../lib/spiRecordAggregate.js";
+import {
+  filterSpiDetail,
+  searchSpiDetailStudents,
+  spiFilterOptions,
+  type SpiViewFilters,
+} from "../lib/spiRecordView.js";
+import {
+  buildDirectoryRows,
+  directoryOptions,
+  filterDirectory,
+  sortDirectory,
+  summarizeDirectory,
+  type AttendanceTierId,
+  type BoundOp,
+  type DirectoryFilters,
+  type QuizFilter,
+  type SortKey,
+} from "../lib/studentDirectory.js";
 import type { Role } from "../lib/rbac.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 
@@ -196,7 +228,7 @@ router.get("/filters", requireSession(), async (req, res): Promise<void> => {
     subjects: session.subjects,
   });
   const campus = req.query["campus"] as string | undefined;
-  const cacheKey = `filters:v2:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
+  const cacheKey = `filters:v3:${attendanceStatsVersion()}:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -359,7 +391,7 @@ router.get("/spi-record/detail", requireSession(), async (req, res): Promise<voi
   const attendanceFrom = firstQuery(q, "attFrom");
   const attendanceTo = firstQuery(q, "attTo");
   const subjects = queryList(q, "subjects").sort();
-  const cacheKey = `spi-record-detail-http:v3:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${subjects.join("||")}`;
+  const cacheKey = `spi-record-detail-http:v4:${spiRecordVersion()}:${session.role}:${JSON.stringify(scope)}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${subjects.join("||")}`;
   const cached = cacheGet<object>(cacheKey);
   if (cached) {
     res.json(cached);
@@ -385,7 +417,30 @@ router.get("/spi-record/detail", requireSession(), async (req, res): Promise<voi
   }
 });
 
-router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
+function spiAttendanceWindow(q: Record<string, string | string[] | undefined>) {
+  return {
+    attendanceRange: (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates",
+    attendanceFrom: firstQuery(q, "attFrom"),
+    attendanceTo: firstQuery(q, "attTo"),
+  };
+}
+
+function spiViewFilters(q: Record<string, string | string[] | undefined>): SpiViewFilters {
+  return {
+    campuses: queryList(q, "campuses"),
+    semesters: queryList(q, "semesters"),
+    sections: queryList(q, "sections").filter((value) => value.includes("\t")),
+    students: queryList(q, "students").filter((value) => value.includes("\t")),
+  };
+}
+
+/**
+ * SPI Record, one page at a time: the table rows for the page, the header
+ * totals and the filter choices, aggregated on the server from the cached SPI
+ * detail. SPI and attendance bounds (spiOp/spiA/spiB, attOp/attA/attB) apply
+ * only when sent. `export=1` returns every row for CSV.
+ */
+router.get("/spi-record/rows", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({
     role: session.role as Role,
@@ -398,71 +453,50 @@ router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
     res.status(400).json({ error: "Invalid group" });
     return;
   }
-  const campuses = queryList(q, "campuses");
-  const singleCampus = firstQuery(q, "campus");
-  if (singleCampus && !campuses.includes(singleCampus)) campuses.push(singleCampus);
-  if (campuses.some((name) => scope.campuses?.length && !scope.campuses.includes(name))) {
+  const filters = spiViewFilters(q);
+  if (scope.campuses?.length && filters.campuses.some((name) => !scope.campuses!.includes(name))) {
     res.status(403).json({ error: "Not permitted for this campus" });
     return;
   }
-  const semesters = queryList(q, "semesters");
-  const singleSemester = firstQuery(q, "semester");
-  if (singleSemester && !semesters.includes(singleSemester)) semesters.push(singleSemester);
-  const sections = queryList(q, "sections").map((value) => {
-    const [campus, section] = value.split("\t");
-    return { campus: campus ?? "", section: section ?? "" };
-  }).filter((pair) => pair.campus && pair.section);
-  const studentIds = queryList(q, "students");
-  const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
-  const attendanceFrom = firstQuery(q, "attFrom");
-  const attendanceTo = firstQuery(q, "attTo");
-  const spiOp = firstQuery(q, "spiOp");
-  const attendanceOp = firstQuery(q, "attOp");
-  const spiA = boundQueryNumber(firstQuery(q, "spiA"));
-  const spiB = boundQueryNumber(firstQuery(q, "spiB"));
-  const attendanceA = boundQueryNumber(firstQuery(q, "attA"));
-  const attendanceB = boundQueryNumber(firstQuery(q, "attB"));
-  const allSemesters = semesters.length === 0 && firstQuery(q, "scope") === "all";
-  const cacheKey = `spi-record:v9:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
-  const cached = cacheGet<object>(cacheKey);
-  if (cached) {
-    res.json(cached);
-    return;
-  }
+  const pageRequest = readPageRequest(q);
   try {
-    const payload = await getSpiRecord(scope, {
-      grain,
-      semesters,
-      allSemesters,
-      campuses,
-      sections,
-      studentIds,
-      attendanceRange,
-      attendanceFrom,
-      attendanceTo,
-      spiOp,
-      spiA,
-      spiB,
-      attendanceOp,
-      attendanceA,
-      attendanceB,
+    const detail = await getSpiRecordDetail(scope, spiAttendanceWindow(q));
+    const { summary, rows } = aggregateSpiRecord(filterSpiDetail(detail, filters), grain, {
+      spiOp: firstQuery(q, "spiOp") || undefined,
+      spiA: boundQueryNumber(firstQuery(q, "spiA")),
+      spiB: boundQueryNumber(firstQuery(q, "spiB")),
+      attendanceOp: firstQuery(q, "attOp") || undefined,
+      attendanceA: boundQueryNumber(firstQuery(q, "attA")),
+      attendanceB: boundQueryNumber(firstQuery(q, "attB")),
+      singleCampus: filters.campuses.length === 1,
     });
+    const page = pageOf(rows, pageRequest);
     const body = {
-      ...payload,
-      rows: payload.rows.map((row) => ({
-        ...row,
-        spiPath: row.studentId ? spiSharePath(row.studentId) : null,
-      })),
+      ...page,
+      rows: page.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
+      summary,
+      options: spiFilterOptions(detail, filters),
     };
-    cacheSet(cacheKey, body, 15 * 60 * 1000);
-    res.json(body);
+    if (pageRequest.all) await sendLargeJson(req, res, body);
+    else res.json(body);
   } catch (err) {
-    req.log.error({ err }, "Error fetching SPI record");
-    res.status(500).json({ error: "Failed to fetch SPI record" });
+    req.log.error({ err }, "Error fetching SPI record rows");
+    if (!res.headersSent && !res.destroyed) {
+      res.status(500).json({ error: "Failed to fetch SPI record" });
+    }
   }
 });
 
-router.get("/spi-record/students", requireSession(), async (req, res): Promise<void> => {
+const DIRECTORY_SORT_KEYS = new Set<SortKey>(["name", "studentId", "campus", "section", "semester", "attendance", "classroom", "module", "spi", "skill"]);
+const DIRECTORY_TIERS = new Set<AttendanceTierId>(["eligible", "recovery", "at_risk", "ineligible"]);
+const DIRECTORY_BOUND_OPS = new Set(["gte", "lte", "between"]);
+
+/**
+ * Students page, one page at a time: one row per student and campus, filtered,
+ * sorted and paged on the server from the cached SPI detail, plus the header
+ * totals and filter choices. `export=1` returns every row for CSV.
+ */
+router.get("/student-directory", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
   const scope = scopeForSession({
     role: session.role as Role,
@@ -470,23 +504,176 @@ router.get("/spi-record/students", requireSession(), async (req, res): Promise<v
     subjects: session.subjects,
   });
   const q = req.query as Record<string, string | string[] | undefined>;
-  const search = firstQuery(q, "q");
-  if (search.length < 2) {
-    res.json([]);
+  const op = (key: string) => (DIRECTORY_BOUND_OPS.has(firstQuery(q, key)) ? firstQuery(q, key) : "") as BoundOp;
+  const quiz = firstQuery(q, "quiz");
+  const filters: DirectoryFilters = {
+    search: firstQuery(q, "q"),
+    campuses: queryList(q, "campuses"),
+    semesters: queryList(q, "semesters"),
+    sections: queryList(q, "sections").filter((value) => value.includes("\t")),
+    tiers: queryList(q, "tiers").filter((id): id is AttendanceTierId => DIRECTORY_TIERS.has(id as AttendanceTierId)),
+    spiOp: op("spiOp"),
+    spiA: firstQuery(q, "spiA"),
+    spiB: firstQuery(q, "spiB"),
+    attOp: op("attOp"),
+    attA: firstQuery(q, "attA"),
+    attB: firstQuery(q, "attB"),
+    quiz: (["missing_classroom", "missing_module", "missing_both"].includes(quiz) ? quiz : "") as QuizFilter,
+  };
+  if (scope.campuses?.length && filters.campuses.some((name) => !scope.campuses!.includes(name))) {
+    res.status(403).json({ error: "Not permitted for this campus" });
     return;
   }
-  const campuses = queryList(q, "campuses");
-  const sections = queryList(q, "sections").map((value) => {
-    const [campus, section] = value.split("\t");
-    return { campus: campus ?? "", section: section ?? "" };
-  }).filter((pair) => pair.campus && pair.section);
+  const sortKey = (DIRECTORY_SORT_KEYS.has(firstQuery(q, "sort") as SortKey) ? firstQuery(q, "sort") : "name") as SortKey;
+  const sortDir: 1 | -1 = firstQuery(q, "dir") === "desc" ? -1 : 1;
+  const subjects = queryList(q, "subjects").sort();
+  const pageRequest = readPageRequest(q);
   try {
-    res.json(await searchSpiStudents(scope, { search, campuses, sections }));
+    const detail = await getSpiRecordDetail(scope, {
+      ...spiAttendanceWindow(q),
+      subjects: subjects.length ? subjects : undefined,
+    });
+    const allRows = buildDirectoryRows(detail);
+    const filtered = filterDirectory(allRows, filters);
+    const page = pageOf(sortDirectory(filtered, sortKey, sortDir), pageRequest);
+    const body = {
+      ...page,
+      rows: page.rows.map((row) => ({ ...row, spiPath: spiSharePath(row.studentId) })),
+      summary: summarizeDirectory(filtered),
+      options: directoryOptions(allRows, filters),
+    };
+    if (pageRequest.all) await sendLargeJson(req, res, body);
+    else res.json(body);
   } catch (err) {
-    req.log.error({ err }, "Error searching SPI students");
+    req.log.error({ err }, "Error fetching student directory");
+    if (!res.headersSent && !res.destroyed) {
+      res.status(500).json({ error: "Failed to load students" });
+    }
+  }
+});
+
+/** Student picker for SPI Record: up to 20 matches for `q` (2+ characters). */
+router.get("/spi-record/student-search", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  try {
+    const detail = await getSpiRecordDetail(scope, spiAttendanceWindow(q));
+    res.json({ students: searchSpiDetailStudents(detail, spiViewFilters(q), firstQuery(q, "q")) });
+  } catch (err) {
+    req.log.error({ err }, "Error searching SPI record students");
     res.status(500).json({ error: "Failed to search students" });
   }
 });
+
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get("/spi-record", requireSession(), async (req, res): Promise<void> => {
+//   const session = req.session!;
+//   const scope = scopeForSession({
+//     role: session.role as Role,
+//     campuses: session.campuses,
+//     subjects: session.subjects,
+//   });
+//   const q = req.query as Record<string, string | string[] | undefined>;
+//   const grain = (firstQuery(q, "group") || "campus") as SpiRecordGrain;
+//   if (!SPI_RECORD_GRAINS.has(grain)) {
+//     res.status(400).json({ error: "Invalid group" });
+//     return;
+//   }
+//   const campuses = queryList(q, "campuses");
+//   const singleCampus = firstQuery(q, "campus");
+//   if (singleCampus && !campuses.includes(singleCampus)) campuses.push(singleCampus);
+//   if (campuses.some((name) => scope.campuses?.length && !scope.campuses.includes(name))) {
+//     res.status(403).json({ error: "Not permitted for this campus" });
+//     return;
+//   }
+//   const semesters = queryList(q, "semesters");
+//   const singleSemester = firstQuery(q, "semester");
+//   if (singleSemester && !semesters.includes(singleSemester)) semesters.push(singleSemester);
+//   const sections = queryList(q, "sections").map((value) => {
+//     const [campus, section] = value.split("\t");
+//     return { campus: campus ?? "", section: section ?? "" };
+//   }).filter((pair) => pair.campus && pair.section);
+//   const studentIds = queryList(q, "students");
+//   const attendanceRange = (firstQuery(q, "attRange") || "semester_to_date") as "semester_to_date" | "last_30" | "custom" | "all_dates";
+//   const attendanceFrom = firstQuery(q, "attFrom");
+//   const attendanceTo = firstQuery(q, "attTo");
+//   const spiOp = firstQuery(q, "spiOp");
+//   const attendanceOp = firstQuery(q, "attOp");
+//   const spiA = boundQueryNumber(firstQuery(q, "spiA"));
+//   const spiB = boundQueryNumber(firstQuery(q, "spiB"));
+//   const attendanceA = boundQueryNumber(firstQuery(q, "attA"));
+//   const attendanceB = boundQueryNumber(firstQuery(q, "attB"));
+//   const allSemesters = semesters.length === 0 && firstQuery(q, "scope") === "all";
+//   const cacheKey = `spi-record:v9:${session.role}:${JSON.stringify(scope)}:${grain}:${campuses.join("|")}:${sections.map((pair) => `${pair.campus}/${pair.section}`).join("|")}:${studentIds.join("|")}:${semesters.join("|")}:${allSemesters}:${attendanceRange}:${attendanceFrom ?? ""}:${attendanceTo ?? ""}:${spiOp}:${spiA ?? ""}:${spiB ?? ""}:${attendanceOp}:${attendanceA ?? ""}:${attendanceB ?? ""}`;
+//   const cached = cacheGet<object>(cacheKey);
+//   if (cached) {
+//     res.json(cached);
+//     return;
+//   }
+//   try {
+//     const payload = await getSpiRecord(scope, {
+//       grain,
+//       semesters,
+//       allSemesters,
+//       campuses,
+//       sections,
+//       studentIds,
+//       attendanceRange,
+//       attendanceFrom,
+//       attendanceTo,
+//       spiOp,
+//       spiA,
+//       spiB,
+//       attendanceOp,
+//       attendanceA,
+//       attendanceB,
+//     });
+//     const body = {
+//       ...payload,
+//       rows: payload.rows.map((row) => ({
+//         ...row,
+//         spiPath: row.studentId ? spiSharePath(row.studentId) : null,
+//       })),
+//     };
+//     cacheSet(cacheKey, body, 15 * 60 * 1000);
+//     res.json(body);
+//   } catch (err) {
+//     req.log.error({ err }, "Error fetching SPI record");
+//     res.status(500).json({ error: "Failed to fetch SPI record" });
+//   }
+// });
+
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get("/spi-record/students", requireSession(), async (req, res): Promise<void> => {
+//   const session = req.session!;
+//   const scope = scopeForSession({
+//     role: session.role as Role,
+//     campuses: session.campuses,
+//     subjects: session.subjects,
+//   });
+//   const q = req.query as Record<string, string | string[] | undefined>;
+//   const search = firstQuery(q, "q");
+//   if (search.length < 2) {
+//     res.json([]);
+//     return;
+//   }
+//   const campuses = queryList(q, "campuses");
+//   const sections = queryList(q, "sections").map((value) => {
+//     const [campus, section] = value.split("\t");
+//     return { campus: campus ?? "", section: section ?? "" };
+//   }).filter((pair) => pair.campus && pair.section);
+//   try {
+//     res.json(await searchSpiStudents(scope, { search, campuses, sections }));
+//   } catch (err) {
+//     req.log.error({ err }, "Error searching SPI students");
+//     res.status(500).json({ error: "Failed to search students" });
+//   }
+// });
 
 router.get(
   "/prod-sequence",
@@ -1144,118 +1331,121 @@ router.delete(
   },
 );
 
-router.get(
-  "/assessment-campuses",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const q = req.query as Record<string, string | undefined>;
-    const campus = q["campus"] || undefined;
-    const semester = q["semester"] || undefined;
-    const cacheKey = `assessment-campuses:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-    try {
-      const campuses = await getAssessmentCampusSummary(scope, {
-        campus,
-        semester,
-      });
-      cacheSet(cacheKey, campuses, 60 * 1000);
-      res.json(campuses);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching assessment campus stats");
-      res.status(500).json({ error: "Failed to fetch assessment campus stats" });
-    }
-  },
-);
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get(
+//   "/assessment-campuses",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     const q = req.query as Record<string, string | undefined>;
+//     const campus = q["campus"] || undefined;
+//     const semester = q["semester"] || undefined;
+//     const cacheKey = `assessment-campuses:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${semester ?? ""}`;
+//     const cached = cacheGet<object>(cacheKey);
+//     if (cached) {
+//       res.json(cached);
+//       return;
+//     }
+//     try {
+//       const campuses = await getAssessmentCampusSummary(scope, {
+//         campus,
+//         semester,
+//       });
+//       cacheSet(cacheKey, campuses, 60 * 1000);
+//       res.json(campuses);
+//     } catch (err) {
+//       req.log.error({ err }, "Error fetching assessment campus stats");
+//       res.status(500).json({ error: "Failed to fetch assessment campus stats" });
+//     }
+//   },
+// );
 
-router.get(
-  "/assessment-subjects",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const q = req.query as Record<string, string | undefined>;
-    const campus = q["campus"];
-    const semester = q["semester"] || undefined;
-    if (!campus) {
-      res.status(400).json({ error: "campus required" });
-      return;
-    }
-    const cacheKey = `assessment-subjects:${session.role}:${JSON.stringify(scope)}:${campus}:${semester ?? ""}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-    try {
-      const subjects = await getAssessmentSubjects(scope, { campus, semester });
-      cacheSet(cacheKey, subjects, 60 * 1000);
-      res.json(subjects);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching assessment subjects");
-      res.status(500).json({ error: "Failed to fetch assessment subjects" });
-    }
-  },
-);
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get(
+//   "/assessment-subjects",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     const q = req.query as Record<string, string | undefined>;
+//     const campus = q["campus"];
+//     const semester = q["semester"] || undefined;
+//     if (!campus) {
+//       res.status(400).json({ error: "campus required" });
+//       return;
+//     }
+//     const cacheKey = `assessment-subjects:${session.role}:${JSON.stringify(scope)}:${campus}:${semester ?? ""}`;
+//     const cached = cacheGet<object>(cacheKey);
+//     if (cached) {
+//       res.json(cached);
+//       return;
+//     }
+//     try {
+//       const subjects = await getAssessmentSubjects(scope, { campus, semester });
+//       cacheSet(cacheKey, subjects, 60 * 1000);
+//       res.json(subjects);
+//     } catch (err) {
+//       req.log.error({ err }, "Error fetching assessment subjects");
+//       res.status(500).json({ error: "Failed to fetch assessment subjects" });
+//     }
+//   },
+// );
 
-router.get(
-  "/assessment-students",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const q = req.query as Record<string, string | undefined>;
-    const campus = q["campus"] || undefined;
-    const subject = q["subject"] || undefined;
-    const semester = q["semester"] || undefined;
-    const search = q["search"] || undefined;
-    const rawLimit = Number(q["limit"] ?? 2000);
-    const limit = Number.isFinite(rawLimit)
-      ? Math.min(Math.max(rawLimit, 1), 5000)
-      : 2000;
-    const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${subject ?? ""}:${semester ?? ""}:${search ?? ""}:${limit}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-    try {
-      const students = await getAssessmentStudents(scope, {
-        campus,
-        subject,
-        semester,
-        search,
-        limit,
-      });
-      const payload = students.map((s) => ({
-        ...s,
-        spiPath: spiSharePath(s.studentId),
-      }));
-      cacheSet(cacheKey, payload, 60 * 1000);
-      res.json(payload);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching assessment students");
-      res.status(500).json({ error: "Failed to fetch assessment students" });
-    }
-  },
-);
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get(
+//   "/assessment-students",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     const q = req.query as Record<string, string | undefined>;
+//     const campus = q["campus"] || undefined;
+//     const subject = q["subject"] || undefined;
+//     const semester = q["semester"] || undefined;
+//     const search = q["search"] || undefined;
+//     const rawLimit = Number(q["limit"] ?? 2000);
+//     const limit = Number.isFinite(rawLimit)
+//       ? Math.min(Math.max(rawLimit, 1), 5000)
+//       : 2000;
+//     const cacheKey = `assessment-students:${session.role}:${JSON.stringify(scope)}:${campus ?? ""}:${subject ?? ""}:${semester ?? ""}:${search ?? ""}:${limit}`;
+//     const cached = cacheGet<object>(cacheKey);
+//     if (cached) {
+//       res.json(cached);
+//       return;
+//     }
+//     try {
+//       const students = await getAssessmentStudents(scope, {
+//         campus,
+//         subject,
+//         semester,
+//         search,
+//         limit,
+//       });
+//       const payload = students.map((s) => ({
+//         ...s,
+//         spiPath: spiSharePath(s.studentId),
+//       }));
+//       cacheSet(cacheKey, payload, 60 * 1000);
+//       res.json(payload);
+//     } catch (err) {
+//       req.log.error({ err }, "Error fetching assessment students");
+//       res.status(500).json({ error: "Failed to fetch assessment students" });
+//     }
+//   },
+// );
 
 const SUMMARY_TYPE_VALUES: SummaryType[] = ["cq", "mq", "all"];
 const SUMMARY_GROUP_VALUES: SummaryGroupBy[] = ["campus", "subject", "section", "semester", "student"];
@@ -1290,20 +1480,28 @@ router.get(
       return;
     }
     const opts = { type, groupBy, semester, campuses, sections, subjects, student };
-    const cacheKey = `assessments-summary:v2:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
-    const cached = cacheGet<object>(cacheKey);
+    const cacheKey = `assessments-summary:v3:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
+    // Rows are sorted and paged per request from the cached full result, so changing page or sort never re-queries BigQuery.
+    const sortKey = (typeof req.query["sort"] === "string" && req.query["sort"]) || DEFAULT_ASSESSMENT_SORT;
+    const sortDir: 1 | -1 = req.query["dir"] === "desc" ? -1 : 1;
+    const pageRequest = readPageRequest(req.query as Record<string, unknown>);
+    const sendPage = (summary: AssessmentSummaryResult) => {
+      const page = pageOf(sortSummaryRows(summary.rows, sortKey, sortDir), pageRequest);
+      res.json({
+        ...summary,
+        ...page,
+        rows: page.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
+      });
+    };
+    const cached = cacheGet<AssessmentSummaryResult>(cacheKey);
     if (cached) {
-      res.json(cached);
+      sendPage(cached);
       return;
     }
     try {
       const summary = await getAssessmentSummary(scope, opts);
-      const payload = {
-        ...summary,
-        rows: summary.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
-      };
-      cacheSet(cacheKey, payload, 15 * 60 * 1000);
-      res.json(payload);
+      cacheSet(cacheKey, summary, 15 * 60 * 1000);
+      sendPage(summary);
     } catch (err) {
       req.log.error({ err }, "Error fetching assessment summary");
       res.status(500).json({ error: "Failed to fetch assessment summary" });
@@ -1338,67 +1536,68 @@ router.get(
   },
 );
 
-router.get(
-  "/assessment-student-rows",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const q = req.query as Record<string, string | undefined>;
-    const campuses = (q["campuses"] ?? "")
-      .split("||")
-      .map((name) => name.trim())
-      .filter(Boolean);
-    const studentIds = (q["students"] ?? "")
-      .split("||")
-      .map((id) => id.trim())
-      .filter(Boolean);
-    const subjects = [
-      ...new Set(
-        [...(q["subjects"] ?? "").split("||"), q["subject"] ?? ""]
-          .map((name) => name.trim())
-          .filter(Boolean),
-      ),
-    ].sort();
-    if (!campuses.length && !studentIds.length) {
-      res.status(400).json({ error: "campus or student required" });
-      return;
-    }
-    if (scope.campuses?.length) {
-      const outside = campuses.filter((name) => !scope.campuses!.includes(name));
-      if (outside.length) {
-        res.status(403).json({ error: "Not permitted for this campus" });
-        return;
-      }
-    }
-    const cacheKey = `assessment-student-rows:v2:${session.role}:${JSON.stringify(scope)}:${campuses.join("||")}:${studentIds.join("||")}:${subjects.join("||")}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-    try {
-      const students = await getAssessmentStudentRows(scope, {
-        campuses: campuses.length ? campuses : undefined,
-        studentIds: studentIds.length ? studentIds : undefined,
-        subjects: subjects.length ? subjects : undefined,
-      });
-      const payload = students.map((student) => ({
-        ...student,
-        spiPath: spiSharePath(student.studentId),
-      }));
-      cacheSet(cacheKey, payload, 15 * 60 * 1000);
-      res.json(payload);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching assessment student rows");
-      res.status(500).json({ error: "Failed to fetch assessment students" });
-    }
-  },
-);
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get(
+//   "/assessment-student-rows",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     const q = req.query as Record<string, string | undefined>;
+//     const campuses = (q["campuses"] ?? "")
+//       .split("||")
+//       .map((name) => name.trim())
+//       .filter(Boolean);
+//     const studentIds = (q["students"] ?? "")
+//       .split("||")
+//       .map((id) => id.trim())
+//       .filter(Boolean);
+//     const subjects = [
+//       ...new Set(
+//         [...(q["subjects"] ?? "").split("||"), q["subject"] ?? ""]
+//           .map((name) => name.trim())
+//           .filter(Boolean),
+//       ),
+//     ].sort();
+//     if (!campuses.length && !studentIds.length) {
+//       res.status(400).json({ error: "campus or student required" });
+//       return;
+//     }
+//     if (scope.campuses?.length) {
+//       const outside = campuses.filter((name) => !scope.campuses!.includes(name));
+//       if (outside.length) {
+//         res.status(403).json({ error: "Not permitted for this campus" });
+//         return;
+//       }
+//     }
+//     const cacheKey = `assessment-student-rows:v2:${session.role}:${JSON.stringify(scope)}:${campuses.join("||")}:${studentIds.join("||")}:${subjects.join("||")}`;
+//     const cached = cacheGet<object>(cacheKey);
+//     if (cached) {
+//       res.json(cached);
+//       return;
+//     }
+//     try {
+//       const students = await getAssessmentStudentRows(scope, {
+//         campuses: campuses.length ? campuses : undefined,
+//         studentIds: studentIds.length ? studentIds : undefined,
+//         subjects: subjects.length ? subjects : undefined,
+//       });
+//       const payload = students.map((student) => ({
+//         ...student,
+//         spiPath: spiSharePath(student.studentId),
+//       }));
+//       cacheSet(cacheKey, payload, 15 * 60 * 1000);
+//       res.json(payload);
+//     } catch (err) {
+//       req.log.error({ err }, "Error fetching assessment student rows");
+//       res.status(500).json({ error: "Failed to fetch assessment students" });
+//     }
+//   },
+// );
 
 const ATTENDANCE_GRAINS = new Set<AttendanceGrain>([
   "university",
@@ -1437,7 +1636,7 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
   });
   const q = req.query as Record<string, string | undefined>;
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-stats-detail-http:v4:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-stats-detail-http:v5:${attendanceStatsVersion()}:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   try {
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
@@ -1500,6 +1699,102 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
     if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: "Failed to fetch unit attendance" });
     }
+  }
+});
+
+const ATTENDANCE_VIEW_GRAINS = new Set<AttendanceViewGrain>([
+  "university",
+  "university_subject",
+  "university_section",
+  "university_unit",
+  "university_student",
+]);
+
+/** Campus, semester, section ("campus\tsection"), student ("campus\tstudentId") and subject filters from the query. */
+function attendanceViewFilters(q: Record<string, string | string[] | undefined>): AttendanceFilters {
+  return {
+    campuses: queryList(q, "campuses"),
+    semesters: queryList(q, "semesters"),
+    sections: queryList(q, "sections").filter((value) => value.includes("\t")),
+    students: queryList(q, "students").filter((value) => value.includes("\t")),
+    subjects: queryList(q, "subjects"),
+  };
+}
+
+/**
+ * Student Attendance Stats, one page at a time: the table rows for the page,
+ * the header totals and the filter choices. Aggregates the cached
+ * attendance-stats detail on the server, so the browser gets 50 rows instead
+ * of every student × subject row. `export=1` returns every row for CSV.
+ */
+router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const grain = (firstQuery(q, "group") || "university") as AttendanceViewGrain;
+  if (!ATTENDANCE_VIEW_GRAINS.has(grain)) {
+    res.status(400).json({ error: "Invalid group" });
+    return;
+  }
+  const filters = attendanceViewFilters(q);
+  if (scope.campuses?.length && filters.campuses.some((name) => !scope.campuses!.includes(name))) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const dates = closedDateScope(q as Record<string, string | undefined>);
+  const pageRequest = readPageRequest(q);
+  try {
+    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+    const summary = aggregateAttendanceStats(detail.students, detail.classes, "university", filters).summary;
+    let rows: AttendanceViewRow[] = [];
+    if (grain !== "university_unit") {
+      rows = aggregateAttendanceStats(detail.students, detail.classes, grain, filters).rows;
+    } else if (filters.campuses.length) {
+      const units = await getAttendanceStatsUnits(scope, {
+        campuses: filters.campuses,
+        dateFrom: dates.dateFrom,
+        dateTo: dates.dateTo,
+      });
+      rows = aggregateAttendanceStats(units.students, units.classes, grain, filters).rows;
+    }
+    const page = pageOf(rows, pageRequest);
+    const body = {
+      ...page,
+      rows: page.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
+      summary,
+      options: attendanceFilterOptions(detail.students, filters),
+    };
+    if (pageRequest.all) await sendLargeJson(req, res, body);
+    else res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching attendance stats rows");
+    if (!res.headersSent && !res.destroyed) {
+      res.status(500).json({ error: "Failed to fetch attendance stats" });
+    }
+  }
+});
+
+/** Student picker for Student Attendance Stats: up to 20 matches for `q` (2+ characters). */
+router.get("/attendance-stats/student-search", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const dates = closedDateScope(q as Record<string, string | undefined>);
+  const filters = attendanceViewFilters(q);
+  try {
+    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+    res.json({ students: searchAttendanceStudents(detail.students, filters, firstQuery(q, "q")) });
+  } catch (err) {
+    req.log.error({ err }, "Error searching attendance students");
+    res.status(500).json({ error: "Failed to search students" });
   }
 });
 
@@ -1567,44 +1862,45 @@ router.get("/attendance-stats/trend", requireSession(), async (req, res): Promis
   }
 });
 
-router.get("/attendance-group", requireSession(), async (req, res): Promise<void> => {
-  const session = req.session!;
-  const scope = scopeForSession({
-    role: session.role as Role,
-    campuses: session.campuses,
-    subjects: session.subjects,
-  });
-  const q = req.query as Record<string, string | undefined>;
-  const grain = q["group"] as AttendanceGrain;
-  if (!ATTENDANCE_GRAINS.has(grain)) {
-    res.status(400).json({ error: "group is required" });
-    return;
-  }
-  const campus = q["campus"]?.trim() || undefined;
-  if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
-    res.status(403).json({ error: "Not permitted for this campus" });
-    return;
-  }
-  const dates = closedDateScope(q);
-  const cacheKey = `attendance-group:v2:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${dates.semester ?? ""}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
-  const cached = cacheGet<object>(cacheKey);
-  if (cached) {
-    res.json(cached);
-    return;
-  }
-  try {
-    const rows = await getAttendanceGroupStats(scope, { grain, campus, ...dates });
-    const payload = rows.map((row) => ({
-      ...row,
-      spiPath: row.studentId ? spiSharePath(row.studentId) : null,
-    }));
-    cacheSet(cacheKey, payload, 10 * 60 * 1000);
-    res.json(payload);
-  } catch (err) {
-    req.log.error({ err }, "Error fetching attendance group stats");
-    res.status(500).json({ error: "Failed to fetch attendance stats" });
-  }
-});
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get("/attendance-group", requireSession(), async (req, res): Promise<void> => {
+//   const session = req.session!;
+//   const scope = scopeForSession({
+//     role: session.role as Role,
+//     campuses: session.campuses,
+//     subjects: session.subjects,
+//   });
+//   const q = req.query as Record<string, string | undefined>;
+//   const grain = q["group"] as AttendanceGrain;
+//   if (!ATTENDANCE_GRAINS.has(grain)) {
+//     res.status(400).json({ error: "group is required" });
+//     return;
+//   }
+//   const campus = q["campus"]?.trim() || undefined;
+//   if (campus && scope.campuses?.length && !scope.campuses.includes(campus)) {
+//     res.status(403).json({ error: "Not permitted for this campus" });
+//     return;
+//   }
+//   const dates = closedDateScope(q);
+//   const cacheKey = `attendance-group:v2:${session.role}:${JSON.stringify(scope)}:${grain}:${campus ?? ""}:${dates.semester ?? ""}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+//   const cached = cacheGet<object>(cacheKey);
+//   if (cached) {
+//     res.json(cached);
+//     return;
+//   }
+//   try {
+//     const rows = await getAttendanceGroupStats(scope, { grain, campus, ...dates });
+//     const payload = rows.map((row) => ({
+//       ...row,
+//       spiPath: row.studentId ? spiSharePath(row.studentId) : null,
+//     }));
+//     cacheSet(cacheKey, payload, 10 * 60 * 1000);
+//     res.json(payload);
+//   } catch (err) {
+//     req.log.error({ err }, "Error fetching attendance group stats");
+//     res.status(500).json({ error: "Failed to fetch attendance stats" });
+//   }
+// });
 
 router.get("/attendance-stats/columns", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;

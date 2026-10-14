@@ -5,6 +5,7 @@
  * NIAT SPI Platform API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetAssessmentSummaryDir } from './getAssessmentSummaryDir';
 import type { GetAssessmentSummaryGroupBy } from './getAssessmentSummaryGroupBy';
 import type { GetAssessmentSummaryType } from './getAssessmentSummaryType';
 
@@ -31,4 +32,21 @@ subjects?: string;
  * Student name or ID search
  */
 student?: string;
+/**
+ * 1-based page of rows
+ */
+page?: number;
+/**
+ * Rows per page (at most 200)
+ */
+pageSize?: number;
+/**
+ * Table column key to sort rows by (default completion)
+ */
+sort?: string;
+dir?: GetAssessmentSummaryDir;
+/**
+ * "1" returns every row on one page, for CSV
+ */
+export?: string;
 };

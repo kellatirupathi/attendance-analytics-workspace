@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { Link } from "wouter";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronsUpDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -164,14 +164,15 @@ function SemesterSplit({ semesters }: { semesters: SemesterMetrics[] }) {
   );
 }
 
-type Sort = { key: string; dir: 1 | -1 };
+/** Column key and direction; the server sorts the rows (see assessmentSummarySort.ts in the API server). */
+export type Sort = { key: string; dir: 1 | -1 };
 
-function compare(a: string | number | null, b: string | number | null): number {
-  if (a == null && b == null) return 0;
-  if (a == null) return 1; // blanks last
-  if (b == null) return -1;
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  return String(a).localeCompare(String(b), undefined, { numeric: true });
+export const DEFAULT_SORT: Sort = { key: "completion", dir: 1 };
+
+/** Next sort after clicking a header: the same column flips; a new column starts A–Z for text, high-first for numbers. */
+export function nextSort(current: Sort, column: TableColumn): Sort {
+  if (current.key === column.key) return { key: column.key, dir: current.dir === 1 ? -1 : 1 };
+  return { key: column.key, dir: column.kind === "identity" ? 1 : -1 };
 }
 
 const PAGE_SIZES = [25, 50, 100];
@@ -187,9 +188,18 @@ export function AssessmentTable({
   expandedId,
   onToggleExpand,
   emptyState,
+  sort,
+  onSort,
+  page,
+  pageSize,
+  totalPages,
+  totalRows,
+  onPage,
+  onPageSize,
 }: {
   groupBy: SummaryGroupBy;
   columns: TableColumn[];
+  /** The rows of the current page, already sorted by the server. */
   rows: SummaryRow[];
   rollup: SummaryMetrics | null;
   rollupLabel: string;
@@ -200,22 +210,18 @@ export function AssessmentTable({
   onToggleExpand?: (row: SummaryRow) => void;
   /** Shown instead of the table when there are no rows. */
   emptyState?: ReactNode;
+  sort: Sort;
+  onSort: (next: Sort) => void;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  /** Rows across all pages. */
+  totalRows: number;
+  onPage: (page: number) => void;
+  onPageSize: (size: number) => void;
 }) {
-  const [sort, setSort] = useState<Sort>({ key: "completion", dir: 1 });
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-
-  useEffect(() => setPage(1), [groupBy, rows, pageSize]);
-
-  const sorted = useMemo(() => {
-    const col = columns.find((c) => c.key === sort.key) ?? columns[0]!;
-    const get = col.sortValue ?? (() => null);
-    return rows.slice().sort((a, b) => compare(get(a), get(b)) * sort.dir || a.name.localeCompare(b.name));
-  }, [rows, columns, sort]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const current = Math.min(page, totalPages);
-  const shown = sorted.slice((current - 1) * pageSize, current * pageSize);
+  const current = page;
+  const shown = rows;
   const expandable = groupBy === "campus" && Boolean(onToggleExpand);
   const withLink = groupBy === "student";
   const span = columns.length + (withLink ? 1 : 0);
@@ -243,7 +249,7 @@ export function AssessmentTable({
                   <button
                     type="button"
                     className={cn("inline-flex items-center gap-1 hover:text-slate-900", FOCUS_RING)}
-                    onClick={() => setSort((s) => (s.key === c.key ? { key: c.key, dir: s.dir === 1 ? -1 : 1 } : { key: c.key, dir: c.kind === "identity" ? 1 : -1 }))}
+                    onClick={() => onSort(nextSort(sort, c))}
                   >
                     {c.label}
                     {sort.key !== c.key ? (
@@ -330,11 +336,11 @@ export function AssessmentTable({
           <select
             className={cn("h-8 rounded-md border border-slate-200 bg-white px-2 tabular-nums", FOCUS_RING)}
             value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
+            onChange={(e) => onPageSize(Number(e.target.value))}
           >
             {PAGE_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <span className="tabular-nums">· {fmtInt(sorted.length)} rows</span>
+          <span className="tabular-nums">· {fmtInt(totalRows)} rows</span>
         </label>
         <div className="flex items-center gap-1">
           <span className="mr-2 tabular-nums">Page {current} of {totalPages}</span>
@@ -344,7 +350,7 @@ export function AssessmentTable({
             ["Next page", ChevronRight, current + 1, current >= totalPages],
             ["Last page", ChevronsRight, totalPages, current >= totalPages],
           ] as const).map(([label, Icon, target, disabled]) => (
-            <Button key={label} type="button" variant="outline" size="sm" className="h-8 w-8 p-0" aria-label={label} disabled={disabled} onClick={() => setPage(target)}>
+            <Button key={label} type="button" variant="outline" size="sm" className="h-8 w-8 p-0" aria-label={label} disabled={disabled} onClick={() => onPage(target)}>
               <Icon className="h-4 w-4" aria-hidden="true" />
             </Button>
           ))}

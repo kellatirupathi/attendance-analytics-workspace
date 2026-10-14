@@ -127,30 +127,31 @@ router.get("/", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/:id/read", async (req, res): Promise<void> => {
-  try {
-    const session = req.session!;
-    const id = String(req.params["id"] ?? "");
-    const result = await db
-      .update(notificationsTable)
-      .set({ readAt: new Date() })
-      .where(
-        and(
-          eq(notificationsTable.id, id),
-          eq(notificationsTable.userId, session.sub),
-        ),
-      )
-      .returning({ id: notificationsTable.id });
-    if (result.length === 0) {
-      res.status(404).json({ error: "Notification not found" });
-      return;
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    req.log.error({ err }, "Error marking notification read");
-    res.status(500).json({ error: "Failed to mark read" });
-  }
-});
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.post("/:id/read", async (req, res): Promise<void> => {
+//   try {
+//     const session = req.session!;
+//     const id = String(req.params["id"] ?? "");
+//     const result = await db
+//       .update(notificationsTable)
+//       .set({ readAt: new Date() })
+//       .where(
+//         and(
+//           eq(notificationsTable.id, id),
+//           eq(notificationsTable.userId, session.sub),
+//         ),
+//       )
+//       .returning({ id: notificationsTable.id });
+//     if (result.length === 0) {
+//       res.status(404).json({ error: "Notification not found" });
+//       return;
+//     }
+//     res.json({ ok: true });
+//   } catch (err) {
+//     req.log.error({ err }, "Error marking notification read");
+//     res.status(500).json({ error: "Failed to mark read" });
+//   }
+// });
 
 router.post("/read-all", async (req, res): Promise<void> => {
   try {

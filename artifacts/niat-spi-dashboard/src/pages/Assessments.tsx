@@ -24,7 +24,7 @@ import type { SummaryGroupBy, SummaryType } from "@/lib/assessmentSummary";
 import { AssessmentTypeTabs } from "@/components/assessments/AssessmentTypeTabs";
 import { AssessmentKpiStrip } from "@/components/assessments/AssessmentKpiStrip";
 import { AssessmentFilters, CURRENT_SEMESTERS, GROUP_OPTIONS, type FilterState } from "@/components/assessments/AssessmentFilters";
-import { AssessmentTable, columnsFor, rollupRow } from "@/components/assessments/AssessmentTable";
+import { AssessmentTable, DEFAULT_SORT, columnsFor, rollupRow, type Sort } from "@/components/assessments/AssessmentTable";
 import { CalcExplainer } from "@/components/assessments/CalcExplainer";
 
 const BASE = "/dashboard/assessments";
@@ -126,7 +126,7 @@ function AssessmentsPage() {
     return () => window.clearTimeout(id);
   }, [student]);
 
-  const params: GetAssessmentSummaryParams = {
+  const viewParams: GetAssessmentSummaryParams = {
     type,
     groupBy,
     semester,
@@ -135,6 +135,16 @@ function AssessmentsPage() {
     ...(subjects.length ? { subjects: subjects.join("||") } : {}),
     ...(debouncedStudent.trim() ? { student: debouncedStudent.trim() } : {}),
   };
+
+  /* ---- sort and page: the server sorts and returns one page ---- */
+  const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
+  const [pageSize, setPageSize] = useState(50);
+  // The page belongs to one set of filters: a new filter, group or sort starts again at page 1.
+  const viewKey = JSON.stringify([viewParams, sort, pageSize]);
+  const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
+  const page = pageState.key === viewKey ? pageState.page : 1;
+  const sortParams = { sort: sort.key, dir: sort.dir === -1 ? ("desc" as const) : ("asc" as const) };
+  const params: GetAssessmentSummaryParams = { ...viewParams, ...sortParams, page, pageSize };
   const summary = useGetAssessmentSummary(params, {
     query: { queryKey: getGetAssessmentSummaryQueryKey(params), placeholderData: keepPreviousData, staleTime: 15 * 60_000, enabled: Boolean(user) },
   });
@@ -165,15 +175,17 @@ function AssessmentsPage() {
     groupBy === "campus" ? campusLabel : groupBy === "subject" ? "All subjects" : groupBy === "section" ? "All sections" : groupBy === "semester" ? "All semesters" : "All students";
 
   /* ---- exports ---- */
-  const exportView = () => {
+  /** CSV needs every row, not the page on screen, so it asks the server for the whole view. */
+  const exportView = async () => {
     if (!data) return;
-    const body = [rollupRow(data.overall, rollupLabel), ...data.rows].map((r, i) =>
+    const all = await getAssessmentSummary({ ...viewParams, ...sortParams, export: "1" });
+    const body = [rollupRow(all.overall, rollupLabel), ...all.rows].map((r, i) =>
       columns.map((c, j) => (i === 0 && c.kind === "identity" ? (j === 0 ? rollupLabel : "") : c.csv(r))),
     );
     exportCsv(`assessments-${type}-${groupBy}-${today()}.csv`, columns.map((c) => c.label), body);
   };
   const exportAll = async () => {
-    const all = await getAssessmentSummary({ type, groupBy: "campus", semester, ...(lockedCampus ? { campuses: lockedCampus } : {}) });
+    const all = await getAssessmentSummary({ type, groupBy: "campus", semester, export: "1", ...(lockedCampus ? { campuses: lockedCampus } : {}) });
     const cols = columnsFor("campus");
     exportCsv(
       `assessments-${type}-all-campuses-${today()}.csv`,
@@ -211,7 +223,7 @@ function AssessmentsPage() {
                 </fieldset>
               </PopoverContent>
             </Popover>
-            <Button variant="outline" size="sm" className="gap-2" onClick={exportView} disabled={!data || !data.rows.length}>
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportView()} disabled={!data || !data.rows.length}>
               <Download className="h-4 w-4" aria-hidden="true" /> Export this view
             </Button>
             <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportAll()}>
@@ -259,6 +271,14 @@ function AssessmentsPage() {
             expandedId={openCampus}
             onToggleExpand={(row) => writeQuery({ open: openCampus === row.id ? undefined : row.id }, true)}
             emptyState={data?.needsCampus ? <PickCampus groupBy={groupBy} /> : undefined}
+            sort={sort}
+            onSort={setSort}
+            page={data?.page ?? page}
+            pageSize={pageSize}
+            totalPages={data?.totalPages ?? 1}
+            totalRows={data?.total ?? 0}
+            onPage={(next) => setPageState({ key: viewKey, page: next })}
+            onPageSize={setPageSize}
           />
         </Section>
 

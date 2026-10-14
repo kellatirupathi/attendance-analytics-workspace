@@ -25,16 +25,13 @@ import { useToast } from "@/hooks/use-toast";
 import { exportCsv } from "@/lib/csv";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { ATTENDANCE_TIERS, tierTextColor, type AttendanceTierId } from "@/lib/attendanceTiers";
-import type { SpiDetailRow } from "@/lib/spiRecordAggregate";
-import {
-  buildDirectoryRows,
-  filterDirectory,
-  sortDirectory,
-  summarizeDirectory,
-  type BoundOp,
-  type DirectoryFilters,
-  type QuizFilter,
-  type SortKey,
+import type {
+  BoundOp,
+  DirectoryFilters,
+  DirectoryRow,
+  DirectorySummary,
+  QuizFilter,
+  SortKey,
 } from "@/lib/studentDirectory";
 import { cn, pctTextColor } from "@/lib/utils";
 import { readSubjects, subjectOptionList } from "@/lib/subjects";
@@ -42,10 +39,30 @@ import { ArrowDown, ArrowUp, Copy, Download, ExternalLink, Loader2, Search } fro
 
 type Period = "semester_to_date" | "last_30" | "custom";
 
-interface DetailPayload {
-  rows: SpiDetailRow[];
-  spiPaths: Record<string, string>;
+/** One page from /student-directory, with the header totals and filter choices for the whole view. */
+interface DirectoryPayload {
+  rows: (DirectoryRow & { spiPath: string })[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  summary: DirectorySummary;
+  options: {
+    campuses: string[];
+    semesters: string[];
+    sections: { campus: string; section: string }[];
+    maxSpi: number | null;
+  };
 }
+
+const EMPTY_SUMMARY: DirectorySummary = {
+  students: 0,
+  avgAttendance: null,
+  eligible: 0,
+  belowSixty: 0,
+  avgSpi: null,
+  skillDebt: 0,
+};
 
 const PAGE_SIZES = [25, 50, 100, 200];
 const TIER_IDS = ATTENDANCE_TIERS.map((tier) => tier.id);
@@ -133,7 +150,7 @@ export default function Students() {
     if ((query.get("q") ?? "") !== debouncedSearch.trim()) writeQuery({ q: debouncedSearch.trim() || undefined });
   }, [debouncedSearch]);
 
-  /* ---- data: same endpoint + key as SPI Record and the Overview ---- */
+  /* ---- data: filtered, sorted and paged on the server ---- */
 
   const customReady = /^\d{4}-\d{2}-\d{2}$/.test(attFrom) && /^\d{4}-\d{2}-\d{2}$/.test(attTo);
   const detailParams = new URLSearchParams();
@@ -147,76 +164,6 @@ export default function Students() {
   // Attendance in this payload is summed across subjects, so the server narrows it.
   if (subjects.length) detailParams.set("subjects", subjects.join("||"));
   const customPending = period === "custom" && !customReady;
-
-  const { data, isLoading, isFetching, isError, refetch } = useQuery({
-    queryKey: ["spi-record-detail", detailParams.toString()],
-    enabled: !customPending,
-    queryFn: async () => {
-      const res = await fetch(`/api/dashboard/spi-record/detail?${detailParams.toString()}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load students");
-      return res.json() as Promise<DetailPayload>;
-    },
-    placeholderData: keepPreviousData,
-    staleTime: 15 * 60_000,
-  });
-
-  const { data: subjectData } = useQuery({
-    queryKey: ["subject-options"],
-    queryFn: async () => {
-      const res = await fetch("/api/dashboard/subject-options", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load subjects");
-      return res.json() as Promise<{ options: { campus: string; semester: string; subject: string }[] }>;
-    },
-    staleTime: 15 * 60_000,
-  });
-
-  const allRows = useMemo(() => buildDirectoryRows(data?.rows ?? []), [data]);
-  // Only classroom (10%) and module (15%) quizzes feed SPI today, so the real ceiling is 2.5.
-  const maxSpi = useMemo(() => (allRows.length ? allRows.reduce((max, row) => Math.max(max, row.spi), 0) : null), [allRows]);
-
-  /* ---- filter options ---- */
-
-  const campusKey = campuses.join("||");
-  const semesterKey = semesters.join("||");
-  const campusOptions = useMemo(() => {
-    if (lockedCampus) return [lockedCampus];
-    return omitExcludedInstitutes([...new Set(allRows.map((row) => row.campus))].sort((a, b) => a.localeCompare(b)));
-  }, [allRows, lockedCampus]);
-  const semesterOptions = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const names = new Set<string>();
-    for (const row of allRows) {
-      if (campusSet.size && !campusSet.has(row.campus)) continue;
-      for (const name of row.semesters) names.add(name);
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [allRows, campusKey]);
-  const subjectOptions = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    return subjectOptionList(
-      (subjectData?.options ?? [])
-        .filter((item) => (!campusSet.size || campusSet.has(item.campus)) && (!semesterSet.size || semesterSet.has(item.semester)))
-        .map((item) => item.subject),
-    );
-  }, [subjectData, campusKey, semesterKey]);
-  const sectionChoices = useMemo(() => {
-    if (!campuses.length) return [];
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const seen = new Map<string, { campus: string; section: string }>();
-    for (const row of allRows) {
-      if (!campusSet.has(row.campus)) continue;
-      if (semesterSet.size && !row.semesters.some((name) => semesterSet.has(name))) continue;
-      for (const section of row.sections) {
-        const key = `${row.campus}\t${section}`;
-        if (!seen.has(key)) seen.set(key, { campus: row.campus, section });
-      }
-    }
-    return [...seen.values()].sort((a, b) => a.section.localeCompare(b.section, undefined, { numeric: true }));
-  }, [allRows, campusKey, semesterKey]);
-
-  /* ---- filter, summarize, sort, page ---- */
 
   const filters: DirectoryFilters = {
     search: query.get("q") ?? "",
@@ -232,13 +179,90 @@ export default function Students() {
     attB,
     quiz,
   };
-  const filterKey = JSON.stringify(filters);
-  const filtered = useMemo(() => filterDirectory(allRows, filters), [allRows, filterKey]);
-  const summary = useMemo(() => summarizeDirectory(filtered), [filtered]);
-  const sorted = useMemo(() => sortDirectory(filtered, sortKey, sortDir), [filtered, sortKey, sortDir]);
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const viewParams = new URLSearchParams(detailParams);
+  const list = (key: string, values: string[]) => {
+    if (values.length) viewParams.set(key, values.join("||"));
+  };
+  list("campuses", campuses);
+  list("semesters", semesters);
+  list("sections", sections);
+  list("tiers", tiers);
+  for (const [key, value] of [
+    ["q", filters.search.trim()],
+    ["spiOp", spiOp],
+    ["spiA", spiA],
+    ["spiB", spiB],
+    ["attOp", attOp],
+    ["attA", attA],
+    ["attB", attB],
+    ["quiz", quiz],
+    ["sort", sortKey === "name" ? "" : sortKey],
+    ["dir", sortDir === -1 ? "desc" : ""],
+  ] as const) {
+    if (value) viewParams.set(key, value);
+  }
+  const viewKey = viewParams.toString();
+
+  const fetchDirectory = async (params: URLSearchParams): Promise<DirectoryPayload> => {
+    const res = await fetch(`/api/dashboard/student-directory?${params.toString()}`, { credentials: "include" });
+    if (!res.ok) throw new Error("Failed to load students");
+    return res.json() as Promise<DirectoryPayload>;
+  };
+
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ["student-directory", viewKey, page, pageSize],
+    enabled: !customPending,
+    queryFn: () => {
+      const params = new URLSearchParams(viewKey);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      return fetchDirectory(params);
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+
+  const { data: subjectData } = useQuery({
+    queryKey: ["subject-options"],
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/subject-options", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load subjects");
+      return res.json() as Promise<{ options: { campus: string; semester: string; subject: string }[] }>;
+    },
+    staleTime: 15 * 60_000,
+  });
+
+  // Only classroom (10%) and module (15%) quizzes feed SPI today, so the real ceiling is 2.5.
+  const maxSpi = data?.options.maxSpi ?? null;
+
+  /* ---- filter options ---- */
+
+  const campusKey = campuses.join("||");
+  const semesterKey = semesters.join("||");
+  const campusOptions = useMemo(() => {
+    if (lockedCampus) return [lockedCampus];
+    return omitExcludedInstitutes(data?.options.campuses ?? []);
+  }, [data, lockedCampus]);
+  const semesterOptions = data?.options.semesters ?? [];
+  const subjectOptions = useMemo(() => {
+    const campusSet = new Set(campuses);
+    const semesterSet = new Set(semesters);
+    return subjectOptionList(
+      (subjectData?.options ?? [])
+        .filter((item) => (!campusSet.size || campusSet.has(item.campus)) && (!semesterSet.size || semesterSet.has(item.semester)))
+        .map((item) => item.subject),
+    );
+  }, [subjectData, campusKey, semesterKey]);
+  const sectionChoices = data?.options.sections ?? [];
+
+  /* ---- summary and the current page, from the server ---- */
+
+  const summary: DirectorySummary = data?.summary ?? EMPTY_SUMMARY;
+  const totalRows = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+  const currentPage = data?.page ?? page;
+  const paged = data?.rows ?? [];
 
   const activeCount =
     (lockedCampus ? 0 : campuses.length ? 1 : 0) +
@@ -277,7 +301,11 @@ export default function Students() {
     }
   };
 
-  const handleExport = () => {
+  /** CSV needs every matching student, not the page on screen, so it asks the server for the whole view. */
+  const handleExport = async () => {
+    const params = new URLSearchParams(viewKey);
+    params.set("export", "1");
+    const { rows } = await fetchDirectory(params);
     exportCsv(
       `students-${new Date().toISOString().slice(0, 10)}.csv`,
       [
@@ -296,7 +324,7 @@ export default function Students() {
         "Skill level",
         "Skill debt",
       ],
-      sorted.map((row) => [
+      rows.map((row) => [
         row.studentId,
         row.studentName,
         row.campus,
@@ -341,7 +369,7 @@ export default function Students() {
         right={
           <div className="flex items-center gap-2">
             {isFetching && !isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-            <Button variant="outline" className="h-9 gap-2 border-gray-200" onClick={handleExport} disabled={sorted.length === 0}>
+            <Button variant="outline" className="h-9 gap-2 border-gray-200" onClick={() => void handleExport()} disabled={totalRows === 0}>
               <Download className="h-4 w-4" /> Export CSV
             </Button>
           </div>
@@ -501,8 +529,8 @@ export default function Students() {
           hint={
             isError
               ? errorHint
-              : filtered.length > summary.students
-              ? `${(filtered.length - summary.students).toLocaleString("en-IN")} listed under two campuses, so the table has ${filtered.length.toLocaleString("en-IN")} rows`
+              : totalRows > summary.students
+              ? `${(totalRows - summary.students).toLocaleString("en-IN")} listed under two campuses, so the table has ${totalRows.toLocaleString("en-IN")} rows`
               : "Match these filters"
           }
         />
@@ -584,7 +612,7 @@ export default function Students() {
                 ) : (
                   paged.map((row) => {
                     const tier = ATTENDANCE_TIERS.find((item) => item.id === row.tier);
-                    const spiPath = data?.spiPaths[row.studentId];
+                    const spiPath = row.spiPath;
                     return (
                       <TableRow key={row.key} className="border-b border-gray-200 hover:bg-gray-50">
                         <TableCell className="py-3">
@@ -653,11 +681,11 @@ export default function Students() {
               </TableBody>
             </Table>
           </div>
-          {!isLoading && sorted.length > 0 && (
+          {!isLoading && totalRows > 0 && (
             <TablePagination
               page={currentPage}
               totalPages={totalPages}
-              totalItems={sorted.length}
+              totalItems={totalRows}
               pageSize={pageSize}
               pageSizeOptions={PAGE_SIZES}
               onPageChange={setPage}
@@ -665,7 +693,7 @@ export default function Students() {
                 setPageSize(size);
                 setPage(1);
               }}
-              itemLabel={sorted.length > summary.students ? "rows" : "students"}
+              itemLabel={totalRows > summary.students ? "rows" : "students"}
             />
           )}
         </TableShell>

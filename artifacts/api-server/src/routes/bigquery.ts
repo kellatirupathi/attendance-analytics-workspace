@@ -21,28 +21,30 @@ router.use(requireSession(), (req, res, next) => {
   next();
 });
 
-router.get("/datasets", async (req, res): Promise<void> => {
-  try {
-    const datasets = await listDatasets();
-    res.json(datasets.map((d) => ({ datasetId: d })));
-  } catch {
-    res.status(500).json({ error: "Failed to list datasets" });
-  }
-});
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get("/datasets", async (req, res): Promise<void> => {
+//   try {
+//     const datasets = await listDatasets();
+//     res.json(datasets.map((d) => ({ datasetId: d })));
+//   } catch {
+//     res.status(500).json({ error: "Failed to list datasets" });
+//   }
+// });
 
-router.get("/tables", async (req, res): Promise<void> => {
-  const dataset = req.query["dataset"] as string;
-  if (!dataset) {
-    res.status(400).json({ error: "dataset required" });
-    return;
-  }
-  try {
-    const tables = await listTables(dataset);
-    res.json(tables);
-  } catch {
-    res.status(500).json({ error: "Failed to list tables" });
-  }
-});
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// router.get("/tables", async (req, res): Promise<void> => {
+//   const dataset = req.query["dataset"] as string;
+//   if (!dataset) {
+//     res.status(400).json({ error: "dataset required" });
+//     return;
+//   }
+//   try {
+//     const tables = await listTables(dataset);
+//     res.json(tables);
+//   } catch {
+//     res.status(500).json({ error: "Failed to list tables" });
+//   }
+// });
 
 router.get("/catalog", async (req, res): Promise<void> => {
   const dataset = req.query["dataset"] as string;

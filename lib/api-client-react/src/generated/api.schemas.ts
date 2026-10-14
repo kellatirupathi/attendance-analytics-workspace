@@ -613,7 +613,13 @@ export type AssessmentSummaryOptions = {
 
 export interface AssessmentSummary {
   overall: AssessmentSummaryMetrics;
+  /** One page of rows */
   rows: AssessmentSummaryRow[];
+  /** Rows across all pages */
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
   semesters: AssessmentSummarySemester[];
   /** Section-wise needs a campus; Student-wise a campus, section or student search */
   needsCampus: boolean;
@@ -661,4 +667,29 @@ subjects?: string;
  * Student name or ID search
  */
 student?: string;
+/**
+ * 1-based page of rows
+ */
+page?: number;
+/**
+ * Rows per page (at most 200)
+ */
+pageSize?: number;
+/**
+ * Table column key to sort rows by (default completion)
+ */
+sort?: string;
+dir?: GetAssessmentSummaryDir;
+/**
+ * "1" returns every row on one page, for CSV
+ */
+export?: string;
 };
+
+export type GetAssessmentSummaryDir = typeof GetAssessmentSummaryDir[keyof typeof GetAssessmentSummaryDir];
+
+
+export const GetAssessmentSummaryDir = {
+  asc: 'asc',
+  desc: 'desc',
+} as const;

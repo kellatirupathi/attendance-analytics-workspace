@@ -28,3 +28,16 @@ export function cacheDeletePrefix(prefix: string): void {
     if (key.startsWith(prefix)) store.delete(key);
   }
 }
+
+/**
+ * Expired entries are otherwise only dropped when read again, and keys that
+ * carry a snapshot version are never read again once the snapshot refreshes.
+ * Sweep them so large payloads do not pile up in memory.
+ */
+const sweep = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of store) {
+    if (now > entry.expiresAt) store.delete(key);
+  }
+}, 5 * 60 * 1000);
+sweep.unref();

@@ -12,9 +12,15 @@ import type { AssessmentSummarySemester } from './assessmentSummarySemester';
 
 export interface AssessmentSummary {
   overall: AssessmentSummaryMetrics;
+  /** One page of rows */
   rows: AssessmentSummaryRow[];
+  /** Rows across all pages */
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
   semesters: AssessmentSummarySemester[];
-  /** Student-wise needs a campus */
+  /** Section-wise needs a campus; Student-wise a campus, section or student search */
   needsCampus: boolean;
   options: AssessmentSummaryOptions;
 }

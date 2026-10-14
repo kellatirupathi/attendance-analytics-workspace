@@ -29,7 +29,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
-import { aggregateSpiRecord, type SpiDetailRow } from "@/lib/spiRecordAggregate";
 import { cn } from "@/lib/utils";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Download } from "lucide-react";
@@ -110,15 +109,28 @@ interface RecordRow {
   spiPath: string | null;
 }
 
-interface DetailPayload {
-  rows: SpiDetailRow[];
-  spiPaths: Record<string, string>;
+interface SpiSummary {
+  students: number;
+  campuses: number;
+  avgSpi: number | null;
+  attendancePct: number | null;
+  levelAPlus: number;
+  levelA: number;
+  levelB: number;
+  levelC: number;
+  levelD: number;
+  skillDebt: number;
 }
 
-function boundNumber(value: string): number | undefined {
-  if (!value) return undefined;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : undefined;
+/** One page from /spi-record/rows, with the header totals and filter choices for the whole view. */
+interface RowsPayload {
+  rows: RecordRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  summary: SpiSummary;
+  options: { campuses: string[]; semesters: string[]; sections: SectionChoice[] };
 }
 
 function levelTone(level: string): string {
@@ -164,7 +176,7 @@ export default function SpiRecordDashboard() {
   const [draft, setDraft] = useState<ColumnId[]>(DEFAULT_COLUMNS);
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(50);
 
   const detailParams = new URLSearchParams();
   if (attendanceRange === "custom" && attendanceFrom && attendanceTo) {
@@ -175,14 +187,50 @@ export default function SpiRecordDashboard() {
     detailParams.set("attRange", attendanceRange);
   }
 
+  const spiBoundsOn = activeFilters.includes("spi") && Boolean(spiOp && spiA);
+  const attendanceBoundsOn = activeFilters.includes("attendance") && Boolean(attendanceOp && attendanceA);
+
+  /** Grouping, filters and bounds as the server reads them; the page number is added per request. */
+  const viewParams = (scopeOnly = false) => {
+    const params = new URLSearchParams(detailParams);
+    if (grain !== "campus") params.set("group", grain);
+    const list = (key: string, values: string[]) => {
+      if (values.length) params.set(key, values.join("||"));
+    };
+    list("semesters", semesters);
+    if (scopeOnly) return params;
+    list("campuses", campuses);
+    list("sections", sections.map((item) => `${item.campus}\t${item.section}`));
+    list("students", students.map((item) => `${item.campus}\t${item.studentId}`));
+    if (spiBoundsOn) {
+      params.set("spiOp", spiOp);
+      params.set("spiA", spiA);
+      if (spiOp === "between" && spiB) params.set("spiB", spiB);
+    }
+    if (attendanceBoundsOn) {
+      params.set("attOp", attendanceOp);
+      params.set("attA", attendanceA);
+      if (attendanceOp === "between" && attendanceB) params.set("attB", attendanceB);
+    }
+    return params;
+  };
+  const viewKey = viewParams().toString();
+
+  const fetchRows = async (params: URLSearchParams): Promise<RowsPayload> => {
+    const res = await fetch(`/api/dashboard/spi-record/rows?${params.toString()}`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to load SPI record");
+    return res.json() as Promise<RowsPayload>;
+  };
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["spi-record-detail", detailParams.toString()],
-    queryFn: async () => {
-      const res = await fetch(`/api/dashboard/spi-record/detail?${detailParams.toString()}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load SPI record");
-      return res.json() as Promise<DetailPayload>;
+    queryKey: ["spi-record-rows", viewKey, page, pageSize],
+    queryFn: () => {
+      const params = new URLSearchParams(viewKey);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      return fetchRows(params);
     },
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
@@ -190,34 +238,10 @@ export default function SpiRecordDashboard() {
 
   const campusOptions = useMemo(() => {
     if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
-    const names = new Set((data?.rows ?? []).map((row) => row.university));
-    return omitExcludedInstitutes([...names].sort((left, right) => left.localeCompare(right)));
+    return omitExcludedInstitutes(data?.options.campuses ?? []);
   }, [data, isBoa, user?.campuses]);
-  const semesterOptions = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const names = new Set<string>();
-    for (const row of data?.rows ?? []) {
-      if (campusSet.size && !campusSet.has(row.university)) continue;
-      names.add(row.semester);
-    }
-    return [...names].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
-  }, [data, campuses]);
-  const sectionChoices = useMemo(() => {
-    if (!campuses.length) return [];
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const seen = new Set<string>();
-    const list: SectionChoice[] = [];
-    for (const row of data?.rows ?? []) {
-      if (!campusSet.has(row.university)) continue;
-      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
-      const key = `${row.university}\t${row.section}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      list.push({ campus: row.university, section: row.section });
-    }
-    return list.sort((left, right) => left.section.localeCompare(right.section, undefined, { numeric: true }));
-  }, [data, campuses, semesters]);
+  const semesterOptions = data?.options.semesters ?? [];
+  const sectionChoices: SectionChoice[] = data?.options.sections ?? [];
 
   const writeQuery = (patch: Record<string, string | undefined>) => {
     const next = new URLSearchParams(query);
@@ -235,68 +259,34 @@ export default function SpiRecordDashboard() {
     const kept = semesters.filter((name) => semesterOptions.includes(name));
     if (kept.length === semesters.length) return;
     writeQuery({ semesters: kept.join("||") || undefined });
-  }, [semesterOptions, semesters.join("||")]);
+  }, [semesterOptions.join("||"), semesters.join("||")]);
 
-  const filteredDetail = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const sectionSet = new Set(sections.map((item) => `${item.campus}\t${item.section}`));
-    const studentSet = new Set(students.map((item) => `${item.campus}\t${item.studentId}`));
-    return (data?.rows ?? []).filter((row) => {
-      if (campusSet.size && !campusSet.has(row.university)) return false;
-      if (semesterSet.size && !semesterSet.has(row.semester)) return false;
-      if (sectionSet.size && !sectionSet.has(`${row.university}\t${row.section}`)) return false;
-      if (studentSet.size && !studentSet.has(`${row.university}\t${row.studentId}`)) return false;
-      return true;
-    });
-  }, [data, campuses, semesters, sections, students]);
+  const [studentQuery, setStudentQuery] = useState("");
+  const searchText = studentQuery.trim();
+  const { data: studentSearch } = useQuery({
+    queryKey: ["spi-record-student-search", detailParams.toString(), campuses.join("||"), semesters.join("||"), query.get("sections") ?? "", searchText],
+    enabled: searchText.length >= 2,
+    queryFn: async () => {
+      const params = new URLSearchParams(detailParams);
+      if (campuses.length) params.set("campuses", campuses.join("||"));
+      if (semesters.length) params.set("semesters", semesters.join("||"));
+      if (sections.length) params.set("sections", sections.map((item) => `${item.campus}\t${item.section}`).join("||"));
+      params.set("q", searchText);
+      const res = await fetch(`/api/dashboard/spi-record/student-search?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to search students");
+      return res.json() as Promise<{ students: StudentChoice[] }>;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+  const studentHits = searchText.length >= 2 ? studentSearch?.students ?? [] : [];
 
-  const studentCatalog = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const sectionSet = new Set(sections.map((item) => `${item.campus}\t${item.section}`));
-    const byStudent = new Map<string, StudentChoice>();
-    for (const row of data?.rows ?? []) {
-      if (campusSet.size && !campusSet.has(row.university)) continue;
-      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
-      if (sectionSet.size && !sectionSet.has(`${row.university}\t${row.section}`)) continue;
-      const key = `${row.university}\t${row.studentId}`;
-      const existing = byStudent.get(key);
-      if (!existing || row.studentName.length > existing.studentName.length) {
-        byStudent.set(key, {
-          studentId: row.studentId,
-          studentName: row.studentName,
-          campus: row.university,
-          section: row.section,
-        });
-      }
-    }
-    return [...byStudent.values()];
-  }, [data, campuses, semesters, sections]);
-
-  const spiBoundsOn = activeFilters.includes("spi") && Boolean(spiOp && spiA);
-  const attendanceBoundsOn = activeFilters.includes("attendance") && Boolean(attendanceOp && attendanceA);
-  const aggregated = useMemo(
-    () => aggregateSpiRecord(filteredDetail, grain, {
-      spiOp: spiBoundsOn ? spiOp : undefined,
-      spiA: spiBoundsOn ? boundNumber(spiA) : undefined,
-      spiB: spiBoundsOn && spiOp === "between" ? boundNumber(spiB) : undefined,
-      attendanceOp: attendanceBoundsOn ? attendanceOp : undefined,
-      attendanceA: attendanceBoundsOn ? boundNumber(attendanceA) : undefined,
-      attendanceB: attendanceBoundsOn && attendanceOp === "between" ? boundNumber(attendanceB) : undefined,
-      singleCampus: campuses.length === 1,
-    }),
-    [filteredDetail, grain, spiBoundsOn, spiOp, spiA, spiB, attendanceBoundsOn, attendanceOp, attendanceA, attendanceB, campuses.length],
-  );
-
-  const rows = aggregated.rows.map((row) => ({
-    ...row,
-    spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null,
-  }));
-  const viewRows = rows;
-  const pageRows = viewRows.slice((page - 1) * pageSize, page * pageSize);
-  const summary = aggregated.summary;
-  const total = summary.students ?? 0;
+  const pageRows = data?.rows ?? [];
+  const totalRows = data?.total ?? 0;
+  const summary = data?.summary;
+  const total = summary?.students ?? 0;
   const split = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
   const levelColumns: ColumnId[] = ["levelAPlus", "levelA", "levelB", "levelC", "levelD"];
   const visible = columns.filter((id) => {
@@ -345,13 +335,18 @@ export default function SpiRecordDashboard() {
     );
   };
 
-  const exportAll = () => {
-    const source = (data?.rows ?? []).filter((row) => !semesters.length || semesters.includes(row.semester));
-    const body = aggregateSpiRecord(source, grain, { singleCampus: false });
-    exportRows(
-      body.rows.map((row) => ({ ...row, spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null })),
-      "spi-record-this-grain.csv",
-    );
+  /** CSV needs every row, not the page on screen, so exports ask the server for the whole view. */
+  const exportView = async () => {
+    const params = viewParams();
+    params.set("export", "1");
+    exportRows((await fetchRows(params)).rows, "spi-record-this-view.csv");
+  };
+
+  /** Every campus at this grain: only the semester and attendance window carry over, as before. */
+  const exportAll = async () => {
+    const params = viewParams(true);
+    params.set("export", "1");
+    exportRows((await fetchRows(params)).rows, "spi-record-this-grain.csv");
   };
 
   const scopeBits = [
@@ -420,10 +415,10 @@ export default function SpiRecordDashboard() {
           </Button>
         </PopoverContent>
       </Popover>
-      <Button variant="outline" size="sm" disabled={!viewRows.length} onClick={() => exportRows(viewRows, "spi-record-this-view.csv")}>
+      <Button variant="outline" size="sm" disabled={!totalRows} onClick={() => void exportView()}>
         <Download className="mr-1 h-4 w-4" /> Export
       </Button>
-      <Button size="sm" onClick={exportAll}>
+      <Button size="sm" onClick={() => void exportAll()}>
         <Download className="mr-1 h-4 w-4" /> Export everything at this grain
       </Button>
     </div>
@@ -486,7 +481,9 @@ export default function SpiRecordDashboard() {
           campuses={campuses}
           campusOptions={campusOptions}
           sectionChoices={sectionChoices}
-          studentCatalog={studentCatalog}
+          studentQuery={studentQuery}
+          onStudentQuery={setStudentQuery}
+          studentHits={studentHits}
           onCampuses={(next) => {
             const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
             const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
@@ -592,9 +589,9 @@ export default function SpiRecordDashboard() {
             </TableBody>
           </Table>
           <TablePagination
-            page={page}
-            totalPages={Math.max(1, Math.ceil(rows.length / pageSize))}
-            totalItems={rows.length}
+            page={data?.page ?? page}
+            totalPages={data?.totalPages ?? 1}
+            totalItems={totalRows}
             pageSize={pageSize}
             onPageChange={setPage}
             onPageSizeChange={(size) => {
