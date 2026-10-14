@@ -441,6 +441,9 @@ export const GetDashboardStudentsResponse = zod.array(GetDashboardStudentsRespon
  */
 export const getAssessmentSummaryQueryTypeDefault = `cq`;
 export const getAssessmentSummaryQueryGroupByDefault = `campus`;
+export const getAssessmentSummaryQueryPageDefault = 1;
+export const getAssessmentSummaryQueryPageSizeDefault = 50;
+export const getAssessmentSummaryQueryDirDefault = `asc`;
 
 export const GetAssessmentSummaryQueryParams = zod.object({
   "type": zod.enum(['cq', 'mq', 'all']).default(getAssessmentSummaryQueryTypeDefault),
@@ -449,7 +452,12 @@ export const GetAssessmentSummaryQueryParams = zod.object({
   "campuses": zod.coerce.string().optional().describe('Campus names joined with \"||\"'),
   "sections": zod.coerce.string().optional().describe('campus + TAB + section, joined with \"||\"'),
   "subjects": zod.coerce.string().optional().describe('Subject names joined with \"||\"'),
-  "student": zod.coerce.string().optional().describe('Student name or ID search')
+  "student": zod.coerce.string().optional().describe('Student name or ID search'),
+  "page": zod.coerce.number().default(getAssessmentSummaryQueryPageDefault).describe('1-based page of rows'),
+  "pageSize": zod.coerce.number().default(getAssessmentSummaryQueryPageSizeDefault).describe('Rows per page (at most 200)'),
+  "sort": zod.coerce.string().optional().describe('Table column key to sort rows by (default completion)'),
+  "dir": zod.enum(['asc', 'desc']).default(getAssessmentSummaryQueryDirDefault),
+  "export": zod.coerce.string().optional().describe('\"1\" returns every row on one page, for CSV')
 })
 
 export const GetAssessmentSummaryResponse = zod.object({
@@ -516,7 +524,11 @@ export const GetAssessmentSummaryResponse = zod.object({
   "endDate": zod.string().nullable(),
   "termWise": zod.boolean()
 })))
-}))),
+}))).describe('One page of rows'),
+  "total": zod.number().describe('Rows across all pages'),
+  "page": zod.number(),
+  "pageSize": zod.number(),
+  "totalPages": zod.number(),
   "semesters": zod.array(zod.object({
   "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
   "conducted": zod.number().describe('Scheduled quizzes whose session is completed or partially completed and whose date has passed'),
@@ -540,7 +552,7 @@ export const GetAssessmentSummaryResponse = zod.object({
   "endDate": zod.string().nullable(),
   "termWise": zod.boolean()
 }))),
-  "needsCampus": zod.boolean().describe('Student-wise needs a campus'),
+  "needsCampus": zod.boolean().describe('Section-wise needs a campus; Student-wise a campus'),
   "options": zod.object({
   "campuses": zod.array(zod.string()),
   "semesters": zod.array(zod.string()),
@@ -551,8 +563,6 @@ export const GetAssessmentSummaryResponse = zod.object({
   "subjects": zod.array(zod.string())
 })
 })
-
-
 
 
 /**

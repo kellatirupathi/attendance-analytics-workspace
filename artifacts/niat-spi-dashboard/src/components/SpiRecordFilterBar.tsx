@@ -63,7 +63,9 @@ export function SpiRecordFilterBar({
   onAttendance,
   onClear,
   sectionChoices,
-  studentCatalog,
+  studentQuery,
+  onStudentQuery,
+  studentHits,
 }: {
   shown: FilterId[];
   grain: Grain;
@@ -98,16 +100,12 @@ export function SpiRecordFilterBar({
   }) => void;
   onClear: () => void;
   sectionChoices: SectionChoice[];
-  studentCatalog: StudentChoice[];
+  /** Student search text; the page looks up matches on the server. */
+  studentQuery: string;
+  onStudentQuery: (value: string) => void;
+  /** Matches for studentQuery (up to 20). */
+  studentHits: StudentChoice[];
 }) {
-  const [studentQuery, setStudentQuery] = useState("");
-  const studentHits = useMemo(() => {
-    const q = studentQuery.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return studentCatalog
-      .filter((item) => item.studentName.toLowerCase().includes(q) || item.studentId.toLowerCase().includes(q))
-      .slice(0, 20);
-  }, [studentCatalog, studentQuery]);
 
   const multiCampus = campuses.length !== 1;
 
@@ -175,7 +173,7 @@ export function SpiRecordFilterBar({
           <Input
             value={studentQuery}
             placeholder="Search name or ID"
-            onChange={(event) => setStudentQuery(event.target.value)}
+            onChange={(event) => onStudentQuery(event.target.value)}
           />
           <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
             {studentHits.map((hit) => {

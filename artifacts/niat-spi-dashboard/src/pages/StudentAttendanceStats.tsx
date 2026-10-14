@@ -32,10 +32,9 @@ import {
   type DateRange,
 } from "@/lib/dateRange";
 import {
-  aggregateAttendanceStats,
-  type AttendanceClassRow,
-  type AttendanceDetailRow,
+  type AttendanceHeader,
   type AttendanceViewGrain,
+  type AttendanceViewRow,
 } from "@/lib/attendanceStatsAggregate";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
@@ -131,11 +130,30 @@ interface StatsRow {
   spiPath: string | null;
 }
 
-interface DetailPayload {
-  students: AttendanceDetailRow[];
-  classes: AttendanceClassRow[];
-  spiPaths: Record<string, string>;
+/** One page from /attendance-stats/rows, with the header totals and filter choices for the whole view. */
+interface RowsPayload {
+  rows: (AttendanceViewRow & { spiPath: string | null })[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  summary: AttendanceHeader;
+  options: {
+    campuses: string[];
+    semesters: string[];
+    sections: { campus: string; section: string }[];
+    subjects: string[];
+  };
 }
+
+const EMPTY_SUMMARY: AttendanceHeader = {
+  students: 0,
+  overallPct: null,
+  eligible: 0,
+  recoveryEligible: 0,
+  atRisk: 0,
+  ineligible: 0,
+};
 
 function splitList(value: string | null): string[] {
   return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
@@ -244,132 +262,79 @@ export default function StudentAttendanceStats() {
     detailParams.set("dateTo", dateTo);
   }
 
+  /** Grouping and filters as the server reads them; the page number is added per request. */
+  const viewParams = (overrides: { campuses?: string[]; sections?: string[]; students?: string[] } = {}) => {
+    const params = new URLSearchParams(detailParams);
+    if (grain !== "university") params.set("group", grain);
+    const list = (key: string, values: string[]) => {
+      if (values.length) params.set(key, values.join("||"));
+    };
+    list("campuses", overrides.campuses ?? campuses);
+    list("semesters", semesters);
+    list("sections", overrides.sections ?? sections.map((item) => `${item.campus}\t${item.section}`));
+    list("students", overrides.students ?? students.map((item) => `${item.campus}\t${item.studentId}`));
+    list("subjects", subjects);
+    return params;
+  };
+  const viewKey = viewParams().toString();
+
+  const fetchRows = async (params: URLSearchParams): Promise<RowsPayload> => {
+    const res = await fetch(`/api/dashboard/attendance-stats/rows?${params.toString()}`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to load attendance stats");
+    return res.json() as Promise<RowsPayload>;
+  };
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["attendance-stats-detail", detailParams.toString()],
+    queryKey: ["attendance-stats-rows", viewKey, page, pageSize],
     enabled: scopeReady,
-    queryFn: async () => {
-      const res = await fetch(`/api/dashboard/attendance-stats/detail?${detailParams.toString()}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load attendance stats");
-      return res.json() as Promise<DetailPayload>;
+    queryFn: () => {
+      const params = new URLSearchParams(viewKey);
+      params.set("page", String(page));
+      params.set("pageSize", String(pageSize));
+      return fetchRows(params);
     },
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
   });
 
-  const unitCampusKey = campuses.join("||");
-  const unitEnabled = scopeReady && grain === "university_unit" && campuses.length > 0;
-  const { data: unitData, isLoading: unitLoading, isError: unitError, refetch: refetchUnits } = useQuery({
-    queryKey: ["attendance-stats-units", detailParams.toString(), unitCampusKey],
-    enabled: unitEnabled,
-    queryFn: async () => {
-      const params = new URLSearchParams(detailParams);
-      params.set("campuses", unitCampusKey);
-      const res = await fetch(`/api/dashboard/attendance-stats/units?${params.toString()}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load unit attendance");
-      return res.json() as Promise<DetailPayload>;
-    },
-    staleTime: 15 * 60_000,
-  });
-
   const campusOptions = useMemo(() => {
     if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
-    const names = new Set((data?.students ?? []).map((row) => row.university));
-    return omitExcludedInstitutes([...names].sort((left, right) => left.localeCompare(right)));
+    return omitExcludedInstitutes(data?.options.campuses ?? []);
   }, [data, isBoa, user?.campuses]);
-  const semesterOptions = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const names = new Set<string>();
-    for (const row of data?.students ?? []) {
-      if (campusSet.size && !campusSet.has(row.university)) continue;
-      names.add(row.semester);
-    }
-    return [...names].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
-  }, [data, campuses]);
-  const sectionChoices = useMemo(() => {
-    if (!campuses.length) return [];
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const seen = new Set<string>();
-    const list: { campus: string; section: string }[] = [];
-    for (const row of data?.students ?? []) {
-      if (!campusSet.has(row.university)) continue;
-      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
-      const key = `${row.university}\t${row.section}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      list.push({ campus: row.university, section: row.section });
-    }
-    return list.sort((left, right) => left.section.localeCompare(right.section, undefined, { numeric: true }));
-  }, [data, campuses, semesters]);
-  const subjectOptions = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const names: (string | null)[] = [];
-    for (const row of data?.students ?? []) {
-      if (campusSet.size && !campusSet.has(row.university)) continue;
-      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
-      names.push(row.subject);
-    }
-    return subjectOptionList(names);
-  }, [data, campuses, semesters]);
-  const studentCatalog = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    const sectionSet = new Set(sections.map((item) => `${item.campus}\t${item.section}`));
-    const byStudent = new Map<string, { studentId: string; studentName: string; campus: string }>();
-    for (const row of data?.students ?? []) {
-      if (campusSet.size && !campusSet.has(row.university)) continue;
-      if (semesterSet.size && !semesterSet.has(row.semester)) continue;
-      if (sectionSet.size && !sectionSet.has(`${row.university}\t${row.section}`)) continue;
-      const key = `${row.university}\t${row.studentId}`;
-      const existing = byStudent.get(key);
-      if (!existing || row.studentName.length > existing.studentName.length) {
-        byStudent.set(key, { studentId: row.studentId, studentName: row.studentName, campus: row.university });
-      }
-    }
-    return [...byStudent.values()];
-  }, [data, campuses, semesters, sections]);
-  const studentHits = useMemo(() => {
-    const q = studentQuery.trim().toLowerCase();
-    if (q.length < 2) return [];
-    return studentCatalog
-      .filter((item) => item.studentName.toLowerCase().includes(q) || item.studentId.toLowerCase().includes(q))
-      .slice(0, 20);
-  }, [studentCatalog, studentQuery]);
+  const semesterOptions = data?.options.semesters ?? [];
+  const sectionChoices = data?.options.sections ?? [];
+  const subjectOptions = useMemo(() => subjectOptionList(data?.options.subjects ?? []), [data]);
 
-  const statsFilters = {
-    campuses,
-    semesters,
-    sections: sections.map((item) => `${item.campus}\t${item.section}`),
-    students: students.map((item) => `${item.campus}\t${item.studentId}`),
-    subjects,
-  };
-  const filterKey = `${campuses.join("||")}|${semesters.join("||")}|${query.get("sections") ?? ""}|${query.get("students") ?? ""}|${subjects.join("||")}`;
-  const summary = useMemo(
-    () => aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], "university", statsFilters).summary,
-    [data, filterKey],
-  );
+  const searchText = studentQuery.trim();
+  const { data: studentSearch } = useQuery({
+    queryKey: ["attendance-stats-student-search", detailParams.toString(), campuses.join("||"), semesters.join("||"), query.get("sections") ?? "", searchText],
+    enabled: scopeReady && searchText.length >= 2,
+    queryFn: async () => {
+      const params = viewParams({ students: [] });
+      params.delete("group");
+      params.delete("subjects");
+      params.set("q", searchText);
+      const res = await fetch(`/api/dashboard/attendance-stats/student-search?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to search students");
+      return res.json() as Promise<{ students: { studentId: string; studentName: string; campus: string }[] }>;
+    },
+    placeholderData: keepPreviousData,
+    staleTime: 15 * 60_000,
+  });
+  const studentHits = searchText.length >= 2 ? studentSearch?.students ?? [] : [];
+
+  const summary: AttendanceHeader = data?.summary ?? EMPTY_SUMMARY;
   const tableLoading = grain === "university_unit"
-    ? campuses.length > 0 && unitLoading && !unitData
+    ? campuses.length > 0 && isLoading
     : isLoading;
-  const rows = useMemo(() => {
-    if (grain === "university_unit" && !campuses.length) return [];
-    const source = grain === "university_unit" ? unitData : data;
-    return aggregateAttendanceStats(source?.students ?? [], source?.classes ?? [], grain, statsFilters).rows.map((row) => ({
-      ...row,
-      spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null,
-    }));
-  }, [data, unitData, grain, filterKey]);
-
-  const filtered = rows;
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paged = data?.rows ?? [];
+  const totalRows = data?.total ?? 0;
+  const totalPages = data?.totalPages ?? 1;
+  const currentPage = data?.page ?? page;
 
   const visibleColumns = columns.filter((id) => ALL_COLUMNS.includes(id));
   const identity = identityHeaders(grain);
@@ -424,18 +389,17 @@ export default function StudentAttendanceStats() {
     );
   };
 
-  const exportAll = () => {
-    const body = aggregateAttendanceStats(data?.students ?? [], data?.classes ?? [], grain, {
-      campuses: [],
-      semesters,
-      sections: [],
-      students: [],
-      subjects,
-    });
-    exportRows(
-      body.rows.map((row) => ({ ...row, spiPath: row.studentId ? data?.spiPaths[row.studentId] ?? null : null })),
-      "attendance-stats-all-campuses.csv",
-    );
+  /** CSV needs every row, not the page on screen, so exports ask the server for the whole view. */
+  const exportView = async () => {
+    const params = viewParams();
+    params.set("export", "1");
+    exportRows((await fetchRows(params)).rows, "attendance-stats-view.csv");
+  };
+
+  const exportAll = async () => {
+    const params = viewParams({ campuses: [], sections: [], students: [] });
+    params.set("export", "1");
+    exportRows((await fetchRows(params)).rows, "attendance-stats-all-campuses.csv");
   };
 
   const applyColumns = async (asDefault: boolean) => {
@@ -505,10 +469,10 @@ export default function StudentAttendanceStats() {
           </div>
         </PopoverContent>
       </Popover>
-      <Button type="button" variant="outline" size="sm" disabled={filtered.length === 0 || tableLoading} onClick={() => exportRows(filtered, "attendance-stats-view.csv")}>
+      <Button type="button" variant="outline" size="sm" disabled={totalRows === 0 || tableLoading} onClick={() => void exportView()}>
         <Download className="mr-1 h-4 w-4" /> Export this view
       </Button>
-      <Button type="button" variant="outline" size="sm" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={exportAll}>
+      <Button type="button" variant="outline" size="sm" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={() => void exportAll()}>
         <Download className="mr-1 h-4 w-4" /> Export all campuses
       </Button>
     </div>
@@ -688,11 +652,6 @@ export default function StudentAttendanceStats() {
           <ErrorState message="Failed to load attendance stats." onRetry={() => void refetch()} />
         </div>
       )}
-      {grain === "university_unit" && unitError && (
-        <div className="mb-4">
-          <ErrorState message="Failed to load unit attendance." onRetry={() => void refetchUnits()} />
-        </div>
-      )}
 
       <TableShell>
         <div className="overflow-x-auto">
@@ -778,11 +737,11 @@ export default function StudentAttendanceStats() {
             </TableBody>
           </Table>
         </div>
-        {!tableLoading && filtered.length > 0 && (
+        {!tableLoading && totalRows > 0 && (
           <TablePagination
             page={currentPage}
             totalPages={totalPages}
-            totalItems={filtered.length}
+            totalItems={totalRows}
             pageSize={pageSize}
             pageSizeOptions={PAGE_SIZES}
             onPageChange={setPage}

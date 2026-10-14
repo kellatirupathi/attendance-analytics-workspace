@@ -45,6 +45,7 @@ import {
   SESSION_IDENTITY_SQL,
 } from "./attendance-contract.js";
 import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
+import { createSnapshot } from "./snapshot.js";
 import {
   buildAssessmentOptionsSql,
   buildAssessmentSummarySql,
@@ -1338,19 +1339,56 @@ type SpiAttendanceWindow = {
 };
 
 /** Current-semester SPI rows for one attendance window. Filters are optional. */
+type SpiDetailOptions = SpiAttendanceWindow & {
+  semester?: string;
+  campus?: string;
+  section?: string;
+  campuses?: string[];
+  semesters?: string[];
+  sections?: { campus: string; section: string }[];
+  studentIds?: string[];
+  /** Limit attendance (and so the roster) to these subjects' sessions. */
+  subjects?: string[];
+};
+
+/** Semester-to-date SPI rows for every campus, shared by all users and refreshed in the background. */
+const spiRecordSnapshot = createSnapshot("spi-record-detail", () =>
+  querySpiRecordDetail({}, { attendanceRange: "semester_to_date" }),
+);
+
+/** Changes whenever the shared SPI snapshot refreshes; part of route cache keys. */
+export function spiRecordVersion(): number {
+  return spiRecordSnapshot.version();
+}
+
+/**
+ * SPI detail rows (student × campus × semester × section). The default view
+ * (semester to date, no filters) reads the shared snapshot narrowed to the
+ * user's campuses: each row's attendance comes from that campus only and quiz
+ * averages are per student, so this matches a campus-scoped query. A
+ * subject-limited scope sums attendance over its subjects only, so it, and
+ * any filtered or dated request, still queries BigQuery.
+ */
 export async function getSpiRecordDetail(
   scope: SessionScope,
-  opts: SpiAttendanceWindow & {
-    semester?: string;
-    campus?: string;
-    section?: string;
-    campuses?: string[];
-    semesters?: string[];
-    sections?: { campus: string; section: string }[];
-    studentIds?: string[];
-    /** Limit attendance (and so the roster) to these subjects' sessions. */
-    subjects?: string[];
-  } = {},
+  opts: SpiDetailOptions = {},
+): Promise<SpiDetailRow[]> {
+  const defaultView =
+    (opts.attendanceRange ?? "semester_to_date") === "semester_to_date"
+    && !opts.semester && !opts.campus && !opts.section
+    && !opts.campuses?.length && !opts.semesters?.length && !opts.sections?.length
+    && !opts.studentIds?.length && !opts.subjects?.length
+    && !scope.subjects?.length;
+  if (!defaultView) return querySpiRecordDetail(scope, opts);
+  const rows = await spiRecordSnapshot.get();
+  if (!scope.campuses?.length) return rows;
+  const campuses = new Set(scope.campuses.map((name) => name.trim()));
+  return rows.filter((row) => campuses.has(row.university));
+}
+
+async function querySpiRecordDetail(
+  scope: SessionScope,
+  opts: SpiDetailOptions = {},
 ): Promise<SpiDetailRow[]> {
   const params: Record<string, unknown> = {};
   const semesters = (opts.semesters?.filter(Boolean) ?? []).length
@@ -5307,11 +5345,40 @@ async function loadAttendanceStatsDetail(
   return { students, classes };
 }
 
+/** Current-semester attendance for every campus, shared by all users and refreshed in the background. */
+const attendanceStatsSnapshot = createSnapshot("attendance-stats-detail", () => {
+  const { where, params } = attendanceStatsWhere({}, {});
+  return loadAttendanceStatsDetail(where, params, false);
+});
+
+/** Changes whenever the shared attendance snapshot refreshes; part of route cache keys. */
+export function attendanceStatsVersion(): number {
+  return attendanceStatsSnapshot.version();
+}
+
+/**
+ * Narrows the all-campus snapshot to a user's campuses and subjects. Rows are
+ * grouped by campus and subject, so dropping rows gives the same numbers a
+ * scoped query would.
+ */
+function scopeAttendanceDetail(detail: AttendanceStatsDetail, scope: SessionScope): AttendanceStatsDetail {
+  const campuses = scope.campuses?.length ? new Set(scope.campuses.map((name) => name.trim())) : null;
+  const subjects = scope.subjects?.length ? new Set(scope.subjects.map((name) => name.trim())) : null;
+  if (!campuses && !subjects) return detail;
+  const keep = (row: { university: string; subject: string | null }) =>
+    (!campuses || campuses.has(row.university)) && (!subjects || subjects.has((row.subject ?? "").trim()));
+  return { students: detail.students.filter(keep), classes: detail.classes.filter(keep) };
+}
+
 /** Current-semester attendance at student × subject × section. Unit rows stay on the unit endpoint. */
 export async function getAttendanceStatsDetail(
   scope: SessionScope,
   opts: { dateFrom?: string; dateTo?: string } = {},
 ): Promise<AttendanceStatsDetail> {
+  // The default view (no date range) reads the shared snapshot; date ranges still query BigQuery.
+  if (!opts.dateFrom && !opts.dateTo) {
+    return scopeAttendanceDetail(await attendanceStatsSnapshot.get(), scope);
+  }
   const { where, params } = attendanceStatsWhere(scope, opts);
   const detailKey = `attendance-stats-detail:v4:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
   const cached = cacheGet<AttendanceStatsDetail>(detailKey);

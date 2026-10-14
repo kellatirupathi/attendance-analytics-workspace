@@ -216,31 +216,32 @@ function parseRequestDates(
   return { dates };
 }
 
-// Search students - staff only, scoped
-router.get("/search", requireSession(), async (req, res): Promise<void> => {
-  const session = req.session!;
-  const scope = scopeForSession({
-    role: session.role as Role,
-    campuses: session.campuses,
-    subjects: session.subjects,
-  });
-  const q = (req.query as Record<string, string>)["q"] ?? "";
-  const limit = Math.min(
-    Number((req.query as Record<string, string>)["limit"] ?? "50"),
-    50,
-  );
-  if (!q || q.length < 1) {
-    res.json([]);
-    return;
-  }
-  try {
-    const results = await searchStudents(q, limit, scope);
-    res.json(results);
-  } catch (err) {
-    req.log.error({ err }, "Error searching students");
-    res.status(500).json({ error: "Failed to search students" });
-  }
-});
+// UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
+// // Search students - staff only, scoped
+// router.get("/search", requireSession(), async (req, res): Promise<void> => {
+//   const session = req.session!;
+//   const scope = scopeForSession({
+//     role: session.role as Role,
+//     campuses: session.campuses,
+//     subjects: session.subjects,
+//   });
+//   const q = (req.query as Record<string, string>)["q"] ?? "";
+//   const limit = Math.min(
+//     Number((req.query as Record<string, string>)["limit"] ?? "50"),
+//     50,
+//   );
+//   if (!q || q.length < 1) {
+//     res.json([]);
+//     return;
+//   }
+//   try {
+//     const results = await searchStudents(q, limit, scope);
+//     res.json(results);
+//   } catch (err) {
+//     req.log.error({ err }, "Error searching students");
+//     res.status(500).json({ error: "Failed to search students" });
+//   }
+// });
 
 // Individual student routes - public via SPI token OR staff
 router.get(
