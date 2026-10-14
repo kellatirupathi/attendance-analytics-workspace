@@ -1290,7 +1290,7 @@ router.get(
       return;
     }
     const opts = { type, groupBy, semester, campuses, sections, subjects, student };
-    const cacheKey = `assessments-summary:v1:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
+    const cacheKey = `assessments-summary:v2:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);

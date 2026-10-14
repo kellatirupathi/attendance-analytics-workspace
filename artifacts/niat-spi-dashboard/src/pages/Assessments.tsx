@@ -2,7 +2,7 @@
 /*  Assessments: classroom and module quiz completion and scores,     */
 /*  from GET /api/dashboard/assessments/summary (slot model).         */
 /* ------------------------------------------------------------------ */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Columns3, Download } from "lucide-react";
@@ -24,13 +24,12 @@ import type { SummaryGroupBy, SummaryType } from "@/lib/assessmentSummary";
 import { AssessmentTypeTabs } from "@/components/assessments/AssessmentTypeTabs";
 import { AssessmentKpiStrip } from "@/components/assessments/AssessmentKpiStrip";
 import { AssessmentFilters, CURRENT_SEMESTERS, GROUP_OPTIONS, type FilterState } from "@/components/assessments/AssessmentFilters";
-import { AssessmentTable, OPTIONAL_METRIC_COLUMNS, columnsFor, rollupRow } from "@/components/assessments/AssessmentTable";
-import { SemesterPanel } from "@/components/assessments/SemesterPanel";
+import { AssessmentTable, columnsFor, rollupRow } from "@/components/assessments/AssessmentTable";
 import { CalcExplainer } from "@/components/assessments/CalcExplainer";
 
 const BASE = "/dashboard/assessments";
 const COLUMNS_KEY = "assessments-hidden-columns";
-const TYPES: SummaryType[] = ["cq", "mq", "all"];
+const TYPES: SummaryType[] = ["cq", "mq"];
 const GROUPS = GROUP_OPTIONS.map((g) => g.value);
 
 const splitList = (v: string | null) => (v ? v.split("||").map((x) => x.trim()).filter(Boolean) : []);
@@ -71,7 +70,6 @@ function AssessmentsPage() {
   const { user } = useAuth();
   const query = useQueryParams();
   const [, setLocation] = useLocation();
-  const panelRef = useRef<HTMLDivElement>(null);
   const [hidden, setHidden] = useState<string[]>(readHidden);
 
   const lockedCampus = user?.role === "boa" && user?.campuses?.length === 1 ? user.campuses[0]! : null;
@@ -87,11 +85,13 @@ function AssessmentsPage() {
   const sections = campuses.length ? splitList(query.get("sections")).filter((s) => s.includes("\t")) : [];
   const subjects = splitList(query.get("subjects"));
   const student = query.get("q") ?? "";
-  const panelCampus = query.get("semCampus") ?? "";
+  // Campus-wise: the campus whose semester split is open.
+  const openCampus = query.get("open") ?? "";
 
   const writeQuery = (patch: Record<string, string | undefined>, replace = false) => {
     const next = new URLSearchParams(query);
     next.delete("semesters");
+    next.delete("semCampus");
     for (const [k, v] of Object.entries(patch)) {
       if (v) next.set(k, v);
       else next.delete(k);
@@ -102,7 +102,10 @@ function AssessmentsPage() {
 
   const onFilters = (patch: Partial<FilterState>) => {
     const out: Record<string, string | undefined> = {};
-    if (patch.groupBy) out.group = patch.groupBy === "campus" ? undefined : patch.groupBy;
+    if (patch.groupBy) {
+      out.group = patch.groupBy === "campus" ? undefined : patch.groupBy;
+      out.open = undefined;
+    }
     if (patch.campuses) out.campuses = patch.campuses.join("||") || undefined;
     if (patch.semester) out.sem = patch.semester === CURRENT_SEMESTERS ? undefined : patch.semester;
     if (patch.sections) out.sections = patch.sections.join("||") || undefined;
@@ -140,7 +143,9 @@ function AssessmentsPage() {
   const retry = summary.isError ? () => void summary.refetch() : undefined;
 
   /* ---- columns ---- */
-  const allColumns = useMemo(() => columnsFor(groupBy), [groupBy]);
+  const multiCampus = campuses.length !== 1;
+  const allColumns = useMemo(() => columnsFor(groupBy, { multiCampus }), [groupBy, multiCampus]);
+  const metricColumns = allColumns.filter((c) => c.kind === "metric");
   const columns = allColumns.filter((c) => c.kind === "identity" || !hidden.includes(c.key));
   useEffect(() => {
     try {
@@ -193,7 +198,7 @@ function AssessmentsPage() {
               <PopoverContent align="end" className="w-64">
                 <fieldset>
                   <legend className="mb-2 text-sm font-medium text-slate-900">Show columns</legend>
-                  {OPTIONAL_METRIC_COLUMNS.filter((c) => allColumns.some((a) => a.key === c.key)).map((c) => (
+                  {metricColumns.map((c) => (
                     <label key={c.key} className="flex items-center gap-2 py-1 text-sm text-slate-700">
                       <input
                         type="checkbox"
@@ -231,8 +236,16 @@ function AssessmentsPage() {
         <AssessmentKpiStrip metrics={data?.overall ?? null} updating={updating} onRetry={retry} />
 
         <Section
-          title={groupLabel}
-          subtitle="Lowest completion first · click a column to sort"
+          title={campuses.length === 1 && groupBy !== "campus" ? `${groupLabel} · ${campuses[0]}` : groupLabel}
+          subtitle={
+            data?.needsCampus
+              ? "Needs a campus"
+              : groupBy === "campus"
+                ? "Lowest completion first · click a column to sort · click a campus to see its semester split"
+                : groupBy === "semester"
+                  ? "Each batch uses its own current semester dates · click a column to sort"
+                  : "Lowest completion first · click a column to sort"
+          }
           updating={updating}
         >
           <AssessmentTable
@@ -242,29 +255,30 @@ function AssessmentsPage() {
             rollup={data && data.rows.length ? data.overall : null}
             rollupLabel={rollupLabel}
             loading={summary.isLoading}
-            updating={false}
             onRetry={retry}
-            emptyText={data?.needsCampus ? "Pick a campus or section, or search a student, to list students." : undefined}
-            onShowSemesters={(row) => {
-              writeQuery({ semCampus: row.name });
-              requestAnimationFrame(() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-            }}
+            expandedId={openCampus}
+            onToggleExpand={(row) => writeQuery({ open: openCampus === row.id ? undefined : row.id }, true)}
+            emptyState={data?.needsCampus ? <PickCampus groupBy={groupBy} /> : undefined}
           />
         </Section>
 
-        <SemesterPanel
-          ref={panelRef}
-          semesters={data?.semesters ?? []}
-          campus={panelCampus}
-          campusOptions={[...new Set((data?.semesters ?? []).map((s) => s.campus))].sort()}
-          onCampus={(c) => writeQuery({ semCampus: c || undefined })}
-          loading={summary.isLoading}
-          updating={updating}
-          onRetry={retry}
-        />
-
         <CalcExplainer />
       </div>
+    </div>
+  );
+}
+
+/** Shown instead of an empty table when Section- or Student-wise has no campus yet. */
+function PickCampus({ groupBy }: { groupBy: SummaryGroupBy }) {
+  const students = groupBy === "student";
+  return (
+    <div className="px-5 py-12 text-center">
+      <p className="text-sm font-semibold text-slate-900">{students ? "Pick a campus or section to see students" : "Pick a campus to see sections"}</p>
+      <p className="mt-1 text-sm text-slate-600">
+        {students
+          ? "Choose a campus in the Campus filter above, or search a student by name or ID."
+          : "Section-wise lists the sections of one campus. Choose one in the Campus filter above."}
+      </p>
     </div>
   );
 }

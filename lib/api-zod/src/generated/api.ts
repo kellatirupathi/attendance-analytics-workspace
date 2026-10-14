@@ -455,8 +455,9 @@ export const GetAssessmentSummaryQueryParams = zod.object({
 export const GetAssessmentSummaryResponse = zod.object({
   "overall": zod.object({
   "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
-  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "conducted": zod.number().describe('Scheduled quizzes whose session is completed or partially completed and whose date has passed'),
   "students": zod.number(),
+  "campuses": zod.number().describe('Distinct campuses in the row'),
   "expectedAttempts": zod.number(),
   "attempted": zod.number(),
   "notAttempted": zod.number(),
@@ -468,8 +469,9 @@ export const GetAssessmentSummaryResponse = zod.object({
 }),
   "rows": zod.array(zod.object({
   "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
-  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "conducted": zod.number().describe('Scheduled quizzes whose session is completed or partially completed and whose date has passed'),
   "students": zod.number(),
+  "campuses": zod.number().describe('Distinct campuses in the row'),
   "expectedAttempts": zod.number(),
   "attempted": zod.number(),
   "notAttempted": zod.number(),
@@ -493,8 +495,9 @@ export const GetAssessmentSummaryResponse = zod.object({
   "spiPath": zod.string().nullable(),
   "semesters": zod.array(zod.object({
   "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
-  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "conducted": zod.number().describe('Scheduled quizzes whose session is completed or partially completed and whose date has passed'),
   "students": zod.number(),
+  "campuses": zod.number().describe('Distinct campuses in the row'),
   "expectedAttempts": zod.number(),
   "attempted": zod.number(),
   "notAttempted": zod.number(),
@@ -516,8 +519,9 @@ export const GetAssessmentSummaryResponse = zod.object({
 }))),
   "semesters": zod.array(zod.object({
   "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
-  "conducted": zod.number().describe('Scheduled quizzes whose date has passed'),
+  "conducted": zod.number().describe('Scheduled quizzes whose session is completed or partially completed and whose date has passed'),
   "students": zod.number(),
+  "campuses": zod.number().describe('Distinct campuses in the row'),
   "expectedAttempts": zod.number(),
   "attempted": zod.number(),
   "notAttempted": zod.number(),

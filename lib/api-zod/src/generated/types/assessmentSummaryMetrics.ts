@@ -9,9 +9,11 @@
 export interface AssessmentSummaryMetrics {
   /** Distinct quizzes scheduled in the current semester window */
   scheduled: number;
-  /** Scheduled quizzes whose date has passed */
+  /** Scheduled quizzes whose session is completed or partially completed and whose date has passed */
   conducted: number;
   students: number;
+  /** Distinct campuses in the row */
+  campuses: number;
   expectedAttempts: number;
   attempted: number;
   notAttempted: number;
