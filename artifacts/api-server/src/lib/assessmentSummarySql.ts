@@ -232,6 +232,62 @@ LEFT JOIN unit_counts u
   ON u.gg = m.gg AND u.gp = m.gp AND IFNULL(u.g, '') = IFNULL(m.g, '') AND IFNULL(u.p, '') = IFNULL(m.p, '')`;
 }
 
+/** Quiz types the snapshot carries side by side. */
+const SNAPSHOT_TYPES = ["CLASSROOM_QUIZ", "MODULE_QUIZ"];
+
+/**
+ * Snapshot rows for the in-memory summary: the `slots` rows of buildAssessmentSummarySql
+ * with no page filters and no group key, carrying classroom (cq_) and module (mq_) slot sums
+ * side by side. Summing one type's columns gives exactly that type's slots; adding both gives "all".
+ */
+export function buildAssessmentSlotsSnapshotSql(t: SummarySqlTables, attWhere: string, quizWhere: string): string {
+  const completed = "LEAST(IFNULL(SAFE_CAST(q.total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))";
+  const sums = (prefix: string, type: string) => {
+    const is = `UPPER(q.derived_unit_type) = '${type}'`;
+    return `
+      SUM(IF(${is}, IFNULL(SAFE_CAST(q.total_quizzes AS INT64), 0), 0)) AS ${prefix}_total,
+      SUM(IF(${is}, IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0), 0)) AS ${prefix}_expected,
+      SUM(IF(${is}, ${completed}, 0)) AS ${prefix}_attempted,
+      SUM(IF(${is} AND ${completed} > 0, IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0) * ${completed}, 0)) AS ${prefix}_score`;
+  };
+  const columns = ["campus", "section", "section_key", "subject", "student_key", "student_id", "student_name", "att_batch", "att_semester", "start_d", "end_d", "batch", "period_title", "derived", "term_wise", "period_key"].map((c) => `r.${c}`).join(", ");
+  return `WITH ${baseCtes(t, attWhere)}
+SELECT
+  ${columns},${sums("cq", SNAPSHOT_TYPES[0]!)},${sums("mq", SNAPSHOT_TYPES[1]!)}
+FROM roster r
+LEFT JOIN ${t.quiz} q
+  ON TRIM(q.institute_name) = r.campus
+ AND ${KEY("q.user_id")} = r.student_key
+ AND (LOWER(TRIM(IFNULL(q.semester_course_title, ''))) = LOWER(r.subject) OR LOWER(TRIM(IFNULL(q.course_title, ''))) = LOWER(r.subject))
+ AND UPPER(q.derived_unit_type) IN (${SNAPSHOT_TYPES.map((s) => `'${s}'`).join(", ")})
+ AND ${quizWhere}
+GROUP BY ${columns}`;
+}
+
+/**
+ * Snapshot of quiz units: for every roster section × subject × semester window, the distinct
+ * quiz units in that window, whether each is conducted, and its type. Same matching as the
+ * `units` CTE of buildAssessmentSummarySql.
+ */
+export function buildAssessmentUnitsSnapshotSql(t: SummarySqlTables, attWhere: string): string {
+  return `WITH ${baseCtes(t, attWhere)},
+  windows AS (SELECT DISTINCT section_key, subject, start_d, end_d FROM roster)
+SELECT DISTINCT
+  w.section_key, w.subject, w.start_d, w.end_d,
+  UPPER(rt.derived_unit_type) AS unit_type,
+  ${KEY("res.resource_id")} AS unit,
+  res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata')
+    AND UPPER(TRIM(IFNULL(res.session_status, ''))) IN (${CONDUCTED_STATUSES.map((s) => `'${s}'`).join(", ")}) AS done
+FROM ${t.sessionResources} res
+JOIN ${t.resourceTypes} rt
+  ON rt.session_id = res.session_id AND rt.resource_id = res.resource_id
+JOIN windows w
+  ON w.section_key = ${KEY("res.section_id")}
+ AND LOWER(TRIM(IFNULL(res.semester_course_title, ''))) = LOWER(w.subject)
+WHERE UPPER(rt.derived_unit_type) IN (${SNAPSHOT_TYPES.map((s) => `'${s}'`).join(", ")})
+  AND DATE(res.session_start_datetime) BETWEEN w.start_d AND w.end_d`;
+}
+
 /** Filter options for the page: campuses, current derived semesters, sections and subjects in scope. */
 export function buildAssessmentOptionsSql(t: SummarySqlTables, attWhere: string): string {
   return `WITH ${baseCtes(t, attWhere)}

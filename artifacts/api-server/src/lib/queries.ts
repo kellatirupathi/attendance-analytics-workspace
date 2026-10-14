@@ -47,8 +47,18 @@ import {
 import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
 import { createSnapshot } from "./snapshot.js";
 import {
+  scopedSlots,
+  summarizeAssessmentModel,
+  unitWindowKey,
+  type AssessmentModel,
+  type AssessmentUnit,
+  type SummarySqlRow,
+} from "./assessmentSummaryModel.js";
+import {
   buildAssessmentOptionsSql,
+  buildAssessmentSlotsSnapshotSql,
   buildAssessmentSummarySql,
+  buildAssessmentUnitsSnapshotSql,
   type SummaryGroupBy,
 } from "./assessmentSummarySql.js";
 
@@ -5571,29 +5581,61 @@ export interface AssessmentSummaryResult {
   options: { campuses: string[]; semesters: string[]; sections: { campus: string; section: string }[]; subjects: string[] };
 }
 
-interface SummarySqlRow {
-  g: string | null;
-  p: string | null;
-  gg: string;
-  gp: string;
-  r_campus: string | null;
-  r_section: string | null;
-  r_subject: string | null;
-  r_batch: string | null;
-  r_period_title: string | null;
-  r_derived: string | null;
-  r_term_wise: boolean | string | null;
-  r_start: string | null;
-  r_end: string | null;
-  r_student_id: string | null;
-  r_student_name: string | null;
-  students: string;
-  campuses: string | null;
-  expected_attempts: string | null;
-  attempted: string | null;
-  score_sum: string | null;
-  scheduled: string | null;
-  conducted: string | null;
+/**
+ * Every current-semester assessment slot and quiz unit, for all campuses, shared by all users and
+ * refreshed in the background. getAssessmentSummary filters and groups it in memory
+ * (assessmentSummaryModel.ts) instead of running the summary SQL per request.
+ */
+const assessmentSnapshot = createSnapshot<AssessmentModel>("assessment-summary", async () => {
+  const slotParams: Record<string, unknown> = {};
+  const unitParams: Record<string, unknown> = {};
+  const [slotRows, unitRows] = await Promise.all([
+    bqQuery<Record<string, string | boolean | null>>(
+      buildAssessmentSlotsSnapshotSql(SUMMARY_TABLES, scopeClause({}, slotParams), quizScopeClause({}, slotParams, "q")),
+      slotParams,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+    bqQuery<{ section_key: string; subject: string; start_d: string | null; end_d: string | null; unit_type: string; unit: string; done: boolean | string | null }>(
+      buildAssessmentUnitsSnapshotSql(SUMMARY_TABLES, scopeClause({}, unitParams)),
+      unitParams,
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+  ]);
+  const num = (v: unknown) => Number(v) || 0;
+  const str = (v: unknown) => (v == null ? null : String(v));
+  const slots = slotRows.map((r) => ({
+    campus: String(r["campus"]),
+    section: String(r["section"]),
+    sectionKey: String(r["section_key"] ?? ""),
+    subject: String(r["subject"]),
+    studentKey: String(r["student_key"]),
+    studentId: str(r["student_id"]),
+    studentName: str(r["student_name"]),
+    startD: str(r["start_d"]),
+    endD: str(r["end_d"]),
+    batch: String(r["batch"]),
+    periodTitle: String(r["period_title"]),
+    derived: String(r["derived"]),
+    termWise: isTrue(r["term_wise"] as boolean | string | null),
+    periodKey: String(r["period_key"]),
+    cq: [num(r["cq_total"]), num(r["cq_expected"]), num(r["cq_attempted"]), num(r["cq_score"])] as [number, number, number, number],
+    mq: [num(r["mq_total"]), num(r["mq_expected"]), num(r["mq_attempted"]), num(r["mq_score"])] as [number, number, number, number],
+  }));
+  const units = new Map<string, AssessmentUnit[]>();
+  for (const r of unitRows) {
+    const key = unitWindowKey(r.section_key ?? "", r.subject, r.start_d, r.end_d);
+    const list = units.get(key) ?? [];
+    list.push({ unit: r.unit, done: isTrue(r.done), type: r.unit_type });
+    units.set(key, list);
+  }
+  return { slots, units };
+});
+
+/** Changes whenever the shared assessment snapshot refreshes; part of route cache keys. */
+export function assessmentSummaryVersion(): number {
+  return assessmentSnapshot.version();
 }
 
 /** Rates from raw sums (sum first, divide last). null when the denominator is 0, never 0%. */
@@ -5692,20 +5734,43 @@ export async function getAssessmentSummary(
   const optionParams: Record<string, unknown> = {};
   const optionWhere = scopeClause(scope, optionParams);
 
-  const [rows, optionRows] = await Promise.all([
-    bqQuery<SummarySqlRow>(
-      buildAssessmentSummarySql(SUMMARY_TABLES, groupBy, attWhere, quizWhere),
-      params,
-      BQ_LOCATION,
-      BQ_HEAVY_QUERY_TIMEOUT_MS,
-    ),
-    bqQuery<{ campus: string; derived: string; section: string; subject: string }>(
-      buildAssessmentOptionsSql(SUMMARY_TABLES, optionWhere),
-      optionParams,
-      BQ_LOCATION,
-      BQ_HEAVY_QUERY_TIMEOUT_MS,
-    ),
-  ]);
+  // Campus-scoped and unscoped users read the shared snapshot. A subject-limited scope also
+  // narrows the quiz join by exact course title, which the snapshot cannot repeat, so it queries.
+  const [rows, optionRows] = scope.subjects?.length
+    ? await Promise.all([
+        bqQuery<SummarySqlRow>(
+          buildAssessmentSummarySql(SUMMARY_TABLES, groupBy, attWhere, quizWhere),
+          params,
+          BQ_LOCATION,
+          BQ_HEAVY_QUERY_TIMEOUT_MS,
+        ),
+        bqQuery<{ campus: string; derived: string; section: string; subject: string }>(
+          buildAssessmentOptionsSql(SUMMARY_TABLES, optionWhere),
+          optionParams,
+          BQ_LOCATION,
+          BQ_HEAVY_QUERY_TIMEOUT_MS,
+        ),
+      ])
+    : await (async () => {
+        const model = await assessmentSnapshot.get();
+        const scopeCampuses = (scope.campuses ?? []).map((name) => name.trim());
+        const summaryRows = summarizeAssessmentModel(model, groupBy, {
+          types: SUMMARY_TYPES[opts.type],
+          scopeCampuses,
+          campuses: opts.campuses,
+          semester: opts.semester,
+          sections: opts.sections,
+          subjects: opts.subjects,
+          student: opts.student.trim(),
+        });
+        const options = scopedSlots(model, scopeCampuses).map((slot) => ({
+          campus: slot.campus,
+          derived: slot.derived,
+          section: slot.section,
+          subject: slot.subject,
+        }));
+        return [summaryRows, options] as const;
+      })();
 
   const bit = (v: string) => v === "1";
   const overallRow = rows.find((r) => bit(r.gg) && bit(r.gp));

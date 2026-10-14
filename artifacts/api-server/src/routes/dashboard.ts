@@ -42,6 +42,7 @@ import {
   getAttendanceGroupStats,
   getAttendanceStatsDetail,
   attendanceStatsVersion,
+  assessmentSummaryVersion,
   spiRecordVersion,
   getAttendanceStatsUnits,
   getAttendanceTrend,
@@ -1480,7 +1481,7 @@ router.get(
       return;
     }
     const opts = { type, groupBy, semester, campuses, sections, subjects, student };
-    const cacheKey = `assessments-summary:v3:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
+    const cacheKey = `assessments-summary:v4:${assessmentSummaryVersion()}:${session.role}:${JSON.stringify(scope)}:${JSON.stringify(opts)}`;
     // Rows are sorted and paged per request from the cached full result, so changing page or sort never re-queries BigQuery.
     const sortKey = (typeof req.query["sort"] === "string" && req.query["sort"]) || DEFAULT_ASSESSMENT_SORT;
     const sortDir: 1 | -1 = req.query["dir"] === "desc" ? -1 : 1;
