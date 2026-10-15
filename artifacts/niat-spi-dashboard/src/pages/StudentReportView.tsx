@@ -156,6 +156,9 @@ function SpiGauge({ spi }: { spi: number | null }) {
 }
 
 function SpiCard({ data }: { data: StudentScorecard }) {
+  const e = data.eligibility;
+  // Until every eligibility rule is met (Skill Assessment and Final included), the SPI is provisional.
+  const provisional = [e.attendance, e.classroom.state, e.module.state, e.skillAssessment, e.finalAssessment].some((state) => state !== "met");
   return (
     <Card className="text-center">
       <h2 className="mb-2.5 text-[13px] font-bold text-[#0F172A]">SPI Score</h2>
@@ -169,6 +172,11 @@ function SpiCard({ data }: { data: StudentScorecard }) {
           <Pill tone="ok">ON TRACK</Pill>
         )}
       </div>
+      {provisional && (
+        <p className="mt-3 text-[11.5px] leading-snug text-[#64748B]">
+          <span className="font-semibold text-[#B45309]">Provisional.</span> SPI counts only once every eligibility rule is met.
+        </p>
+      )}
     </Card>
   );
 }
