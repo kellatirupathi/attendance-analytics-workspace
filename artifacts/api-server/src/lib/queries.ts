@@ -30,6 +30,11 @@ import {
 } from "drizzle-orm";
 import { cacheGet, cacheSet } from "./cache.js";
 import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate.js";
+import {
+  toStudentQuizCourseRow,
+  type RawQuizCourseRow,
+  type StudentQuizCourseRow,
+} from "./spiScorecardRules.js";
 import type { SessionScope } from "./rbac.js";
 import { getAttendanceExclusions } from "./attendanceExclusions.js";
 import {
@@ -4876,32 +4881,15 @@ export async function getSubjectList(): Promise<string[]> {
 }
 
 /** One student's quiz summary rows for the SPI scorecard (one row per course × quiz type). */
-export interface StudentQuizCourseRow {
-  semesterCourseTitle: string | null;
-  courseTitle: string | null;
-  kind: "classroom" | "module";
-  /** Quizzes held so far (total_scheduled_quizes); future quizzes are not counted. */
-  conducted: number;
-  /** Quizzes attempted, capped at the number held (same rule as the Assessments page). */
-  attempted: number;
-  /** Best-attempt average over the attempted quizzes; null when none were attempted. */
-  avgAttemptedPct: number | null;
-}
-
 export async function getStudentQuizCourseRows(studentId: string): Promise<StudentQuizCourseRow[]> {
   if (!validateStudentId.test(studentId)) return [];
-  const rows = await bqQuery<{
-    semester_course_title: string | null;
-    course_title: string | null;
-    is_module: boolean;
-    conducted: string | null;
-    attempted: string | null;
-    avg_attempted: string | null;
-  }>(
+  // The unit type comes back as text: BigQuery returns every value (BOOL too) as a string,
+  // so a BOOL "false" would read as truthy and file classroom quizzes under module.
+  const rows = await bqQuery<RawQuizCourseRow>(
     `SELECT
       NULLIF(TRIM(CAST(semester_course_title AS STRING)), '') AS semester_course_title,
       NULLIF(TRIM(CAST(course_title AS STRING)), '') AS course_title,
-      UPPER(IFNULL(derived_unit_type, '')) LIKE '%MODULE%' AS is_module,
+      UPPER(TRIM(IFNULL(derived_unit_type, ''))) AS unit_type,
       IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0) AS conducted,
       LEAST(IFNULL(SAFE_CAST(total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0)) AS attempted,
       SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64) AS avg_attempted
@@ -4909,14 +4897,7 @@ export async function getStudentQuizCourseRows(studentId: string): Promise<Stude
     WHERE ${studentIdMatch("user_id")}`,
     { studentId: normalizeStudentId(studentId) },
   );
-  return rows.map((r) => ({
-    semesterCourseTitle: r.semester_course_title,
-    courseTitle: r.course_title,
-    kind: r.is_module ? "module" : "classroom",
-    conducted: Number(r.conducted) || 0,
-    attempted: Number(r.attempted) || 0,
-    avgAttemptedPct: r.avg_attempted == null ? null : Number(r.avg_attempted),
-  }));
+  return rows.map(toStudentQuizCourseRow);
 }
 
 export interface QuizItem {
