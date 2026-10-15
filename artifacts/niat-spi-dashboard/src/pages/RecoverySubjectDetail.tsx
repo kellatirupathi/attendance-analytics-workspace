@@ -498,7 +498,7 @@ export default function RecoverySubjectDetail() {
           <ChevronLeft className="h-4 w-4 mr-1" />
           Back to Campus Subjects
         </Button>
-        <PageHeader
+        <PageHeader attendanceNote
           title={selectedSubjectData.subjectTitle}
           subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""}`}
           right={
@@ -1519,7 +1519,7 @@ export default function RecoverySubjectDetail() {
           <ChevronLeft className="h-4 w-4 mr-1" />
           Back to Campus Subjects
         </Button>
-        <PageHeader
+        <PageHeader attendanceNote
           title={selectedSubjectData.subjectTitle}
           subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""}`}
           right={

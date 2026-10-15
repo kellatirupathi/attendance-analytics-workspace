@@ -313,7 +313,7 @@ export default function Campuses() {
     <div className="flex flex-col">
       {breadcrumbItems.length > 0 && <PageBreadcrumb items={breadcrumbItems} />}
 
-      <PageHeader
+      <PageHeader attendanceNote
         title="Campus Analytics"
         subtitle={`Drill from campus → section → students · ${dateRangeLabel(range)}`}
         right={

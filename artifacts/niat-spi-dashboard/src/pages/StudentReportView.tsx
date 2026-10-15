@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ATTENDANCE_SCOPE_NOTE } from "@/components/PageHeader";
 
 /* ------------------------------------------------------------------ */
 /*  Data shape: GET /api/attendance/students/:id/scorecard            */
@@ -172,32 +173,60 @@ function SpiCard({ data }: { data: StudentScorecard }) {
   );
 }
 
+/**
+ * Eligibility needs 80% in every course, so the headline is the lowest course's
+ * attendance. The text says that, and names the courses that need attention.
+ */
 function AttendanceCard({ data }: { data: StudentScorecard }) {
   const a = data.attendance;
+  const n = a.coursesWithSessions;
+  const below = data.courses.filter((c) => c.belowTarget && c.attendancePct != null);
   return (
     <Card>
       <CardTitle icon="▦" iconBg="#7C3AED">Attendance</CardTitle>
-      <p className="mt-1 text-[34px] font-extrabold tabular-nums text-[#0F172A]">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#64748B]">Lowest course attendance</p>
+      <p className="mt-0.5 text-[34px] font-extrabold tabular-nums text-[#0F172A]">
         {a.lowestPct == null ? "—" : pct1(a.lowestPct)}
       </p>
-      <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
-        {a.lowestCourse == null ? (
-          "No sessions recorded yet"
+      <div className="mt-1 text-xs leading-relaxed text-[#64748B]">
+        {a.lowestCourse == null || a.lowestPct == null ? (
+          <p>No sessions recorded yet.</p>
+        ) : below.length === 0 ? (
+          <>
+            <p>Each course needs at least 80% attendance.</p>
+            <p className="font-medium text-[#15803D]">
+              {a.lowestPct >= 100
+                ? `100% attendance in all ${plural(n, "course", "courses")}.`
+                : `All ${plural(n, "course", "courses")} at or above 80%.`}
+            </p>
+            {a.lowestPct < 100 && (
+              <p>
+                Lowest: {a.lowestCourse} at {pct1(a.lowestPct)}.
+              </p>
+            )}
+          </>
         ) : (
           <>
-            Lowest course: {a.lowestCourse}
-            <br />
-            {a.coursesBelow > 0
-              ? `${plural(a.coursesBelow, "course", "courses")} below 80%`
-              : "All courses at or above 80%"}
+            <p>Each course needs at least 80% attendance.</p>
+            <p className="font-medium text-[#B91C1C]">
+              {below.length} of {plural(n, "course", "courses")} below 80%:
+            </p>
+            <ul className="mt-0.5 space-y-0.5">
+              {below.map((c) => (
+                <li key={c.name}>
+                  {c.name} · <span className="font-semibold tabular-nums text-[#B91C1C]">{pct1(c.attendancePct!)}</span>
+                  {c.sessionsNeeded > 0 && ` · attend the next ${plural(c.sessionsNeeded, "session", "sessions")}`}
+                </li>
+              ))}
+            </ul>
           </>
         )}
-      </p>
+      </div>
       <div className="mt-2.5">
         {a.state === "met" ? <Pill tone="ok">✓ MET</Pill> : a.state === "not_met" ? <Pill tone="bad">NOT MET</Pill> : <Pill tone="wait">NOT AVAILABLE</Pill>}
       </div>
       <p className="mt-3 rounded-lg bg-[#F1F5FB] px-2.5 py-1.5 text-[11.5px] font-medium text-[#0F2A5C]">
-        Attendance is counted for NIAT course sessions only.
+        {ATTENDANCE_SCOPE_NOTE}
       </p>
     </Card>
   );
@@ -419,7 +448,7 @@ function CourseTable({ data }: { data: StudentScorecard }) {
         </table>
       </div>
       <p className="px-[18px] pb-2.5 pt-2 text-[11px] text-[#64748B]">
-        Attendance counts NIAT course sessions only. Quiz scores cover the quizzes held so far, and a missed quiz counts as 0.{" "}
+        Attendance is calculated on NIAT course sessions only. Quiz scores cover the quizzes held so far, and a missed quiz counts as 0.{" "}
         <b className="text-[#B91C1C]">⚑</b> = not all quizzes attempted. <b className="text-[#334155]">Not conducted yet</b> = no quiz of
         that type held yet. <b className="text-[#334155]">Not available yet</b> = scores not in the system yet. Both are left out of the
         Skill Track Score. A score below 50% in an assessment type earns no SPI credit for it.

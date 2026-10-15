@@ -194,6 +194,7 @@ export default function Recovery() {
       <SubNav items={recoveryNav(selectedCampus, selectedSemester, showIncentives)} />
       <div className="flex flex-col gap-6 p-6 animate-in fade-in duration-300">
         <PageHeader
+          attendanceNote={!isQuizTab}
           title="Recovery Dashboard"
           subtitle={
             isQuizTab

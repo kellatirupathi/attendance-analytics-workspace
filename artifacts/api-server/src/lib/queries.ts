@@ -48,6 +48,7 @@ import {
   SCHEDULED_SQL,
   SESSION_TITLE_SQL,
   SESSION_IDENTITY_SQL,
+  niatSessionSource,
 } from "./attendance-contract.js";
 import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
 import { createSnapshot } from "./snapshot.js";
@@ -68,10 +69,22 @@ import {
 } from "./assessmentSummarySql.js";
 
 /**
- * Every attendance query reads eligible students only (see eligibleStudents.ts).
- * The live contract check in attendance-contract.ts still probes the raw table.
+ * Every attendance query reads eligible students only (see eligibleStudents.ts),
+ * with is_niat_course_session marking the rows that count toward attendance
+ * (NIAT course sessions, see niatSessionSource). Rebuilt when the exclusion
+ * config changes. The live contract check in attendance-contract.ts still
+ * probes the raw table.
  */
-const ATTENDANCE_TABLE = eligibleAttendanceSource(RAW_ATTENDANCE_TABLE);
+const ELIGIBLE_ATTENDANCE = eligibleAttendanceSource(RAW_ATTENDANCE_TABLE);
+let attendanceSourceCache: { version: string; sql: string } | null = null;
+
+function attendanceSource(): string {
+  const exclusions = getAttendanceExclusions();
+  if (attendanceSourceCache?.version !== exclusions.version) {
+    attendanceSourceCache = { version: exclusions.version, sql: niatSessionSource(ELIGIBLE_ATTENDANCE, PROD_SEQUENCE_TABLE, exclusions) };
+  }
+  return attendanceSourceCache.sql;
+}
 
 /**
  * Matches a student id column against @studentId regardless of UUID hyphens.
@@ -155,7 +168,7 @@ export async function getAttendanceSemesters(
   }
   const rows = await bqQuery<{ semester: string }>(
     `SELECT DISTINCT TRIM(semester_title) AS semester
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE ${where}${campusFilter}
        AND semester_title IS NOT NULL
        AND TRIM(semester_title) != ''
@@ -275,40 +288,25 @@ const NO_MATCH = "\u0000NONE";
  * Training Team / Capability Manager, HOD) calls this; role scope and the
  * student filter only change its parameters.
  *
- * - Attendance rows left-joined to the prod sequence on session_id + section_id,
- *   hyphens stripped on both sides (their UUID formats differ). The sequence is
- *   DISTINCT on (session, section, category) so the join doesn't duplicate slots.
- * - Current semester, SESSION_SLOT only, dated up to today (IST).
- * - Rows with no subject_title (no linked semester course) are always dropped.
- * - Categories and subjects in config/attendance-exclusions.json are dropped,
- *   matched case-insensitively. Rows with no category match nothing, so they stay.
+ * - Counts NIAT course sessions only (is_niat_course_session from the shared
+ *   source, see niatSessionSource): SESSION_SLOT rows with a subject whose
+ *   category and subject are not in config/attendance-exclusions.json. Every
+ *   other page counts the same rows, so their numbers match this one.
+ * - Current semester, dated up to today (IST).
  */
 export function courseAttendanceSql(where: string): string {
-  return `WITH sequence_category AS (
-      SELECT DISTINCT
-        REPLACE(CAST(session_id AS STRING), '-', '') AS session_key,
-        REPLACE(CAST(section_id AS STRING), '-', '') AS section_key,
-        course_category
-      FROM ${PROD_SEQUENCE_TABLE}
-      WHERE session_id IS NOT NULL AND section_id IS NOT NULL
-    ),
-    slots AS (
+  return `WITH slots AS (
       SELECT
         TRIM(a.institute_name) AS institute_name,
         TRIM(a.subject_title) AS subject_title,
-        NULLIF(TRIM(CAST(seq.course_category AS STRING)), '') AS course_category,
+        a.niat_course_category AS course_category,
         a.student_user_id,
         UPPER(a.attendance_status) = 'PRESENT' AS is_present,
         IFNULL(SAFE_CAST(a.is_attendance_submitted AS INT64), 0) = 1 AS is_submitted
-      FROM ${ATTENDANCE_TABLE} a
-      LEFT JOIN sequence_category seq
-        ON seq.session_key = REPLACE(CAST(a.session_id AS STRING), '-', '')
-       AND seq.section_key = REPLACE(CAST(a.section_id AS STRING), '-', '')
+      FROM ${attendanceSource()} a
       WHERE a.is_current_semester = 1
-        AND UPPER(CAST(a.entity_type AS STRING)) = 'SESSION_SLOT'
+        AND a.is_niat_course_session
         AND DATE(a.date) <= CURRENT_DATE('Asia/Kolkata')
-        AND a.subject_title IS NOT NULL
-        AND TRIM(a.subject_title) != ''
         AND ${where}
     )
     SELECT
@@ -321,8 +319,6 @@ export function courseAttendanceSql(where: string): string {
       COUNTIF(is_present AND is_submitted) AS present_submitted,
       COUNTIF(is_submitted) AS submitted_slots
     FROM slots
-    WHERE UPPER(IFNULL(course_category, '')) NOT IN UNNEST(@excludedCategories)
-      AND UPPER(subject_title) NOT IN UNNEST(@excludedSubjects)
     GROUP BY institute_name, subject_title, course_category
     ORDER BY institute_name, subject_title`;
 }
@@ -367,7 +363,7 @@ async function loadCourseAttendance(opts: {
   campuses?: string[];
   subjects?: string[];
 }): Promise<CourseAttendanceRow[]> {
-  const params: Record<string, unknown> = exclusionParams();
+  const params: Record<string, unknown> = {};
   const clauses: string[] = [excludeInstituteSql("a.institute_name")];
   if (opts.studentId) {
     if (!validateStudentId.test(opts.studentId)) return [];
@@ -472,7 +468,7 @@ export async function getStudentOverview(
         MAX(student_name) AS student_name,
         MAX(institute_name) AS institute_name,
         MAX(batch_section_name) AS batch_section_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${studentIdMatch('student_user_id')}
         AND is_current_semester = 1
       GROUP BY student_user_id`,
@@ -652,7 +648,7 @@ export async function getStudentRecentSessions(
       subject_title,
       attendance_status,
       marking_method
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${studentIdMatch('student_user_id')}
       AND is_current_semester = 1
       AND ${SCHEDULED_SQL}
@@ -707,7 +703,7 @@ export async function searchStudents(
       MAX(batch_section_name) AS batch_section_name,
       COUNTIF(${ATTENDED_SQL}) AS present,
       COUNTIF(${SCHEDULED_SQL}) AS total
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${where}
       AND (LOWER(student_name) LIKE LOWER(@q)
            OR ${studentIdMatch("student_user_id")})
@@ -844,7 +840,7 @@ export async function getInstituteDirectory(
         ARRAY_AGG(DISTINCT batch_section_name IGNORE NULLS ORDER BY batch_section_name),
         '|||'
       ) AS sections
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE ${where}${campusFilter}
        AND institute_name IS NOT NULL
        AND TRIM(institute_name) != ''
@@ -953,7 +949,7 @@ export async function getStudentsList(
         MAX(batch_section_name) AS batch_section_name,
         COUNTIF(${ATTENDED_SQL}) AS present,
         COUNTIF(${SCHEDULED_SQL}) AS total
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}
       ${searchFilter}
       ${dimensionFilter}
@@ -1051,7 +1047,7 @@ export async function getSpiAveragesByCampus(
         student_user_id,
         TRIM(institute_name) AS institute_name,
         COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
@@ -1131,7 +1127,7 @@ export async function getSpiAveragesBySection(
       SELECT DISTINCT
         student_user_id,
         COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unassigned') AS section_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}
     ),
     quiz AS (
@@ -1303,7 +1299,7 @@ export async function searchSpiStudents(
        ANY_VALUE(student_name) AS student_name,
        TRIM(institute_name) AS institute_name,
        COALESCE(NULLIF(TRIM(ANY_VALUE(batch_section_name)), ''), 'Unassigned') AS section_name
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE ${where}
        ${extra}
        AND institute_name IS NOT NULL
@@ -1482,7 +1478,7 @@ async function querySpiRecordDetail(
           MAX(student_name) AS student_name,
           COUNTIF(${SCHEDULED_SQL}) AS scheduled_n,
           COUNTIF(${ATTENDED_SQL}) AS present_n
-        FROM ${ATTENDANCE_TABLE}
+        FROM ${attendanceSource()}
         WHERE ${where}${dateSql}
           ${dimensionExtra}
           AND institute_name IS NOT NULL
@@ -1658,7 +1654,7 @@ export async function getCampusSummary(
       COUNT(DISTINCT IF((${inWindow}) AND ${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_record_count,
       COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}) AS total_record_count
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${rosterWhere}
     GROUP BY TRIM(institute_name)
     ORDER BY institute_name`,
@@ -1694,7 +1690,7 @@ export async function getSectionSummary(
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_count,
       COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}) AS total_count
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${where}
     GROUP BY institute_name, COALESCE(batch_section_name, 'Unknown')
     ORDER BY institute_name, batch_section_name`,
@@ -1755,7 +1751,7 @@ export async function getSubjectSummary(
       COUNT(DISTINCT IF((${inWindow}) AND ${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS session_count,
       COUNTIF((${inWindow}) AND ${ATTENDED_SQL}) AS present_record_count,
       COUNTIF((${inWindow}) AND ${SCHEDULED_SQL}) AS total_record_count
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${rosterWhere}
     GROUP BY subject_title
     ORDER BY SAFE_DIVIDE(
@@ -1822,7 +1818,7 @@ export async function getSubjectSessions(
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNTIF(${ATTENDED_SQL}) AS present_count,
       COUNTIF(${SCHEDULED_SQL}) AS total_count
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${where}${extra}
     GROUP BY session_title, date
     ORDER BY date DESC, session_title`,
@@ -1892,7 +1888,7 @@ export async function getCampusSessions(
       COUNT(DISTINCT student_user_id) AS student_count,
       COUNTIF(${ATTENDED_SQL}) AS present_count,
       COUNTIF(${SCHEDULED_SQL}) AS total_count
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${where}${extra}
     GROUP BY subject_title, session_title, date
     ORDER BY
@@ -1980,7 +1976,7 @@ export async function getSessionStudents(
       MAX(batch_section_name) AS batch_section_name,
       MAX(attendance_status) AS attendance_status,
       MAX(marking_method) AS marking_method
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${where}${extra}
     GROUP BY student_user_id
     ORDER BY MAX(student_name)
@@ -2138,7 +2134,7 @@ export async function getCampusSubjectRecovery(
         COUNTIF(${ATTENDED_SQL}) AS present_count,
         COUNTIF(${SCHEDULED_SQL}) AS total_count,
         SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}
         AND institute_name = @campus
       GROUP BY subject_title, student_user_id
@@ -2194,7 +2190,7 @@ export async function getCampusSubjectRecovery(
     `SELECT
       subject_title,
       SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
-    FROM ${ATTENDANCE_TABLE}
+    FROM ${attendanceSource()}
     WHERE ${where}
       AND institute_name = @campus
     GROUP BY subject_title
@@ -2247,7 +2243,7 @@ export async function getRecoveryStudents(
        COUNTIF(${ATTENDED_SQL}) AS present_count,
        COUNTIF(${SCHEDULED_SQL}) AS total_count,
        SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE ${where}
        AND institute_name = @campus
        AND subject_title = @subject
@@ -2446,7 +2442,7 @@ function assessmentEnrolledSql(attWhere: string, extra = ""): string {
         institute_name,
         LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
         subject_title
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
@@ -2664,7 +2660,7 @@ export async function getAssessmentStudents(
         LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS section_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND student_name IS NOT NULL
         AND TRIM(student_name) != ''
@@ -2804,7 +2800,7 @@ export async function getAssessmentDetail(
           COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
           LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
           subject_title
-        FROM ${ATTENDANCE_TABLE}
+        FROM ${attendanceSource()}
         WHERE ${attWhere}
           AND institute_name IS NOT NULL
           AND TRIM(institute_name) != ''
@@ -2878,7 +2874,7 @@ export async function getAssessmentDetail(
         COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
         LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_user_id,
         COALESCE(MAX(student_name), '') AS student_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${rosterWhere}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
@@ -2969,7 +2965,7 @@ export async function getAssessmentStudentRows(
         COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
         LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
         subject_title
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
@@ -2996,7 +2992,7 @@ export async function getAssessmentStudentRows(
           COALESCE(NULLIF(TRIM(batch_section_name), ''), '—') AS section_name,
           LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
           student_name
-        FROM ${ATTENDANCE_TABLE}
+        FROM ${attendanceSource()}
         WHERE ${attWhere}
           AND student_user_id IS NOT NULL
           AND semester_title IS NOT NULL
@@ -3187,7 +3183,7 @@ export async function getCampusQuizRecovery(
         COUNTIF(${ATTENDED_SQL}) AS present_count,
         COUNTIF(${SCHEDULED_SQL}) AS total_count,
         SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND institute_name = @campus
       GROUP BY subject_title, student_user_id
@@ -3197,7 +3193,7 @@ export async function getCampusQuizRecovery(
         student_user_id,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND institute_name = @campus
       GROUP BY student_user_id
@@ -3297,7 +3293,7 @@ export async function getQuizRecoveryStudents(
         COUNTIF(${ATTENDED_SQL}) AS present_count,
         COUNTIF(${SCHEDULED_SQL}) AS total_count,
         SAFE_DIVIDE(COUNTIF(${ATTENDED_SQL}), COUNTIF(${SCHEDULED_SQL})) * 100 AS subject_pct
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND institute_name = @campus
         AND subject_title = @subject
@@ -3308,7 +3304,7 @@ export async function getQuizRecoveryStudents(
         student_user_id,
         MAX(student_name) AS student_name,
         MAX(batch_section_name) AS batch_section_name
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${attWhere}
         AND institute_name = @campus
       GROUP BY student_user_id
@@ -3500,7 +3496,7 @@ export async function getAttendanceBySessionId(
        session_id,
        COUNTIF(${ATTENDED_SQL}) AS present_count,
        COUNTIF(${SCHEDULED_SQL}) AS total_count
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE institute_name = @campus
        AND ${excludeInstituteSql()}
        AND subject_title = @subject
@@ -4830,7 +4826,7 @@ export async function getRecoverySessionTracker(
 
 export async function getCampusList(): Promise<string[]> {
   const rows = await bqQuery<{ institute_name: string }>(
-    `SELECT DISTINCT institute_name FROM ${ATTENDANCE_TABLE} WHERE is_current_semester = 1 AND ${excludeInstituteSql()} ORDER BY institute_name`,
+    `SELECT DISTINCT institute_name FROM ${attendanceSource()} WHERE is_current_semester = 1 AND ${excludeInstituteSql()} ORDER BY institute_name`,
   );
   return rows
     .map((r) => r.institute_name)
@@ -4854,7 +4850,7 @@ export async function getInstitutions(): Promise<Institution[]> {
     `SELECT
        ANY_VALUE(institute_id) AS institute_id,
        institute_name
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE is_current_semester = 1 AND institute_name IS NOT NULL
        AND ${excludeInstituteSql()}
      GROUP BY institute_name
@@ -4872,7 +4868,7 @@ export async function getInstitutions(): Promise<Institution[]> {
 export async function getSubjectList(): Promise<string[]> {
   const rows = await bqQuery<{ subject_title: string }>(
     `SELECT DISTINCT subject_title
-     FROM ${ATTENDANCE_TABLE}
+     FROM ${attendanceSource()}
      WHERE is_current_semester = 1 AND subject_title IS NOT NULL
        AND ${excludeInstituteSql()}
      ORDER BY subject_title`,
@@ -5136,7 +5132,7 @@ export async function getAttendanceGroupStats(
         IF(${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL) AS session_key,
         ${SCHEDULED_SQL} AS is_scheduled,
         ${ATTENDED_SQL} AS is_present
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}
         AND institute_name IS NOT NULL
         AND TRIM(institute_name) != ''
@@ -5314,7 +5310,7 @@ async function loadAttendanceStatsDetail(
           MAX(student_name) AS student_name,
           COUNTIF(${ATTENDED_SQL}) AS present_n,
           COUNTIF(${SCHEDULED_SQL}) AS scheduled_n
-        FROM ${ATTENDANCE_TABLE}
+        FROM ${attendanceSource()}
         WHERE ${where}
           AND student_user_id IS NOT NULL
         GROUP BY university, semester, subject, section${unitGroup}, student_id`,
@@ -5333,7 +5329,7 @@ async function loadAttendanceStatsDetail(
       `SELECT
           ${ATTENDANCE_STATS_DIMS}${unitSelect},
           COUNT(DISTINCT IF(${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS sessions_n
-        FROM ${ATTENDANCE_TABLE}
+        FROM ${attendanceSource()}
         WHERE ${where}
         GROUP BY university, semester, subject, section${unitGroup}`,
       params,
@@ -5493,7 +5489,7 @@ export async function getAttendanceTrend(
         FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(DATE(date), WEEK(MONDAY))) AS week,
         COUNTIF(${ATTENDED_SQL}) AS present_n,
         COUNTIF(${SCHEDULED_SQL}) AS scheduled_n
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}${extra}
         AND student_user_id IS NOT NULL
         AND date IS NOT NULL
@@ -5529,7 +5525,7 @@ export async function getSubjectOptions(scope: SessionScope): Promise<SubjectOpt
         TRIM(institute_name) AS campus,
         COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester,
         TRIM(subject_title) AS subject
-      FROM ${ATTENDANCE_TABLE}
+      FROM ${attendanceSource()}
       WHERE ${where}
         AND TRIM(IFNULL(institute_name, '')) != ''
         AND TRIM(IFNULL(subject_title, '')) != ''
@@ -5550,7 +5546,9 @@ export async function getSubjectOptions(scope: SessionScope): Promise<SubjectOpt
 
 const WORKSPACE = "kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace";
 const SUMMARY_TABLES = {
-  attendance: ATTENDANCE_TABLE,
+  get attendance() {
+    return attendanceSource();
+  },
   quiz: QUIZ_TABLE,
   semesterDetails: `\`${WORKSPACE}.niat_institute_batch_section_semester_details\``,
   sessionResources: `\`${WORKSPACE}.niat_scheduled_session_wise_resource_details\``,

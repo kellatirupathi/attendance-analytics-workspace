@@ -1,15 +1,22 @@
 import React from "react";
+import { Info } from "lucide-react";
+
+/** Shown on every page with attendance numbers; the server counts the same rows everywhere. */
+export const ATTENDANCE_SCOPE_NOTE = "Attendance is calculated on NIAT course sessions only.";
 
 export function PageHeader({
   title,
   subtitle,
   badge,
   right,
+  attendanceNote,
 }: {
   title: string;
   subtitle?: React.ReactNode;
   badge?: string;
   right?: React.ReactNode;
+  /** Adds the "Attendance is calculated on NIAT course sessions only" line. */
+  attendanceNote?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4 border-b border-slate-200 py-4">
@@ -27,6 +34,12 @@ export function PageHeader({
             {subtitle && (
               <p className="mt-1 text-sm leading-relaxed text-slate-600">
                 {subtitle}
+              </p>
+            )}
+            {attendanceNote && (
+              <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-slate-600">
+                <Info className="h-3.5 w-3.5 shrink-0 text-brand-700" aria-hidden="true" />
+                {ATTENDANCE_SCOPE_NOTE}
               </p>
             )}
           </div>

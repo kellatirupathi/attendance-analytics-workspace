@@ -480,7 +480,7 @@ export default function StudentAttendanceStats() {
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader title="Student Attendance Stats" right={toolbar} />
+      <PageHeader attendanceNote title="Student Attendance Stats" right={toolbar} />
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} hint={scopeLabel} />
         <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="" />

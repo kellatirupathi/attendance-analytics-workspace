@@ -210,7 +210,7 @@ function CampusList({
 
   return (
     <>
-      <PageHeader
+      <PageHeader attendanceNote
         title="Campus-wise Stats"
         subtitle="Attendance = sessions attended ÷ sessions scheduled (same formula as SPI)."
       />
@@ -521,7 +521,7 @@ function CampusSubjects({
         ]}
       />
 
-      <PageHeader
+      <PageHeader attendanceNote
         title={campus}
         subtitle={`${semesterLabel(semester)} · session-wise attendance by subject — click a row to see which students missed it.`}
       />

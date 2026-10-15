@@ -426,7 +426,7 @@ export default function SpiRecordDashboard() {
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader title="SPI Record Dashboard" right={toolbar} />
+      <PageHeader attendanceNote title="SPI Record Dashboard" right={toolbar} />
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={scopeLabel} />

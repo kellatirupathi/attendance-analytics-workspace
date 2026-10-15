@@ -296,7 +296,7 @@ function SessionList({
     <div className="flex flex-col">
       <PageBreadcrumb items={[...trail, { label: subject, current: true }]} />
 
-      <PageHeader
+      <PageHeader attendanceNote
         title={subject}
         subtitle={
           campus
@@ -561,7 +561,7 @@ function SessionStudents({
         items={[...trail, { label: sessionTitle, current: true }]}
       />
 
-      <PageHeader
+      <PageHeader attendanceNote
         title={sessionTitle}
         subtitle={
           date

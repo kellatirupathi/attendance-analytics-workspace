@@ -186,7 +186,7 @@ export default function SubjectAttendanceStudents() {
         items={[...backTrail, { label: subject, current: true }]}
       />
 
-      <PageHeader
+      <PageHeader attendanceNote
         title={subject}
         subtitle={
           campus !== "all"

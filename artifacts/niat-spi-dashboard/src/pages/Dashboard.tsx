@@ -244,7 +244,7 @@ function DashboardHeader({
   studentsHref: string;
 }) {
   return (
-    <PageHeader
+    <PageHeader attendanceNote
       badge={roleLabel(role)}
       title={theme.title}
       subtitle={`${theme.subtitle} Signed in as ${name} · ${meta}`}

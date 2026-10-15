@@ -363,7 +363,7 @@ export default function Students() {
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader
+      <PageHeader attendanceNote
         title="Student Directory"
         subtitle={`Find a student or pull a filtered list · ${scopeText} · attendance for ${periodText}`}
         right={
