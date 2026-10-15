@@ -77,10 +77,10 @@ import {
   type SpiViewFilters,
 } from "../lib/spiRecordView.js";
 import {
-  buildDirectoryRows,
+  directoryRowsFor,
+  sortedDirectoryFor,
   directoryOptions,
   filterDirectory,
-  sortDirectory,
   summarizeDirectory,
   type AttendanceTierId,
   type BoundOp,
@@ -534,9 +534,10 @@ router.get("/student-directory", requireSession(), async (req, res): Promise<voi
       ...spiAttendanceWindow(q),
       subjects: subjects.length ? subjects : undefined,
     });
-    const allRows = buildDirectoryRows(detail);
-    const filtered = filterDirectory(allRows, filters);
-    const page = pageOf(sortDirectory(filtered, sortKey, sortDir), pageRequest);
+    // Rows and sort orders are built once per snapshot; a request only filters (keeping the order), pages and sums.
+    const allRows = directoryRowsFor(detail);
+    const filtered = filterDirectory(sortedDirectoryFor(detail, sortKey, sortDir), filters);
+    const page = pageOf(filtered, pageRequest);
     const body = {
       ...page,
       rows: page.rows.map((row) => ({ ...row, spiPath: spiSharePath(row.studentId) })),

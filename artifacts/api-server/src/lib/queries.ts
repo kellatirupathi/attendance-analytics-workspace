@@ -1373,9 +1373,20 @@ export async function getSpiRecordDetail(
   if (!defaultView) return querySpiRecordDetail(scope, opts);
   const rows = await spiRecordSnapshot.get();
   if (!scope.campuses?.length) return rows;
-  const campuses = new Set(scope.campuses.map((name) => name.trim()));
-  return rows.filter((row) => campuses.has(row.university));
+  // One slice per campus scope and snapshot, so its derived rows (e.g. the Students page) are built once too.
+  const key = [...new Set(scope.campuses.map((name) => name.trim()))].sort().join("\t");
+  if (spiScopeSlices.source !== rows) spiScopeSlices = { source: rows, slices: new Map() };
+  let slice = spiScopeSlices.slices.get(key);
+  if (!slice) {
+    const campuses = new Set(key.split("\t"));
+    slice = rows.filter((row) => campuses.has(row.university));
+    spiScopeSlices.slices.set(key, slice);
+  }
+  return slice;
 }
+
+/** Campus-scoped slices of the current SPI snapshot; all dropped when the snapshot refreshes. */
+let spiScopeSlices: { source: SpiDetailRow[] | null; slices: Map<string, SpiDetailRow[]> } = { source: null, slices: new Map() };
 
 async function querySpiRecordDetail(
   scope: SessionScope,

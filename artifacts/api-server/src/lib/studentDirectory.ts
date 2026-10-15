@@ -155,6 +155,12 @@ export function filterDirectory(rows: DirectoryRow[], filters: DirectoryFilters)
 
 const SKILL_RANK: Record<string, number> = { "A+": 6, A: 5, B: 4, C: 3, D: 2, F: 1, Ab: 0 };
 
+// One collator each, made once: localeCompare with options builds a new collator on every call,
+// which made a name sort of ~16k students take most of a second.
+const TEXT_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const NAME_ORDER = new Intl.Collator();
+const NUMERIC_ORDER = new Intl.Collator(undefined, { numeric: true });
+
 /** Sorts a copy. Missing values always go last. */
 export function sortDirectory(rows: DirectoryRow[], key: SortKey, dir: 1 | -1): DirectoryRow[] {
   const text = (row: DirectoryRow): string => {
@@ -174,15 +180,14 @@ export function sortDirectory(rows: DirectoryRow[], key: SortKey, dir: 1 | -1): 
   const numeric = !["name", "studentId", "campus", "section", "semester"].includes(key);
   return rows.slice().sort((a, b) => {
     if (!numeric) {
-      return text(a).localeCompare(text(b), undefined, { numeric: true, sensitivity: "base" }) * dir
-        || a.studentName.localeCompare(b.studentName);
+      return TEXT_ORDER.compare(text(a), text(b)) * dir || NAME_ORDER.compare(a.studentName, b.studentName);
     }
     const av = num(a);
     const bv = num(b);
-    if (av == null && bv == null) return a.studentName.localeCompare(b.studentName);
+    if (av == null && bv == null) return NAME_ORDER.compare(a.studentName, b.studentName);
     if (av == null) return 1;
     if (bv == null) return -1;
-    return (av - bv) * dir || a.studentName.localeCompare(b.studentName);
+    return (av - bv) * dir || NAME_ORDER.compare(a.studentName, b.studentName);
   });
 }
 
@@ -261,9 +266,48 @@ export function directoryOptions(rows: DirectoryRow[], filters: { campuses: stri
     }
   }
   return {
-    campuses: [...campuses].sort((a, b) => a.localeCompare(b)),
-    semesters: [...semesters].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
-    sections: [...sections.values()].sort((a, b) => a.section.localeCompare(b.section, undefined, { numeric: true })),
+    campuses: [...campuses].sort(NAME_ORDER.compare),
+    semesters: [...semesters].sort(NUMERIC_ORDER.compare),
+    sections: [...sections.values()].sort((a, b) => NUMERIC_ORDER.compare(a.section, b.section)),
     maxSpi,
   };
+}
+
+interface PreparedDirectory {
+  rows: DirectoryRow[];
+  sorted: Map<string, DirectoryRow[]>;
+}
+
+/**
+ * Rows and sort orders, built once per detail array. The default view's detail
+ * is the shared snapshot (or a cached campus slice of it), so its rows are
+ * built once per refresh, and a request only filters, pages and sums.
+ * Held weakly: an old snapshot's rows go once the snapshot is replaced.
+ */
+const prepared = new WeakMap<SpiDetailRow[], PreparedDirectory>();
+
+function preparedFor(detail: SpiDetailRow[]): PreparedDirectory {
+  let entry = prepared.get(detail);
+  if (!entry) {
+    entry = { rows: buildDirectoryRows(detail), sorted: new Map() };
+    prepared.set(detail, entry);
+  }
+  return entry;
+}
+
+/** buildDirectoryRows, cached per detail array. Treat the result as read-only. */
+export function directoryRowsFor(detail: SpiDetailRow[]): DirectoryRow[] {
+  return preparedFor(detail).rows;
+}
+
+/** All rows in one sort order, cached per detail array. Filtering keeps the order. Read-only. */
+export function sortedDirectoryFor(detail: SpiDetailRow[], key: SortKey, dir: 1 | -1): DirectoryRow[] {
+  const entry = preparedFor(detail);
+  const id = `${key}:${dir}`;
+  let rows = entry.sorted.get(id);
+  if (!rows) {
+    rows = sortDirectory(entry.rows, key, dir);
+    entry.sorted.set(id, rows);
+  }
+  return rows;
 }
