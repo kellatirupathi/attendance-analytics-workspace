@@ -4875,6 +4875,50 @@ export async function getSubjectList(): Promise<string[]> {
   return rows.map((r) => r.subject_title).filter(Boolean);
 }
 
+/** One student's quiz summary rows for the SPI scorecard (one row per course × quiz type). */
+export interface StudentQuizCourseRow {
+  semesterCourseTitle: string | null;
+  courseTitle: string | null;
+  kind: "classroom" | "module";
+  /** Quizzes held so far (total_scheduled_quizes); future quizzes are not counted. */
+  conducted: number;
+  /** Quizzes attempted, capped at the number held (same rule as the Assessments page). */
+  attempted: number;
+  /** Best-attempt average over the attempted quizzes; null when none were attempted. */
+  avgAttemptedPct: number | null;
+}
+
+export async function getStudentQuizCourseRows(studentId: string): Promise<StudentQuizCourseRow[]> {
+  if (!validateStudentId.test(studentId)) return [];
+  const rows = await bqQuery<{
+    semester_course_title: string | null;
+    course_title: string | null;
+    is_module: boolean;
+    conducted: string | null;
+    attempted: string | null;
+    avg_attempted: string | null;
+  }>(
+    `SELECT
+      NULLIF(TRIM(CAST(semester_course_title AS STRING)), '') AS semester_course_title,
+      NULLIF(TRIM(CAST(course_title AS STRING)), '') AS course_title,
+      UPPER(IFNULL(derived_unit_type, '')) LIKE '%MODULE%' AS is_module,
+      IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0) AS conducted,
+      LEAST(IFNULL(SAFE_CAST(total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0)) AS attempted,
+      SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64) AS avg_attempted
+    FROM ${QUIZ_TABLE}
+    WHERE ${studentIdMatch("user_id")}`,
+    { studentId: normalizeStudentId(studentId) },
+  );
+  return rows.map((r) => ({
+    semesterCourseTitle: r.semester_course_title,
+    courseTitle: r.course_title,
+    kind: r.is_module ? "module" : "classroom",
+    conducted: Number(r.conducted) || 0,
+    attempted: Number(r.attempted) || 0,
+    avgAttemptedPct: r.avg_attempted == null ? null : Number(r.avg_attempted),
+  }));
+}
+
 export interface QuizItem {
   subjectTitle: string;
   title: string;

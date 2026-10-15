@@ -196,6 +196,9 @@ function AttendanceCard({ data }: { data: StudentScorecard }) {
       <div className="mt-2.5">
         {a.state === "met" ? <Pill tone="ok">✓ MET</Pill> : a.state === "not_met" ? <Pill tone="bad">NOT MET</Pill> : <Pill tone="wait">NOT AVAILABLE</Pill>}
       </div>
+      <p className="mt-3 rounded-lg bg-[#F1F5FB] px-2.5 py-1.5 text-[11.5px] font-medium text-[#0F2A5C]">
+        Attendance is counted for NIAT course sessions only.
+      </p>
     </Card>
   );
 }
@@ -315,9 +318,10 @@ function AttendanceAlert({ courses }: { courses: ScorecardCourse[] }) {
 /*  Course table                                                      */
 /* ------------------------------------------------------------------ */
 const notAvailableCell = <span className="text-[11.5px] italic text-[#94A3B8]">Not available yet</span>;
+const notConductedCell = <span className="text-[11.5px] italic text-[#94A3B8]">Not conducted yet</span>;
 
 function QuizCell({ part }: { part: QuizPart | null }) {
-  if (!part) return notAvailableCell;
+  if (!part) return notConductedCell;
   const missed = part.attempted < part.total;
   return (
     <>
@@ -415,9 +419,10 @@ function CourseTable({ data }: { data: StudentScorecard }) {
         </table>
       </div>
       <p className="px-[18px] pb-2.5 pt-2 text-[11px] text-[#64748B]">
-        Attendance counts NIAT course sessions only. <b className="text-[#334155]">Not available yet</b> = scores not in the system yet, left
-        out of the Skill Track Score. <b className="text-[#B91C1C]">⚑</b> = not all quizzes attempted. A score below 50% in an assessment
-        type earns no SPI credit for it.
+        Attendance counts NIAT course sessions only. Quiz scores cover the quizzes held so far, and a missed quiz counts as 0.{" "}
+        <b className="text-[#B91C1C]">⚑</b> = not all quizzes attempted. <b className="text-[#334155]">Not conducted yet</b> = no quiz of
+        that type held yet. <b className="text-[#334155]">Not available yet</b> = scores not in the system yet. Both are left out of the
+        Skill Track Score. A score below 50% in an assessment type earns no SPI credit for it.
       </p>
     </section>
   );

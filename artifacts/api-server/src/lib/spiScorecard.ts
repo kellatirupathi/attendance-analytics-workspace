@@ -1,8 +1,8 @@
 import {
   getStudentOverview,
-  getStudentQuizzes,
+  getStudentQuizCourseRows,
   getStudentSubjects,
-  type QuizItem,
+  type StudentQuizCourseRow,
 } from "./queries.js";
 
 /**
@@ -25,9 +25,10 @@ export type AttendanceTier = "eligible" | "recovery_eligible" | "at_risk" | "ine
 export type SkillLevel = "A+" | "A" | "B" | "C" | "D" | "F";
 
 export interface QuizPart {
-  /** Average score (%) across the course's quizzes of this type. */
+  /** Score (%) over the quizzes held: best-attempt scores ÷ quizzes held, so a missed quiz counts as 0 (§4). */
   avgPct: number;
   attempted: number;
+  /** Quizzes held so far. */
   total: number;
 }
 
@@ -120,28 +121,37 @@ function namedCourse(name: string | null | undefined): name is string {
 }
 
 /**
- * Quiz rows store the course in `semester_course_title` (subjectTitle) or `course_title` (title).
- * Rows that match none of the student's current courses are left out, which also keeps
- * other semesters' quizzes off the card.
+ * Quiz rows store the course in `semester_course_title` or `course_title` (classroom and module
+ * quizzes differ). Rows that match none of the student's current courses are left out, which also
+ * keeps other semesters' quizzes off the card. A quiz type with no quizzes held yet has no part, so
+ * it is left out of the course score instead of counting as 0.
  */
-function groupQuizzes(items: QuizItem[], courseKeys: Set<string>): Map<string, QuizPart> {
-  const rows = new Map<string, QuizItem[]>();
-  for (const item of items) {
-    const key = [item.subjectTitle, item.title]
+export function groupQuizzes(
+  rows: StudentQuizCourseRow[],
+  kind: StudentQuizCourseRow["kind"],
+  courseKeys: Set<string>,
+): Map<string, QuizPart> {
+  const sums = new Map<string, { held: number; attempted: number; score: number }>();
+  for (const row of rows) {
+    if (row.kind !== kind) continue;
+    const key = [row.semesterCourseTitle, row.courseTitle]
       .filter(namedCourse)
       .map(courseKey)
       .find((candidate) => courseKeys.has(candidate));
     if (!key) continue;
-    rows.set(key, [...(rows.get(key) ?? []), item]);
+    const sum = sums.get(key) ?? { held: 0, attempted: 0, score: 0 };
+    sum.held += row.conducted;
+    sum.attempted += row.attempted;
+    sum.score += row.attempted > 0 ? (row.avgAttemptedPct ?? 0) * row.attempted : 0;
+    sums.set(key, sum);
   }
   const parts = new Map<string, QuizPart>();
-  for (const [key, list] of rows) {
-    const total = list.reduce((sum, q) => sum + q.maxScore, 0);
-    if (total <= 0) continue;
+  for (const [key, sum] of sums) {
+    if (sum.held <= 0) continue;
     parts.set(key, {
-      avgPct: Math.round((list.reduce((sum, q) => sum + q.percentage, 0) / list.length) * 10) / 10,
-      attempted: list.reduce((sum, q) => sum + q.score, 0),
-      total,
+      avgPct: Math.round((sum.score / sum.held) * 10) / 10,
+      attempted: sum.attempted,
+      total: sum.held,
     });
   }
   return parts;
@@ -155,17 +165,17 @@ function participation(parts: (QuizPart | null)[]): { state: CriterionState; att
 }
 
 export async function getStudentScorecard(studentId: string): Promise<StudentScorecard | null> {
-  const [overview, subjects, quizzes] = await Promise.all([
+  const [overview, subjects, quizRows] = await Promise.all([
     getStudentOverview(studentId),
     getStudentSubjects(studentId),
-    getStudentQuizzes(studentId),
+    getStudentQuizCourseRows(studentId),
   ]);
   if (!overview) return null;
 
   const named = subjects.filter((s) => namedCourse(s.subjectTitle));
   const keys = new Set(named.map((s) => courseKey(s.subjectTitle)));
-  const classroomBy = groupQuizzes(quizzes.classroomQuizzes, keys);
-  const moduleBy = groupQuizzes(quizzes.moduleQuizzes, keys);
+  const classroomBy = groupQuizzes(quizRows, "classroom", keys);
+  const moduleBy = groupQuizzes(quizRows, "module", keys);
 
   const courses: ScorecardCourse[] = named.map((s) => {
     const key = courseKey(s.subjectTitle);
