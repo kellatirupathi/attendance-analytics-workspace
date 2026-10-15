@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIAT-SPI Student Scorecard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0F2A5C;
+    --navy-2: #163A7A;
+    --ink: #0F172A;
+    --text: #334155;
+    --muted: #64748B;
+    --line: #E2E8F0;
+    --soft: #F5F8FC;
+    --blue: #2563EB;
+    --orange: #EA580C;
+    --green: #15803D;
+    --green-bg: #DCFCE7;
+    --amber: #B45309;
+    --amber-bg: #FEF3C7;
+    --red: #B91C1C;
+    --red-bg: #FEE2E2;
+    --violet: #7C3AED;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #EEF3F9; color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+  .page { width: 1536px; margin: 0 auto; background: #EEF3F9; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  .band { background: linear-gradient(90deg, var(--navy), var(--navy-2)); color: #fff; padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .logo { font-size: 34px; font-weight: 800; letter-spacing: .02em; }
+  .divider { width: 1px; height: 42px; background: rgba(255,255,255,.35); }
+  .title { font-size: 22px; font-weight: 800; line-height: 1.1; }
+  .title small { display: block; font-size: 13px; font-weight: 500; color: #BFD3F5; margin-top: 3px; }
+  .band-right { text-align: right; font-size: 12.5px; color: #DCE7FA; line-height: 1.6; }
+
+  .body { padding: 18px 24px 14px; display: grid; gap: 14px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+  .card-title { font-size: 13px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .card-title .ic { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800; }
+
+  .row1 { display: grid; grid-template-columns: 1.55fr 1fr 1fr 1.25fr 1fr; gap: 14px; }
+  .student { display: flex; flex-direction: column; }
+  .avatar { width: 54px; height: 54px; border-radius: 50%; background: #CBD5E1; display: grid; place-items: center; color: #fff; font-size: 24px; font-weight: 700; }
+  .who { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .who h2 { font-size: 19px; color: var(--ink); }
+  dl { display: grid; grid-template-columns: 90px 1fr; row-gap: 8px; font-size: 12.5px; }
+  dt { color: var(--muted); }
+  dd { color: var(--ink); font-weight: 500; }
+
+  .gauge-card { text-align: center; }
+  .gauge { position: relative; width: 190px; height: 112px; margin: 2px auto 0; }
+  .gauge-val { position: absolute; left: 0; right: 0; bottom: 4px; font-size: 32px; font-weight: 800; color: var(--ink); }
+  .gauge-val small { font-size: 16px; color: var(--muted); font-weight: 600; }
+  .pill { display: inline-block; border-radius: 999px; padding: 4px 12px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+  .pill.ok { background: var(--green-bg); color: var(--green); }
+  .pill.warn { background: var(--amber-bg); color: var(--amber); }
+  .pill.bad { background: var(--red-bg); color: var(--red); }
+  .pill.wait { background: #EEF2FF; color: #4338CA; }
+  .pills { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
+
+  .stat .big { font-size: 34px; font-weight: 800; color: var(--ink); margin-top: 4px; }
+  .stat .sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+  .stat .pill { margin-top: 10px; }
+
+  .elig-list { list-style: none; display: grid; gap: 9px; }
+  .elig-list li { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: start; font-size: 12px; }
+  .dot { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 800; margin-top: 1px; }
+  .dot.met { background: #22C55E; } .dot.no { background: #EF4444; } .dot.wait { background: #94A3B8; }
+  .elig-list b { color: var(--ink); font-weight: 600; display: block; }
+  .elig-list span.d { color: var(--muted); font-size: 11px; }
+  .elig-list .v { font-weight: 700; color: var(--ink); }
+
+  .debt.none { background: #F0FDF4; border-color: #BBF7D0; }
+  .debt.active { background: #FEF2F2; border-color: #FECACA; }
+
+  .alert { background: #FFF7ED; border: 1px solid #FDBA74; border-radius: 14px; padding: 12px 18px; display: grid; grid-template-columns: 30px 1fr auto; gap: 12px; align-items: center; color: #7C2D12; }
+  .alert .tri { font-size: 24px; color: var(--orange); }
+  .alert h3 { font-size: 15px; color: var(--orange); }
+  .alert h3 span { color: #7C2D12; font-weight: 500; font-size: 13.5px; }
+  .alert p { font-size: 12px; margin-top: 3px; }
+  .alert .chips { display: flex; gap: 8px; }
+  .chip { background: #fff; border: 1px solid #FED7AA; border-radius: 10px; padding: 7px 12px; font-size: 12px; }
+  .chip b { display: block; color: var(--orange); }
+
+  .table-card { padding: 0; overflow: hidden; }
+  .table-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; background: var(--navy); color: #fff; }
+  .table-head h3 { font-size: 15px; }
+  .table-head span { font-size: 12px; color: #BFD3F5; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th { background: #1E3A70; color: #fff; font-weight: 600; font-size: 11px; padding: 8px 10px; text-align: center; line-height: 1.25; border-left: 1px solid #2B4B86; }
+  thead th:first-child, thead th:nth-child(2) { text-align: left; }
+  thead th small { display: block; color: #AFC4EA; font-weight: 500; font-size: 10px; }
+  thead tr.groups th { background: #17305F; font-size: 11px; letter-spacing: .03em; }
+  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: center; }
+  tbody tr:nth-child(even) td { background: #F8FAFD; }
+  tbody td:first-child { color: var(--muted); }
+  tbody td:nth-child(2) { text-align: left; color: var(--ink); font-weight: 500; }
+  td.strong { font-weight: 700; color: var(--ink); }
+  .nc { color: #94A3B8; font-style: italic; font-size: 11.5px; }
+  .ab { color: var(--red); font-weight: 700; }
+  .att-low { color: var(--red); font-weight: 700; }
+  .tier { display: inline-block; margin-left: 6px; background: var(--amber-bg); color: var(--amber); border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+  .lvl { display: inline-block; min-width: 32px; border-radius: 6px; padding: 2px 6px; font-weight: 800; font-size: 12px; }
+  .lvl.Aplus, .lvl.A { background: var(--green-bg); color: var(--green); }
+  .lvl.B { background: #DBEAFE; color: #1D4ED8; }
+  .lvl.C { background: #FFEDD5; color: #C2410C; }
+  .lvl.D { background: var(--amber-bg); color: var(--amber); }
+  .lvl.F, .lvl.Ab { background: var(--red-bg); color: var(--red); }
+  tfoot td { background: #EAF1FB; padding: 9px 10px; font-weight: 700; color: var(--ink); text-align: center; }
+  tfoot td.l { text-align: right; font-weight: 600; color: var(--text); }
+  .legend { font-size: 11px; color: var(--muted); padding: 8px 18px 10px; }
+  .legend b { color: var(--text); }
+
+  .row3 { display: grid; grid-template-columns: 1.05fr 1.1fr 1.15fr 1.1fr; gap: 14px; }
+  .donut-wrap { display: grid; grid-template-columns: 130px 1fr; gap: 14px; align-items: center; }
+  .donut { position: relative; width: 130px; height: 130px; }
+  .donut .c { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-size: 11px; color: var(--muted); }
+  .donut .c b { display: block; font-size: 20px; color: var(--ink); }
+  .keys { list-style: none; display: grid; gap: 9px; font-size: 12px; }
+  .keys li { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; }
+  .keys i { width: 12px; height: 12px; border-radius: 3px; display: block; }
+  .keys b { color: var(--ink); }
+
+  .formula { font-size: 12.5px; line-height: 1.6; }
+  .formula b { color: var(--ink); }
+  .formula .box { background: #F1F5FB; border-radius: 10px; padding: 8px 12px; margin-top: 8px; }
+  .result { background: #FFF4EC; border-radius: 10px; padding: 9px 12px; margin-top: 10px; font-size: 13px; color: var(--ink); }
+  .result strong { font-size: 22px; color: var(--orange); }
+
+  .map { width: 100%; font-size: 11.5px; }
+  .map th { background: #EAF1FB; color: var(--ink); font-weight: 600; padding: 5px 8px; text-align: left; border: 0; font-size: 11px; }
+  .map td:first-child { white-space: nowrap; }
+  .map td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; background: #fff !important; }
+  .map td.debt { color: var(--red); font-weight: 600; }
+
+  .steps { list-style: none; display: grid; gap: 9px; font-size: 12px; }
+  .steps li { display: grid; grid-template-columns: 24px 1fr; gap: 8px; align-items: start; }
+  .steps .n { width: 22px; height: 22px; border-radius: 50%; background: var(--violet); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+  .steps b { color: var(--ink); }
+
+  .foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 28px 16px; font-size: 11.5px; color: var(--muted); }
+  .foot .logo { font-size: 20px; color: var(--navy); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="band">
+    <div class="brand">
+      <div class="logo">NIAT</div>
+      <div class="divider"></div>
+      <div class="title">NIAT-SPI Student Scorecard<small>Skill Performance Index</small></div>
+    </div>
+    <div class="band-right">
+      Issued on [Date] · Provisional until the Final Skill Assessment
+    </div>
+  </header>
+
+  <main class="body">
+    <section class="row1">
+      <div class="card student">
+        <div class="who">
+          <div class="avatar">S</div>
+          <div><h2>[Student Name]</h2></div>
+        </div>
+        <dl>
+          <dt>Campus</dt><dd>[University name]</dd>
+          <dt>Section</dt><dd>[Batch / Section]</dd>
+          <dt>Courses</dt><dd class="num" id="courseCount"></dd>
+        </dl>
+      </div>
+
+      <div class="card gauge-card">
+        <p class="card-title" style="justify-content:center">SPI Score</p>
+        <div class="gauge">
+          <svg width="190" height="112" viewBox="0 0 190 112" aria-hidden="true">
+            <path d="M 15 100 A 80 80 0 0 1 175 100" fill="none" stroke="#E2E8F0" stroke-width="16" stroke-linecap="round"/>
+            <path id="gaugeArc" d="M 15 100 A 80 80 0 0 1 175 100" fill="none" stroke="#2563EB" stroke-width="16" stroke-linecap="round"/>
+          </svg>
+          <p class="gauge-val num"><span id="spiScore"></span> <small>/ 10</small></p>
+        </div>
+        <div class="pills" id="spiPills"></div>
+      </div>
+
+      <div class="card stat">
+        <p class="card-title"><span class="ic" style="background:#7C3AED">▦</span>Attendance</p>
+        <p class="big num" id="attLowest"></p>
+        <p class="sub" id="attSub"></p>
+        <span id="attPill"></span>
+      </div>
+
+      <div class="card">
+        <p class="card-title"><span class="ic" style="background:#2563EB">✓</span>Eligibility criteria</p>
+        <ul class="elig-list" id="elig"></ul>
+      </div>
+
+      <div class="card stat debt" id="debtCard">
+        <p class="card-title"><span class="ic" id="debtIc">!</span>Skill Debt</p>
+        <p class="big" id="debtVal"></p>
+        <p class="sub">An F or Ab grade in any course creates a Skill Debt and pauses MINT, BRAVE, GRIT, placements and internships.</p>
+      </div>
+    </section>
+
+    <div id="attAlert"></div>
+
+    <section class="card table-card">
+      <div class="table-head">
+        <h3>Course-wise performance</h3>
+        <span>Assessment scores are the student's average score (%) in each assessment type</span>
+      </div>
+      <table>
+        <thead>
+          <tr class="groups">
+            <th colspan="3" style="text-align:left"></th>
+            <th colspan="4">Assessment scores (average %)</th>
+            <th colspan="3">SPI calculation</th>
+          </tr>
+          <tr>
+            <th>#</th>
+            <th>Course</th>
+            <th>Attendance</th>
+            <th>Classroom Quizzes<small>10%</small></th>
+            <th>Module Quizzes<small>15%</small></th>
+            <th>Skill Assessments<small>25%</small></th>
+            <th>Final Skill Assessment<small>50%</small></th>
+            <th>Skill Track Score<small>out of 100</small></th>
+            <th>Skill Level</th>
+            <th>Level Points<small>out of 10</small></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+        <tfoot id="totals"></tfoot>
+      </table>
+      <p class="legend">Attendance counts NIAT course sessions only. <b>Not conducted</b> = assessment not yet held, left out of the score. <b>Ab</b> = absent from a conducted assessment, scored 0. A score below 50% in an assessment type earns no SPI credit for it.</p>
+    </section>
+
+    <section class="row3">
+      <div class="card">
+        <p class="card-title">SPI weight by assessment type</p>
+        <div class="donut-wrap">
+          <div class="donut">
+            <svg width="130" height="130" viewBox="0 0 130 130" aria-hidden="true" id="donut"></svg>
+            <div class="c"><span>Total<b>100%</b></span></div>
+          </div>
+          <ul class="keys" id="keys"></ul>
+        </div>
+      </div>
+
+      <div class="card formula">
+        <p class="card-title">How SPI is calculated</p>
+        <p><b>1. Skill Track Score</b> (per course)</p>
+        <p class="box">Classroom Quizzes × 10% + Module Quizzes × 15% + Skill Assessments × 25% + Final Skill Assessment × 50%</p>
+        <p style="margin-top:8px"><b>2.</b> Skill Track Score → <b>Skill Level and Points</b></p>
+        <p><b>3. SPI</b> = Σ Level Points ÷ Number of courses</p>
+        <p class="result num" id="spiFormula"></p>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Skill Level and Points</p>
+        <table class="map num">
+          <thead><tr><th>Score %</th><th>Level</th><th>Points</th><th>Interpretation</th></tr></thead>
+          <tbody>
+            <tr><td>90 – 100</td><td><span class="lvl Aplus">A+</span></td><td>10</td><td>Exceptional mastery</td></tr>
+            <tr><td>80 – 89.99</td><td><span class="lvl A">A</span></td><td>9</td><td>Strong skill-readiness</td></tr>
+            <tr><td>70 – 79.99</td><td><span class="lvl B">B</span></td><td>8</td><td>Competent</td></tr>
+            <tr><td>60 – 69.99</td><td><span class="lvl C">C</span></td><td>7</td><td>Developing</td></tr>
+            <tr><td>50 – 59.99</td><td><span class="lvl D">D</span></td><td>6</td><td>Borderline · needs improvement</td></tr>
+            <tr><td>Below 50</td><td><span class="lvl F">F</span></td><td>0</td><td class="debt">Failed · Skill Debt</td></tr>
+            <tr><td>Absent</td><td><span class="lvl Ab">Ab</span></td><td>0</td><td class="debt">No-show · Skill Debt</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <p class="card-title">Recovery Attendance Framework (RAF)</p>
+        <p style="font-size:11.5px;color:var(--muted);margin-bottom:9px">For any course with attendance below 80%</p>
+        <ol class="steps">
+          <li><span class="n">1</span><span>Student is placed in <b>Recovery Mode</b> for that course</span></li>
+          <li><span class="n">2</span><span>Recovery classes are scheduled after college hours (<b>Week N → N+1</b>, 90 minutes)</span></li>
+          <li><span class="n">3</span><span>Attend every assigned recovery class until attendance reaches <b>80%</b></span></li>
+          <li><span class="n">4</span><span>Skipping recovery classes makes the course a <b>Skill Debt</b></span></li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="logo">NIAT</span>
+    <span>Generated from the NIAT SPI dashboard · Sample data for design review · Policy: NIAT-SPI Execution Plan v1.0</span>
+  </footer>
+</div>
+
+<script>
+  // Sample data. Assessment values = average score (%) in that assessment type for the course.
+  // null = not conducted yet; "Ab" = absent. Every course counts equally.
+  const courses = [
+    { name: "Back End Development",              present: 64, held: 70, cq: 86, mq: 82, sa: 84,   fsa: null },
+    { name: "Design and Analysis of Algorithms", present: 46, held: 54, cq: 80, mq: 76, sa: 79,   fsa: null },
+    { name: "AI for Finance",                    present: 39, held: 44, cq: 92, mq: 90, sa: 93,   fsa: null },
+    { name: "Probability and Statistics",        present: 40, held: 48, cq: 74, mq: 70, sa: 72,   fsa: null },
+    { name: "Statistical Computing Lab",         present: 32, held: 34, cq: 88, mq: 84, sa: null, fsa: null },
+    { name: "Logical Reasoning",                 present: 42, held: 55, cq: 68, mq: 64, sa: null, fsa: null },
+    { name: "Applied Communicative English",     present: 40, held: 46, cq: 79, mq: 77, sa: null, fsa: null },
+  ];
+  const participation = {
+    classroom: { done: 84, total: 84 },
+    module:    { done: 18, total: 18 },
+    skill:     { done: 4,  total: 4 },
+    final:     { done: 0,  total: 0 },
+  };
+
+  const WEIGHTS = { cq: 10, mq: 15, sa: 25, fsa: 50 };
+  const TARGET = 80;
+  const credit = (v) => (v === "Ab" ? 0 : v >= 50 ? v : 0);
+  function level(score) {
+    if (score >= 90) return { lvl: "A+", pts: 10, cls: "Aplus" };
+    if (score >= 80) return { lvl: "A",  pts: 9,  cls: "A" };
+    if (score >= 70) return { lvl: "B",  pts: 8,  cls: "B" };
+    if (score >= 60) return { lvl: "C",  pts: 7,  cls: "C" };
+    if (score >= 50) return { lvl: "D",  pts: 6,  cls: "D" };
+    return { lvl: "F", pts: 0, cls: "F" };
+  }
+  function tier(pct) {
+    if (pct >= 80) return "Eligible";
+    if (pct >= 60) return "Recovery Eligible";
+    if (pct >= 50) return "At Risk";
+    return "Ineligible";
+  }
+  const attPct = (p, h) => Math.floor((p * 1000) / h) / 10;
+  const sessionsNeeded = (p, h) => Math.max(0, Math.ceil(((TARGET / 100) * h - p) / (1 - TARGET / 100) - 1e-9));
+  const fmt1 = (n) => n.toFixed(1);
+  const pctOf = (p) => (p.total > 0 ? Math.round((p.done / p.total) * 100) : 0);
+  const cell = (v) => (v == null ? '<span class="nc">Not conducted</span>' : v === "Ab" ? '<span class="ab">Ab</span>' : `${v}%`);
+
+  let totalPoints = 0;
+  const rows = courses.map((c) => {
+    let sum = 0, w = 0;
+    for (const k of ["cq", "mq", "sa", "fsa"]) {
+      if (c[k] == null) continue;
+      sum += credit(c[k]) * WEIGHTS[k];
+      w += WEIGHTS[k];
+    }
+    const score = w > 0 ? sum / w : 0;
+    const l = level(score);
+    totalPoints += l.pts;
+    const att = attPct(c.present, c.held);
+    return { ...c, score, att, need: sessionsNeeded(c.present, c.held), ...l };
+  });
+  const spi = totalPoints / courses.length;
+  const finalConducted = courses.some((c) => c.fsa != null);
+  const below = rows.filter((r) => r.att < TARGET);
+  const lowest = rows.reduce((a, b) => (b.att < a.att ? b : a));
+  const debtCourses = rows.filter((r) => r.pts === 0);
+
+  document.getElementById("courseCount").textContent = String(courses.length);
+  document.getElementById("spiScore").textContent = spi.toFixed(2);
+  const arc = document.getElementById("gaugeArc");
+  arc.setAttribute("stroke-dasharray", `${arc.getTotalLength() * (spi / 10)} 999`);
+  document.getElementById("spiPills").innerHTML =
+    (finalConducted ? "" : '<span class="pill warn">PROVISIONAL</span>') +
+    (below.length ? '<span class="pill wait">RECOVERY MODE</span>' : '<span class="pill ok">ON TRACK</span>');
+
+  document.getElementById("attLowest").textContent = `${fmt1(lowest.att)}%`;
+  document.getElementById("attSub").innerHTML = below.length
+    ? `Lowest course: ${lowest.name}<br>${below.length} course${below.length > 1 ? "s" : ""} below 80%`
+    : `Lowest course: ${lowest.name}<br>All courses at or above 80%`;
+  document.getElementById("attPill").innerHTML = below.length
+    ? '<span class="pill bad">NOT MET</span>' : '<span class="pill ok">✓ MET</span>';
+
+  const state = (p) => (p.total === 0 ? "wait" : p.done >= p.total ? "met" : "no");
+  const elig = [
+    { t: "Attendance", d: below.length ? `≥ 80% per course · ${below.length} below 80%` : "≥ 80% per course", v: `${fmt1(lowest.att)}%`, s: below.length ? "no" : "met" },
+    { t: "Classroom Quizzes", d: `100% participation · ${participation.classroom.done} / ${participation.classroom.total} attempted`, v: `${pctOf(participation.classroom)}%`, s: state(participation.classroom) },
+    { t: "Module Quizzes", d: `100% completion · ${participation.module.done} / ${participation.module.total} completed`, v: `${pctOf(participation.module)}%`, s: state(participation.module) },
+    { t: "Skill Assessments", d: `100% participation · ${participation.skill.done} / ${participation.skill.total} so far`, v: `${pctOf(participation.skill)}%`, s: state(participation.skill) },
+    { t: "Final Skill Assessment", d: "Mandatory · not conducted yet", v: '<span class="pill wait" style="padding:2px 8px;font-size:10px">UPCOMING</span>', s: state(participation.final) },
+  ];
+  const mark = { met: "✓", no: "!", wait: "–" };
+  document.getElementById("elig").innerHTML = elig.map((e) => `
+    <li><span class="dot ${e.s}">${mark[e.s]}</span><span><b>${e.t}</b><span class="d">${e.d}</span></span><span class="v num">${e.v}</span></li>`).join("");
+
+  document.getElementById("debtCard").classList.add(debtCourses.length ? "active" : "none");
+  document.getElementById("debtIc").style.background = debtCourses.length ? "#DC2626" : "#16A34A";
+  document.getElementById("debtIc").textContent = debtCourses.length ? "!" : "✓";
+  document.getElementById("debtVal").innerHTML = debtCourses.length
+    ? `<span style="color:var(--red)">${debtCourses.length} active</span>` : '<span style="color:var(--green)">None</span>';
+
+  if (below.length) {
+    document.getElementById("attAlert").innerHTML = `
+      <div class="alert">
+        <span class="tri">⚠</span>
+        <div>
+          <h3>Attendance below 80%. <span>Attend live sessions to reach 80% and stay eligible.</span></h3>
+          <p>Only NIAT course sessions count towards attendance. Skipping assigned recovery classes turns the course into a Skill Debt.</p>
+        </div>
+        <div class="chips">${below.map((r) => `<div class="chip num"><b>${r.name} · ${fmt1(r.att)}%</b>${r.present} / ${r.held} sessions · attend the next ${r.need} without missing any</div>`).join("")}</div>
+      </div>`;
+  }
+
+  document.getElementById("rows").innerHTML = rows.map((r, i) => `
+    <tr class="num">
+      <td>${i + 1}</td>
+      <td>${r.name}</td>
+      <td>${r.att < TARGET ? `<span class="att-low">${fmt1(r.att)}%</span><span class="tier">${tier(r.att)}</span>` : `${fmt1(r.att)}%`}</td>
+      <td>${cell(r.cq)}</td>
+      <td>${cell(r.mq)}</td>
+      <td>${cell(r.sa)}</td>
+      <td>${cell(r.fsa)}</td>
+      <td class="strong">${r.score.toFixed(2)}</td>
+      <td><span class="lvl ${r.cls}">${r.lvl}</span></td>
+      <td class="strong">${r.pts}</td>
+    </tr>`).join("");
+  document.getElementById("totals").innerHTML = `
+    <tr class="num"><td colspan="9" class="l">Total Level Points (${courses.length} courses)</td><td>${totalPoints}</td></tr>`;
+
+  const parts = [
+    { label: "Classroom Quizzes", pct: 10, color: "#3B82F6" },
+    { label: "Module Quizzes", pct: 15, color: "#22C55E" },
+    { label: "Skill Assessments", pct: 25, color: "#F59E0B" },
+    { label: "Final Skill Assessment", pct: 50, color: "#8B5CF6" },
+  ];
+  const R = 50, C = 2 * Math.PI * R;
+  let off = 0;
+  document.getElementById("donut").innerHTML = parts.map((p) => {
+    const l = (p.pct / 100) * C;
+    const s = `<circle cx="65" cy="65" r="${R}" fill="none" stroke="${p.color}" stroke-width="22" stroke-dasharray="${l} ${C - l}" stroke-dashoffset="${-off}" transform="rotate(-90 65 65)"/>`;
+    off += l;
+    return s;
+  }).join("");
+  document.getElementById("keys").innerHTML = parts.map((p) =>
+    `<li><i style="background:${p.color}"></i><span>${p.label}</span><b>${p.pct}%</b></li>`).join("");
+
+  document.getElementById("spiFormula").innerHTML =
+    `Provisional SPI = ${totalPoints} ÷ ${courses.length} courses = <strong>${spi.toFixed(2)}</strong>`;
+</script>
+</body>
+</html>

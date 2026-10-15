@@ -19,6 +19,7 @@ import {
 import { validateStudentId } from "../lib/bigquery.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { assertStudentAccess } from "../lib/studentAccess.js";
+import { getStudentScorecard } from "../lib/spiScorecard.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -364,6 +365,41 @@ router.get(
     } catch (err) {
       req.log.error({ err }, "Error fetching quizzes");
       res.status(500).json({ error: "Failed to fetch quiz data" });
+    }
+  },
+);
+
+// The student SPI scorecard: everything the report shows, worked out on the server.
+router.get(
+  "/students/:studentId/scorecard",
+  spiLimiter,
+  async (req, res): Promise<void> => {
+    const studentId = String(req.params["studentId"] ?? "");
+    if (!studentId || !validateStudentId.test(studentId)) {
+      res.status(400).json({ error: "Invalid student ID" });
+      return;
+    }
+    if (!(await canAccessStudent(req, studentId))) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    const cacheKey = `scorecard:v1:${courseAttendanceConfigVersion()}:${studentId}`;
+    const cached = cacheGet<object>(cacheKey);
+    if (cached) {
+      res.json(cached);
+      return;
+    }
+    try {
+      const data = await getStudentScorecard(studentId);
+      if (!data) {
+        res.status(404).json({ error: "Student not found" });
+        return;
+      }
+      cacheSet(cacheKey, data, 5 * 60 * 1000);
+      res.json(data);
+    } catch (err) {
+      req.log.error({ err }, "Error building student scorecard");
+      res.status(500).json({ error: "Failed to build scorecard" });
     }
   },
 );

@@ -1,872 +1,657 @@
-import { useMemo, type ReactNode } from "react";
-import { AlertTriangle, Check } from "lucide-react";
-import { computeSpiScore } from "@/lib/spiScore";
-import {
-  ATTENDANCE_TIERS,
-  eligibilityAttendancePct,
-  getTier,
-  sessionsShortOfTarget,
-  TIER_ELIGIBLE,
-} from "@/lib/attendanceTiers";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import type { ReactNode } from "react";
 
-export interface ReportCourse {
-  name: string | null;
-  attended: number;
+/* ------------------------------------------------------------------ */
+/*  Data shape: GET /api/attendance/students/:id/scorecard            */
+/*  (built in api-server/src/lib/spiScorecard.ts; this page only shows it) */
+/* ------------------------------------------------------------------ */
+export type CriterionState = "met" | "not_met" | "not_available";
+type AttendanceTier = "eligible" | "recovery_eligible" | "at_risk" | "ineligible";
+type SkillLevel = "A+" | "A" | "B" | "C" | "D" | "F";
+
+interface QuizPart {
+  avgPct: number;
+  attempted: number;
   total: number;
-  pct: number;
-  /** Slots with attendance submitted, and present among them. */
-  submitted?: number;
-  presentSubmitted?: number;
-  /** PRESENT ÷ submitted slots × 100; null when none are submitted. */
-  pctSubmittedOnly?: number | null;
-  /** Scheduled sessions dated up to today; null when the course isn't on the student's schedule. */
-  sessionsHeld?: number | null;
 }
 
-/** A scheduled course with no attendance rows yet: shown, but left out of every percentage. */
-function notStarted(course: ReportCourse): boolean {
-  return course.total === 0;
-}
-
-function SubmittedPct({ value }: { value: number | null | undefined }) {
-  if (value == null) return <span className="text-xs text-[#9CA3AF]">None submitted</span>;
-  return <span className="tabular-nums text-[#374151]">{oneDecimal(value)}%</span>;
-}
-
-interface StudentReportViewProps {
+interface ScorecardCourse {
   name: string;
-  userId: string;
-  campus: string;
-  section: string;
-  attendancePct: number;
-  attended: number;
-  totalSessions: number;
-  courses: ReportCourse[];
-  classroomAttempted: number;
-  classroomTotal: number;
-  classroomAvg: number;
-  moduleAttempted: number;
-  moduleTotal: number;
-  moduleAvg: number;
-  pendingCount: number;
-  notice: string | null;
-  onRequestCorrection: () => void;
-  onMyRequests: () => void;
+  present: number;
+  held: number;
+  attendancePct: number | null;
+  belowTarget: boolean;
+  sessionsNeeded: number;
+  tier: AttendanceTier | null;
+  classroom: QuizPart | null;
+  module: QuizPart | null;
+  courseScore: number | null;
+  level: SkillLevel | null;
+  points: number | null;
 }
 
-const PAUSED = [
-  "MINT",
-  "BRAVE",
-  "GRIT",
-  "Placements",
-  "Internships",
-  "Co-curricular support",
-];
+type NextStep =
+  | { kind: "attend_sessions"; course: string; sessions: number }
+  | { kind: "pending_classroom"; count: number }
+  | { kind: "pending_module"; count: number }
+  | { kind: "attend_recovery" }
+  | { kind: "final_assessment" }
+  | { kind: "on_track" };
 
-function formatUpdated(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).formatToParts(date);
-  const pick = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-  const hour = pick("hour");
-  const minute = pick("minute");
-  const dayPeriod = pick("dayPeriod").toUpperCase();
-  return `${pick("day")} ${pick("month")} ${pick("year")}, ${hour}:${minute} ${dayPeriod} IST`;
+export interface StudentScorecard {
+  studentId: string;
+  studentName: string;
+  spi: number | null;
+  totalPoints: number;
+  scoredCourses: number;
+  attendance: {
+    lowestPct: number | null;
+    lowestCourse: string | null;
+    coursesBelow: number;
+    coursesWithSessions: number;
+    state: CriterionState;
+  };
+  eligibility: {
+    attendance: CriterionState;
+    classroom: { state: CriterionState; attempted: number; total: number };
+    module: { state: CriterionState; attempted: number; total: number };
+    skillAssessment: CriterionState;
+    finalAssessment: CriterionState;
+  };
+  skillDebtCourses: string[];
+  courses: ScorecardCourse[];
+  nextSteps: NextStep[];
 }
 
-function ratioPct(done: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.round((done / total) * 100);
-}
+/* ------------------------------------------------------------------ */
+/*  Small helpers                                                     */
+/* ------------------------------------------------------------------ */
+const pct1 = (n: number) => `${n.toFixed(1)}%`;
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-function oneDecimal(value: number): string {
-  return value.toFixed(1);
-}
+const TIER_LABEL: Record<AttendanceTier, string> = {
+  eligible: "Eligible",
+  recovery_eligible: "Recovery Eligible",
+  at_risk: "At Risk",
+  ineligible: "Ineligible",
+};
 
-function courseLabel(name: string | null | undefined): string {
-  return (name ?? "").trim();
-}
+const LEVEL_STYLE: Record<SkillLevel, string> = {
+  "A+": "bg-[#DCFCE7] text-[#15803D]",
+  A: "bg-[#DCFCE7] text-[#15803D]",
+  B: "bg-[#DBEAFE] text-[#1D4ED8]",
+  C: "bg-[#FFEDD5] text-[#C2410C]",
+  D: "bg-[#FEF3C7] text-[#B45309]",
+  F: "bg-[#FEE2E2] text-[#B91C1C]",
+};
 
-function namedCourse(name: string | null | undefined): boolean {
-  const trimmed = courseLabel(name);
-  return trimmed.length > 0 && trimmed.toLowerCase() !== "null";
-}
-
-function dataIssue(name: string | null | undefined, pct: number): boolean {
-  const trimmed = courseLabel(name);
-  return pct === 0 || trimmed.length === 0 || /quizzes$/i.test(trimmed);
-}
-
-function MarkerBar({ pct, color }: { pct: number; color: string }) {
-  const width = Math.max(0, Math.min(100, pct));
+function Card({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
-    <div className="relative h-2 rounded-full bg-[#E5E7EB]">
-      <div
-        className="h-full rounded-full"
-        style={{ width: `${width}%`, backgroundColor: color }}
-      />
-      <span
-        className="absolute top-[-3px] h-[14px] w-[2px] bg-black"
-        style={{ left: `${TIER_ELIGIBLE}%` }}
-        aria-hidden
-      />
-    </div>
+    <section
+      className={`rounded-[14px] border border-[#E2E8F0] bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-[18px] ${className}`}
+    >
+      {children}
+    </section>
   );
 }
 
-function StatusBadge({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: "met" | "not_met" | "upcoming";
-}) {
-  const style =
-    tone === "met"
-      ? { color: "#1E7F4F", backgroundColor: "#E7F5EE" }
-      : tone === "not_met"
-        ? { color: "#B91C1C", backgroundColor: "#FDECEC" }
-        : { color: "#4B5563", backgroundColor: "#F3F4F6" };
+function CardTitle({ icon, iconBg, children }: { icon?: string; iconBg?: string; children: ReactNode }) {
   return (
-    <span
-      className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide"
-      style={style}
-    >
-      {label}
+    <h2 className="mb-2.5 flex items-center gap-2 text-[13px] font-bold text-[#0F172A]">
+      {icon && (
+        <span
+          className="grid h-[22px] w-[22px] shrink-0 place-items-center rounded-md text-xs font-extrabold text-white"
+          style={{ backgroundColor: iconBg }}
+          aria-hidden
+        >
+          {icon}
+        </span>
+      )}
+      {children}
+    </h2>
+  );
+}
+
+function Pill({ tone, children }: { tone: "ok" | "warn" | "bad" | "wait"; children: ReactNode }) {
+  const style = {
+    ok: "bg-[#DCFCE7] text-[#15803D]",
+    warn: "bg-[#FEF3C7] text-[#B45309]",
+    bad: "bg-[#FEE2E2] text-[#B91C1C]",
+    wait: "bg-[#EEF2FF] text-[#4338CA]",
+  }[tone];
+  return (
+    <span className={`inline-block rounded-full px-3 py-1 text-[11px] font-bold tracking-[0.04em] ${style}`}>
+      {children}
     </span>
   );
 }
 
-export default function StudentReportView(props: StudentReportViewProps) {
-  const courses = useMemo(
-    () =>
-      props.courses
-        .filter((course) => namedCourse(course.name))
-        .sort(
-          (a, b) =>
-            Number(notStarted(a)) - Number(notStarted(b)) ||
-            a.pct - b.pct ||
-            courseLabel(a.name).localeCompare(courseLabel(b.name)),
-        ),
-    [props.courses],
-  );
-  const activeCourses = courses.filter((course) => !notStarted(course));
-  // Sessions with a blank or "null" course still count in the headline attendance,
-  // so show them as one row to keep the table adding up to the headline.
-  const unlinked = useMemo(() => {
-    let attended = 0;
-    let total = 0;
-    for (const course of props.courses) {
-      if (namedCourse(course.name)) continue;
-      attended += course.attended;
-      total += course.total;
-    }
-    return total > 0 ? { attended, total, pct: (attended / total) * 100 } : null;
-  }, [props.courses]);
-  const totalSubmittedPct = useMemo(() => {
-    let present = 0;
-    let submitted = 0;
-    for (const course of props.courses) {
-      present += course.presentSubmitted ?? 0;
-      submitted += course.submitted ?? 0;
-    }
-    return submitted > 0 ? (present / submitted) * 100 : null;
-  }, [props.courses]);
-  const tierPct = eligibilityAttendancePct(
-    props.attendancePct,
-    activeCourses.map((course) => course.pct),
-    // Policy: minimum 80% per course, so the weakest course decides the tier.
-    "lowest",
-  );
-  const tier = getTier(tierPct);
-  const coursesAtTarget = activeCourses.filter((course) => course.pct >= TIER_ELIGIBLE).length;
-  const coursesBelow = activeCourses.filter((course) => course.pct < TIER_ELIGIBLE);
-  const attendanceMet = activeCourses.length > 0 && coursesBelow.length === 0;
-  const classroomPct = ratioPct(props.classroomAttempted, props.classroomTotal);
-  const modulePct = ratioPct(props.moduleAttempted, props.moduleTotal);
-  const classroomMet =
-    props.classroomTotal > 0 && props.classroomAttempted >= props.classroomTotal;
-  const moduleMet = props.moduleTotal > 0 && props.moduleAttempted >= props.moduleTotal;
-  const spi = computeSpiScore(props.classroomAvg, props.moduleAvg, 0, 0);
-  const spiColor =
-    spi.points >= 7 ? "#1E7F4F" : spi.points >= 5 ? "#B45309" : "#B91C1C";
-  const fullyEligible = attendanceMet && classroomMet && moduleMet;
-  const noAttendance = props.totalSessions === 0;
-
-  const steps: string[] = [];
-  if (coursesBelow.length > 0) {
-    const countLabel =
-      coursesBelow.length === activeCourses.length
-        ? `all ${coursesBelow.length} course${coursesBelow.length === 1 ? "" : "s"}`
-        : `${coursesBelow.length} course${coursesBelow.length === 1 ? "" : "s"}`;
-    steps.push(
-      `Attend recovery classes for ${countLabel}. Skipping them turns the course into a Skill Debt.`,
-    );
-  }
-  if (!classroomMet && props.classroomTotal > props.classroomAttempted) {
-    const left = props.classroomTotal - props.classroomAttempted;
-    steps.push(
-      `Complete ${left} classroom quiz${left === 1 ? "" : "zes"}`,
-    );
-  }
-  if (!moduleMet && props.moduleTotal > props.moduleAttempted) {
-    const left = props.moduleTotal - props.moduleAttempted;
-    steps.push(
-      `Complete ${left} module quiz${left === 1 ? "" : "zes"} before the Final Skill Assessment`,
-    );
-  }
-  const visibleSteps = steps.slice(0, 3);
-
-  const classroomKnown = props.classroomTotal > 0;
-  const moduleKnown = props.moduleTotal > 0;
-  const classroomForSkill = classroomKnown ? props.classroomAvg : null;
-  const moduleForSkill = moduleKnown ? props.moduleAvg : null;
-  const skillDebt =
-    (classroomForSkill == null && moduleForSkill == null) ||
-    Math.min(classroomForSkill ?? 100, moduleForSkill ?? 100) < 50;
-
-  const meta = [
-    props.campus || "Campus unavailable",
-    props.section || "Batch / section unavailable",
-  ].join(" · ");
-
+/* ------------------------------------------------------------------ */
+/*  Top row                                                           */
+/* ------------------------------------------------------------------ */
+function SpiGauge({ spi }: { spi: number | null }) {
+  const fill = spi == null ? 0 : Math.max(0, Math.min(10, spi)) * 10;
   return (
-    <div
-      className="min-h-screen bg-[#F3F4F7] text-[#1F2937]"
-      style={{ fontFamily: '"DM Sans", system-ui, sans-serif' }}
-    >
-      <div className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6 sm:py-8">
-        <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 lg:max-w-[420px]">
-            <h1
-              className="truncate text-[32px] font-bold leading-none text-[#111827] sm:text-[36px]"
-              style={{ fontFamily: '"Fraunces", Georgia, serif' }}
-            >
-              {props.name}
-            </h1>
-            <p className="mt-2 text-sm text-[#4B5563]">{meta}</p>
-            <p className="mt-2 flex items-center gap-2 text-sm text-[#374151]">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#1E7F4F]" aria-hidden />
-              Updated {formatUpdated(new Date())} · Classes in progress
-            </p>
-          </div>
-
-          <section
-            className="w-full rounded-2xl bg-white px-4 py-3 lg:min-w-[460px] lg:flex-1"
-            aria-label="SPI eligibility status"
-          >
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-[#4B5563]">
-                SPI ELIGIBILITY STATUS
-              </p>
-              <p className="text-sm font-semibold text-[#111827]">
-                {activeCourses.length > 1 ? "Lowest subject" : "Attendance"} {oneDecimal(tierPct)}%
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {ATTENDANCE_TIERS.map((item) => {
-                const active = item.id === tier.id;
-                return (
-                  <div
-                    key={item.id}
-                    className="flex min-h-11 items-center justify-center rounded-xl px-2 py-1.5 text-center text-xs font-semibold leading-tight"
-                    style={
-                      active
-                        ? { backgroundColor: item.color, color: "#FFFFFF" }
-                        : { backgroundColor: "#F3F4F6", color: "#4B5563" }
-                    }
-                  >
-                    <span>
-                      {active ? "✓ " : ""}
-                      {item.label}
-                      <span className="mt-0.5 block text-[10px] font-medium opacity-90">
-                        {item.hint}
-                      </span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <div className="flex shrink-0 flex-col items-stretch gap-2 lg:w-[230px]">
-            <button
-              type="button"
-              onClick={props.onRequestCorrection}
-              className="min-h-11 rounded-xl bg-[#F25C05] px-4 text-sm font-semibold text-white hover:bg-[#D24E04]"
-            >
-              Request attendance correction
-            </button>
-            <button
-              type="button"
-              onClick={props.onMyRequests}
-              className="min-h-11 text-sm font-semibold text-[#C2410C] underline-offset-2 hover:underline"
-            >
-              My requests ({props.pendingCount} pending)
-            </button>
-          </div>
-        </header>
-
-        {props.notice && (
-          <p className="mt-4 rounded-xl bg-[#E7F5EE] px-4 py-3 text-sm text-[#1E7F4F]">
-            {props.notice}
-          </p>
+    <div className="relative mx-auto mt-0.5 h-[112px] w-[190px]">
+      <svg width="190" height="112" viewBox="0 0 190 112" aria-hidden>
+        <path d="M 15 100 A 80 80 0 0 1 175 100" fill="none" stroke="#E2E8F0" strokeWidth="16" strokeLinecap="round" />
+        {spi != null && (
+          <path
+            d="M 15 100 A 80 80 0 0 1 175 100"
+            fill="none"
+            stroke="#2563EB"
+            strokeWidth="16"
+            strokeLinecap="round"
+            pathLength={100}
+            strokeDasharray={`${fill} 100`}
+          />
         )}
+      </svg>
+      <p className="absolute inset-x-0 bottom-1 text-center text-[32px] font-extrabold tabular-nums text-[#0F172A]">
+        {spi == null ? "—" : spi.toFixed(2)}{" "}
+        <small className="text-base font-semibold text-[#64748B]">/ 10</small>
+      </p>
+    </div>
+  );
+}
 
-        <section className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-6 lg:grid-cols-5">
-          <StatCard
-            className="sm:col-span-2 lg:col-span-1"
-            title="Attendance"
-            badge={attendanceMet ? "MET" : "NOT MET"}
-            tone={attendanceMet ? "met" : "not_met"}
-            value={noAttendance ? "—" : `${oneDecimal(props.attendancePct)}%`}
-            hint="target 80%"
-            bar={
-              noAttendance ? null : (
-                <MarkerBar pct={props.attendancePct} color={getTier(props.attendancePct).color} />
-              )
-            }
-            footer={
-              noAttendance
-                ? "No classes recorded yet"
-                : `${props.attended} / ${props.totalSessions} sessions · ${coursesAtTarget} of ${activeCourses.length} courses at ${TIER_ELIGIBLE}%`
-            }
-          />
-          <StatCard
-            className="sm:col-span-2 lg:col-span-1"
-            title="Classroom Quizzes"
-            badge={classroomMet ? "MET" : "NOT MET"}
-            tone={classroomMet ? "met" : "not_met"}
-            value={props.classroomTotal === 0 ? "—" : `${classroomPct}%`}
-            hint="attempted · need 100%"
-            bar={<MarkerBar pct={classroomPct} color={getTier(classroomPct).color} />}
-            footer={
-              <span className="flex items-center justify-between gap-2">
-                <span>
-                  {props.classroomAttempted} / {props.classroomTotal} · 10% weight
-                </span>
-                <AvgText pct={props.classroomAvg} />
-              </span>
-            }
-          />
-          <StatCard
-            className="sm:col-span-2 lg:col-span-1"
-            title="Module Quizzes"
-            badge={moduleMet ? "MET" : "NOT MET"}
-            tone={moduleMet ? "met" : "not_met"}
-            value={props.moduleTotal === 0 ? "—" : `${modulePct}%`}
-            hint="completed · need 100%"
-            bar={<MarkerBar pct={modulePct} color={getTier(modulePct).color} />}
-            footer={
-              <span className="flex items-center justify-between gap-2">
-                <span>
-                  {props.moduleAttempted} / {props.moduleTotal} · 15% weight
-                </span>
-                <AvgText pct={props.moduleAvg} />
-              </span>
-            }
-          />
-          <StatCard
-            className="sm:col-span-3 lg:col-span-1"
-            title="Skill Assessments"
-            badge="UPCOMING"
-            tone="upcoming"
-            value="—"
-            hint="need 100%"
-            bar={null}
-            footer={
-              <span className="flex items-center justify-between gap-2">
-                <span>Opens [Date TBA] · 25% weight</span>
-                <span>Avg —</span>
-              </span>
-            }
-          />
-          <StatCard
-            className="sm:col-span-3 lg:col-span-1"
-            title="Final Assessment"
-            badge="UPCOMING"
-            tone="upcoming"
-            value="—"
-            hint="mandatory"
-            bar={null}
-            footer={
-              <span className="flex items-center justify-between gap-2">
-                <span>Opens [Date TBA] · 50% weight</span>
-                <span>Score —</span>
-              </span>
-            }
-          />
-        </section>
+function SpiCard({ data }: { data: StudentScorecard }) {
+  return (
+    <Card className="text-center">
+      <h2 className="mb-2.5 text-[13px] font-bold text-[#0F172A]">SPI Score</h2>
+      <SpiGauge spi={data.spi} />
+      <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+        {data.spi == null ? (
+          <Pill tone="wait">NO SCORES YET</Pill>
+        ) : data.attendance.coursesBelow > 0 ? (
+          <Pill tone="wait">RECOVERY MODE</Pill>
+        ) : (
+          <Pill tone="ok">ON TRACK</Pill>
+        )}
+      </div>
+    </Card>
+  );
+}
 
-        <div className="mt-5 flex flex-col gap-4 lg:flex-row">
-          <div className="flex w-full flex-col gap-4 lg:w-[340px] lg:shrink-0">
-            <section className="rounded-2xl bg-white p-5">
-              <p className="text-[11px] font-semibold tracking-[0.14em] text-[#4B5563]">
-                SKILL PERFORMANCE INDEX
-              </p>
-              <div className="mt-4 flex justify-center">
-                <SpiRing points={spi.points} color={spiColor} />
-              </div>
-              {!fullyEligible && (
-                <p className="mt-4 rounded-xl bg-[#FEF3E2] px-3 py-2 text-sm leading-relaxed text-[#9A3412]">
-                  Provisional. SPI counts only once all eligibility criteria are met.
-                </p>
-              )}
-            </section>
+function AttendanceCard({ data }: { data: StudentScorecard }) {
+  const a = data.attendance;
+  return (
+    <Card>
+      <CardTitle icon="▦" iconBg="#7C3AED">Attendance</CardTitle>
+      <p className="mt-1 text-[34px] font-extrabold tabular-nums text-[#0F172A]">
+        {a.lowestPct == null ? "—" : pct1(a.lowestPct)}
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
+        {a.lowestCourse == null ? (
+          "No sessions recorded yet"
+        ) : (
+          <>
+            Lowest course: {a.lowestCourse}
+            <br />
+            {a.coursesBelow > 0
+              ? `${plural(a.coursesBelow, "course", "courses")} below 80%`
+              : "All courses at or above 80%"}
+          </>
+        )}
+      </p>
+      <div className="mt-2.5">
+        {a.state === "met" ? <Pill tone="ok">✓ MET</Pill> : a.state === "not_met" ? <Pill tone="bad">NOT MET</Pill> : <Pill tone="wait">NOT AVAILABLE</Pill>}
+      </div>
+    </Card>
+  );
+}
 
-            <section className="rounded-2xl bg-[#141827] p-5 text-white">
-              <h2
-                className="text-2xl font-semibold"
-                style={{ fontFamily: '"Fraunces", Georgia, serif' }}
-              >
-                Next steps
-              </h2>
-              {visibleSteps.length === 0 ? (
-                <p className="mt-4 text-sm leading-relaxed text-white/90">
-                  You're on track — keep attending every class.
-                </p>
-              ) : (
-                <ol className="mt-4 space-y-3">
-                  {visibleSteps.map((step, index) => (
-                    <li key={step} className="flex gap-3 text-sm leading-relaxed">
-                      <span
-                        className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-                        style={{
-                          backgroundColor: index === 0 ? "#F25C05" : "#374151",
-                          color: "#FFFFFF",
-                        }}
-                      >
-                        {index + 1}
-                      </span>
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
+function StateDot({ state }: { state: CriterionState }) {
+  const style = state === "met" ? "bg-[#22C55E]" : state === "not_met" ? "bg-[#EF4444]" : "bg-[#94A3B8]";
+  const mark = state === "met" ? "✓" : state === "not_met" ? "!" : "–";
+  return (
+    <span className={`mt-px grid h-[18px] w-[18px] place-items-center rounded-full text-[11px] font-extrabold text-white ${style}`} aria-hidden>
+      {mark}
+    </span>
+  );
+}
+
+function EligibilityCard({ data }: { data: StudentScorecard }) {
+  const e = data.eligibility;
+  const share = (p: { attempted: number; total: number }) =>
+    p.total > 0 ? `${Math.round((p.attempted / p.total) * 100)}%` : null;
+  const notAvailable = (
+    <span className="whitespace-nowrap rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-bold text-[#4338CA]">NOT AVAILABLE YET</span>
+  );
+  const rows: { title: string; detail: string; state: CriterionState; value: ReactNode }[] = [
+    {
+      title: "Attendance",
+      detail:
+        data.attendance.coursesBelow > 0
+          ? `≥ 80% per course · ${data.attendance.coursesBelow} below 80%`
+          : "≥ 80% per course",
+      state: e.attendance,
+      value: data.attendance.lowestPct == null ? "—" : pct1(data.attendance.lowestPct),
+    },
+    {
+      title: "Classroom Quizzes",
+      detail: e.classroom.total > 0 ? `100% participation · ${e.classroom.attempted} / ${e.classroom.total} attempted` : "100% participation · no quizzes yet",
+      state: e.classroom.state,
+      value: share(e.classroom) ?? "—",
+    },
+    {
+      title: "Module Quizzes",
+      detail: e.module.total > 0 ? `100% completion · ${e.module.attempted} / ${e.module.total} completed` : "100% completion · no quizzes yet",
+      state: e.module.state,
+      value: share(e.module) ?? "—",
+    },
+    { title: "Skill Assessments", detail: "100% participation · data not available yet", state: e.skillAssessment, value: notAvailable },
+    { title: "Final Skill Assessment", detail: "Mandatory · data not available yet", state: e.finalAssessment, value: notAvailable },
+  ];
+  return (
+    <Card>
+      <CardTitle icon="✓" iconBg="#2563EB">Eligibility criteria</CardTitle>
+      <ul className="grid gap-2.5">
+        {rows.map((row) => (
+          <li key={row.title} className="grid grid-cols-[20px_1fr_auto] items-start gap-2 text-xs">
+            <StateDot state={row.state} />
+            <span>
+              <b className="block font-semibold text-[#0F172A]">{row.title}</b>
+              <span className="text-[11px] text-[#64748B]">{row.detail}</span>
+            </span>
+            <span className="font-bold tabular-nums text-[#0F172A]">{row.value}</span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+function SkillDebtCard({ data }: { data: StudentScorecard }) {
+  const active = data.skillDebtCourses.length > 0;
+  return (
+    <Card className={active ? "!border-[#FECACA] !bg-[#FEF2F2]" : "!border-[#BBF7D0] !bg-[#F0FDF4]"}>
+      <CardTitle icon={active ? "!" : "✓"} iconBg={active ? "#DC2626" : "#16A34A"}>
+        Skill Debt
+      </CardTitle>
+      <p className={`mt-1 text-[34px] font-extrabold ${active ? "text-[#B91C1C]" : "text-[#15803D]"}`}>
+        {active ? plural(data.skillDebtCourses.length, "course", "courses") : "None"}
+      </p>
+      {active && <p className="mt-1 text-xs font-semibold text-[#B91C1C]">{data.skillDebtCourses.join(", ")}</p>}
+      <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
+        An F or Ab grade in any course creates a Skill Debt and pauses MINT, BRAVE, GRIT, placements and internships.
+      </p>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Attendance alert                                                  */
+/* ------------------------------------------------------------------ */
+function AttendanceAlert({ courses }: { courses: ScorecardCourse[] }) {
+  const below = courses.filter((c) => c.belowTarget);
+  if (below.length === 0) return null;
+  return (
+    <section className="grid grid-cols-[30px_1fr] items-center gap-3 rounded-[14px] border border-[#FDBA74] bg-[#FFF7ED] px-[18px] py-3 text-[#7C2D12] lg:grid-cols-[30px_1fr_auto]">
+      <span className="text-2xl text-[#EA580C]" aria-hidden>⚠</span>
+      <div>
+        <h2 className="text-[15px] font-bold text-[#EA580C]">
+          Attendance below 80%.{" "}
+          <span className="text-[13.5px] font-medium text-[#7C2D12]">Attend live sessions to reach 80% and stay eligible.</span>
+        </h2>
+        <p className="mt-0.5 text-xs">
+          Only NIAT course sessions count towards attendance. Skipping assigned recovery classes turns the course into a Skill Debt.
+        </p>
+      </div>
+      <div className="col-span-2 flex flex-wrap gap-2 lg:col-span-1">
+        {below.map((c) => (
+          <div key={c.name} className="rounded-[10px] border border-[#FED7AA] bg-white px-3 py-1.5 text-xs tabular-nums">
+            <b className="block text-[#EA580C]">
+              {c.name} · {c.attendancePct == null ? "—" : pct1(c.attendancePct)}
+            </b>
+            {c.present} / {c.held} sessions · attend the next {c.sessionsNeeded} without missing any
           </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-          <div className="flex min-w-0 flex-1 flex-col gap-4">
-            <section className="rounded-2xl bg-white p-5">
-              <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-                <h2
-                  className="text-2xl font-semibold text-[#111827]"
-                  style={{ fontFamily: '"Fraunces", Georgia, serif' }}
-                >
-                  Course attendance
-                </h2>
-                <p className="text-xs font-medium text-[#4B5563]">
-                  Lowest first · target {TIER_ELIGIBLE}%
-                </p>
-              </div>
-              {courses.length === 0 ? (
-                <p className="py-8 text-sm text-[#4B5563]">No classes recorded yet</p>
-              ) : (
-                <>
-                  <div className="hidden md:block">
-                    <table className="w-full text-left text-sm">
-                      <thead>
-                        <tr className="text-[11px] font-semibold tracking-wide text-[#4B5563]">
-                          <th className="pb-2 font-semibold">COURSE</th>
-                          <th className="pb-2 font-semibold">SESSIONS</th>
-                          <th className="pb-2 font-semibold">ATTENDANCE</th>
-                          <th className="pb-2 font-semibold" title="Present ÷ slots with attendance submitted">SUBMITTED ONLY</th>
-                          <th className="pb-2 font-semibold">SHORT OF {TIER_ELIGIBLE}%</th>
-                          <th className="pb-2 font-semibold">STATUS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {courses.map((course) => (
-                          <CourseRow key={course.name} course={course} />
-                        ))}
-                        {unlinked && (
-                          <tr className="border-t border-[#F3F4F6] text-[#4B5563]">
-                            <td className="py-3 pr-3 font-medium">
-                              <span className="inline-flex items-center gap-1">
-                                Other sessions (no course)
-                                <DataWarning />
-                              </span>
-                            </td>
-                            <td className="py-3 pr-3 tabular-nums">
-                              {unlinked.attended} / {unlinked.total}
-                            </td>
-                            <td className="py-3 pr-3 tabular-nums">{oneDecimal(unlinked.pct)}%</td>
-                            <td className="py-3 pr-3">—</td>
-                            <td className="py-3 pr-3">—</td>
-                            <td className="py-3 text-xs">Not a course</td>
-                          </tr>
-                        )}
-                      </tbody>
-                      <tfoot>
-                        <tr className="border-t-2 border-[#E5E7EB] font-semibold text-[#111827]">
-                          <td className="pt-3 pr-3">Total</td>
-                          <td className="pt-3 pr-3 tabular-nums">
-                            {props.attended} / {props.totalSessions}
-                          </td>
-                          <td className="pt-3 pr-3 tabular-nums">{oneDecimal(props.attendancePct)}%</td>
-                          <td className="pt-3 pr-3">
-                            <SubmittedPct value={totalSubmittedPct} />
-                          </td>
-                          <td className="pt-3 pr-3" />
-                          <td className="pt-3" />
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                  <ul className="space-y-3 md:hidden">
-                    {courses.map((course) => (
-                      <CourseCard key={course.name} course={course} />
-                    ))}
-                    {unlinked && (
-                      <li className="rounded-xl border border-dashed border-[#E5E7EB] p-3 text-[#4B5563]">
-                        <p className="font-medium">
-                          Other sessions (no course)
-                          <DataWarning />
-                        </p>
-                        <p className="mt-1 text-sm tabular-nums">
-                          {oneDecimal(unlinked.pct)}% · {unlinked.attended} / {unlinked.total} sessions
-                        </p>
-                      </li>
-                    )}
-                    <li className="flex justify-between px-1 text-sm font-semibold text-[#111827]">
-                      <span>Total</span>
-                      <span className="tabular-nums">
-                        {props.attended} / {props.totalSessions} · {oneDecimal(props.attendancePct)}%
-                      </span>
-                    </li>
-                  </ul>
-                  <p className="mt-3 text-xs text-[#4B5563]">
-                    Short of {TIER_ELIGIBLE}% = extra sessions to attend in a row, with no further absences.
-                    {unlinked &&
-                      ` "Other sessions" were recorded without a course name. They count toward your overall attendance but not toward any course.`}
-                  </p>
-                </>
-              )}
-            </section>
+/* ------------------------------------------------------------------ */
+/*  Course table                                                      */
+/* ------------------------------------------------------------------ */
+const notAvailableCell = <span className="text-[11.5px] italic text-[#94A3B8]">Not available yet</span>;
 
-            <section className="rounded-2xl bg-white p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <h2
-                  className="text-2xl font-semibold text-[#111827]"
-                  style={{ fontFamily: '"Fraunces", Georgia, serif' }}
-                >
-                  Skill Debt
-                </h2>
-                {skillDebt ? (
-                  <span className="inline-flex min-h-8 items-center gap-1 rounded-full bg-[#FDECEC] px-3 text-xs font-semibold text-[#B91C1C]">
-                    <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-                    Skill Debt
-                  </span>
-                ) : (
-                  <span className="inline-flex min-h-8 items-center gap-1 rounded-full bg-[#E7F5EE] px-3 text-xs font-semibold text-[#1E7F4F]">
-                    <Check className="h-3.5 w-3.5" aria-hidden />
-                    No active Skill Debts
-                  </span>
-                )}
-              </div>
-              <div className="mt-4 grid gap-6 md:grid-cols-2">
-                <div>
-                  <p className="text-xs font-bold tracking-wide text-[#B91C1C]">
-                    A SKILL DEBT IS CREATED IF YOU
-                  </p>
-                  <ul className="mt-3 space-y-2 text-sm text-[#1F2937]">
-                    <li>
-                      • Skip assigned recovery classes
-                      {coursesBelow.length > 0 && (
-                        <span className="font-semibold text-[#B91C1C]">
-                          {" "}
-                          · applies to you now
+function QuizCell({ part }: { part: QuizPart | null }) {
+  if (!part) return notAvailableCell;
+  const missed = part.attempted < part.total;
+  return (
+    <>
+      {part.avgPct}%
+      {missed && (
+        <span className="block text-[10.5px] font-bold text-[#B91C1C]">
+          ⚑ {part.attempted} of {part.total} attempted
+        </span>
+      )}
+    </>
+  );
+}
+
+function CourseTable({ data }: { data: StudentScorecard }) {
+  const th = "border-l border-[#2B4B86] bg-[#1E3A70] px-2.5 py-2 text-center text-[11px] font-semibold leading-tight text-white";
+  const sub = "block text-[10px] font-medium text-[#AFC4EA]";
+  return (
+    <section className="overflow-hidden rounded-[14px] border border-[#E2E8F0] bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0F2A5C] px-[18px] py-3 text-white">
+        <h2 className="text-[15px] font-bold">Course-wise performance</h2>
+        <span className="text-xs text-[#BFD3F5]">Assessment scores are the student's average score (%) in each assessment type</span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] border-collapse text-[12.5px]">
+          <thead>
+            <tr>
+              <th colSpan={3} className="bg-[#17305F]" />
+              <th colSpan={4} className="border-l border-[#2B4B86] bg-[#17305F] px-2.5 py-2 text-[11px] font-semibold tracking-[0.03em] text-white">
+                Assessment scores (average %)
+              </th>
+              <th colSpan={3} className="border-l border-[#2B4B86] bg-[#17305F] px-2.5 py-2 text-[11px] font-semibold tracking-[0.03em] text-white">
+                SPI calculation
+              </th>
+            </tr>
+            <tr>
+              <th className={`${th} !border-l-0 !text-left`}>#</th>
+              <th className={`${th} !text-left`}>Course</th>
+              <th className={th}>Attendance</th>
+              <th className={th}>Classroom Quizzes<span className={sub}>10%</span></th>
+              <th className={th}>Module Quizzes<span className={sub}>15%</span></th>
+              <th className={th}>Skill Assessments<span className={sub}>25%</span></th>
+              <th className={th}>Final Skill Assessment<span className={sub}>50%</span></th>
+              <th className={th}>Skill Track Score<span className={sub}>out of 100</span></th>
+              <th className={th}>Skill Level</th>
+              <th className={th}>Level Points<span className={sub}>out of 10</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.courses.map((c, i) => (
+              <tr key={c.name} className="tabular-nums even:bg-[#F8FAFD]">
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-[#64748B]">{i + 1}</td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 font-medium text-[#0F172A]">{c.name}</td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center">
+                  {c.attendancePct == null ? (
+                    <span className="text-[11.5px] italic text-[#94A3B8]">Not started</span>
+                  ) : c.belowTarget ? (
+                    <>
+                      <span className="font-bold text-[#B91C1C]">{pct1(c.attendancePct)}</span>
+                      {c.tier && (
+                        <span className="ml-1.5 inline-block rounded-full bg-[#FEF3C7] px-[7px] py-px text-[10px] font-bold text-[#B45309]">
+                          {TIER_LABEL[c.tier]}
                         </span>
                       )}
-                    </li>
-                    <li>• Score below 50% in, or miss, the Final Skill Assessment</li>
-                    <li>• Don't meet eligibility by the end of the skill cycle</li>
-                  </ul>
-                </div>
-                <div>
-                  <p className="text-xs font-bold tracking-wide text-[#4B5563]">
-                    WHILE A SKILL DEBT IS ACTIVE, THESE ARE PAUSED
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {PAUSED.map((item) => (
-                      <span
-                        key={item}
-                        className="rounded-full border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-1 text-sm font-medium text-[#374151]"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="mt-4 text-sm leading-relaxed text-[#4B5563]">
-                    Debts must be cleared within 2 years by attending recovery classes and re-sitting the Final Skill Assessment.
-                  </p>
-                </div>
-              </div>
-            </section>
+                    </>
+                  ) : (
+                    pct1(c.attendancePct)
+                  )}
+                </td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center"><QuizCell part={c.classroom} /></td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center"><QuizCell part={c.module} /></td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center">{notAvailableCell}</td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center">{notAvailableCell}</td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center font-bold text-[#0F172A]">
+                  {c.courseScore == null ? "—" : c.courseScore.toFixed(2)}
+                </td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center">
+                  {c.level ? (
+                    <span className={`inline-block min-w-8 rounded-md px-1.5 py-0.5 text-xs font-extrabold ${LEVEL_STYLE[c.level]}`}>{c.level}</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="border-b border-[#E2E8F0] px-2.5 py-2 text-center font-bold text-[#0F172A]">{c.points ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="tabular-nums">
+              <td colSpan={9} className="bg-[#EAF1FB] px-2.5 py-2.5 text-right font-semibold text-[#334155]">
+                Total Level Points ({plural(data.scoredCourses, "course", "courses")})
+              </td>
+              <td className="bg-[#EAF1FB] px-2.5 py-2.5 text-center font-bold text-[#0F172A]">{data.totalPoints}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p className="px-[18px] pb-2.5 pt-2 text-[11px] text-[#64748B]">
+        Attendance counts NIAT course sessions only. <b className="text-[#334155]">Not available yet</b> = scores not in the system yet, left
+        out of the Skill Track Score. <b className="text-[#B91C1C]">⚑</b> = not all quizzes attempted. A score below 50% in an assessment
+        type earns no SPI credit for it.
+      </p>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Bottom row                                                        */
+/* ------------------------------------------------------------------ */
+const WEIGHT_PARTS = [
+  { label: "Classroom Quizzes", pct: 10, color: "#3B82F6" },
+  { label: "Module Quizzes", pct: 15, color: "#22C55E" },
+  { label: "Skill Assessments", pct: 25, color: "#F59E0B" },
+  { label: "Final Skill Assessment", pct: 50, color: "#8B5CF6" },
+];
+
+function WeightsCard() {
+  let offset = 0;
+  return (
+    <Card>
+      <CardTitle>SPI weight by assessment type</CardTitle>
+      <div className="grid grid-cols-[130px_1fr] items-center gap-3.5">
+        <div className="relative h-[130px] w-[130px]">
+          <svg width="130" height="130" viewBox="0 0 130 130" aria-hidden>
+            {WEIGHT_PARTS.map((p) => {
+              const circle = (
+                <circle
+                  key={p.label}
+                  cx="65"
+                  cy="65"
+                  r="50"
+                  fill="none"
+                  stroke={p.color}
+                  strokeWidth="22"
+                  pathLength={100}
+                  strokeDasharray={`${p.pct} ${100 - p.pct}`}
+                  strokeDashoffset={-offset}
+                  transform="rotate(-90 65 65)"
+                />
+              );
+              offset += p.pct;
+              return circle;
+            })}
+          </svg>
+          <div className="absolute inset-0 grid place-items-center text-center text-[11px] text-[#64748B]">
+            <span>
+              Total<b className="block text-xl text-[#0F172A]">100%</b>
+            </span>
           </div>
         </div>
+        <ul className="grid gap-2 text-xs">
+          {WEIGHT_PARTS.map((p) => (
+            <li key={p.label} className="grid grid-cols-[12px_1fr_auto] items-center gap-2">
+              <i className="block h-3 w-3 rounded-[3px]" style={{ backgroundColor: p.color }} />
+              <span>{p.label}</span>
+              <b className="text-[#0F172A]">{p.pct}%</b>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </Card>
+  );
+}
 
-        <p className="mt-8 text-center text-sm text-[#4B5563]">
-          Need help or spotted something off?{" "}
-          <a
-            className="font-semibold text-[#1D4ED8] underline"
-            href="mailto:learning.support@nxtwave.co.in"
-          >
+function FormulaCard({ data }: { data: StudentScorecard }) {
+  return (
+    <Card className="text-[12.5px] leading-relaxed">
+      <CardTitle>How SPI is calculated</CardTitle>
+      <p>
+        <b className="text-[#0F172A]">1. Skill Track Score</b> (per course)
+      </p>
+      <p className="mt-2 rounded-[10px] bg-[#F1F5FB] px-3 py-2">
+        Classroom Quizzes × 10% + Module Quizzes × 15% + Skill Assessments × 25% + Final Skill Assessment × 50%
+      </p>
+      <p className="mt-2">
+        <b className="text-[#0F172A]">2.</b> Skill Track Score → <b className="text-[#0F172A]">Skill Level and Points</b>
+      </p>
+      <p>
+        <b className="text-[#0F172A]">3. SPI</b> = Σ Level Points ÷ Number of courses
+      </p>
+      <p className="mt-2.5 rounded-[10px] bg-[#FFF4EC] px-3 py-2.5 text-[13px] tabular-nums text-[#0F172A]">
+        {data.spi == null ? (
+          "SPI will show once quiz scores are available."
+        ) : (
+          <>
+            SPI = {data.totalPoints} ÷ {plural(data.scoredCourses, "course", "courses")} ={" "}
+            <strong className="text-[22px] text-[#EA580C]">{data.spi.toFixed(2)}</strong>
+          </>
+        )}
+      </p>
+    </Card>
+  );
+}
+
+const LEVEL_ROWS: { range: string; level: SkillLevel | "Ab"; points: number; meaning: string; debt?: boolean }[] = [
+  { range: "90 – 100", level: "A+", points: 10, meaning: "Exceptional mastery" },
+  { range: "80 – 89.99", level: "A", points: 9, meaning: "Strong skill-readiness" },
+  { range: "70 – 79.99", level: "B", points: 8, meaning: "Competent" },
+  { range: "60 – 69.99", level: "C", points: 7, meaning: "Developing" },
+  { range: "50 – 59.99", level: "D", points: 6, meaning: "Borderline · needs improvement" },
+  { range: "Below 50", level: "F", points: 0, meaning: "Failed · Skill Debt", debt: true },
+  { range: "Absent", level: "Ab", points: 0, meaning: "No-show · Skill Debt", debt: true },
+];
+
+function LevelsCard() {
+  return (
+    <Card>
+      <CardTitle>Skill Level and Points</CardTitle>
+      <table className="w-full text-[11.5px] tabular-nums">
+        <thead>
+          <tr className="bg-[#EAF1FB] text-left text-[11px] text-[#0F172A]">
+            <th className="px-2 py-1.5 font-semibold">Score %</th>
+            <th className="px-2 py-1.5 font-semibold">Level</th>
+            <th className="px-2 py-1.5 font-semibold">Points</th>
+            <th className="px-2 py-1.5 font-semibold">Interpretation</th>
+          </tr>
+        </thead>
+        <tbody>
+          {LEVEL_ROWS.map((row) => (
+            <tr key={row.level}>
+              <td className="whitespace-nowrap border-b border-[#E2E8F0] px-2 py-1">{row.range}</td>
+              <td className="border-b border-[#E2E8F0] px-2 py-1">
+                <span className={`inline-block min-w-8 rounded-md px-1.5 py-0.5 text-center text-xs font-extrabold ${LEVEL_STYLE[row.level === "Ab" ? "F" : row.level]}`}>
+                  {row.level}
+                </span>
+              </td>
+              <td className="border-b border-[#E2E8F0] px-2 py-1">{row.points}</td>
+              <td className={`border-b border-[#E2E8F0] px-2 py-1 ${row.debt ? "font-semibold text-[#B91C1C]" : ""}`}>{row.meaning}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+function stepText(step: NextStep): ReactNode {
+  switch (step.kind) {
+    case "attend_sessions":
+      return (
+        <>
+          Attend the next <b className="text-[#0F172A]">{step.sessions} live sessions</b> of{" "}
+          <b className="text-[#0F172A]">{step.course}</b> without missing any to reach 80%.
+        </>
+      );
+    case "pending_classroom":
+      return (
+        <>
+          Attempt the <b className="text-[#0F172A]">{plural(step.count, "pending Classroom Quiz", "pending Classroom Quizzes")}</b>.
+        </>
+      );
+    case "pending_module":
+      return (
+        <>
+          Complete the <b className="text-[#0F172A]">{plural(step.count, "pending Module Quiz", "pending Module Quizzes")}</b> before the
+          Final Skill Assessment.
+        </>
+      );
+    case "attend_recovery":
+      return "If recovery classes are assigned to you, attend all of them. Skipping them creates a Skill Debt.";
+    case "final_assessment":
+      return (
+        <>
+          Prepare for the <b className="text-[#0F172A]">Final Skill Assessment</b>. Attending it is mandatory for every course.
+        </>
+      );
+    case "on_track":
+      return "You're on track. Keep attending every session and attempting every quiz.";
+  }
+}
+
+function NextStepsCard({ steps }: { steps: NextStep[] }) {
+  return (
+    <Card>
+      <CardTitle>Your next steps</CardTitle>
+      <ol className="grid gap-2.5 text-xs">
+        {steps.map((step, i) => (
+          <li key={`${step.kind}-${i}`} className="grid grid-cols-[24px_1fr] items-start gap-2 leading-relaxed">
+            <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-[#7C3AED] text-[11px] font-bold text-white">{i + 1}</span>
+            <span>{stepText(step)}</span>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                              */
+/* ------------------------------------------------------------------ */
+export default function StudentReportView({ data }: { data: StudentScorecard }) {
+  return (
+    <div className="min-h-screen bg-[#EEF3F9] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
+      <header className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-[#0F2A5C] to-[#163A7A] px-4 py-4 text-white sm:px-7">
+        <div className="flex items-center gap-[18px]">
+          <span className="text-[28px] font-extrabold tracking-[0.02em] sm:text-[34px]">NIAT</span>
+          <span className="h-[42px] w-px bg-white/35" aria-hidden />
+          <h1 className="text-lg font-extrabold leading-tight sm:text-[22px]">
+            NIAT-SPI Student Scorecard
+            <small className="mt-0.5 block text-[13px] font-medium text-[#BFD3F5]">Skill Performance Index</small>
+          </h1>
+        </div>
+        <p className="text-xl font-extrabold sm:text-[22px]">{data.studentName}</p>
+      </header>
+
+      {/* minmax(0,1fr) keeps the wide course table scrolling inside its card instead of widening the page. */}
+      <main className="mx-auto grid max-w-[1536px] grid-cols-[minmax(0,1fr)] gap-3.5 px-4 py-[18px] sm:px-6">
+        <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.5fr_1fr]">
+          <SpiCard data={data} />
+          <AttendanceCard data={data} />
+          <EligibilityCard data={data} />
+          <SkillDebtCard data={data} />
+        </div>
+
+        <AttendanceAlert courses={data.courses} />
+
+        <CourseTable data={data} />
+
+        <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-[1.05fr_1.1fr_1.15fr_1.1fr]">
+          <WeightsCard />
+          <FormulaCard data={data} />
+          <LevelsCard />
+          <NextStepsCard steps={data.nextSteps} />
+        </div>
+      </main>
+
+      <footer className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4 pt-2.5 text-[11.5px] text-[#64748B] sm:px-7">
+        <span className="text-xl font-extrabold text-[#0F2A5C]">NIAT</span>
+        <span>
+          Based on the NIAT-SPI Execution Plan v1.0 · Questions?{" "}
+          <a className="font-semibold text-[#1D4ED8] underline" href="mailto:learning.support@nxtwave.co.in">
             learning.support@nxtwave.co.in
           </a>
-        </p>
-      </div>
+        </span>
+      </footer>
     </div>
-  );
-}
-
-function AvgText({ pct }: { pct: number }) {
-  const tier = getTier(pct);
-  return (
-    <span className="font-semibold" style={{ color: tier.color }}>
-      Avg {oneDecimal(pct)}%
-    </span>
-  );
-}
-
-function StatCard({
-  className,
-  title,
-  badge,
-  tone,
-  value,
-  hint,
-  bar,
-  footer,
-}: {
-  className?: string;
-  title: string;
-  badge: string;
-  tone: "met" | "not_met" | "upcoming";
-  value: string;
-  hint: string;
-  bar: ReactNode;
-  footer: ReactNode;
-}) {
-  const border =
-    tone === "met" ? "#1E7F4F" : tone === "not_met" ? "#B91C1C" : "#D1D5DB";
-  return (
-    <article
-      className={`rounded-2xl border-t-4 bg-white p-4 ${className ?? ""}`}
-      style={{ borderTopColor: border }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold leading-5 text-[#111827]">{title}</h3>
-        <StatusBadge label={badge} tone={tone} />
-      </div>
-      <p
-        className="mt-3 text-4xl font-bold leading-none"
-        style={{
-          fontFamily: '"Fraunces", Georgia, serif',
-          color: tone === "upcoming" || value === "—" ? "#9CA3AF" : "#111827",
-        }}
-      >
-        {value}
-      </p>
-      <p className="mt-2 text-xs text-[#4B5563]">{hint}</p>
-      <div className="mt-3 min-h-2">{bar}</div>
-      <div className="mt-3 text-xs text-[#374151]">{footer}</div>
-    </article>
-  );
-}
-
-function SpiRing({ points, color }: { points: number; color: string }) {
-  const size = 168;
-  const stroke = 14;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const filled = Math.max(0, Math.min(1, points / 10));
-  return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90" aria-hidden>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#E5E7EB" strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={`${c * filled} ${c}`}
-          strokeLinecap="round"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span
-          className="text-5xl font-bold leading-none"
-          style={{ fontFamily: '"Fraunces", Georgia, serif', color }}
-        >
-          {points.toFixed(1)}
-        </span>
-        <span className="mt-1 text-sm text-[#4B5563]">out of 10</span>
-      </div>
-    </div>
-  );
-}
-
-function CourseStatus({ course }: { course: ReportCourse }) {
-  const courseTier = getTier(course.pct);
-  const short = sessionsShortOfTarget(course.attended, course.total);
-  const warn = dataIssue(course.name, course.pct);
-  return { courseTier, short, warn };
-}
-
-/** "No sessions yet" when none are held; otherwise sessions were held but none recorded for the student. */
-function notStartedLabel(course: ReportCourse): { status: string; detail: string; warn: boolean } {
-  const held = course.sessionsHeld ?? 0;
-  if (held === 0) return { status: "NOT STARTED", detail: "No sessions yet", warn: false };
-  return {
-    status: "NO RECORDS",
-    detail: `No attendance recorded · ${held} session${held === 1 ? "" : "s"} held`,
-    warn: true,
-  };
-}
-
-function NotStartedPill({ label }: { label: string }) {
-  return (
-    <span className="inline-flex shrink-0 rounded-full bg-[#F3F4F6] px-2 py-1 text-[10px] font-bold tracking-wide text-[#4B5563]">
-      {label}
-    </span>
-  );
-}
-
-function CourseRow({ course }: { course: ReportCourse }) {
-  if (notStarted(course)) {
-    const label = notStartedLabel(course);
-    return (
-      <tr className="border-t border-[#F3F4F6] text-[#4B5563]">
-        <td className="py-3 pr-3 font-medium text-[#111827]">
-          <span className="inline-flex items-center gap-1">
-            {course.name || "Unnamed course"}
-            {label.warn && <DataWarning />}
-          </span>
-        </td>
-        <td className="py-3 pr-3 tabular-nums">0 / 0</td>
-        <td className="py-3 pr-3 text-xs">{label.detail}</td>
-        <td className="py-3 pr-3">—</td>
-        <td className="py-3 pr-3">—</td>
-        <td className="py-3">
-          <NotStartedPill label={label.status} />
-        </td>
-      </tr>
-    );
-  }
-  const { courseTier, short, warn } = CourseStatus({ course });
-  return (
-    <tr className="border-t border-[#F3F4F6]">
-      <td className="py-3 pr-3 font-medium text-[#111827]">
-        <span className="inline-flex items-center gap-1">
-          {course.name || "Unnamed course"}
-          {warn && <DataWarning />}
-        </span>
-      </td>
-      <td className="py-3 pr-3 tabular-nums text-[#374151]">
-        {course.attended} / {course.total}
-      </td>
-      <td className="py-3 pr-3">
-        <div className="flex items-center gap-2">
-          <div className="w-24">
-            <MarkerBar pct={course.pct} color={courseTier.color} />
-          </div>
-          <span className="font-semibold tabular-nums" style={{ color: courseTier.color }}>
-            {oneDecimal(course.pct)}%
-          </span>
-        </div>
-      </td>
-      <td className="py-3 pr-3">
-        <SubmittedPct value={course.pctSubmittedOnly} />
-      </td>
-      <td className="py-3 pr-3 font-medium text-[#B91C1C]">
-        {short > 0 ? `+${short} sessions` : "—"}
-      </td>
-      <td className="py-3">
-        <span
-          className="inline-flex rounded-full px-2 py-1 text-[10px] font-bold tracking-wide"
-          style={{ color: courseTier.color, backgroundColor: courseTier.bg }}
-        >
-          {courseTier.label.toUpperCase()}
-        </span>
-      </td>
-    </tr>
-  );
-}
-
-function CourseCard({ course }: { course: ReportCourse }) {
-  if (notStarted(course)) {
-    const label = notStartedLabel(course);
-    return (
-      <li className="rounded-xl border border-[#E5E7EB] p-3">
-        <div className="flex items-start justify-between gap-2">
-          <p className="font-medium text-[#111827]">
-            {course.name || "Unnamed course"}
-            {label.warn && <DataWarning />}
-          </p>
-          <NotStartedPill label={label.status} />
-        </div>
-        <p className="mt-2 text-sm text-[#4B5563]">{label.detail} · 0 / 0 sessions</p>
-      </li>
-    );
-  }
-  const { courseTier, short, warn } = CourseStatus({ course });
-  return (
-    <li className="rounded-xl border border-[#E5E7EB] p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="font-medium text-[#111827]">
-          {course.name || "Unnamed course"}
-          {warn && <DataWarning />}
-        </p>
-        <span
-          className="shrink-0 rounded-full px-2 py-1 text-[10px] font-bold"
-          style={{ color: courseTier.color, backgroundColor: courseTier.bg }}
-        >
-          {courseTier.label.toUpperCase()}
-        </span>
-      </div>
-      <p className="mt-2 text-sm font-semibold" style={{ color: courseTier.color }}>
-        {oneDecimal(course.pct)}% · {course.attended} / {course.total} sessions
-      </p>
-      <div className="mt-2">
-        <MarkerBar pct={course.pct} color={courseTier.color} />
-      </div>
-      <p className="mt-2 text-xs text-[#374151]">
-        Short of {TIER_ELIGIBLE}%: {short > 0 ? `+${short} sessions` : "—"}
-      </p>
-      <p className="mt-1 text-xs text-[#374151]">
-        Submitted only: <SubmittedPct value={course.pctSubmittedOnly} />
-      </p>
-    </li>
-  );
-}
-
-function DataWarning() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="ml-1 inline-flex h-6 w-6 items-center justify-center text-[#B45309]"
-          aria-label="This may be a data issue — contact support."
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>This may be a data issue — contact support.</TooltipContent>
-    </Tooltip>
   );
 }

@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPI Score Card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #13203A;
+    --ink: #111827;
+    --text: #374151;
+    --muted: #6B7280;
+    --line: #E5E7EB;
+    --soft: #F6F7F9;
+    --orange: #F25C05;
+    --green: #1E7F4F;
+    --green-bg: #E7F5EE;
+    --amber: #B45309;
+    --amber-bg: #FEF3E2;
+    --red: #B91C1C;
+    --red-bg: #FDECEC;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #FFFFFF;
+    color: var(--text);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { width: 900px; margin: 0 auto; background: #fff; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Header band */
+  .band {
+    background: var(--navy); color: #fff;
+    padding: 22px 36px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 40px; height: 40px; border-radius: 10px; background: #fff; color: var(--navy);
+    display: grid; place-items: center; font-weight: 800; font-size: 20px;
+    border: 3px solid var(--orange);
+  }
+  .brand b { font-size: 17px; letter-spacing: .02em; }
+  .brand b span { color: var(--orange); }
+  .brand small { display: block; color: #C7CFDD; font-size: 11.5px; margin-top: 2px; }
+  .band h1 { font-family: "Fraunces", Georgia, serif; font-size: 26px; text-align: right; }
+  .band p { color: #C7CFDD; font-size: 11.5px; text-align: right; margin-top: 3px; }
+
+  .body { padding: 24px 36px 20px; }
+
+  /* Identity + SPI */
+  .top { display: grid; grid-template-columns: 1fr 230px; gap: 16px; }
+  .card { border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .identity { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; }
+  .eyebrow { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; color: var(--orange); text-transform: uppercase; }
+  .name { font-family: "Fraunces", Georgia, serif; font-size: 23px; color: var(--ink); margin: 6px 0 10px; }
+  dl { display: grid; grid-template-columns: 78px 1fr; row-gap: 5px; font-size: 12.5px; }
+  dt { color: var(--muted); }
+  dd { color: var(--ink); font-weight: 500; }
+  .spi {
+    background: var(--navy); color: #fff; border-radius: 14px; padding: 16px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  }
+  .spi .label { font-size: 10.5px; font-weight: 700; letter-spacing: .14em; color: #C7CFDD; }
+  .spi .score { font-family: "Fraunces", Georgia, serif; font-size: 50px; line-height: 1; margin-top: 6px; }
+  .spi .of { font-size: 12px; color: #C7CFDD; margin-top: 4px; }
+  .pill { display: inline-block; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+  .pill.ok { background: var(--green-bg); color: var(--green); }
+  .pill.warn { background: var(--amber-bg); color: var(--amber); }
+  .pill.bad { background: var(--red-bg); color: var(--red); }
+  .spi .pills { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; justify-content: center; }
+
+  /* Section titles */
+  h2 {
+    font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink);
+    margin: 22px 0 10px; display: flex; justify-content: space-between; align-items: baseline;
+  }
+  h2 span { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); font-size: 11.5px; }
+
+  /* Eligibility */
+  .elig { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .crit { border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; border-top: 3px solid var(--green); display: flex; flex-direction: column; align-items: flex-start; }
+  .crit .pill { margin-top: auto !important; }
+  .crit .detail { margin-bottom: 8px; }
+  .crit.no { border-top-color: var(--red); }
+  .crit.pending { border-top-color: #D1D5DB; }
+  .pill.wait { background: #F3F4F6; color: #4B5563; }
+  .nc { color: #9CA3AF; font-size: 10.5px; font-style: italic; white-space: nowrap; }
+  .ab { color: var(--red); font-weight: 700; }
+  .tier { display: block; font-size: 9.5px; color: var(--amber); font-weight: 600; margin-top: 1px; }
+  .legend { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  .legend b { color: var(--text); font-weight: 600; }
+  .alert { margin-top: 14px; border: 1px solid #F5C99B; background: #FFF7ED; border-radius: 12px; padding: 12px 16px; color: #7C2D12; }
+  .alert-title { font-weight: 700; font-size: 13px; }
+  .alert ul { margin: 6px 0 0 18px; font-size: 12.5px; line-height: 1.55; }
+  .alert-note { margin-top: 6px; font-size: 11.5px; color: #9A3412; }
+  thead th { line-height: 1.2; }
+  .crit h3 { font-size: 11.5px; color: var(--ink); font-weight: 600; line-height: 1.25; min-height: 29px; }
+  .crit .val { font-family: "Fraunces", Georgia, serif; font-size: 22px; color: var(--ink); margin-top: 6px; }
+  .crit .rule { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .crit .detail { font-size: 10.5px; color: var(--text); margin-top: 6px; }
+  .crit .pill { margin-top: 7px; font-size: 10px; padding: 2px 8px; }
+
+  /* Course table */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    background: var(--navy); color: #fff; font-weight: 600; font-size: 10.5px; letter-spacing: .04em;
+    padding: 9px 8px; text-align: right; vertical-align: bottom;
+  }
+  thead th small { display: block; font-weight: 500; color: #AEB8CB; font-size: 9.5px; margin-top: 1px; }
+  thead th:first-child { text-align: left; border-top-left-radius: 12px; padding-left: 14px; }
+  thead th:last-child { border-top-right-radius: 12px; padding-right: 14px; }
+  thead th.group { border-left: 1px solid #2A3A59; }
+  tbody td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: right; color: var(--text); }
+  tbody td:first-child { text-align: left; color: var(--ink); font-weight: 500; padding-left: 14px; }
+  tbody td:last-child { padding-right: 14px; }
+  tbody td.group { border-left: 1px solid var(--line); }
+  td.strong { color: var(--ink); font-weight: 700; }
+  .lvl { display: inline-block; min-width: 30px; text-align: center; border-radius: 6px; padding: 2px 6px; font-weight: 700; font-size: 11.5px; }
+  .lvl.Aplus, .lvl.A { background: var(--green-bg); color: var(--green); }
+  .lvl.B, .lvl.C { background: #EEF2FF; color: #3730A3; }
+  .lvl.D { background: var(--amber-bg); color: var(--amber); }
+  .lvl.F, .lvl.Ab { background: var(--red-bg); color: var(--red); }
+  .att-low { color: var(--red); font-weight: 600; }
+  tfoot td { padding: 10px 8px; font-weight: 700; color: var(--ink); text-align: right; background: var(--soft); }
+  tfoot td:first-child { text-align: left; padding-left: 14px; border-bottom-left-radius: 12px; }
+  tfoot td:last-child { padding-right: 14px; border-bottom-right-radius: 12px; }
+  .table-wrap { border: 1px solid var(--line); border-radius: 12px; }
+
+  /* Calculation */
+  .bottom { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; margin-top: 18px; }
+  .steps { list-style: none; display: grid; gap: 8px; font-size: 12.5px; }
+  .steps li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: start; }
+  .steps .n { width: 20px; height: 20px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+  .steps b { color: var(--ink); }
+  .result {
+    margin-top: 12px; background: #FFF4EC; border-radius: 10px; padding: 10px 12px;
+    font-size: 13px; color: var(--ink);
+  }
+  .result strong { font-family: "Fraunces", Georgia, serif; font-size: 18px; color: var(--orange); }
+  .note { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+  .scale { display: grid; grid-template-columns: 34px 1fr auto; row-gap: 5px; font-size: 12px; }
+  .scale .r { text-align: right; color: var(--ink); font-weight: 600; }
+  .scale .debt { color: var(--red); }
+
+  .foot {
+    border-top: 1px solid var(--line); margin-top: 20px; padding: 12px 36px 18px;
+    display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="band">
+    <div class="brand">
+      <div class="logo">N</div>
+      <div>
+        <b>NIAT <span>SPI</span></b>
+        <small>NxtWave Institute of Advanced Technologies</small>
+      </div>
+    </div>
+    <div>
+      <h1>SPI Score Card</h1>
+      <p>Skill Performance Index · Skill Cycle [Cycle name]</p>
+    </div>
+  </header>
+
+  <main class="body">
+    <section class="top">
+      <div class="card identity">
+        <div>
+          <p class="eyebrow">Student</p>
+          <p class="name">[Student Name]</p>
+          <dl>
+            <dt>Campus</dt><dd>[University name]</dd>
+            <dt>Section</dt><dd>[Batch / Section]</dd>
+          </dl>
+        </div>
+        <div>
+          <p class="eyebrow">Skill cycle</p>
+          <p class="name" style="font-size:17px;margin-top:9px">[Cycle name]</p>
+          <dl>
+            <dt>Period</dt><dd>[Start] – [End]</dd>
+            <dt>Courses</dt><dd class="num" id="courseCount"></dd>
+            <dt>Issued on</dt><dd>[Date]</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="spi">
+        <p class="label">SKILL CYCLE SPI</p>
+        <p class="score num" id="spiScore"></p>
+        <p class="of">out of 10</p>
+        <div class="pills" id="spiPills"></div>
+      </div>
+    </section>
+
+    <h2>Eligibility criteria <span>All must be met to earn SPI</span></h2>
+    <section class="elig" id="elig"></section>
+
+    <div id="attAlert"></div>
+
+    <h2>Skill Track Scores <span>Average score (%) in each assessment type, per course</span></h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Course</th>
+            <th>Attendance</th>
+            <th class="group">Classroom<br>Quizzes<small>10%</small></th>
+            <th>Module<br>Quizzes<small>15%</small></th>
+            <th>Skill<br>Assessments<small>25%</small></th>
+            <th>Final Skill<br>Assessment<small>50%</small></th>
+            <th class="group">Skill Track<small>Score</small></th>
+            <th>Skill<small>Level</small></th>
+            <th>Level<small>Points</small></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+        <tfoot id="totals"></tfoot>
+      </table>
+    </div>
+    <p class="legend">Attendance counts NIAT course sessions only. <b>Not conducted</b> = assessment not yet held, left out of the score. <b>Ab</b> = absent from a conducted assessment, scored 0.</p>
+
+    <section class="bottom">
+      <div class="card">
+        <h2 style="margin-top:0">How SPI is calculated</h2>
+        <ol class="steps">
+          <li><span class="n">1</span><span><b>Skill Track Score</b> = Classroom Quizzes × 10% + Module Quizzes × 15% + Skill Assessments × 25% + Final Skill Assessment × 50%</span></li>
+          <li><span class="n">2</span><span><b>Skill Level and Points</b>: the Skill Track Score maps to a level on the scale (right)</span></li>
+          <li><span class="n">3</span><span><b>SPI</b> = Σ (Level Points × Course Weight) ÷ Total Weight</span></li>
+        </ol>
+        <p class="result num" id="spiFormula"></p>
+        <p class="note"><b>Provisional SPI:</b> assessments not yet conducted are left out until they are held. Course weights are equal until confirmed. The SPI is final after the Final Skill Assessment. A score below 50% in an assessment type earns no SPI credit for it.</p>
+      </div>
+      <div class="card">
+        <h2 style="margin-top:0">Skill Level scale</h2>
+        <div class="scale num">
+          <span class="lvl Aplus">A+</span><span>90 – 100</span><span class="r">10</span>
+          <span class="lvl A">A</span><span>80 – 89.99</span><span class="r">9</span>
+          <span class="lvl B">B</span><span>70 – 79.99</span><span class="r">8</span>
+          <span class="lvl C">C</span><span>60 – 69.99</span><span class="r">7</span>
+          <span class="lvl D">D</span><span>50 – 59.99</span><span class="r">6</span>
+          <span class="lvl F">F</span><span>Below 50</span><span class="r debt">0 · Skill Debt</span>
+          <span class="lvl Ab">Ab</span><span>Absent</span><span class="r debt">0 · Skill Debt</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Generated on [Date] from the NIAT SPI dashboard. Computer-generated; no signature required.</span>
+    <span>Verify at [verification link]</span>
+  </footer>
+</div>
+
+<script>
+  // Sample data. Assessment values = the student's average score (%) in that assessment
+  // type for the course (best attempt per quiz). null = not conducted yet; "Ab" = absent.
+  // Course weights are equal (1) until Academics confirms weights per university.
+  const courses = [
+    { name: "Back End Development",              weight: 1, present: 64, held: 70, cq: 86, mq: 82, sa: 84,   fsa: null },
+    { name: "Design and Analysis of Algorithms", weight: 1, present: 46, held: 54, cq: 80, mq: 76, sa: 79,   fsa: null },
+    { name: "AI for Finance",                    weight: 1, present: 39, held: 44, cq: 92, mq: 90, sa: 93,   fsa: null },
+    { name: "Probability and Statistics",        weight: 1, present: 40, held: 48, cq: 74, mq: 70, sa: 72,   fsa: null },
+    { name: "Statistical Computing Lab",         weight: 1, present: 32, held: 34, cq: 88, mq: 84, sa: null, fsa: null },
+    { name: "Logical Reasoning",                 weight: 1, present: 42, held: 55, cq: 68, mq: 64, sa: null, fsa: null },
+    { name: "Applied Communicative English",     weight: 1, present: 40, held: 46, cq: 79, mq: 77, sa: null, fsa: null },
+  ];
+
+  // Participation across conducted assessments (attempted / conducted).
+  const participation = {
+    classroom: { done: 84, total: 84 },
+    module:    { done: 18, total: 18 },
+    skill:     { done: 4,  total: 4 },
+    final:     { done: 0,  total: 0 },
+  };
+
+  const WEIGHTS = { cq: 10, mq: 15, sa: 25, fsa: 50 };
+  const TARGET = 80;
+
+  // §3.2 note: below 50% in an assessment type earns no credit for it. Ab counts as 0.
+  const credit = (v) => (v === "Ab" ? 0 : v >= 50 ? v : 0);
+
+  function level(score) {
+    if (score >= 90) return { lvl: "A+", pts: 10, cls: "Aplus" };
+    if (score >= 80) return { lvl: "A",  pts: 9,  cls: "A" };
+    if (score >= 70) return { lvl: "B",  pts: 8,  cls: "B" };
+    if (score >= 60) return { lvl: "C",  pts: 7,  cls: "C" };
+    if (score >= 50) return { lvl: "D",  pts: 6,  cls: "D" };
+    return { lvl: "F", pts: 0, cls: "F" };
+  }
+
+  // §7.4 attendance tiers.
+  function tier(pct) {
+    if (pct >= 80) return "Eligible";
+    if (pct >= 60) return "Recovery Eligible";
+    if (pct >= 50) return "At Risk";
+    return "Ineligible";
+  }
+
+  // Attendance % cut (not rounded) to one decimal, so 79.96% never shows as 80.0%.
+  const attPct = (present, held) => Math.floor((present * 1000) / held) / 10;
+  // Sessions to attend in a row, with no absences, to reach the target.
+  const sessionsNeeded = (present, held) =>
+    Math.max(0, Math.ceil(((TARGET / 100) * held - present) / (1 - TARGET / 100) - 1e-9));
+
+  const fmt1 = (n) => n.toFixed(1);
+  const pctOf = (p) => (p.total > 0 ? (p.done / p.total) * 100 : 0);
+  const cell = (v) =>
+    v == null ? '<span class="nc">Not conducted</span>' : v === "Ab" ? '<span class="ab">Ab</span>' : `${v}%`;
+
+  let totalWeight = 0, totalWeighted = 0;
+  const rows = courses.map((c) => {
+    let sum = 0, w = 0;
+    for (const key of ["cq", "mq", "sa", "fsa"]) {
+      if (c[key] == null) continue;
+      sum += credit(c[key]) * WEIGHTS[key];
+      w += WEIGHTS[key];
+    }
+    const score = w > 0 ? sum / w : 0;
+    const l = level(score);
+    totalWeight += c.weight;
+    totalWeighted += l.pts * c.weight;
+    const att = attPct(c.present, c.held);
+    return { ...c, att, need: sessionsNeeded(c.present, c.held), score, ...l };
+  });
+  const spi = totalWeighted / totalWeight;
+  const finalConducted = courses.some((c) => c.fsa != null);
+  const below = rows.filter((r) => r.att < TARGET);
+  const lowest = rows.reduce((a, b) => (b.att < a.att ? b : a));
+  const skillDebt = rows.some((r) => r.pts === 0);
+
+  const participationState = (p) => (p.total === 0 ? "pending" : p.done >= p.total ? "met" : "not_met");
+  const criteria = [
+    { title: "Attendance", val: `${fmt1(lowest.att)}%`, rule: "≥ 80% in every course",
+      detail: below.length ? `${below.length} course${below.length > 1 ? "s" : ""} below 80%` : "Lowest course",
+      state: below.length ? "not_met" : "met" },
+    { title: "Classroom Quizzes", val: `${Math.round(pctOf(participation.classroom))}%`, rule: "100% participation",
+      detail: `${participation.classroom.done} / ${participation.classroom.total} attempted`, state: participationState(participation.classroom) },
+    { title: "Module Quizzes", val: `${Math.round(pctOf(participation.module))}%`, rule: "100% completion",
+      detail: `${participation.module.done} / ${participation.module.total} completed`, state: participationState(participation.module) },
+    { title: "Skill Assessments", val: `${Math.round(pctOf(participation.skill))}%`, rule: "100% participation",
+      detail: `${participation.skill.done} / ${participation.skill.total} attempted so far`, state: participationState(participation.skill) },
+    { title: "Final Skill Assessment", val: participation.final.total ? `${participation.final.done} / ${participation.final.total}` : "—",
+      rule: "Mandatory participation", detail: participation.final.total ? "Attended" : "Not conducted yet", state: participationState(participation.final) },
+  ];
+  const badge = { met: ["ok", "✓ MET"], not_met: ["bad", "NOT MET"], pending: ["wait", "UPCOMING"] };
+
+  document.getElementById("courseCount").textContent = `${courses.length}`;
+  document.getElementById("spiScore").textContent = spi.toFixed(2);
+  document.getElementById("spiPills").innerHTML =
+    (finalConducted ? "" : '<span class="pill warn">PROVISIONAL</span>') +
+    (below.length ? '<span class="pill warn">RECOVERY MODE</span>' : '<span class="pill ok">ON TRACK</span>') +
+    (skillDebt ? '<span class="pill bad">SKILL DEBT</span>' : "");
+
+  document.getElementById("elig").innerHTML = criteria.map((c) => `
+    <div class="crit ${c.state === "met" ? "" : c.state === "not_met" ? "no" : "pending"}">
+      <h3>${c.title}</h3>
+      <p class="val num">${c.val}</p>
+      <p class="rule">${c.rule}</p>
+      <p class="detail num">${c.detail}</p>
+      <span class="pill ${badge[c.state][0]}">${badge[c.state][1]}</span>
+    </div>`).join("");
+
+  if (below.length) {
+    document.getElementById("attAlert").innerHTML = `
+      <div class="alert">
+        <p class="alert-title">⚠ Attendance below 80%. Attend live sessions to reach 80% and stay eligible.</p>
+        <ul>${below.map((r) => `<li><b>${r.name}</b>: ${fmt1(r.att)}% (${r.present} / ${r.held} sessions). Attend the next <b>${r.need} sessions</b> without missing any to reach 80%.</li>`).join("")}</ul>
+        <p class="alert-note">Only NIAT course sessions count towards attendance. Skipping assigned recovery classes turns the course into a Skill Debt.</p>
+      </div>`;
+  }
+
+  document.getElementById("rows").innerHTML = rows.map((r) => `
+    <tr class="num">
+      <td>${r.name}</td>
+      <td>${r.att < TARGET
+        ? `<span class="att-low">${fmt1(r.att)}%</span><span class="tier">${tier(r.att)}</span>`
+        : `${fmt1(r.att)}%`}</td>
+      <td class="group">${cell(r.cq)}</td>
+      <td>${cell(r.mq)}</td>
+      <td>${cell(r.sa)}</td>
+      <td>${cell(r.fsa)}</td>
+      <td class="group strong">${r.score.toFixed(2)}</td>
+      <td><span class="lvl ${r.cls}">${r.lvl}</span></td>
+      <td class="strong">${r.pts}</td>
+    </tr>`).join("");
+
+  document.getElementById("totals").innerHTML = `
+    <tr class="num">
+      <td>Total</td>
+      <td colspan="7" style="font-weight:500;color:var(--muted)">Σ Level Points (equal Course Weights)</td>
+      <td>${totalWeighted}</td>
+    </tr>`;
+
+  document.getElementById("spiFormula").innerHTML =
+    `SPI = ${totalWeighted} ÷ ${totalWeight} = <strong>${spi.toFixed(2)}</strong> <span style="font-size:11.5px;color:var(--muted)">(provisional)</span>`;
+</script>
+</body>
+</html>
