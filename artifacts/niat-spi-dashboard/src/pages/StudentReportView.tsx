@@ -163,15 +163,11 @@ function SpiCard({ data }: { data: StudentScorecard }) {
     <Card className="text-center">
       <h2 className="mb-2.5 text-[13px] font-bold text-[#0F172A]">SPI Score</h2>
       <SpiGauge spi={data.spi} />
-      <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-        {data.spi == null ? (
-          <Pill tone="wait">NO SCORES YET</Pill>
-        ) : data.attendance.coursesBelow > 0 ? (
-          <Pill tone="wait">RECOVERY MODE</Pill>
-        ) : (
-          <Pill tone="ok">ON TRACK</Pill>
-        )}
-      </div>
+      {(data.spi == null || data.attendance.coursesBelow > 0) && (
+        <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+          {data.spi == null ? <Pill tone="wait">NO SCORES YET</Pill> : <Pill tone="wait">RECOVERY MODE</Pill>}
+        </div>
+      )}
       {provisional && (
         <p className="mt-3 text-[11.5px] leading-snug text-[#64748B]">
           <span className="font-semibold text-[#B45309]">Provisional.</span> SPI counts only once every eligibility rule is met.
