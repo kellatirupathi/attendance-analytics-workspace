@@ -210,19 +210,16 @@ function AttendanceCard({ data }: { data: StudentScorecard }) {
             )}
           </>
         ) : (
+          // A summary only, so the card keeps its size however many courses are below 80%;
+          // the per-course list is in the attendance alert and the course table below.
           <>
             <p>Each course needs at least 80% attendance.</p>
             <p className="font-medium text-[#B91C1C]">
-              {below.length} of {plural(n, "course", "courses")} below 80%:
+              {below.length} of {plural(n, "course", "courses")} below 80%
             </p>
-            <ul className="mt-0.5 space-y-0.5">
-              {below.map((c) => (
-                <li key={c.name}>
-                  {c.name} · <span className="font-semibold tabular-nums text-[#B91C1C]">{pct1(c.attendancePct!)}</span>
-                  {c.sessionsNeeded > 0 && ` · attend the next ${plural(c.sessionsNeeded, "session", "sessions")}`}
-                </li>
-              ))}
-            </ul>
+            <p className="truncate" title={a.lowestCourse}>
+              Lowest: {a.lowestCourse}
+            </p>
           </>
         )}
       </div>
@@ -307,7 +304,12 @@ function SkillDebtCard({ data }: { data: StudentScorecard }) {
       <p className={`mt-1 text-[34px] font-extrabold ${active ? "text-[#B91C1C]" : "text-[#15803D]"}`}>
         {active ? plural(data.skillDebtCourses.length, "course", "courses") : "None"}
       </p>
-      {active && <p className="mt-1 text-xs font-semibold text-[#B91C1C]">{data.skillDebtCourses.join(", ")}</p>}
+      {active && (
+        // Two lines at most so the card keeps its size; every F course is also marked in the table.
+        <p className="mt-1 line-clamp-2 text-xs font-semibold text-[#B91C1C]" title={data.skillDebtCourses.join(", ")}>
+          {data.skillDebtCourses.join(", ")}
+        </p>
+      )}
       <p className="mt-1 text-xs leading-relaxed text-[#64748B]">
         An F or Ab grade in any course creates a Skill Debt and pauses MINT, BRAVE, GRIT, placements and internships.
       </p>
@@ -322,7 +324,8 @@ function AttendanceAlert({ courses }: { courses: ScorecardCourse[] }) {
   const below = courses.filter((c) => c.belowTarget);
   if (below.length === 0) return null;
   return (
-    <section className="grid grid-cols-[30px_1fr] items-center gap-3 rounded-[14px] border border-[#FDBA74] bg-[#FFF7ED] px-[18px] py-3 text-[#7C2D12] lg:grid-cols-[30px_1fr_auto]">
+    // The message stays on one line across the top; the course chips wrap underneath at full width.
+    <section className="grid grid-cols-[30px_1fr] items-center gap-x-3 gap-y-2.5 rounded-[14px] border border-[#FDBA74] bg-[#FFF7ED] px-[18px] py-3 text-[#7C2D12]">
       <span className="text-2xl text-[#EA580C]" aria-hidden>⚠</span>
       <div>
         <h2 className="text-[15px] font-bold text-[#EA580C]">
@@ -333,7 +336,7 @@ function AttendanceAlert({ courses }: { courses: ScorecardCourse[] }) {
           Only NIAT course sessions count towards attendance. Skipping assigned recovery classes turns the course into a Skill Debt.
         </p>
       </div>
-      <div className="col-span-2 flex flex-wrap gap-2 lg:col-span-1">
+      <div className="col-span-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {below.map((c) => (
           <div key={c.name} className="rounded-[10px] border border-[#FED7AA] bg-white px-3 py-1.5 text-xs tabular-nums">
             <b className="block text-[#EA580C]">
