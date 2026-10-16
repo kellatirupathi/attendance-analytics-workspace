@@ -463,50 +463,51 @@ router.delete("/campuses/:id", async (req, res): Promise<void> => {
   res.status(204).send();
 });
 
-router.patch(
-  "/recovery-sessions/:id/instructor-type",
-  async (req, res): Promise<void> => {
-    const id = String(req.params["id"] ?? "");
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(id)) {
-      res.status(400).json({ error: "Invalid recovery session id" });
-      return;
-    }
-
-    const instructorType = (req.body as { instructorType?: unknown })
-      .instructorType;
-    if (
-      instructorType !== "campus" &&
-      instructorType !== "backup" &&
-      instructorType !== "unknown"
-    ) {
-      res.status(400).json({ error: "Invalid instructor type" });
-      return;
-    }
-
-    const [updated] = await db
-      .update(recoverySessionsTable)
-      .set({
-        instructorType,
-        instructorTypeReviewedAt: new Date(),
-        isBackupInstructor: instructorType === "backup",
-        updatedAt: new Date(),
-      })
-      .where(eq(recoverySessionsTable.id, id))
-      .returning({
-        id: recoverySessionsTable.id,
-        instructorType: recoverySessionsTable.instructorType,
-      });
-    if (!updated) {
-      res.status(404).json({ error: "Recovery session not found" });
-      return;
-    }
-
-    cacheDeletePrefix("session-tracker:");
-    res.json(updated);
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.patch(
+//   "/recovery-sessions/:id/instructor-type",
+//   async (req, res): Promise<void> => {
+//     const id = String(req.params["id"] ?? "");
+//     const uuidPattern =
+//       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+//     if (!uuidPattern.test(id)) {
+//       res.status(400).json({ error: "Invalid recovery session id" });
+//       return;
+//     }
+//
+//     const instructorType = (req.body as { instructorType?: unknown })
+//       .instructorType;
+//     if (
+//       instructorType !== "campus" &&
+//       instructorType !== "backup" &&
+//       instructorType !== "unknown"
+//     ) {
+//       res.status(400).json({ error: "Invalid instructor type" });
+//       return;
+//     }
+//
+//     const [updated] = await db
+//       .update(recoverySessionsTable)
+//       .set({
+//         instructorType,
+//         instructorTypeReviewedAt: new Date(),
+//         isBackupInstructor: instructorType === "backup",
+//         updatedAt: new Date(),
+//       })
+//       .where(eq(recoverySessionsTable.id, id))
+//       .returning({
+//         id: recoverySessionsTable.id,
+//         instructorType: recoverySessionsTable.instructorType,
+//       });
+//     if (!updated) {
+//       res.status(404).json({ error: "Recovery session not found" });
+//       return;
+//     }
+//
+//     cacheDeletePrefix("session-tracker:");
+//     res.json(updated);
+//   },
+// );
 
 // Reopens a session an admin has determined was wrongly marked
 // Completed/Partially Completed (e.g. a test entry, or an instructor error) --
@@ -516,132 +517,133 @@ router.patch(
 // remarks/QA report link cleared; per-topic recovery_progress is reset to
 // "pending" unless some other still-valid conducted/partial session also
 // covers that topic, in which case that topic is left alone.
-router.post(
-  "/recovery-sessions/:id/revert",
-  async (req, res): Promise<void> => {
-    const id = String(req.params["id"] ?? "");
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(id)) {
-      res.status(400).json({ error: "Invalid recovery session id" });
-      return;
-    }
-
-    const existing = await db
-      .select()
-      .from(recoverySessionsTable)
-      .where(eq(recoverySessionsTable.id, id))
-      .limit(1);
-    const session = existing[0];
-    if (!session) {
-      res.status(404).json({ error: "Recovery session not found" });
-      return;
-    }
-    if (session.status !== "conducted" && session.status !== "partial") {
-      res.status(409).json({
-        error: "Only a Completed or Partially Completed session can be reverted",
-      });
-      return;
-    }
-
-    const admin = req.session!;
-    const now = new Date();
-
-    const reverted = await db.transaction(async (tx) => {
-      const updated = await tx
-        .update(recoverySessionsTable)
-        .set({
-          status: "cancelled",
-          cancellationReason:
-            `Reverted from ${session.status === "conducted" ? "Completed" : "Partially Completed"}` +
-            ` by ${admin.email} -- marked as not actually delivered`,
-          remarks: "",
-          qaReportUrls: [],
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(recoverySessionsTable.id, id),
-            inArray(recoverySessionsTable.status, ["conducted", "partial"]),
-          ),
-        )
-        .returning();
-      if (!updated[0]) return null;
-
-      const assignedTopics = await tx
-        .select({
-          topicId: sessionTopicsTable.topicId,
-          wasCovered: sessionTopicsTable.wasCovered,
-        })
-        .from(sessionTopicsTable)
-        .where(eq(sessionTopicsTable.sessionId, id));
-
-      for (const { topicId, wasCovered } of assignedTopics) {
-        if (wasCovered) {
-          await tx
-            .update(sessionTopicsTable)
-            .set({ wasCovered: false })
-            .where(
-              and(
-                eq(sessionTopicsTable.sessionId, id),
-                eq(sessionTopicsTable.topicId, topicId),
-              ),
-            );
-        }
-
-        // If some other completed/partial session still validly covers this
-        // topic, leave its progress alone -- only fall back to "pending"
-        // when this reverted session was the one carrying it.
-        const otherCoverage = await tx
-          .select({ sessionId: sessionTopicsTable.sessionId })
-          .from(sessionTopicsTable)
-          .innerJoin(
-            recoverySessionsTable,
-            eq(recoverySessionsTable.id, sessionTopicsTable.sessionId),
-          )
-          .where(
-            and(
-              eq(sessionTopicsTable.topicId, topicId),
-              eq(sessionTopicsTable.wasCovered, true),
-              inArray(recoverySessionsTable.status, ["conducted", "partial"]),
-              ne(sessionTopicsTable.sessionId, id),
-            ),
-          )
-          .limit(1);
-        if (otherCoverage.length > 0) continue;
-
-        const sectionClause =
-          session.section == null
-            ? isNull(recoveryProgressTable.section)
-            : eq(recoveryProgressTable.section, session.section);
-        await tx
-          .update(recoveryProgressTable)
-          .set({ status: "pending", completedAt: null, updatedAt: now })
-          .where(
-            and(
-              eq(recoveryProgressTable.campus, session.campus),
-              eq(recoveryProgressTable.subject, session.subject),
-              eq(recoveryProgressTable.topicId, topicId),
-              sectionClause,
-            ),
-          );
-      }
-
-      return updated[0];
-    });
-
-    if (!reverted) {
-      res.status(409).json({
-        error: "This session was already changed by another request",
-      });
-      return;
-    }
-
-    cacheDeletePrefix("recovery-progress:");
-    cacheDeletePrefix("session-tracker:");
-    res.json({ id: reverted.id, status: reverted.status });
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.post(
+//   "/recovery-sessions/:id/revert",
+//   async (req, res): Promise<void> => {
+//     const id = String(req.params["id"] ?? "");
+//     const uuidPattern =
+//       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+//     if (!uuidPattern.test(id)) {
+//       res.status(400).json({ error: "Invalid recovery session id" });
+//       return;
+//     }
+//
+//     const existing = await db
+//       .select()
+//       .from(recoverySessionsTable)
+//       .where(eq(recoverySessionsTable.id, id))
+//       .limit(1);
+//     const session = existing[0];
+//     if (!session) {
+//       res.status(404).json({ error: "Recovery session not found" });
+//       return;
+//     }
+//     if (session.status !== "conducted" && session.status !== "partial") {
+//       res.status(409).json({
+//         error: "Only a Completed or Partially Completed session can be reverted",
+//       });
+//       return;
+//     }
+//
+//     const admin = req.session!;
+//     const now = new Date();
+//
+//     const reverted = await db.transaction(async (tx) => {
+//       const updated = await tx
+//         .update(recoverySessionsTable)
+//         .set({
+//           status: "cancelled",
+//           cancellationReason:
+//             `Reverted from ${session.status === "conducted" ? "Completed" : "Partially Completed"}` +
+//             ` by ${admin.email} -- marked as not actually delivered`,
+//           remarks: "",
+//           qaReportUrls: [],
+//           updatedAt: now,
+//         })
+//         .where(
+//           and(
+//             eq(recoverySessionsTable.id, id),
+//             inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+//           ),
+//         )
+//         .returning();
+//       if (!updated[0]) return null;
+//
+//       const assignedTopics = await tx
+//         .select({
+//           topicId: sessionTopicsTable.topicId,
+//           wasCovered: sessionTopicsTable.wasCovered,
+//         })
+//         .from(sessionTopicsTable)
+//         .where(eq(sessionTopicsTable.sessionId, id));
+//
+//       for (const { topicId, wasCovered } of assignedTopics) {
+//         if (wasCovered) {
+//           await tx
+//             .update(sessionTopicsTable)
+//             .set({ wasCovered: false })
+//             .where(
+//               and(
+//                 eq(sessionTopicsTable.sessionId, id),
+//                 eq(sessionTopicsTable.topicId, topicId),
+//               ),
+//             );
+//         }
+//
+//         // If some other completed/partial session still validly covers this
+//         // topic, leave its progress alone -- only fall back to "pending"
+//         // when this reverted session was the one carrying it.
+//         const otherCoverage = await tx
+//           .select({ sessionId: sessionTopicsTable.sessionId })
+//           .from(sessionTopicsTable)
+//           .innerJoin(
+//             recoverySessionsTable,
+//             eq(recoverySessionsTable.id, sessionTopicsTable.sessionId),
+//           )
+//           .where(
+//             and(
+//               eq(sessionTopicsTable.topicId, topicId),
+//               eq(sessionTopicsTable.wasCovered, true),
+//               inArray(recoverySessionsTable.status, ["conducted", "partial"]),
+//               ne(sessionTopicsTable.sessionId, id),
+//             ),
+//           )
+//           .limit(1);
+//         if (otherCoverage.length > 0) continue;
+//
+//         const sectionClause =
+//           session.section == null
+//             ? isNull(recoveryProgressTable.section)
+//             : eq(recoveryProgressTable.section, session.section);
+//         await tx
+//           .update(recoveryProgressTable)
+//           .set({ status: "pending", completedAt: null, updatedAt: now })
+//           .where(
+//             and(
+//               eq(recoveryProgressTable.campus, session.campus),
+//               eq(recoveryProgressTable.subject, session.subject),
+//               eq(recoveryProgressTable.topicId, topicId),
+//               sectionClause,
+//             ),
+//           );
+//       }
+//
+//       return updated[0];
+//     });
+//
+//     if (!reverted) {
+//       res.status(409).json({
+//         error: "This session was already changed by another request",
+//       });
+//       return;
+//     }
+//
+//     cacheDeletePrefix("recovery-progress:");
+//     cacheDeletePrefix("session-tracker:");
+//     res.json({ id: reverted.id, status: reverted.status });
+//   },
+// );
 
 // Admin-only correction for the Incentive Tracker / Session Tracker: rewrites
 // one session's stored instructor identity, e.g. to attach the canonical
@@ -650,102 +652,104 @@ router.post(
 // rather than bulk -- the one-time historical reconciliation is handled by
 // the backfill-recovery-instructor-identity script; this is for the
 // stragglers it couldn't match, or for one-off corrections afterward.
-router.patch(
-  "/recovery-sessions/:id/instructor-identity",
-  async (req, res): Promise<void> => {
-    const id = String(req.params["id"] ?? "");
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(id)) {
-      res.status(400).json({ error: "Invalid recovery session id" });
-      return;
-    }
-
-    const body = req.body as {
-      instructorName?: unknown;
-      employeeId?: unknown;
-      bigqueryInstructorUserId?: unknown;
-      instructorType?: unknown;
-    };
-    const instructorName =
-      typeof body.instructorName === "string" ? body.instructorName.trim() : "";
-    if (!instructorName) {
-      res.status(400).json({ error: "instructorName is required" });
-      return;
-    }
-    const instructorType = body.instructorType;
-    if (
-      instructorType !== "campus" &&
-      instructorType !== "backup" &&
-      instructorType !== "unknown"
-    ) {
-      res.status(400).json({ error: "Invalid instructor type" });
-      return;
-    }
-    const employeeId =
-      typeof body.employeeId === "string" && body.employeeId.trim()
-        ? body.employeeId.trim()
-        : null;
-    const bigqueryInstructorUserId =
-      typeof body.bigqueryInstructorUserId === "string" &&
-      body.bigqueryInstructorUserId.trim()
-        ? body.bigqueryInstructorUserId.trim()
-        : null;
-
-    const updated = await setRecoverySessionInstructorIdentity(id, {
-      instructorName,
-      employeeId,
-      bigqueryInstructorUserId,
-      instructorType,
-    });
-    if (!updated) {
-      res.status(404).json({ error: "Recovery session not found" });
-      return;
-    }
-
-    cacheDeletePrefix("session-tracker:");
-    res.json({
-      id: updated.id,
-      instructorName: updated.instructorName,
-      employeeId: updated.employeeId,
-      bigqueryInstructorUserId: updated.bigqueryInstructorUserId,
-      instructorType: updated.instructorType,
-    });
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.patch(
+//   "/recovery-sessions/:id/instructor-identity",
+//   async (req, res): Promise<void> => {
+//     const id = String(req.params["id"] ?? "");
+//     const uuidPattern =
+//       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+//     if (!uuidPattern.test(id)) {
+//       res.status(400).json({ error: "Invalid recovery session id" });
+//       return;
+//     }
+//
+//     const body = req.body as {
+//       instructorName?: unknown;
+//       employeeId?: unknown;
+//       bigqueryInstructorUserId?: unknown;
+//       instructorType?: unknown;
+//     };
+//     const instructorName =
+//       typeof body.instructorName === "string" ? body.instructorName.trim() : "";
+//     if (!instructorName) {
+//       res.status(400).json({ error: "instructorName is required" });
+//       return;
+//     }
+//     const instructorType = body.instructorType;
+//     if (
+//       instructorType !== "campus" &&
+//       instructorType !== "backup" &&
+//       instructorType !== "unknown"
+//     ) {
+//       res.status(400).json({ error: "Invalid instructor type" });
+//       return;
+//     }
+//     const employeeId =
+//       typeof body.employeeId === "string" && body.employeeId.trim()
+//         ? body.employeeId.trim()
+//         : null;
+//     const bigqueryInstructorUserId =
+//       typeof body.bigqueryInstructorUserId === "string" &&
+//       body.bigqueryInstructorUserId.trim()
+//         ? body.bigqueryInstructorUserId.trim()
+//         : null;
+//
+//     const updated = await setRecoverySessionInstructorIdentity(id, {
+//       instructorName,
+//       employeeId,
+//       bigqueryInstructorUserId,
+//       instructorType,
+//     });
+//     if (!updated) {
+//       res.status(404).json({ error: "Recovery session not found" });
+//       return;
+//     }
+//
+//     cacheDeletePrefix("session-tracker:");
+//     res.json({
+//       id: updated.id,
+//       instructorName: updated.instructorName,
+//       employeeId: updated.employeeId,
+//       bigqueryInstructorUserId: updated.bigqueryInstructorUserId,
+//       instructorType: updated.instructorType,
+//     });
+//   },
+// );
 
 // Admin/superadmin-only: marks an already-approved session's incentive as
 // actually paid out. Kept separate from BOA approval (which only confirms
 // the session happened) so "owed" and "already paid" are tracked distinctly.
-router.patch(
-  "/recovery-sessions/:id/incentive-paid",
-  async (req, res): Promise<void> => {
-    const id = String(req.params["id"] ?? "");
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(id)) {
-      res.status(400).json({ error: "Invalid recovery session id" });
-      return;
-    }
-    const paid = (req.body as { paid?: unknown }).paid;
-    if (typeof paid !== "boolean") {
-      res.status(400).json({ error: "paid must be a boolean" });
-      return;
-    }
-
-    const session = req.session!;
-    const result = await setRecoverySessionIncentivePaid(id, paid, session.sub);
-    if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-    res.json({
-      id: result.session.id,
-      incentiveApproved: result.session.incentiveApproved,
-      incentivePaid: result.session.incentivePaid,
-    });
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.patch(
+//   "/recovery-sessions/:id/incentive-paid",
+//   async (req, res): Promise<void> => {
+//     const id = String(req.params["id"] ?? "");
+//     const uuidPattern =
+//       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+//     if (!uuidPattern.test(id)) {
+//       res.status(400).json({ error: "Invalid recovery session id" });
+//       return;
+//     }
+//     const paid = (req.body as { paid?: unknown }).paid;
+//     if (typeof paid !== "boolean") {
+//       res.status(400).json({ error: "paid must be a boolean" });
+//       return;
+//     }
+//
+//     const session = req.session!;
+//     const result = await setRecoverySessionIncentivePaid(id, paid, session.sub);
+//     if (!result.ok) {
+//       res.status(result.status).json({ error: result.error });
+//       return;
+//     }
+//     res.json({
+//       id: result.session.id,
+//       incentiveApproved: result.session.incentiveApproved,
+//       incentivePaid: result.session.incentivePaid,
+//     });
+//   },
+// );
 
 // Meta — campuses and subjects come live from BigQuery so the assignable
 // options exactly match the institutions/subjects present in the data

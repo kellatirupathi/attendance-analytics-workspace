@@ -105,7 +105,7 @@ router.use(requireSession());
 const INSTRUCTOR_ALLOWED_PATHS = new Set([
   "/filters",
   "/prod-sequence",
-  "/recovery-progress",
+  // "/recovery-progress", // Recovery is switched off for now
   "/session-tracker",
 ]);
 router.use((req, res, next) => {
@@ -965,76 +965,77 @@ router.get("/students", requireSession(), async (req, res): Promise<void> => {
 });
 
 // Recovery progress for one subject at one campus.
-router.get(
-  "/recovery-progress",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const q = req.query as Record<string, string | undefined>;
-    const campus = q["campus"];
-    const bigQuerySubject = q["subject"];
-    const section = q["section"] || undefined;
-    const semester = q["semester"] || undefined;
-    if (!campus || !bigQuerySubject) {
-      res.status(400).json({ error: "campus and subject required" });
-      return;
-    }
-
-    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
-      res.status(403).json({ error: "Not permitted for this campus" });
-      return;
-    }
-    if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
-      res.status(403).json({ error: "Not permitted for this subject" });
-      return;
-    }
-
-    const cacheKey = `recovery-progress:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}:${semester ?? ""}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-
-    try {
-      // Same source as the session-tracker table below this card: completed
-      // lecture sessions from the live BigQuery prod sequence, matched to
-      // their recovery status by curriculum subject. Attendance percentages
-      // aren't needed for this card's counts, so an empty map is fine.
-      const recoverySubject =
-        BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject] ?? bigQuerySubject;
-      const tracker = await getProdSequenceSessionTracker(
-        campus,
-        bigQuerySubject,
-        new Map(),
-        section,
-        semester,
-        recoverySubject,
-      );
-      const totalTopics = tracker.length;
-      const topicsRecovered = tracker.filter(
-        (row) => row.status === "recovered",
-      ).length;
-
-      const progress = await getRecoveryProgress(
-        campus,
-        recoverySubject,
-        totalTopics,
-        topicsRecovered,
-      );
-      cacheSet(cacheKey, progress, 60 * 1000);
-      res.json(progress);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching recovery progress");
-      res.status(500).json({ error: "Failed to fetch recovery progress" });
-    }
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.get(
+//   "/recovery-progress",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     const q = req.query as Record<string, string | undefined>;
+//     const campus = q["campus"];
+//     const bigQuerySubject = q["subject"];
+//     const section = q["section"] || undefined;
+//     const semester = q["semester"] || undefined;
+//     if (!campus || !bigQuerySubject) {
+//       res.status(400).json({ error: "campus and subject required" });
+//       return;
+//     }
+//
+//     if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+//       res.status(403).json({ error: "Not permitted for this campus" });
+//       return;
+//     }
+//     if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
+//       res.status(403).json({ error: "Not permitted for this subject" });
+//       return;
+//     }
+//
+//     const cacheKey = `recovery-progress:${session.role}:${JSON.stringify(scope)}:${campus}:${bigQuerySubject}:${section ?? ""}:${semester ?? ""}`;
+//     const cached = cacheGet<object>(cacheKey);
+//     if (cached) {
+//       res.json(cached);
+//       return;
+//     }
+//
+//     try {
+//       // Same source as the session-tracker table below this card: completed
+//       // lecture sessions from the live BigQuery prod sequence, matched to
+//       // their recovery status by curriculum subject. Attendance percentages
+//       // aren't needed for this card's counts, so an empty map is fine.
+//       const recoverySubject =
+//         BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject] ?? bigQuerySubject;
+//       const tracker = await getProdSequenceSessionTracker(
+//         campus,
+//         bigQuerySubject,
+//         new Map(),
+//         section,
+//         semester,
+//         recoverySubject,
+//       );
+//       const totalTopics = tracker.length;
+//       const topicsRecovered = tracker.filter(
+//         (row) => row.status === "recovered",
+//       ).length;
+//
+//       const progress = await getRecoveryProgress(
+//         campus,
+//         recoverySubject,
+//         totalTopics,
+//         topicsRecovered,
+//       );
+//       cacheSet(cacheKey, progress, 60 * 1000);
+//       res.json(progress);
+//     } catch (err) {
+//       req.log.error({ err }, "Error fetching recovery progress");
+//       res.status(500).json({ error: "Failed to fetch recovery progress" });
+//     }
+//   },
+// );
 
 // Full curriculum delivery state for one subject at one campus. Topics and
 // their delivery status come straight from the live BigQuery prod sequence
@@ -1107,231 +1108,234 @@ router.get(
 
 // Active instructor roster for one campus, sourced from BigQuery's
 // niat_instructor_details -- what the scheduler's instructor picker lists.
-router.get(
-  "/recovery-instructors",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    if (session.role === "instructor") {
-      res.status(403).json({
-        error: "Instructors can only view their assigned recovery sessions",
-      });
-      return;
-    }
-    // `all=true` is the "backup instructor" escape hatch: when a campus's own
-    // roster can't cover a session, the BOA team needs to see every active
-    // instructor, not just this campus's own. Deliberately not scope-checked
-    // against the requester's own campuses -- browsing names for a backup
-    // pick doesn't touch any campus's data, and the session itself (which
-    // *is* scope-checked) still records its own campus separately.
-    const showAll = req.query["all"] === "true";
-    const campus = (req.query["campus"] as string | undefined) ?? "";
-    if (!showAll) {
-      const scope = scopeForSession({
-        role: session.role as Role,
-        campuses: session.campuses,
-        subjects: session.subjects,
-      });
-      if (!campus) {
-        res.status(400).json({ error: "campus required" });
-        return;
-      }
-      if (scope.campuses?.length && !scope.campuses.includes(campus)) {
-        res.status(403).json({ error: "Not permitted for this campus" });
-        return;
-      }
-    }
-    const cacheKey = showAll
-      ? "recovery-instructors:__all__"
-      : `recovery-instructors:${campus}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
-    try {
-      const instructors = showAll
-        ? await getAllActiveInstructors()
-        : await getCampusInstructorRoster(campus);
-      cacheSet(cacheKey, instructors, 5 * 60 * 1000);
-      res.json(instructors);
-    } catch (err) {
-      req.log.error({ err }, "Error fetching campus instructor roster");
-      res.status(500).json({ error: "Failed to fetch instructor roster" });
-    }
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.get(
+//   "/recovery-instructors",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     if (session.role === "instructor") {
+//       res.status(403).json({
+//         error: "Instructors can only view their assigned recovery sessions",
+//       });
+//       return;
+//     }
+//     // `all=true` is the "backup instructor" escape hatch: when a campus's own
+//     // roster can't cover a session, the BOA team needs to see every active
+//     // instructor, not just this campus's own. Deliberately not scope-checked
+//     // against the requester's own campuses -- browsing names for a backup
+//     // pick doesn't touch any campus's data, and the session itself (which
+//     // *is* scope-checked) still records its own campus separately.
+//     const showAll = req.query["all"] === "true";
+//     const campus = (req.query["campus"] as string | undefined) ?? "";
+//     if (!showAll) {
+//       const scope = scopeForSession({
+//         role: session.role as Role,
+//         campuses: session.campuses,
+//         subjects: session.subjects,
+//       });
+//       if (!campus) {
+//         res.status(400).json({ error: "campus required" });
+//         return;
+//       }
+//       if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+//         res.status(403).json({ error: "Not permitted for this campus" });
+//         return;
+//       }
+//     }
+//     const cacheKey = showAll
+//       ? "recovery-instructors:__all__"
+//       : `recovery-instructors:${campus}`;
+//     const cached = cacheGet<object>(cacheKey);
+//     if (cached) {
+//       res.json(cached);
+//       return;
+//     }
+//     try {
+//       const instructors = showAll
+//         ? await getAllActiveInstructors()
+//         : await getCampusInstructorRoster(campus);
+//       cacheSet(cacheKey, instructors, 5 * 60 * 1000);
+//       res.json(instructors);
+//     } catch (err) {
+//       req.log.error({ err }, "Error fetching campus instructor roster");
+//       res.status(500).json({ error: "Failed to fetch instructor roster" });
+//     }
+//   },
+// );
 
 // Books a future recovery session for a set of not-yet-recovered topics.
 // campus/subject follow the same conventions as session-tracker above: the
 // caller passes the raw BigQuery subject_title, which is resolved here to
 // the curriculum subject before touching recovery_sessions/recovery_topics.
-router.post(
-  "/recovery-sessions",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    if (session.role === "instructor") {
-      res.status(403).json({
-        error: "Instructors can only view their assigned recovery sessions",
-      });
-      return;
-    }
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    const body = req.body as {
-      campus?: string;
-      subject?: string;
-      section?: string;
-      scheduledDate?: string;
-      startTime?: string;
-      endTime?: string;
-      instructorName?: string;
-      instructorUserId?: string;
-      employeeId?: string;
-      isBackupInstructor?: boolean;
-      studentsExpected?: number;
-      topicTitles?: string[];
-    };
-    const campus = body.campus;
-    const bigQuerySubject = body.subject;
-    if (!campus || !bigQuerySubject) {
-      res.status(400).json({ error: "campus and subject required" });
-      return;
-    }
-    if (scope.campuses?.length && !scope.campuses.includes(campus)) {
-      res.status(403).json({ error: "Not permitted for this campus" });
-      return;
-    }
-    if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
-      res.status(403).json({ error: "Not permitted for this subject" });
-      return;
-    }
-
-    const scheduledDate = body.scheduledDate ?? "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
-      res.status(400).json({ error: "scheduledDate must be YYYY-MM-DD" });
-      return;
-    }
-    const instructorName = (body.instructorName ?? "").trim();
-    if (!instructorName) {
-      res.status(400).json({ error: "instructorName required" });
-      return;
-    }
-    const topicTitles = Array.isArray(body.topicTitles)
-      ? body.topicTitles.filter(
-          (t): t is string => typeof t === "string" && t.trim().length > 0,
-        )
-      : [];
-    if (topicTitles.length === 0) {
-      res.status(400).json({ error: "Select at least one topic" });
-      return;
-    }
-    const studentsExpected =
-      typeof body.studentsExpected === "number" &&
-      Number.isFinite(body.studentsExpected)
-        ? Math.max(0, Math.round(body.studentsExpected))
-        : undefined;
-
-    const recoverySubject =
-      BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject] ?? bigQuerySubject;
-
-    try {
-      const result = await scheduleRecoverySession({
-        campus,
-        subject: recoverySubject,
-        section: body.section,
-        scheduledDate,
-        startTime: body.startTime,
-        endTime: body.endTime,
-        instructorName,
-        instructorUserId: body.instructorUserId || undefined,
-        employeeId: body.employeeId || undefined,
-        isBackupInstructor: !!body.isBackupInstructor,
-        studentsExpected,
-        topicTitles,
-      });
-      if (!result.ok) {
-        res.status(400).json({ error: result.error });
-        return;
-      }
-      cacheDeletePrefix("session-tracker:");
-      cacheDeletePrefix("recovery-progress:");
-      res.status(201).json(result.session);
-    } catch (err) {
-      req.log.error({ err }, "Error scheduling recovery session");
-      res.status(500).json({ error: "Failed to schedule recovery session" });
-    }
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.post(
+//   "/recovery-sessions",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     if (session.role === "instructor") {
+//       res.status(403).json({
+//         error: "Instructors can only view their assigned recovery sessions",
+//       });
+//       return;
+//     }
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     const body = req.body as {
+//       campus?: string;
+//       subject?: string;
+//       section?: string;
+//       scheduledDate?: string;
+//       startTime?: string;
+//       endTime?: string;
+//       instructorName?: string;
+//       instructorUserId?: string;
+//       employeeId?: string;
+//       isBackupInstructor?: boolean;
+//       studentsExpected?: number;
+//       topicTitles?: string[];
+//     };
+//     const campus = body.campus;
+//     const bigQuerySubject = body.subject;
+//     if (!campus || !bigQuerySubject) {
+//       res.status(400).json({ error: "campus and subject required" });
+//       return;
+//     }
+//     if (scope.campuses?.length && !scope.campuses.includes(campus)) {
+//       res.status(403).json({ error: "Not permitted for this campus" });
+//       return;
+//     }
+//     if (scope.subjects?.length && !scope.subjects.includes(bigQuerySubject)) {
+//       res.status(403).json({ error: "Not permitted for this subject" });
+//       return;
+//     }
+//
+//     const scheduledDate = body.scheduledDate ?? "";
+//     if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
+//       res.status(400).json({ error: "scheduledDate must be YYYY-MM-DD" });
+//       return;
+//     }
+//     const instructorName = (body.instructorName ?? "").trim();
+//     if (!instructorName) {
+//       res.status(400).json({ error: "instructorName required" });
+//       return;
+//     }
+//     const topicTitles = Array.isArray(body.topicTitles)
+//       ? body.topicTitles.filter(
+//           (t): t is string => typeof t === "string" && t.trim().length > 0,
+//         )
+//       : [];
+//     if (topicTitles.length === 0) {
+//       res.status(400).json({ error: "Select at least one topic" });
+//       return;
+//     }
+//     const studentsExpected =
+//       typeof body.studentsExpected === "number" &&
+//       Number.isFinite(body.studentsExpected)
+//         ? Math.max(0, Math.round(body.studentsExpected))
+//         : undefined;
+//
+//     const recoverySubject =
+//       BIGQUERY_TO_CURRICULUM_SUBJECT[bigQuerySubject] ?? bigQuerySubject;
+//
+//     try {
+//       const result = await scheduleRecoverySession({
+//         campus,
+//         subject: recoverySubject,
+//         section: body.section,
+//         scheduledDate,
+//         startTime: body.startTime,
+//         endTime: body.endTime,
+//         instructorName,
+//         instructorUserId: body.instructorUserId || undefined,
+//         employeeId: body.employeeId || undefined,
+//         isBackupInstructor: !!body.isBackupInstructor,
+//         studentsExpected,
+//         topicTitles,
+//       });
+//       if (!result.ok) {
+//         res.status(400).json({ error: result.error });
+//         return;
+//       }
+//       cacheDeletePrefix("session-tracker:");
+//       cacheDeletePrefix("recovery-progress:");
+//       res.status(201).json(result.session);
+//     } catch (err) {
+//       req.log.error({ err }, "Error scheduling recovery session");
+//       res.status(500).json({ error: "Failed to schedule recovery session" });
+//     }
+//   },
+// );
 
 // Deletes a mistakenly-booked recovery session -- only while it's still
 // "planned" (nothing reported on it yet). Its topics revert to "pending" so
 // they show back up in the tracker to be rescheduled.
-router.delete(
-  "/recovery-sessions/:id",
-  requireSession(),
-  async (req, res): Promise<void> => {
-    const session = req.session!;
-    if (session.role === "instructor") {
-      res.status(403).json({
-        error: "Instructors can only view their assigned recovery sessions",
-      });
-      return;
-    }
-    const idParam = req.params["id"];
-    const id = Array.isArray(idParam) ? (idParam[0] ?? "") : (idParam ?? "");
-    const uuidPattern =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidPattern.test(id)) {
-      res.status(400).json({ error: "Invalid recovery session id" });
-      return;
-    }
-    const target = await getRecoverySessionScope(id);
-    if (!target) {
-      res.status(404).json({ error: "Recovery session not found" });
-      return;
-    }
-    const scope = scopeForSession({
-      role: session.role as Role,
-      campuses: session.campuses,
-      subjects: session.subjects,
-    });
-    if (scope.campuses?.length && !scope.campuses.includes(target.campus)) {
-      res.status(403).json({ error: "Not permitted for this campus" });
-      return;
-    }
-    // scope.subjects carries raw BigQuery subject names (how it's assigned on
-    // the user), while a stored session's subject is already resolved to the
-    // curriculum code -- map before comparing, same as session-tracker does.
-    if (scope.subjects?.length) {
-      const allowedCurriculumSubjects = scope.subjects.map(
-        (subject) => BIGQUERY_TO_CURRICULUM_SUBJECT[subject] ?? subject,
-      );
-      if (!allowedCurriculumSubjects.includes(target.subject)) {
-        res.status(403).json({ error: "Not permitted for this subject" });
-        return;
-      }
-    }
-
-    try {
-      const result = await cancelRecoverySession(id);
-      if (!result.ok) {
-        res.status(result.status).json({ error: result.error });
-        return;
-      }
-      cacheDeletePrefix("session-tracker:");
-      cacheDeletePrefix("recovery-progress:");
-      res.status(204).send();
-    } catch (err) {
-      req.log.error({ err }, "Error deleting recovery session");
-      res.status(500).json({ error: "Failed to delete recovery session" });
-    }
-  },
-);
+// Recovery is switched off for now (commented out, not deleted). Uncomment to bring it back.
+// router.delete(
+//   "/recovery-sessions/:id",
+//   requireSession(),
+//   async (req, res): Promise<void> => {
+//     const session = req.session!;
+//     if (session.role === "instructor") {
+//       res.status(403).json({
+//         error: "Instructors can only view their assigned recovery sessions",
+//       });
+//       return;
+//     }
+//     const idParam = req.params["id"];
+//     const id = Array.isArray(idParam) ? (idParam[0] ?? "") : (idParam ?? "");
+//     const uuidPattern =
+//       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+//     if (!uuidPattern.test(id)) {
+//       res.status(400).json({ error: "Invalid recovery session id" });
+//       return;
+//     }
+//     const target = await getRecoverySessionScope(id);
+//     if (!target) {
+//       res.status(404).json({ error: "Recovery session not found" });
+//       return;
+//     }
+//     const scope = scopeForSession({
+//       role: session.role as Role,
+//       campuses: session.campuses,
+//       subjects: session.subjects,
+//     });
+//     if (scope.campuses?.length && !scope.campuses.includes(target.campus)) {
+//       res.status(403).json({ error: "Not permitted for this campus" });
+//       return;
+//     }
+//     // scope.subjects carries raw BigQuery subject names (how it's assigned on
+//     // the user), while a stored session's subject is already resolved to the
+//     // curriculum code -- map before comparing, same as session-tracker does.
+//     if (scope.subjects?.length) {
+//       const allowedCurriculumSubjects = scope.subjects.map(
+//         (subject) => BIGQUERY_TO_CURRICULUM_SUBJECT[subject] ?? subject,
+//       );
+//       if (!allowedCurriculumSubjects.includes(target.subject)) {
+//         res.status(403).json({ error: "Not permitted for this subject" });
+//         return;
+//       }
+//     }
+//
+//     try {
+//       const result = await cancelRecoverySession(id);
+//       if (!result.ok) {
+//         res.status(result.status).json({ error: result.error });
+//         return;
+//       }
+//       cacheDeletePrefix("session-tracker:");
+//       cacheDeletePrefix("recovery-progress:");
+//       res.status(204).send();
+//     } catch (err) {
+//       req.log.error({ err }, "Error deleting recovery session");
+//       res.status(500).json({ error: "Failed to delete recovery session" });
+//     }
+//   },
+// );
 
 // UNUSED (2026-10-14): no page in the dashboard calls this endpoint. Commented out, not deleted; uncomment to restore.
 // router.get(

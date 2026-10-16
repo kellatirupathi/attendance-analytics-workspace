@@ -44,7 +44,7 @@ const mainNav: NavItem[] = [
   { label: "SPI Record Dashboard", href: "/dashboard/spi-record", icon: FileBarChart2 },
   { label: "Assessments", href: "/dashboard/assessments", icon: BookOpenCheck },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
-  { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
+  // { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle }, // Recovery is switched off for now
 ];
 
 const adminNav: NavItem[] = [
@@ -229,8 +229,8 @@ function SidebarInner({
       (FEATURES.campusAnalytics && user?.role !== "boa"),
   );
   const instructorNav: NavItem[] = [
-    { label: "Report recovery", href: "/instructor", icon: ClipboardCheck },
-    { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle },
+    // { label: "Report recovery", href: "/instructor", icon: ClipboardCheck }, // Recovery is switched off for now
+    // { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle }, // Recovery is switched off for now
   ];
   const renderedMainNav = user?.role === "instructor" ? instructorNav : visibleMainNav;
 

@@ -31,15 +31,16 @@ const SubjectAttendanceStudents = lazy(
 const CampusWiseStats = lazy(() => import("@/pages/CampusWiseStats"));
 const Assessments = lazy(() => import("@/pages/Assessments"));
 const SubjectSessions = lazy(() => import("@/pages/SubjectSessions"));
-const Recovery = lazy(() => import("@/pages/Recovery"));
-const RecoverySubjectDetail = lazy(
-  () => import("@/pages/RecoverySubjectDetail"),
-);
-const RecoveryQuizSubjectDetail = lazy(
-  () => import("@/pages/RecoveryQuizSubjectDetail"),
-);
-const InstructorRecovery = lazy(() => import("@/pages/InstructorRecovery"));
-const IncentiveTracker = lazy(() => import("@/pages/IncentiveTracker"));
+// Recovery is switched off for now (commented out, not deleted).
+// const Recovery = lazy(() => import("@/pages/Recovery"));
+// const RecoverySubjectDetail = lazy(
+//   () => import("@/pages/RecoverySubjectDetail"),
+// );
+// const RecoveryQuizSubjectDetail = lazy(
+//   () => import("@/pages/RecoveryQuizSubjectDetail"),
+// );
+// const InstructorRecovery = lazy(() => import("@/pages/InstructorRecovery"));
+// const IncentiveTracker = lazy(() => import("@/pages/IncentiveTracker"));
 const Reports = lazy(() => import("@/pages/Reports"));
 
 const queryClient = new QueryClient();
@@ -186,6 +187,7 @@ function Router() {
             <Reports />
           </Protected>
         </Route>
+        {/* Recovery is switched off for now (commented out, not deleted).
         <Route path="/dashboard/recovery/quiz/:campus/:subject">
           <Protected>
             <RecoveryQuizSubjectDetail />
@@ -211,16 +213,19 @@ function Router() {
             <Recovery />
           </Protected>
         </Route>
+        */}
         <Route path="/dashboard/profile">
           <Protected allowInstructor>
             <Profile />
           </Protected>
         </Route>
+        {/* Recovery is switched off for now (commented out, not deleted).
         <Route path="/instructor">
           <Protected instructorOnly>
             <InstructorRecovery />
           </Protected>
         </Route>
+        */}
         <Route path="/dashboard/requests">
           <Protected>
             <AttendanceRequests />
