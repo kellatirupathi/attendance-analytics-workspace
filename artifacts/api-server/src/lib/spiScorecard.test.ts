@@ -51,15 +51,18 @@ const quizRows = [
 
 // S-001's Semester 3 courses (niat_instructor_section_and_course_mapping_details). Attendance is
 // not under test here, so every course is at 100%.
-const subjects = [
-  "Operating Systems",
-  "Probability and Statistics",
-  "Logical Reasoning and Analytical Skills",
-  "Advanced Communication Skills",
-  "AI For Finanace",
-  "Design and Analysis of Algorithms",
-  "Back End Development",
-].map((subjectTitle) => ({ subjectTitle, present: 10, total: 10 }));
+// Weights are the real credits for S-001's semester_course_ids (config/course-credits.json).
+const subjects = (
+  [
+    ["Operating Systems", 2],
+    ["Probability and Statistics", 3],
+    ["Logical Reasoning and Analytical Skills", 2],
+    ["Advanced Communication Skills", 2],
+    ["AI For Finanace", 2],
+    ["Design and Analysis of Algorithms", 5],
+    ["Back End Development", 5],
+  ] as const
+).map(([subjectTitle, weight]) => ({ subjectTitle, present: 10, total: 10, weight }));
 
 const card = buildScorecard({ studentId: "d88d6bc6ead6483cbf0fd563c1af49e3", studentName: "Aarya Jawadwar" }, subjects, quizRows);
 const course = (name: string) => {
@@ -96,7 +99,7 @@ test("a quiz type with none held is not conducted yet", () => {
   assert.equal(os.courseScore, null);
 });
 
-test("per-course scores and SPI (rules unchanged)", () => {
+test("per-course scores and weighted SPI (§3.3)", () => {
   const expected: Record<string, [number, string, number]> = {
     "Probability and Statistics": [26.84, "F", 0],
     "Logical Reasoning and Analytical Skills": [87.5, "A", 9],
@@ -109,9 +112,84 @@ test("per-course scores and SPI (rules unchanged)", () => {
     const c = course(name);
     assert.deepEqual([c.courseScore, c.level, c.points], [score, level, points], name);
   }
-  assert.equal(card.totalPoints, 17);
+  // Σ (points × weight) = 0·3 + 9·2 + 0·2 + 0·2 + 0·5 + 8·5 = 58; Σ weights = 19 (Operating Systems has no score).
+  assert.equal(card.totalWeightedPoints, 58);
+  assert.equal(card.totalWeight, 19);
   assert.equal(card.scoredCourses, 6);
-  assert.equal(card.spi, 2.83);
+  assert.equal(card.spi, 3.05);
+  assert.equal(course("Back End Development").weightedPoints, 40);
+  assert.equal(course("Operating Systems").weightedPoints, null);
+});
+
+test("Skill Debt lists F courses with the parts below 50%", () => {
+  const daa = card.skillDebt.find((d) => d.name === "Design and Analysis of Algorithms");
+  assert.deepEqual(daa, { name: "Design and Analysis of Algorithms", weight: 5, courseScore: 25.96, level: "F", lowParts: [{ kind: "module", avgPct: 16.3 }] });
+  assert.equal(card.skillDebt.length, 4);
+});
+
+test("Intro To NIAT is left off the report", () => {
+  const withIntro = buildScorecard(
+    { studentId: "x", studentName: "x" },
+    [
+      { subjectTitle: "Intro To NIAT", present: 0, total: 0, weight: 0 },
+      { subjectTitle: "introduction  to NIAT", present: 4, total: 4, weight: 0 },
+      { subjectTitle: "Back End Development", present: 8, total: 10, weight: 5 },
+    ],
+    [],
+  );
+  assert.deepEqual(withIntro.courses.map((c) => c.name), ["Back End Development"]);
+  assert.equal(withIntro.attendance.held, 10);
+});
+
+test("a course with no weight (Not set) or weight 0 stays on the report but is left out of the SPI", () => {
+  const rows = [
+    raw("A", "CLASSROOM_QUIZ", 10, 10, 95, "Course A"),
+    raw("B", "CLASSROOM_QUIZ", 10, 10, 55, "Course B"),
+    raw("C", "CLASSROOM_QUIZ", 10, 10, 75, "Course C"),
+  ].map(toStudentQuizCourseRow);
+  const sc = buildScorecard(
+    { studentId: "x", studentName: "x" },
+    [
+      { subjectTitle: "Course A", present: 1, total: 1, weight: 4 },
+      { subjectTitle: "Course B", present: 1, total: 1, weight: null },
+      { subjectTitle: "Course C", present: 1, total: 1, weight: 0 },
+    ],
+    rows,
+  );
+  assert.equal(sc.courses.length, 3);
+  assert.equal(sc.scoredCourses, 1);
+  assert.equal(sc.spi, 10);
+  const none = buildScorecard({ studentId: "x", studentName: "x" }, [{ subjectTitle: "Course B", present: 1, total: 1, weight: null }], rows);
+  assert.equal(none.spi, null);
+});
+
+test("attendance tier (§7.4) comes from the weakest course", () => {
+  const tierOf = (pcts: [number, number][]) =>
+    buildScorecard({ studentId: "x", studentName: "x" }, pcts.map(([p, t], i) => ({ subjectTitle: `C${i}`, present: p, total: t, weight: 1 })), []).attendance.tier;
+  assert.equal(tierOf([[9, 10], [8, 10]]), "eligible");
+  assert.equal(tierOf([[9, 10], [27, 40]]), "recovery_eligible");
+  assert.equal(tierOf([[9, 10], [11, 20]]), "at_risk");
+  assert.equal(tierOf([[10, 10], [4, 10]]), "ineligible");
+});
+
+test("overall attendance is all courses together (same as the Student Directory)", () => {
+  const overall = buildScorecard(
+    { studentId: "a8bfece2-8539-4cc2-9db8-0e312c9beb17", studentName: "Adityaraj Ghorpade" },
+    [
+      ["Advanced Communication Skills", 35, 50],
+      ["AI For Finanace", 36, 44],
+      ["Back End Development", 42, 49],
+      ["Design and Analysis of Algorithms", 64, 91],
+      ["Logical Reasoning and Analytical Skills", 27, 40],
+      ["Operating Systems", 42, 54],
+      ["Probability and Statistics", 41, 54],
+    ].map(([subjectTitle, present, total]) => ({ subjectTitle: String(subjectTitle), present: Number(present), total: Number(total) })),
+    [],
+  ).attendance;
+  assert.deepEqual(
+    { overallPct: overall.overallPct, present: overall.present, held: overall.held, lowestPct: overall.lowestPct, coursesBelow: overall.coursesBelow },
+    { overallPct: 75.1, present: 287, held: 382, lowestPct: 67.5, coursesBelow: 5 },
+  );
 });
 
 test("next steps count classroom and module quizzes separately", () => {

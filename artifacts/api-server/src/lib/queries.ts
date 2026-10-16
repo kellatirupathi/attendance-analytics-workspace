@@ -508,12 +508,15 @@ export interface SubjectAttendance {
   pctSubmittedOnly: number | null;
   /** Scheduled sessions dated up to today for this subject; null when it isn't on the student's schedule. */
   sessionsHeld?: number | null;
+  /** semester_course_id(s) from the prod sequence; empty when the course isn't on the schedule. */
+  courseIds?: string[];
 }
 
 interface ScheduledSubject {
   subjectTitle: string;
   courseCategory: string | null;
   sessionsHeld: number;
+  courseIds: string[];
 }
 
 /**
@@ -530,6 +533,7 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     subject_title: string;
     course_category: string | null;
     sessions_held: string;
+    course_ids: string | null;
   }>(
     `WITH student_rows AS (
       -- The raw table: the shared source relabels a mover's old rows with their current campus.
@@ -556,7 +560,8 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     SELECT
       TRIM(s.course_title) AS subject_title,
       NULLIF(TRIM(CAST(s.course_category AS STRING)), '') AS course_category,
-      COUNT(DISTINCT IF(DATE(s.session_start_datetime) <= CURRENT_DATE('Asia/Kolkata'), s.session_id, NULL)) AS sessions_held
+      COUNT(DISTINCT IF(DATE(s.session_start_datetime) <= CURRENT_DATE('Asia/Kolkata'), s.session_id, NULL)) AS sessions_held,
+      STRING_AGG(DISTINCT LOWER(REPLACE(CAST(s.semester_course_id AS STRING), '-', '')), ',') AS course_ids
     FROM ${PROD_SEQUENCE_TABLE} s
     JOIN student_sections ss
       ON ss.section_key = REPLACE(CAST(s.section_id AS STRING), '-', '')
@@ -575,6 +580,7 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     subjectTitle: row.subject_title,
     courseCategory: row.course_category ?? null,
     sessionsHeld: Number(row.sessions_held) || 0,
+    courseIds: (row.course_ids ?? "").split(",").filter(Boolean),
   }));
 }
 
@@ -597,13 +603,15 @@ export async function getStudentSubjects(
     const key = subject.subjectTitle.toLowerCase();
     const existing = scheduledByTitle.get(key);
     // A course split across categories comes back once per category.
-    if (existing) existing.sessionsHeld = Math.max(existing.sessionsHeld, subject.sessionsHeld);
-    else scheduledByTitle.set(key, { ...subject });
+    if (existing) {
+      existing.sessionsHeld = Math.max(existing.sessionsHeld, subject.sessionsHeld);
+      existing.courseIds = [...new Set([...existing.courseIds, ...subject.courseIds])];
+    } else scheduledByTitle.set(key, { ...subject });
   }
-  const subjects: SubjectAttendance[] = attended.map((subject) => ({
-    ...subject,
-    sessionsHeld: scheduledByTitle.get(subject.subjectTitle.toLowerCase())?.sessionsHeld ?? null,
-  }));
+  const subjects: SubjectAttendance[] = attended.map((subject) => {
+    const onSchedule = scheduledByTitle.get(subject.subjectTitle.toLowerCase());
+    return { ...subject, sessionsHeld: onSchedule?.sessionsHeld ?? null, courseIds: onSchedule?.courseIds ?? [] };
+  });
   const shown = new Set(attended.map((subject) => subject.subjectTitle.toLowerCase()));
   for (const [key, subject] of scheduledByTitle) {
     if (shown.has(key)) continue;
@@ -618,6 +626,7 @@ export async function getStudentSubjects(
       presentSubmitted: 0,
       pctSubmittedOnly: null,
       sessionsHeld: subject.sessionsHeld,
+      courseIds: subject.courseIds,
     });
   }
   return subjects.sort((a, b) => a.subjectTitle.localeCompare(b.subjectTitle));

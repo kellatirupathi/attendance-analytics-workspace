@@ -6,8 +6,10 @@
  *   using only the assessment types with data, re-scaled to 100. Skill Assessment and
  *   Final scores are not in the warehouse yet, so today it is (Classroom × 10 + Module × 15) ÷ 25.
  * - An assessment type below 50% earns no credit for it (§3.2 note).
- * - Course score → level and points (§3.2); SPI = total points ÷ number of scored courses
- *   (course weights are equal until Academics confirms them per university).
+ * - Course score → level and points (§3.2); SPI = Σ (points × course weight) ÷ Σ course weights (§3.3).
+ *   Course weight = credits (config/course-credits.json). A course with no weight ("Not set") or
+ *   weight 0 stays on the report but is left out of the SPI.
+ * - Intro To NIAT (orientation, 0 credits) is left off the report.
  * - Attendance: at least 80% in every course (§4); only NIAT session slots count.
  */
 
@@ -82,6 +84,19 @@ export interface ScorecardCourse {
   courseScore: number | null;
   level: SkillLevel | null;
   points: number | null;
+  /** Course weight = credits (§3.3); null when not set. 0 or null leaves the course out of the SPI. */
+  weight: number | null;
+  /** points × weight; null when the course is not in the SPI. */
+  weightedPoints: number | null;
+}
+
+export interface SkillDebtCourse {
+  name: string;
+  weight: number | null;
+  courseScore: number;
+  level: SkillLevel;
+  /** Assessment types scored below 50%, which earn no credit (§3.2 note). */
+  lowParts: { kind: QuizKind; avgPct: number }[];
 }
 
 export type NextStep =
@@ -95,11 +110,19 @@ export type NextStep =
 export interface StudentScorecard {
   studentId: string;
   studentName: string;
-  /** Out of 10; null when no course has assessment data yet. */
+  /** Out of 10: Σ (points × weight) ÷ Σ weights over courses with a score and a weight; null when none. */
   spi: number | null;
-  totalPoints: number;
+  totalWeightedPoints: number;
+  totalWeight: number;
+  /** Courses counted in the SPI (a score and a weight above 0). */
   scoredCourses: number;
   attendance: {
+    /** §7.4 SPI eligibility tier, from the weakest course (§4: ≥ 80% in every course); null when no sessions. */
+    tier: AttendanceTier | null;
+    /** All courses together: present ÷ held, the same figure as the Student Directory; null when no sessions. */
+    overallPct: number | null;
+    present: number;
+    held: number;
     lowestPct: number | null;
     lowestCourse: string | null;
     coursesBelow: number;
@@ -113,7 +136,7 @@ export interface StudentScorecard {
     skillAssessment: CriterionState;
     finalAssessment: CriterionState;
   };
-  skillDebtCourses: string[];
+  skillDebt: SkillDebtCourse[];
   courses: ScorecardCourse[];
   nextSteps: NextStep[];
 }
@@ -123,7 +146,14 @@ export interface ScorecardSubject {
   subjectTitle: string;
   present: number;
   total: number;
+  /** Course weight (credits); null or missing when not set. */
+  weight?: number | null;
 }
+
+/** Orientation courses left off the student report (0 credits everywhere). Matched ignoring case and spacing. */
+const REPORT_EXCLUDED_COURSES = new Set(["intro to niat", "introduction to niat"]);
+const plainName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+export const onReport = (name: string) => !REPORT_EXCLUDED_COURSES.has(plainName(name));
 
 export function levelFor(score: number): { level: SkillLevel; points: number } {
   if (score >= 90) return { level: "A+", points: 10 };
@@ -210,7 +240,7 @@ export function buildScorecard(
   subjects: ScorecardSubject[],
   quizRows: StudentQuizCourseRow[],
 ): StudentScorecard {
-  const named = subjects.filter((s) => namedCourse(s.subjectTitle));
+  const named = subjects.filter((s) => namedCourse(s.subjectTitle) && onReport(s.subjectTitle));
   const keys = new Set(named.map((s) => courseKey(s.subjectTitle)));
   const classroomBy = groupQuizzes(quizRows, "classroom", keys);
   const moduleBy = groupQuizzes(quizRows, "module", keys);
@@ -237,6 +267,8 @@ export function buildScorecard(
     const attendancePct = held > 0 ? cutPct(s.present, held) : null;
     // Compare the exact ratio, not the cut %, so 79.96% is below target.
     const belowTarget = held > 0 && (s.present / held) * 100 < TARGET_PCT;
+    const courseWeight = s.weight ?? null;
+    const inSpi = graded != null && courseWeight != null && courseWeight > 0;
     return {
       name: s.subjectTitle.trim(),
       present: s.present,
@@ -250,15 +282,21 @@ export function buildScorecard(
       courseScore,
       level: graded?.level ?? null,
       points: graded?.points ?? null,
+      weight: courseWeight,
+      weightedPoints: inSpi ? graded.points * courseWeight : null,
     };
   });
 
-  const scored = courses.filter((c) => c.points != null);
-  const totalPoints = scored.reduce((sum, c) => sum + (c.points ?? 0), 0);
-  const spi = scored.length > 0 ? round2(totalPoints / scored.length) : null;
+  // §3.3: SPI = Σ (level points × course weight) ÷ Σ course weights, over courses with a score and a weight.
+  const scored = courses.filter((c) => c.weightedPoints != null);
+  const totalWeightedPoints = scored.reduce((sum, c) => sum + (c.weightedPoints ?? 0), 0);
+  const totalWeight = scored.reduce((sum, c) => sum + (c.weight ?? 0), 0);
+  const spi = totalWeight > 0 ? round2(totalWeightedPoints / totalWeight) : null;
 
   const withSessions = courses.filter((c) => c.attendancePct != null);
   const below = courses.filter((c) => c.belowTarget);
+  const present = courses.reduce((sum, c) => sum + c.present, 0);
+  const held = courses.reduce((sum, c) => sum + c.held, 0);
   const lowest = withSessions.reduce<ScorecardCourse | null>(
     (low, c) => (low == null || (c.attendancePct ?? 0) < (low.attendancePct ?? 0) ? c : low),
     null,
@@ -281,9 +319,14 @@ export function buildScorecard(
     studentId: student.studentId,
     studentName: student.studentName,
     spi,
-    totalPoints,
+    totalWeightedPoints,
+    totalWeight,
     scoredCourses: scored.length,
     attendance: {
+      tier: lowest?.attendancePct == null ? null : tierFor(lowest.attendancePct),
+      overallPct: held > 0 ? cutPct(present, held) : null,
+      present,
+      held,
       lowestPct: lowest?.attendancePct ?? null,
       lowestCourse: lowest?.name ?? null,
       coursesBelow: below.length,
@@ -297,7 +340,18 @@ export function buildScorecard(
       skillAssessment: "not_available",
       finalAssessment: "not_available",
     },
-    skillDebtCourses: courses.filter((c) => c.level === "F").map((c) => c.name),
+    skillDebt: courses
+      .filter((c) => c.level === "F")
+      .map((c) => ({
+        name: c.name,
+        weight: c.weight,
+        courseScore: c.courseScore ?? 0,
+        level: "F" as const,
+        lowParts: [
+          ...(c.classroom && c.classroom.avgPct < 50 ? [{ kind: "classroom" as const, avgPct: c.classroom.avgPct }] : []),
+          ...(c.module && c.module.avgPct < 50 ? [{ kind: "module" as const, avgPct: c.module.avgPct }] : []),
+        ],
+      })),
     courses,
     nextSteps: nextSteps.slice(0, 4),
   };

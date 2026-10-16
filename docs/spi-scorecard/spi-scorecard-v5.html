@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPI Scorecard v5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Learning Portal look: white rounded cards, soft grey-blue page, blue accent, soft green / purple chips. */
+  :root {
+    --bg: #F6F8FC;
+    --card: #FFFFFF;
+    --line: #E6E9F0;
+    --ink: #111827;
+    --text: #374151;
+    --muted: #6B7280;
+    --blue: #3D5AFE;
+    --blue-soft: #E8EDFF;
+    --green: #16A34A;
+    --green-soft: #E7F8EE;
+    --purple: #8B5CF6;
+    --purple-soft: #F3EEFF;
+    --amber: #D97706;
+    --amber-soft: #FFF4E0;
+    --red: #DC2626;
+    --red-soft: #FDECEC;
+    --grey-soft: #F1F3F7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; }
+  .page { width: 1280px; margin: 0 auto; padding: 32px 40px 28px; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* Header */
+  .head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 22px; }
+  .head h1 { font-size: 30px; font-weight: 700; color: var(--ink); letter-spacing: -0.01em; }
+  .head p { color: var(--muted); margin-top: 4px; font-size: 15px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; }
+  .chip.blue { background: var(--blue-soft); color: var(--blue); }
+  .chip.green { background: var(--green-soft); color: var(--green); }
+  .chip.amber { background: var(--amber-soft); color: var(--amber); }
+  .chip.red { background: var(--red-soft); color: var(--red); }
+  .chip.grey { background: var(--grey-soft); color: var(--muted); }
+  .chip.sm { padding: 3px 10px; font-size: 12px; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 22px 24px; }
+  .label { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; color: var(--ink); }
+  .ic { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; flex: none; }
+  .ic.blue { background: var(--blue-soft); color: var(--blue); }
+  .ic.purple { background: var(--purple-soft); color: var(--purple); }
+  .ic.green { background: var(--green-soft); color: var(--green); }
+  .ic.red { background: var(--red-soft); color: var(--red); }
+
+  /* Summary row */
+  .summary { display: grid; grid-template-columns: 1fr 1fr 1.25fr 1fr; gap: 18px; }
+  .big { white-space: nowrap; font-size: 40px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; line-height: 1; }
+  .big small { font-size: 18px; font-weight: 600; color: var(--muted); }
+  .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .ring-wrap { display: flex; align-items: center; gap: 18px; margin-top: 14px; }
+  .bar { position: relative; height: 8px; border-radius: 99px; background: var(--grey-soft); margin-top: 14px; }
+  .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; }
+  .bar .mark { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--ink); border-radius: 1px; }
+  .bar-legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .checks { display: grid; gap: 9px; margin-top: 14px; }
+  .check { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; font-size: 13.5px; color: var(--ink); }
+  .dot { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; }
+  .dot.ok { background: var(--green); } .dot.no { background: var(--red); } .dot.na { background: #C7CCD6; }
+  .check .v { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
+  /* Alert */
+  .alert { margin-top: 18px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; background: var(--amber-soft); border: 1px solid #FBD9A5; border-radius: 16px; padding: 12px 18px; }
+  .alert b { color: #92400E; font-size: 14px; }
+  .alert .pill { background: #fff; border: 1px solid #FBD9A5; border-radius: 999px; padding: 4px 12px; font-size: 12.5px; color: #92400E; }
+  .alert .pill strong { color: var(--amber); }
+
+  /* Courses */
+  .section-head { display: flex; justify-content: space-between; align-items: center; margin: 26px 0 12px; }
+  .section-head h2 { font-size: 20px; font-weight: 700; color: var(--ink); }
+  .courses { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .course { display: grid; grid-template-columns: 44px 1fr 64px; gap: 14px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; }
+  .course .name { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 10px; }
+  .metric .t { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+  .metric .t b { color: var(--ink); font-weight: 700; }
+  .metric .t b.low { color: var(--red); }
+  .mini { height: 6px; border-radius: 99px; background: var(--grey-soft); margin-top: 5px; position: relative; overflow: hidden; }
+  .mini i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; }
+  .metric .n { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .metric .n.flag { color: var(--red); font-weight: 600; }
+  .metric.na .t, .metric.na .n { color: #A3A9B5; }
+  .grade { text-align: center; }
+  .grade .lvl { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 20px; font-weight: 800; margin: 0 auto; }
+  .grade .pts { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+  .lvl.Aplus, .lvl.A { background: var(--green-soft); color: var(--green); }
+  .lvl.B { background: var(--blue-soft); color: var(--blue); }
+  .lvl.C, .lvl.D { background: var(--amber-soft); color: var(--amber); }
+  .lvl.F { background: var(--red-soft); color: var(--red); }
+  .lvl.none { background: var(--grey-soft); color: #A3A9B5; font-size: 16px; }
+
+  /* Bottom */
+  .bottom { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 18px; margin-top: 26px; }
+  .weights { display: flex; height: 14px; border-radius: 99px; overflow: hidden; margin-top: 16px; }
+  .weights span { display: block; height: 100%; }
+  .wkeys { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; margin-top: 14px; font-size: 13px; }
+  .wkeys div { display: flex; align-items: center; gap: 8px; }
+  .wkeys i { width: 10px; height: 10px; border-radius: 3px; display: block; }
+  .wkeys em { margin-left: auto; font-style: normal; font-weight: 700; color: var(--ink); }
+  .wkeys .soon { color: #A3A9B5; }
+  .formula { margin-top: 14px; font-size: 13px; color: var(--muted); background: var(--grey-soft); border-radius: 12px; padding: 10px 12px; }
+  .formula b { color: var(--ink); }
+  .scale { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
+  .scale div { border-radius: 12px; padding: 8px 6px; text-align: center; }
+  .scale b { display: block; font-size: 16px; }
+  .scale span { font-size: 11px; }
+  .steps { list-style: none; display: grid; gap: 10px; margin-top: 14px; font-size: 13.5px; color: var(--ink); }
+  .steps li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; line-height: 1.45; }
+  .steps .n { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-soft); color: var(--blue); font-size: 12px; font-weight: 700; display: grid; place-items: center; }
+  .foot { margin-top: 22px; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="head">
+    <div>
+      <h1>Hi, [Student Name] 👋</h1>
+      <p>Your Skill Performance Index at a glance</p>
+    </div>
+    <span class="chip blue">Semester 3 · Quizzes so far</span>
+  </header>
+
+  <!-- 1. Summary -->
+  <section class="summary">
+    <div class="card">
+      <p class="label"><span class="ic blue">★</span>SPI Score</p>
+      <div class="ring-wrap">
+        <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true">
+          <circle cx="48" cy="48" r="40" fill="none" stroke="#F1F3F7" stroke-width="10"/>
+          <circle id="spiRing" cx="48" cy="48" r="40" fill="none" stroke="#3D5AFE" stroke-width="10" stroke-linecap="round" pathLength="100" transform="rotate(-90 48 48)"/>
+        </svg>
+        <div>
+          <p class="big num"><span id="spi"></span><small> /10</small></p>
+          <p style="margin-top:10px" id="spiChip"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="label"><span class="ic purple">▦</span>Attendance</p>
+      <p class="big num" style="margin-top:14px" id="att"></p>
+      <p class="sub num" id="attSub"></p>
+      <p class="sub" id="attBelow" style="margin-top:2px"></p>
+      <div class="bar"><i id="attBar"></i><span class="mark" style="left:80%"></span></div>
+      <div class="bar-legend"><span>0</span><span style="margin-left:auto;margin-right:16%">80% target</span><span>100</span></div>
+    </div>
+
+    <div class="card">
+      <p class="label"><span class="ic green">✓</span>Eligibility</p>
+      <div class="checks" id="checks"></div>
+    </div>
+
+    <div class="card" id="debtCard">
+      <p class="label"><span class="ic red" id="debtIc">!</span>Skill Debt</p>
+      <p class="big num" style="margin-top:14px" id="debt"></p>
+      <p class="sub" id="debtSub"></p>
+      <p style="margin-top:12px"><span class="chip sm grey">Pauses NIAT activities &amp; placements</span></p>
+    </div>
+  </section>
+
+  <!-- 2. Attendance alert (only when a course is below 80%) -->
+  <div class="alert" id="alert"></div>
+
+  <!-- 3. Courses -->
+  <div class="section-head">
+    <h2>Course-wise performance</h2>
+    <span class="chip grey">Skill Assessment &amp; Final: coming soon</span>
+  </div>
+  <section class="courses" id="courses"></section>
+
+  <!-- 4. How it works + next steps -->
+  <section class="bottom">
+    <div class="card">
+      <p class="label"><span class="ic blue">ⓘ</span>How SPI works</p>
+      <div class="weights">
+        <span style="width:10%;background:#3D5AFE"></span>
+        <span style="width:15%;background:#8B5CF6"></span>
+        <span style="width:25%;background:#C7D2FE"></span>
+        <span style="width:50%;background:#E5E7EB"></span>
+      </div>
+      <div class="wkeys">
+        <div><i style="background:#3D5AFE"></i>Classroom Quizzes<em>10%</em></div>
+        <div><i style="background:#8B5CF6"></i>Module Quizzes<em>15%</em></div>
+        <div class="soon"><i style="background:#C7D2FE"></i>Skill Assessments<em class="soon">25%</em></div>
+        <div class="soon"><i style="background:#E5E7EB"></i>Final Assessment<em class="soon">50%</em></div>
+      </div>
+      <p class="formula">Course score → level points → <b>SPI = average of course points</b></p>
+    </div>
+
+    <div class="card">
+      <p class="label"><span class="ic purple">◆</span>Levels</p>
+      <div class="scale num">
+        <div class="lvl Aplus"><b>A+</b><span>90+ · 10</span></div>
+        <div class="lvl A"><b>A</b><span>80+ · 9</span></div>
+        <div class="lvl B"><b>B</b><span>70+ · 8</span></div>
+        <div class="lvl C"><b>C</b><span>60+ · 7</span></div>
+        <div class="lvl D"><b>D</b><span>50+ · 6</span></div>
+        <div class="lvl F"><b>F</b><span>&lt;50 · 0</span></div>
+        <div class="lvl F"><b>Ab</b><span>Absent · 0</span></div>
+        <div class="lvl none"><b>—</b><span>No data</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="label"><span class="ic green">➜</span>Your next steps</p>
+      <ol class="steps" id="steps"></ol>
+    </div>
+  </section>
+
+  <p class="foot"><span>Attendance counts NIAT course sessions only.</span><span>Sample data · Design v5</span></p>
+</div>
+
+<script>
+  // Sample data (attendance as in a real A Dy Patil student; quiz values illustrative).
+  // null = no quiz of that type held yet.
+  const courses = [
+    { name: "Advanced Communication Skills", present: 35, held: 50, cq: null, mq: { pct: 80, done: 3, total: 4 } },
+    { name: "AI For Finance", present: 36, held: 44, cq: { pct: 83.3, done: 22, total: 26 }, mq: { pct: 88, done: 4, total: 4 } },
+    { name: "Back End Development", present: 42, held: 49, cq: { pct: 86, done: 6, total: 6 }, mq: null },
+    { name: "Design and Analysis of Algorithms", present: 64, held: 91, cq: { pct: 72.5, done: 36, total: 40 }, mq: { pct: 49, done: 2, total: 3 } },
+    { name: "Logical Reasoning and Analytical Skills", present: 27, held: 40, cq: { pct: 87.5, done: 24, total: 24 }, mq: null },
+    { name: "Operating Systems", present: 42, held: 54, cq: null, mq: null },
+    { name: "Probability and Statistics", present: 41, held: 54, cq: { pct: 94, done: 28, total: 28 }, mq: { pct: 90, done: 5, total: 5 } },
+  ];
+
+  const credit = (p) => (p >= 50 ? p : 0);
+  const level = (s) => s >= 90 ? ["A+", 10, "Aplus"] : s >= 80 ? ["A", 9, "A"] : s >= 70 ? ["B", 8, "B"] : s >= 60 ? ["C", 7, "C"] : s >= 50 ? ["D", 6, "D"] : ["F", 0, "F"];
+  const cut = (p, h) => Math.floor((p * 1000) / h) / 10;
+  const need = (p, h) => Math.max(0, Math.ceil((0.8 * h - p) / 0.2 - 1e-9));
+  const color = (pct, target) => (pct >= target ? "#16A34A" : pct >= 60 ? "#D97706" : "#DC2626");
+
+  const rows = courses.map((c) => {
+    let sum = 0, w = 0;
+    if (c.cq) { sum += credit(c.cq.pct) * 10; w += 10; }
+    if (c.mq) { sum += credit(c.mq.pct) * 15; w += 15; }
+    const score = w ? sum / w : null;
+    const [lvl, pts, cls] = score == null ? ["—", null, "none"] : level(score);
+    const att = cut(c.present, c.held);
+    return { ...c, att, below: c.present / c.held < 0.8, need: need(c.present, c.held), score, lvl, pts, cls };
+  });
+  const scored = rows.filter((r) => r.pts != null);
+  const spi = scored.reduce((s, r) => s + r.pts, 0) / scored.length;
+  const present = rows.reduce((s, r) => s + r.present, 0), held = rows.reduce((s, r) => s + r.held, 0);
+  const overall = cut(present, held);
+  const below = rows.filter((r) => r.below);
+  const debt = rows.filter((r) => r.lvl === "F");
+  const sumPart = (k) => rows.reduce((a, r) => (r[k] ? [a[0] + r[k].done, a[1] + r[k].total] : a), [0, 0]);
+  const [cqDone, cqTotal] = sumPart("cq"), [mqDone, mqTotal] = sumPart("mq");
+
+  // SPI
+  document.getElementById("spi").textContent = spi.toFixed(2);
+  document.getElementById("spiRing").setAttribute("stroke-dasharray", `${spi * 10} 100`);
+  const allMet = below.length === 0 && cqDone >= cqTotal && mqDone >= mqTotal;
+  document.getElementById("spiChip").innerHTML = allMet
+    ? '<span class="chip sm green">On track</span>'
+    : '<span class="chip sm amber">Provisional</span>';
+
+  // Attendance
+  document.getElementById("att").textContent = `${overall.toFixed(1)}%`;
+  document.getElementById("attSub").textContent = `${present} of ${held} sessions`;
+  const attBar = document.getElementById("attBar");
+  document.getElementById("attBelow").innerHTML = below.length ? `<span style="color:var(--red);font-weight:600">${below.length} of ${rows.length} courses below 80%</span>` : `<span style="color:var(--green);font-weight:600">All courses at 80%+</span>`;
+  attBar.style.width = `${overall}%`;
+  attBar.style.background = color(overall, 80);
+
+  // Eligibility
+  const crit = [
+    ["Attendance ≥ 80% per course", below.length ? "no" : "ok", below.length ? `${below.length} below` : "Met"],
+    ["Classroom Quizzes", cqDone >= cqTotal ? "ok" : "no", `${cqDone}/${cqTotal}`],
+    ["Module Quizzes", mqDone >= mqTotal ? "ok" : "no", `${mqDone}/${mqTotal}`],
+    ["Skill Assessments", "na", "Soon"],
+    ["Final Assessment", "na", "Soon"],
+  ];
+  const mark = { ok: "✓", no: "✕", na: "–" };
+  document.getElementById("checks").innerHTML = crit.map(([t, s, v]) =>
+    `<div class="check"><span class="dot ${s}">${mark[s]}</span><span>${t}</span><span class="v num">${v}</span></div>`).join("");
+
+  // Skill Debt
+  document.getElementById("debt").innerHTML = debt.length
+    ? `<span style="color:var(--red)">${debt.length}</span><small> course${debt.length > 1 ? "s" : ""}</small>`
+    : '<span style="color:var(--green)">None</span>';
+  document.getElementById("debtSub").textContent = debt.length ? debt.map((r) => r.name).join(", ") : "No course below 50%";
+  if (!debt.length) { const ic = document.getElementById("debtIc"); ic.className = "ic green"; ic.textContent = "✓"; }
+
+  // Alert
+  const alertEl = document.getElementById("alert");
+  if (below.length) {
+    alertEl.innerHTML = `<b>⚠ Attend live sessions to reach 80%</b>` + below.map((r) =>
+      `<span class="pill num">${r.name} · <strong>${r.att.toFixed(1)}%</strong> · +${r.need} sessions</span>`).join("");
+  } else alertEl.remove();
+
+  // Course cards
+  const metric = (label, part, kind) => {
+    if (kind === "att") {
+      return `<div class="metric"><p class="t"><span>Attendance</span><b class="${part.below ? "low" : ""}">${part.att.toFixed(1)}%</b></p>
+        <div class="mini"><i style="width:${part.att}%;background:${color(part.att, 80)}"></i></div>
+        <p class="n">${part.present}/${part.held} sessions</p></div>`;
+    }
+    if (!part) return `<div class="metric na"><p class="t"><span>${label}</span><b style="color:#A3A9B5">—</b></p><div class="mini"></div><p class="n">Not held yet</p></div>`;
+    const missed = part.done < part.total;
+    return `<div class="metric"><p class="t"><span>${label}</span><b class="${part.pct < 50 ? "low" : ""}">${part.pct}%</b></p>
+      <div class="mini"><i style="width:${part.pct}%;background:${color(part.pct, 70)}"></i></div>
+      <p class="n ${missed ? "flag" : ""}">${missed ? "⚑ " : ""}${part.done}/${part.total} attempted</p></div>`;
+  };
+  document.getElementById("courses").innerHTML = rows.map((r) => `
+    <article class="course">
+      <span class="ic purple" style="width:44px;height:44px">📖</span>
+      <div>
+        <p class="name">${r.name}</p>
+        <div class="metrics">${metric("Attendance", r, "att")}${metric("Classroom", r.cq)}${metric("Module", r.mq)}</div>
+      </div>
+      <div class="grade"><div class="lvl ${r.cls}">${r.lvl}</div><p class="pts">${r.pts == null ? "No quizzes" : `${r.pts} pts`}</p></div>
+    </article>`).join("");
+
+  // Next steps
+  const steps = [];
+  for (const r of below.slice(0, 2)) steps.push(`Attend the next <b>${r.need} sessions</b> of ${r.name}.`);
+  if (cqDone < cqTotal) steps.push(`Attempt <b>${cqTotal - cqDone} pending</b> Classroom Quizzes.`);
+  if (mqDone < mqTotal) steps.push(`Complete <b>${mqTotal - mqDone} pending</b> Module Quizzes.`);
+  document.getElementById("steps").innerHTML = steps.slice(0, 4).map((s, i) => `<li><span class="n">${i + 1}</span><span>${s}</span></li>`).join("");
+</script>
+</body>
+</html>

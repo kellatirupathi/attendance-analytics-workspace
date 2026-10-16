@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPI Report Card v6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0B1F4D;
+    --ink: #111827;
+    --text: #334155;
+    --muted: #6B7280;
+    --line: #E6ECF5;
+    --bg: #F4F7FD;
+    --blue: #2563EB;
+    --blue-soft: #EAF1FF;
+    --green: #16A34A;
+    --green-soft: #E6F7EC;
+    --amber: #D97706;
+    --amber-soft: #FFF4DE;
+    --red: #E11D48;
+    --red-soft: #FDECEF;
+    --purple: #8B5CF6;
+    --grey-soft: #F1F4F9;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; }
+  svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+  .app { width: 1536px; display: grid; grid-template-columns: 180px 1fr; grid-template-rows: 62px 1fr; min-height: 1024px; }
+
+  /* Top bar */
+  .top { grid-column: 1 / -1; background: #fff; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 28px; gap: 22px; }
+  .brand { display: flex; align-items: center; gap: 10px; width: 160px; }
+  .shield { width: 30px; height: 34px; background: var(--navy); border-radius: 6px 6px 14px 14px; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+  .brand p { font-size: 13px; font-weight: 600; color: var(--navy); line-height: 1.25; }
+  .inst { border-left: 1px solid var(--line); padding-left: 22px; }
+  .inst b { display: block; font-size: 15px; color: var(--navy); }
+  .inst span { font-size: 12px; color: var(--muted); }
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .round { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--navy); }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #93C5FD, #2563EB); color: #fff; display: grid; place-items: center; font-weight: 700; margin-left: 10px; }
+  .user { font-weight: 600; color: var(--navy); font-size: 14px; }
+
+  /* Sidebar */
+  .side { background: #fff; border-right: 1px solid var(--line); padding: 18px 10px; display: grid; gap: 4px; align-content: start; }
+  .nav { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-radius: 12px; color: var(--navy); font-size: 13px; font-weight: 500; }
+  .nav.active { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+  .nav .grit { font-weight: 900; font-style: italic; font-size: 13px; width: 28px; }
+
+  /* Main */
+  .main { padding: 22px 26px 26px; display: grid; gap: 16px; align-content: start; }
+  .title { display: flex; align-items: center; gap: 14px; }
+  .title .mark { color: var(--blue); }
+  .title h1 { font-size: 20px; font-weight: 700; color: var(--navy); }
+  .title p { font-size: 13px; color: var(--text); margin-top: 2px; }
+  .pill-btn { margin-left: auto; display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 9px 14px; font-size: 12px; color: var(--navy); font-weight: 500; }
+  .pill-btn svg { color: var(--blue); }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(11,31,77,0.04); }
+  .card-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: var(--navy); }
+  .card-title svg { color: var(--blue); }
+  .tag { display: inline-block; border-radius: 999px; padding: 4px 12px; font-size: 11.5px; font-weight: 600; }
+  .tag.green { background: var(--green-soft); color: var(--green); }
+  .tag.amber { background: var(--amber-soft); color: var(--amber); }
+  .tag.red { background: var(--red-soft); color: var(--red); }
+  .tag.blue { background: var(--blue-soft); color: var(--blue); }
+
+  .row4 { display: grid; grid-template-columns: 1fr 1.05fr 1.05fr 1.05fr; gap: 16px; }
+  .gauge { position: relative; width: 190px; height: 104px; margin: 10px auto 0; }
+  .gauge p { position: absolute; inset: auto 0 6px 0; text-align: center; font-size: 30px; font-weight: 700; color: var(--navy); }
+  .gauge p small { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .center { text-align: center; margin-top: 8px; }
+
+  .big { font-size: 30px; font-weight: 800; color: var(--navy); }
+  .bar { height: 9px; border-radius: 99px; background: var(--grey-soft); position: relative; overflow: visible; }
+  .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; }
+  .bar .mark { position: absolute; top: -4px; width: 2px; height: 17px; background: var(--navy); border-radius: 1px; }
+  .note { display: flex; align-items: center; gap: 12px; margin-top: 14px; color: var(--navy); }
+  .note b { display: block; font-size: 13px; }
+  .note span { font-size: 12px; color: var(--muted); }
+
+  .elig { display: grid; margin-top: 8px; }
+  .elig div { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--grey-soft); font-size: 12.5px; color: var(--text); }
+  .elig div:last-child { border-bottom: 0; }
+  .elig b { color: var(--navy); font-weight: 600; }
+  .dot { width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 800; }
+  .dot.ok { background: #22C55E; } .dot.no { background: var(--red); } .dot.na { background: #94A3B8; }
+
+  .debt { background: linear-gradient(180deg, #FFF5F6, #FFEFF2); border-color: #FAD4DB; }
+  .debt .card-title svg { color: var(--red); }
+  .debt .big { color: var(--red); margin-top: 10px; }
+  .debt p.names { font-size: 12.5px; color: var(--text); margin-top: 6px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .link-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; background: #fff; border: 1px solid #FAD4DB; color: var(--red); border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 600; }
+
+  .info { display: flex; align-items: center; gap: 12px; background: var(--blue-soft); border: 1px solid #D5E2FF; border-radius: 12px; padding: 11px 16px; font-size: 12.5px; color: var(--navy); }
+  .info .ic { width: 26px; height: 26px; border-radius: 50%; background: var(--blue); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 13px; flex: none; }
+  .info a { margin-left: auto; color: var(--blue); font-weight: 600; text-decoration: none; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12.5px; }
+  thead th { background: #F3F7FE; color: var(--navy); font-weight: 600; font-size: 11.5px; text-align: left; padding: 10px 12px; line-height: 1.3; }
+  thead th:first-child { border-radius: 10px 0 0 10px; } thead th:last-child { border-radius: 0 10px 10px 0; }
+  thead th small { display: block; color: var(--muted); font-weight: 500; }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid var(--grey-soft); color: var(--text); vertical-align: middle; }
+  tbody td.name { color: var(--navy); font-weight: 500; }
+  .att { font-weight: 700; }
+  .att.ok { color: var(--green); } .att.low { color: var(--red); }
+  .tier { margin-left: 6px; border-radius: 6px; padding: 2px 7px; font-size: 10.5px; font-weight: 600; }
+  .q b { color: var(--navy); font-weight: 600; }
+  .q small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .q small.flag { color: var(--red); }
+  .na { color: #A0A8B8; font-style: italic; font-size: 11.5px; }
+  .grade { display: inline-grid; place-items: center; min-width: 30px; height: 24px; border-radius: 7px; font-weight: 700; font-size: 12px; }
+  .g-Aplus, .g-A { background: var(--green-soft); color: var(--green); }
+  .g-B { background: var(--blue-soft); color: var(--blue); }
+  .g-C, .g-D { background: var(--amber-soft); color: var(--amber); }
+  .g-F { background: var(--red-soft); color: var(--red); }
+  tfoot td { padding: 11px 12px; font-weight: 700; color: var(--navy); background: #F8FAFE; }
+
+  /* Bottom */
+  .row4b { display: grid; grid-template-columns: 1.25fr 0.9fr 1.1fr 1.15fr; gap: 16px; }
+  .donut-wrap { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 14px; margin-top: 12px; }
+  .donut { position: relative; width: 120px; height: 120px; }
+  .donut p { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-size: 11px; color: var(--muted); }
+  .donut p b { display: block; font-size: 18px; color: var(--navy); }
+  .keys { display: grid; gap: 10px; font-size: 11.5px; }
+  .keys div { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; white-space: nowrap; }
+  .keys i { width: 10px; height: 10px; border-radius: 50%; }
+  .keys b { color: var(--navy); }
+  .calc { margin-top: 14px; background: #F3F7FE; border-radius: 12px; padding: 18px; text-align: center; color: var(--navy); }
+  .calc p { font-size: 13px; }
+  .calc strong { display: block; font-size: 20px; margin-top: 8px; white-space: nowrap; }
+  .calc span { display: block; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .levels { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  .levels td { padding: 5px 6px; border-bottom: 1px solid var(--grey-soft); }
+  .levels td:nth-child(2) { color: var(--muted); }
+  .levels td:nth-child(3) { font-weight: 700; color: var(--navy); }
+  .steps { list-style: none; display: grid; gap: 11px; margin-top: 10px; font-size: 12px; color: var(--navy); }
+  .steps li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; line-height: 1.4; }
+  .steps .n { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 11px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V14M10 20V8M16 20V11M22 20H2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l9.5 17H2.5z"/><path d="M12 10v4M12 17.5v.01"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2zM22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z"/></symbol>
+  <symbol id="i-pie" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9h9"/></symbol>
+  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h8"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-path" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M8 6h6a4 4 0 0 1 0 8h-4a4 4 0 0 0 0 8h6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7 7 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+</svg>
+
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="shield">N</span><p>Your Institute<br>Logo</p></div>
+    <div class="inst"><b>Your Institute Name</b><span>Learn · Grow · Build</span></div>
+    <div class="top-right">
+      <span class="round"><svg class="i"><use href="#i-card"/></svg></span>
+      <span class="round"><svg class="i"><use href="#i-search"/></svg></span>
+      <span class="round"><svg class="i"><use href="#i-bolt"/></svg></span>
+      <span class="avatar">S</span><span class="user">[Student Name] ⌄</span>
+    </div>
+  </header>
+
+  <nav class="side">
+    <div class="nav"><svg class="i"><use href="#i-home"/></svg>Home</div>
+    <div class="nav"><span class="grit">GRIT</span>GRIT</div>
+    <div class="nav"><svg class="i"><use href="#i-bulb"/></svg>All Courses</div>
+    <div class="nav"><svg class="i"><use href="#i-doc"/></svg>Exams</div>
+    <div class="nav active"><svg class="i"><use href="#i-chart"/></svg>SPI Scorecard</div>
+    <div class="nav"><svg class="i"><use href="#i-path"/></svg>Learning Path</div>
+    <div class="nav"><svg class="i"><use href="#i-doc"/></svg>Resources</div>
+    <div class="nav"><svg class="i"><use href="#i-gear"/></svg>Settings</div>
+  </nav>
+
+  <main class="main">
+    <div class="title">
+      <svg class="i mark" style="width:30px;height:30px"><use href="#i-chart"/></svg>
+      <div><h1>NIAT - SPI Student Report Card</h1><p>Skill Performance Index</p></div>
+      <span class="pill-btn"><svg class="i"><use href="#i-cal"/></svg>Semester 3 · 2026–27 <span style="color:var(--muted)">›</span></span>
+    </div>
+
+    <section class="row4">
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-chart"/></svg>Your SPI Score</p>
+        <div class="gauge">
+          <svg width="190" height="104" viewBox="0 0 190 104" aria-hidden="true">
+            <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0" stop-color="#2563EB"/><stop offset="1" stop-color="#60A5FA"/></linearGradient></defs>
+            <path d="M 15 95 A 80 80 0 0 1 175 95" fill="none" stroke="#EEF2F8" stroke-width="14" stroke-linecap="round"/>
+            <path id="arc" d="M 15 95 A 80 80 0 0 1 175 95" fill="none" stroke="url(#g)" stroke-width="14" stroke-linecap="round" pathLength="100"/>
+          </svg>
+          <p class="num"><span id="spi"></span> <small>/ 10</small></p>
+        </div>
+        <p class="center" id="spiTag"></p>
+      </div>
+
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-cal"/></svg>Attendance</p>
+        <p style="display:flex;align-items:center;gap:12px;margin-top:10px"><span class="big num" id="att"></span><span id="attTag"></span></p>
+        <p style="font-size:12px;color:var(--muted);margin:4px 0 10px" class="num" id="attSub"></p>
+        <div class="bar"><i id="attBar"></i><span class="mark" style="left:80%"></span></div>
+        <div class="note"><svg class="i" style="color:var(--navy)"><use href="#i-cal"/></svg><div><b id="attNote"></b><span id="attNote2"></span></div></div>
+      </div>
+
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-shield"/></svg>Eligibility Criteria</p>
+        <div class="elig num" id="elig"></div>
+      </div>
+
+      <div class="card debt">
+        <p class="card-title"><svg class="i"><use href="#i-alert"/></svg>Skill Debt</p>
+        <p class="big num" id="debt"></p>
+        <p class="names" id="debtNames"></p>
+        <span class="link-btn">View Details ›</span>
+      </div>
+    </section>
+
+    <div class="info"><span class="ic">i</span>SPI is calculated from your quiz scores in each course; Skill Assessment and Final scores will be added when available. Attendance counts NIAT course sessions only.<a href="#">How SPI is calculated? →</a></div>
+
+    <section class="card">
+      <p class="card-title" style="font-size:15px"><svg class="i"><use href="#i-book"/></svg>Course-wise Performance</p>
+      <table class="num">
+        <thead><tr>
+          <th>#</th><th>Course</th><th>Attendance</th><th>Classroom Quizzes<small>(10%)</small></th><th>Module Quizzes<small>(15%)</small></th>
+          <th>Skill Assessments<small>(25%)</small></th><th>Final Skill Assessment<small>(50%)</small></th><th>Skill Track Score<small>(out of 100)</small></th><th>Grade</th><th>Level Points<small>(out of 10)</small></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+        <tfoot><tr><td colspan="9" style="text-align:right">Total Level Points</td><td id="total"></td></tr></tfoot>
+      </table>
+    </section>
+
+    <section class="row4b">
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-pie"/></svg>SPI Weightage</p>
+        <div class="donut-wrap">
+          <div class="donut">
+            <svg width="120" height="120" viewBox="0 0 120 120" id="donut"></svg>
+            <p><span>Total<b>100%</b></span></p>
+          </div>
+          <div class="keys" id="keys"></div>
+        </div>
+      </div>
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-calc"/></svg>SPI Calculation</p>
+        <div class="calc num"><p>Course points ÷ number of courses</p><strong id="calc"></strong><span>Classroom × 10% + Module × 15% for now</span></div>
+      </div>
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-trophy"/></svg>Skill Level &amp; Points</p>
+        <table class="levels num">
+          <tr><td><span class="grade g-Aplus">A+</span></td><td>90 – 100</td><td>10</td><td>Exceptional</td></tr>
+          <tr><td><span class="grade g-A">A</span></td><td>80 – 89.99</td><td>9</td><td>Strong</td></tr>
+          <tr><td><span class="grade g-B">B</span></td><td>70 – 79.99</td><td>8</td><td>Competent</td></tr>
+          <tr><td><span class="grade g-C">C</span></td><td>60 – 69.99</td><td>7</td><td>Developing</td></tr>
+          <tr><td><span class="grade g-D">D</span></td><td>50 – 59.99</td><td>6</td><td>Borderline</td></tr>
+          <tr><td><span class="grade g-F">F</span></td><td>Below 50</td><td>0</td><td style="color:var(--red)">Skill Debt</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <p class="card-title"><svg class="i"><use href="#i-target"/></svg>Next Steps</p>
+        <ol class="steps" id="steps"></ol>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  // Sample data, one consistent student (A Dy Patil attendance; quiz values illustrative). null = none held yet.
+  const courses = [
+    { name: "Advanced Communication Skills", present: 35, held: 50, cq: null, mq: { pct: 80, done: 3, total: 4 } },
+    { name: "AI For Finance", present: 36, held: 44, cq: { pct: 83.3, done: 22, total: 26 }, mq: { pct: 88, done: 4, total: 4 } },
+    { name: "Back End Development", present: 42, held: 49, cq: { pct: 86, done: 6, total: 6 }, mq: null },
+    { name: "Design and Analysis of Algorithms", present: 64, held: 91, cq: { pct: 72.5, done: 36, total: 40 }, mq: { pct: 49, done: 2, total: 3 } },
+    { name: "Logical Reasoning and Analytical Skills", present: 27, held: 40, cq: { pct: 87.5, done: 24, total: 24 }, mq: null },
+    { name: "Operating Systems", present: 42, held: 54, cq: null, mq: null },
+    { name: "Probability and Statistics", present: 41, held: 54, cq: { pct: 94, done: 28, total: 28 }, mq: { pct: 90, done: 5, total: 5 } },
+  ];
+  const credit = (p) => (p >= 50 ? p : 0);
+  const level = (s) => s >= 90 ? ["A+", 10, "Aplus"] : s >= 80 ? ["A", 9, "A"] : s >= 70 ? ["B", 8, "B"] : s >= 60 ? ["C", 7, "C"] : s >= 50 ? ["D", 6, "D"] : ["F", 0, "F"];
+  const cut = (p, h) => Math.floor((p * 1000) / h) / 10;
+  const need = (p, h) => Math.max(0, Math.ceil((0.8 * h - p) / 0.2 - 1e-9));
+  const tier = (p) => p >= 80 ? ["Eligible", "green"] : p >= 60 ? ["Recovery", "amber"] : p >= 50 ? ["At Risk", "amber"] : ["Ineligible", "red"];
+
+  const rows = courses.map((c) => {
+    let s = 0, w = 0;
+    if (c.cq) { s += credit(c.cq.pct) * 10; w += 10; }
+    if (c.mq) { s += credit(c.mq.pct) * 15; w += 15; }
+    const score = w ? s / w : null;
+    const [lvl, pts, cls] = score == null ? [null, null, null] : level(score);
+    return { ...c, att: cut(c.present, c.held), below: c.present / c.held < 0.8, need: need(c.present, c.held), score, lvl, pts, cls };
+  });
+  const scored = rows.filter((r) => r.pts != null);
+  const total = scored.reduce((a, r) => a + r.pts, 0);
+  const spi = total / scored.length;
+  const present = rows.reduce((a, r) => a + r.present, 0), held = rows.reduce((a, r) => a + r.held, 0);
+  const overall = cut(present, held);
+  const below = rows.filter((r) => r.below);
+  const debt = rows.filter((r) => r.lvl === "F");
+  const sum = (k) => rows.reduce((a, r) => (r[k] ? [a[0] + r[k].done, a[1] + r[k].total] : a), [0, 0]);
+  const [cqD, cqT] = sum("cq"), [mqD, mqT] = sum("mq");
+
+  // SPI
+  document.getElementById("spi").textContent = spi.toFixed(2);
+  document.getElementById("arc").setAttribute("stroke-dasharray", `${spi * 10} 100`);
+  document.getElementById("spiTag").innerHTML = spi >= 8 ? '<span class="tag green">GOOD</span>' : spi >= 6 ? '<span class="tag amber">NEEDS IMPROVEMENT</span>' : '<span class="tag red">AT RISK</span>';
+
+  // Attendance
+  document.getElementById("att").textContent = `${overall.toFixed(1)}%`;
+  document.getElementById("attTag").innerHTML = below.length ? '<span class="tag red">Not met</span>' : '<span class="tag green">Eligible</span>';
+  document.getElementById("attSub").textContent = `${present} of ${held} sessions · target ≥ 80% in every course`;
+  const bar = document.getElementById("attBar");
+  bar.style.width = `${overall}%`;
+  bar.style.background = below.length ? "#F59E0B" : "#16A34A";
+  document.getElementById("attNote").textContent = below.length ? `${below.length} of ${rows.length} courses below 80%` : "All courses at 80% or more";
+  document.getElementById("attNote2").textContent = below.length ? "Attend live sessions to recover" : "Keep it up";
+
+  // Eligibility
+  const pc = (d, t) => `${Math.round((d / t) * 100)}%`;
+  const crit = [
+    ["Attendance (per course)", below.length ? "no" : "ok", `${overall.toFixed(1)}%`],
+    ["Classroom Quizzes", cqD >= cqT ? "ok" : "no", pc(cqD, cqT)],
+    ["Module Quizzes", mqD >= mqT ? "ok" : "no", pc(mqD, mqT)],
+    ["Skill Assessments", "na", "N/A"],
+    ["Final Skill Assessment", "na", "N/A"],
+  ];
+  const mk = { ok: "✓", no: "!", na: "–" };
+  document.getElementById("elig").innerHTML = crit.map(([t, s, v]) => `<div><span class="dot ${s}">${mk[s]}</span><span>${t}</span><b>${v}</b></div>`).join("");
+
+  // Skill Debt
+  document.getElementById("debt").textContent = debt.length ? `${debt.length} course${debt.length > 1 ? "s" : ""}` : "None";
+  document.getElementById("debtNames").textContent = debt.length ? debt.map((r) => r.name).join(", ") : "No course below 50%.";
+
+  // Table
+  const q = (p) => !p ? '<span class="na">Not conducted yet</span>'
+    : `<div class="q"><b>${p.pct}%</b><small class="${p.done < p.total ? "flag" : ""}">${p.done} of ${p.total} attempted</small></div>`;
+  document.getElementById("rows").innerHTML = rows.map((r, i) => {
+    const [t, tc] = tier(r.att);
+    return `<tr>
+      <td>${i + 1}</td><td class="name">${r.name}</td>
+      <td><span class="att ${r.below ? "low" : "ok"}">${r.att.toFixed(1)}%</span>${r.below ? `<span class="tier tag ${tc}">${t}</span>` : ""}</td>
+      <td>${q(r.cq)}</td><td>${q(r.mq)}</td>
+      <td><span class="na">Not available yet</span></td><td><span class="na">Not available yet</span></td>
+      <td><b style="color:var(--navy)">${r.score == null ? "—" : r.score.toFixed(2)}</b></td>
+      <td>${r.lvl ? `<span class="grade g-${r.cls}">${r.lvl}</span>` : "—"}</td>
+      <td><b style="color:var(--navy)">${r.pts ?? "—"}</b></td></tr>`;
+  }).join("");
+  document.getElementById("total").textContent = total;
+
+  // Donut
+  const parts = [["Classroom Quizzes", 10, "#2563EB"], ["Module Quizzes", 15, "#22C55E"], ["Skill Assessments", 25, "#F59E0B"], ["Final Skill Assessment", 50, "#A855F7"]];
+  let off = 0;
+  document.getElementById("donut").innerHTML = parts.map(([, p, c]) => {
+    const s = `<circle cx="60" cy="60" r="46" fill="none" stroke="${c}" stroke-width="18" pathLength="100" stroke-dasharray="${p} ${100 - p}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)"/>`;
+    off += p; return s;
+  }).join("");
+  document.getElementById("keys").innerHTML = parts.map(([l, p, c]) => `<div><i style="background:${c}"></i><span>${l}</span><b>${p}%</b></div>`).join("");
+
+  document.getElementById("calc").textContent = `${total} ÷ ${scored.length} = ${spi.toFixed(2)} / 10`;
+
+  // Next steps
+  const steps = below.slice(0, 2).map((r) => `Attend the next <b>${r.need} live sessions</b> of ${r.name}.`);
+  if (cqD < cqT) steps.push(`Attempt <b>${cqT - cqD} pending</b> Classroom Quizzes.`);
+  if (debt.length) steps.push(`Improve <b>${debt.map((r) => r.name).join(", ")}</b> to clear the Skill Debt.`);
+  document.getElementById("steps").innerHTML = steps.slice(0, 4).map((s, i) => `<li><span class="n">${i + 1}</span><span>${s}</span></li>`).join("");
+</script>
+</body>
+</html>

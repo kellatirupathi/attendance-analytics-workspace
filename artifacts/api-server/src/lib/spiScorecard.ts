@@ -1,3 +1,4 @@
+import { courseWeight } from "./courseCredits.js";
 import { getStudentOverview, getStudentQuizCourseRows, getStudentSubjects } from "./queries.js";
 import { buildScorecard, type StudentScorecard } from "./spiScorecardRules.js";
 
@@ -11,5 +12,6 @@ export async function getStudentScorecard(studentId: string): Promise<StudentSco
     getStudentQuizCourseRows(studentId),
   ]);
   if (!overview) return null;
-  return buildScorecard(overview, subjects, quizRows);
+  const weighted = subjects.map((subject) => ({ ...subject, weight: courseWeight(subject.courseIds ?? []) }));
+  return buildScorecard(overview, weighted, quizRows);
 }

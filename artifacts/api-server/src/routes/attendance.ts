@@ -20,6 +20,7 @@ import { validateStudentId } from "../lib/bigquery.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { assertStudentAccess } from "../lib/studentAccess.js";
 import { getStudentScorecard } from "../lib/spiScorecard.js";
+import { getCourseCredits } from "../lib/courseCredits.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -383,7 +384,7 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const cacheKey = `scorecard:v3:${courseAttendanceConfigVersion()}:${studentId}`;
+    const cacheKey = `scorecard:v5:${courseAttendanceConfigVersion()}:${getCourseCredits().version}:${studentId}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
