@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -57,18 +57,19 @@
   --color-sidebar-accent-border: var(--sidebar-accent-border);
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
-  --color-brand-50: #FFF3EA;
-  --color-brand-100: #FFE2CC;
-  --color-brand-200: #FFC79A;
-  --color-brand-300: #FFAA66;
-  --color-brand-400: #FF9440;
-  --color-brand-500: #FF7A1A;
-  --color-brand-600: #F25C05;
-  --color-brand-700: #D24E04;
-  --color-brand-800: #A93E05;
-  --color-brand-900: #84320A;
+  /* Learning Portal blue (was NIAT orange; the NIAT logo keeps its own colours). */
+  --color-brand-50: #EAF1FF;
+  --color-brand-100: #DCE6FB;
+  --color-brand-200: #BFD3F7;
+  --color-brand-300: #93B4F2;
+  --color-brand-400: #5E8EEB;
+  --color-brand-500: #3B73EA;
+  --color-brand-600: #2563EB;
+  --color-brand-700: #1D4FD8;
+  --color-brand-800: #1E40AF;
+  --color-brand-900: #0B1F4D;
 
-  --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -76,6 +77,12 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --animate-niat-loadbar: niat-loadbar 0.5s linear infinite;
+  --animate-page-in: page-in 0.22s ease-out both;
+
+  @keyframes page-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 
   @keyframes niat-loadbar {
     0% { transform: translateX(-100%); }
@@ -84,42 +91,42 @@
 }
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
+  --background: 222 70% 97%;
+  --foreground: 222 75% 17%;
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --card-border: 214 32% 91%;
-  --primary: 21 96% 48%;
+  --card-foreground: 222 75% 17%;
+  --card-border: 216 45% 93%;
+  --primary: 221 83% 53%;
   --primary-foreground: 210 40% 98%;
   --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
+  --secondary-foreground: 222 75% 17%;
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
-  --accent: 210 40% 96%;
-  --accent-foreground: 222 47% 11%;
-  --border: 214 32% 91%;
+  --accent: 220 100% 96%;
+  --accent-foreground: 221 83% 53%;
+  --border: 216 45% 93%;
   --input: 214 32% 91%;
-  --ring: 21 96% 48%;
+  --ring: 221 83% 53%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
   --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
+  --popover-foreground: 222 75% 17%;
   --popover-border: 214 32% 91%;
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 222 47% 11%;
-  --sidebar-border: 214 32% 91%;
-  --sidebar-primary: 21 96% 48%;
+  --sidebar-foreground: 222 75% 17%;
+  --sidebar-border: 216 45% 93%;
+  --sidebar-primary: 221 83% 53%;
   --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 210 40% 96%;
-  --sidebar-accent-foreground: 222 47% 11%;
-  --sidebar-ring: 21 96% 48%;
-  --chart-1: 21 96% 48%;
+  --sidebar-accent: 220 100% 96%;
+  --sidebar-accent-foreground: 221 83% 53%;
+  --sidebar-ring: 221 83% 53%;
+  --chart-1: 221 83% 53%;
   --chart-2: 142 71% 45%;
   --chart-3: 48 96% 53%;
   --chart-4: 0 84% 60%;
   --chart-5: 217 91% 60%;
 
-  --radius: 0.65rem;
+  --radius: 0.875rem;
   --shadow-sm: 0px 1px 2px 0px rgba(0,0,0,0.05);
   --shadow: 0px 1px 3px 0px rgba(0,0,0,0.1), 0px 1px 2px -1px rgba(0,0,0,0.1);
   --shadow-md: 0px 4px 6px -1px rgba(0,0,0,0.1), 0px 2px 4px -2px rgba(0,0,0,0.1);
@@ -131,7 +138,7 @@
   --card: 222 47% 4%;
   --card-foreground: 210 40% 98%;
   --card-border: 217 32% 17%;
-  --primary: 21 96% 48%;
+  --primary: 221 83% 60%;
   --primary-foreground: 210 40% 98%;
   --secondary: 217 32% 17%;
   --secondary-foreground: 210 40% 98%;
@@ -141,7 +148,7 @@
   --accent-foreground: 210 40% 98%;
   --border: 217 32% 17%;
   --input: 217 32% 17%;
-  --ring: 21 96% 48%;
+  --ring: 221 83% 60%;
   --destructive: 0 62% 30%;
   --destructive-foreground: 210 40% 98%;
   --popover: 222 47% 4%;
@@ -150,11 +157,11 @@
   --sidebar: 222 47% 4%;
   --sidebar-foreground: 210 40% 98%;
   --sidebar-border: 217 32% 17%;
-  --sidebar-primary: 21 96% 48%;
+  --sidebar-primary: 221 83% 60%;
   --sidebar-primary-foreground: 210 40% 98%;
   --sidebar-accent: 217 32% 17%;
   --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 21 96% 48%;
+  --sidebar-ring: 221 83% 60%;
 }
 
 @layer base {
@@ -162,7 +169,7 @@
     @apply border-border;
   }
   body {
-    @apply font-sans antialiased bg-slate-50 text-foreground;
+    @apply font-sans antialiased bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     letter-spacing: -0.01em;
     text-rendering: optimizeLegibility;
@@ -191,6 +198,11 @@
      any icon that sets its own strokeWidth prop still wins via inline style. */
   svg.lucide {
     stroke-width: 1.75;
+  }
+
+  /* Smooth page change; off for people who prefer reduced motion. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-page-in { animation: none; }
   }
 
   ::-webkit-scrollbar {

@@ -202,6 +202,7 @@ export default function RecoveryQuizSubjectDetail() {
           Back to Quizzes
         </Button>
         <PageHeader
+          attendanceNote
           title={subject ?? "Quizzes"}
           subtitle={`Campus: ${campus}${semester ? ` · ${semester}` : ""} · Classroom and module quizzes not at 100%`}
           right={

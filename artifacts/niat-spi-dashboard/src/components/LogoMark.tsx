@@ -67,7 +67,8 @@ export function LogoText({
       )}
     >
       NIAT{" "}
-      <span className={inverted ? "text-brand-400" : "text-brand-600"}>SPI</span>
+      {/* NIAT orange, fixed: the logo keeps its colours when the theme changes. */}
+      <span className={inverted ? "text-[#FF9440]" : "text-[#F25C05]"}>SPI</span>
     </span>
   );
 }

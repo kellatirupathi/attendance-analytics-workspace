@@ -75,8 +75,8 @@ const TABLE_META: Record<
     label: "Classroom & Module Quizzes",
     description: "Quiz performance details",
     icon: BookOpenCheck,
-    tint: "#fff3ea",
-    accent: "#F25C05",
+    tint: "#EAF1FF",
+    accent: "#2563EB",
   },
   niat_schedule_details_as_per_prod_sequence: {
     label: "Prod Sequence",

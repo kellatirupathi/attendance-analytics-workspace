@@ -19,7 +19,7 @@ export function PageHeader({
   attendanceNote?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-slate-200 py-4">
+    <div className="flex flex-col gap-4 border-b border-brand-100 py-4">
       <div className="min-w-0 w-full">
         {badge && (
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -28,7 +28,7 @@ export function PageHeader({
         )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-[16rem] max-w-3xl flex-1">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-2xl font-bold tracking-tight text-brand-900">
               {title}
             </h1>
             {subtitle && (
@@ -37,8 +37,8 @@ export function PageHeader({
               </p>
             )}
             {attendanceNote && (
-              <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-slate-600">
-                <Info className="h-3.5 w-3.5 shrink-0 text-brand-700" aria-hidden="true" />
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-medium text-brand-900">
+                <Info className="h-3.5 w-3.5 shrink-0 text-brand-600" aria-hidden="true" />
                 {ATTENDANCE_SCOPE_NOTE}
               </p>
             )}

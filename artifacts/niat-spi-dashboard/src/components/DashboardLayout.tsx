@@ -75,10 +75,10 @@ function NavItemLink({
     >
       <div
         className={cn(
-          "group relative flex items-center gap-3 border-l-2 py-2.5 pl-3 pr-2 text-[13px] font-medium transition-colors cursor-pointer",
+          "group relative flex items-center gap-3 rounded-xl py-2.5 pl-3 pr-2 text-[13px] font-medium transition-colors cursor-pointer",
           active
-            ? "border-brand-500 bg-slate-800/80 text-white"
-            : "border-transparent text-slate-400 hover:bg-slate-800/50 hover:text-slate-200",
+            ? "bg-brand-50 font-semibold text-brand-600"
+            : "text-brand-900 hover:bg-slate-50 hover:text-brand-600",
         )}
       >
         <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" />
@@ -96,7 +96,7 @@ function NavItemLink({
           </span>
         )}
         {hasBadge && collapsed && (
-          <span className="absolute left-7 top-1.5 h-2 w-2 rounded-full bg-brand-600 ring-2 ring-slate-900" aria-hidden />
+          <span className="absolute left-7 top-1.5 h-2 w-2 rounded-full bg-brand-600 ring-2 ring-white" aria-hidden />
         )}
       </div>
     </Link>
@@ -105,12 +105,12 @@ function NavItemLink({
 
 function SectionLabel({ collapsed, first, children }: { collapsed: boolean; first?: boolean; children: React.ReactNode }) {
   if (collapsed) {
-    return <div className={cn("mx-3 border-t border-slate-700/80", first ? "mb-2" : "my-3")} aria-hidden />;
+    return <div className={cn("mx-3 border-t border-slate-200", first ? "mb-2" : "my-3")} aria-hidden />;
   }
   return (
     <p
       className={cn(
-        "whitespace-nowrap px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500",
+        "whitespace-nowrap px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400",
         !first && "pt-5",
       )}
     >
@@ -135,7 +135,7 @@ function ProfileMenu({ onNavigate, collapsed = false }: { onNavigate?: () => voi
   };
 
   return (
-    <div className="relative border-t border-slate-700/80 p-3">
+    <div className="relative border-t border-slate-200 p-3">
       {open && (
         <div
           className="fixed inset-0 z-30"
@@ -146,7 +146,7 @@ function ProfileMenu({ onNavigate, collapsed = false }: { onNavigate?: () => voi
       {open && (
         <div
           className={cn(
-            "absolute bottom-full left-3 right-3 z-40 mb-2 rounded-md border border-slate-600 bg-slate-800 py-1 md:bottom-0 md:left-full md:right-auto md:mb-0 md:ml-2 md:w-52",
+            "absolute bottom-full left-3 right-3 z-40 mb-2 rounded-xl border border-slate-200 bg-white py-1 shadow-lg md:bottom-0 md:left-full md:right-auto md:mb-0 md:ml-2 md:w-52",
             collapsed && "left-full right-auto bottom-0 mb-0 ml-2 w-52",
           )}
         >
@@ -157,7 +157,7 @@ function ProfileMenu({ onNavigate, collapsed = false }: { onNavigate?: () => voi
               onNavigate?.();
             }}
           >
-            <div className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700">
+            <div className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-brand-900 hover:bg-brand-50">
               <User className="h-4 w-4" /> My Profile
             </div>
           </Link>
@@ -169,15 +169,15 @@ function ProfileMenu({ onNavigate, collapsed = false }: { onNavigate?: () => voi
                 onNavigate?.();
               }}
             >
-              <div className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700">
+              <div className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-brand-900 hover:bg-brand-50">
                 <Database className="h-4 w-4" /> Data Explorer
               </div>
             </Link>
           )}
-          <div className="my-1 border-t border-slate-600" />
+          <div className="my-1 border-t border-slate-200" />
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-slate-700"
+            className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
           >
             <LogOut className="h-4 w-4" /> Sign out
           </button>
@@ -186,20 +186,20 @@ function ProfileMenu({ onNavigate, collapsed = false }: { onNavigate?: () => voi
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-slate-800/60"
+        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-slate-50"
         title={collapsed ? `${user?.name ?? ""} · ${roleLabel(user?.role)}` : undefined}
         aria-label={collapsed ? "Open profile menu" : undefined}
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-700 text-sm font-semibold text-white">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-300 to-brand-600 text-sm font-semibold text-white">
           {user?.name?.charAt(0).toUpperCase()}
         </div>
         <div className={cn("min-w-0 flex-1 transition-opacity duration-200", collapsed && "opacity-0")}>
-          <p className="truncate whitespace-nowrap text-sm font-medium text-white">{user?.name}</p>
-          <p className="truncate whitespace-nowrap text-xs text-slate-400">{roleLabel(user?.role)}</p>
+          <p className="truncate whitespace-nowrap text-sm font-medium text-brand-900">{user?.name}</p>
+          <p className="truncate whitespace-nowrap text-xs text-slate-500">{roleLabel(user?.role)}</p>
         </div>
         <ChevronDown
           className={cn(
-            "h-4 w-4 shrink-0 text-slate-500 transition-transform",
+            "h-4 w-4 shrink-0 text-slate-400 transition-transform",
             open && "rotate-180",
             collapsed && "hidden",
           )}
@@ -237,14 +237,14 @@ function SidebarInner({
   return (
     // No overflow clipping here: the profile menu opens outside the sidebar, to its right.
     // The header and nav clip their own content while the width animates.
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-slate-900">
+    <div className="flex h-full min-w-0 flex-1 flex-col border-r border-slate-200 bg-white">
       <div
         className={cn(
-          "flex items-center overflow-hidden border-b border-slate-700/80 py-4",
+          "flex items-center overflow-hidden border-b border-slate-200 py-4",
           collapsed ? "flex-col gap-3 px-2" : "justify-between gap-2 px-4",
         )}
       >
-        {collapsed ? <LogoMark /> : <Logo inverted className="min-w-0 gap-3" />}
+        {collapsed ? <LogoMark /> : <Logo className="min-w-0 gap-3" />}
         {onToggle && (
           <button
             type="button"
@@ -252,7 +252,7 @@ function SidebarInner({
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             aria-expanded={!collapsed}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            className="shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+            className="shrink-0 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-brand-600"
           >
             {collapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
           </button>
@@ -326,6 +326,8 @@ function readCollapsed(): boolean {
 }
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
+  // Keyed on the path so each page change replays the short fade-in.
+  const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(readCollapsed);
 
@@ -341,7 +343,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }, [isCollapsed]);
 
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden bg-slate-100">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-background">
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-20 hidden transition-[width] duration-200 ease-in-out motion-reduce:transition-none md:flex",
@@ -375,7 +377,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={() => setMobileOpen(false)}
               aria-label="Close menu"
-              className="absolute right-2 top-3 z-50 rounded-md p-1.5 text-slate-400 hover:bg-slate-800"
+              className="absolute right-2 top-3 z-50 rounded-md p-1.5 text-slate-400 hover:bg-slate-100"
             >
               <X className="h-5 w-5" />
             </button>
@@ -386,11 +388,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       <main
         className={cn(
-          "flex min-h-[100dvh] min-w-0 flex-col overflow-x-hidden overflow-y-auto bg-white pt-14 transition-[padding] duration-200 ease-in-out motion-reduce:transition-none md:h-[100dvh] md:pt-0",
+          "flex min-h-[100dvh] min-w-0 flex-col overflow-x-hidden overflow-y-auto pt-14 transition-[padding] duration-200 ease-in-out motion-reduce:transition-none md:h-[100dvh] md:pt-0 bg-background",
           isCollapsed ? "md:pl-16" : "md:pl-[240px]",
         )}
       >
-        <div className="flex min-h-0 w-full flex-1 flex-col overflow-x-hidden pl-2 pr-8 sm:pl-3 sm:pr-10 lg:pr-12">
+        <div key={location} className="flex min-h-0 w-full flex-1 animate-page-in flex-col overflow-x-hidden pl-2 pr-8 sm:pl-3 sm:pr-10 lg:pr-12">
           {children}
         </div>
       </main>
