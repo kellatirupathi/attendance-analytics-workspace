@@ -420,16 +420,7 @@ function StateDot({ state }: { state: CriterionState }) {
   );
 }
 
-function DocLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#2563EB] hover:underline">
-      <Icon d={ICONS.doc} className="!h-[15px] !w-[15px]" />
-      {children}
-    </button>
-  );
-}
-
-function EligibilityStrip({ data, onOpenDoc }: { data: StudentScorecard; onOpenDoc: () => void }) {
+function EligibilityStrip({ data }: { data: StudentScorecard }) {
   const e = data.eligibility;
   const share = (p: { attempted: number; total: number }) => (p.total > 0 ? `${Math.round((p.attempted / p.total) * 100)}%` : "—");
   const rows: [string, CriterionState, string][] = [
@@ -441,10 +432,7 @@ function EligibilityStrip({ data, onOpenDoc }: { data: StudentScorecard; onOpenD
   ];
   return (
     <Card>
-      <div className="flex flex-wrap items-center gap-2">
-        <CardTitle icon={ICONS.shield}>Eligibility Status</CardTitle>
-        <span className="ml-auto"><DocLink onClick={onOpenDoc}>Eligibility Criteria</DocLink></span>
-      </div>
+      <CardTitle icon={ICONS.shield}>Eligibility Status</CardTitle>
       <ul className="mt-3 grid gap-3 tabular-nums sm:grid-cols-2 lg:grid-cols-5">
         {rows.map(([title, state, value]) => (
           <li key={title} className="grid grid-cols-[26px_1fr] items-center gap-x-2.5 gap-y-1 rounded-xl border border-[#E6ECF5] px-[13px] py-[11px]">
@@ -565,7 +553,7 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
 }
 
 /* ------------------------------------------------------------------ */
-/*  How SPI Score works: one scrollable document in a side panel      */
+/*  How SPI Score works: one pop-up; the content scrolls inside it    */
 /* ------------------------------------------------------------------ */
 type GuideSection = "weight" | "calc" | "levels" | "elig";
 
@@ -710,8 +698,8 @@ function SpiGuide({ data, start, onClose }: { data: StudentScorecard; start: Gui
   };
 
   return (
-    <Overlay onClose={onClose} className="justify-items-end">
-      <aside className="grid h-full w-full max-w-[640px] animate-page-in grid-rows-[auto_auto_1fr] bg-white shadow-[-20px_0_50px_rgba(11,31,77,0.2)]">
+    <Overlay onClose={onClose} className="place-items-center p-4">
+      <div className="grid max-h-[88vh] w-full max-w-[760px] animate-page-in grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden rounded-[18px] bg-white shadow-[0_24px_60px_rgba(11,31,77,0.25)]">
         <div className="flex items-center gap-3 border-b border-[#E6ECF5] px-[22px] py-[18px]">
           <span className="text-[#2563EB]"><Icon d={ICONS.doc} className="!h-6 !w-6" /></span>
           <div>
@@ -743,7 +731,7 @@ function SpiGuide({ data, start, onClose }: { data: StudentScorecard; start: Gui
             </section>
           ))}
         </div>
-      </aside>
+      </div>
     </Overlay>
   );
 }
@@ -772,7 +760,7 @@ export default function StudentReportView({ data }: { data: StudentScorecard }) 
           <SkillDebtStatusCard data={data} onOpen={() => setRiskOpen(true)} />
         </div>
 
-        <EligibilityStrip data={data} onOpenDoc={() => setGuide("elig")} />
+        <EligibilityStrip data={data} />
 
         <CourseTable data={data} onOpenGuide={() => setGuide("weight")} />
       </main>
