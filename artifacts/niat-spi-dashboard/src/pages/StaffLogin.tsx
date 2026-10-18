@@ -9,6 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQueryParams } from "@/hooks/useQueryParams";
 
 export default function StaffLogin() {
   const [email, setEmail] = useState("");
@@ -20,11 +21,18 @@ export default function StaffLogin() {
   const loginMutation = useLogin();
   const { user, isLoading: authLoading } = useAuth();
 
-  // Already signed in (e.g. cookie from a prior attempt) — go straight to dashboard.
+  // ?next= is set when a protected page (e.g. a student report) sent the user here.
+  // Only same-site paths are followed, never "//host" or full URLs.
+  const next = useQueryParams().get("next");
+  const safeNext = next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+  const homeFor = (role: string) => (role === "instructor" ? "/instructor" : safeNext ?? "/dashboard");
+
+  // Already signed in (e.g. cookie from a prior attempt) — go straight on.
   useEffect(() => {
     if (!authLoading && user) {
-      setLocation(user.role === "instructor" ? "/instructor" : "/dashboard");
+      setLocation(homeFor(user.role));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user, setLocation]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -39,7 +47,7 @@ export default function StaffLogin() {
           // 401 lands after login it wipes the cache and forces a second sign-in.
           await queryClient.cancelQueries({ queryKey: getGetMeQueryKey() });
           queryClient.setQueryData(getGetMeQueryKey(), loggedInUser);
-          setLocation(loggedInUser.role === "instructor" ? "/instructor" : "/dashboard");
+          setLocation(homeFor(loggedInUser.role));
         },
       },
     );

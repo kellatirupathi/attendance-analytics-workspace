@@ -53,7 +53,7 @@ export default function SpiReport() {
     const status = error instanceof ScorecardError ? error.status : 0;
     const message =
       status === 403
-        ? "This report link is invalid or has expired. Please ask your campus team for a new link."
+        ? "You don't have access to this student's report."
         : status === 404
           ? "We couldn't find attendance records for this student in the current semester."
           : "Something went wrong while loading the report.";

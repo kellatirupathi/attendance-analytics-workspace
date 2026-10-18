@@ -60,7 +60,7 @@ export function ProtectedRoute({
 }) {
   const queryClient = useQueryClient();
   const { user, isLoading, isError } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   // Fall back to the query cache so a just-completed login is visible before
   // subscribers re-render (and so a late 401 refetch cannot flash logged-out).
@@ -78,7 +78,8 @@ export function ProtectedRoute({
     if (isLoading) return;
     if (isError && !sessionUser) return;
     if (!sessionUser) {
-      setLocation("/staff-login");
+      // Remember where the user was going so the login page can send them back.
+      setLocation(`/staff-login?next=${encodeURIComponent(location)}`);
     } else if (lacksAccess(sessionUser.role)) {
       setLocation(sessionUser.role === "instructor" ? "/instructor" : "/dashboard");
     }

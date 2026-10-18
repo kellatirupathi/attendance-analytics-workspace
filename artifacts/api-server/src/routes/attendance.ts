@@ -372,9 +372,9 @@ router.get(
 );
 
 // The student SPI scorecard: everything the report shows, worked out on the server.
-// Open by student ID alone (no ?t= token, no login), as agreed on 2026-10-18: anyone with
-// the ID can read the report. Read-only; the rate limit stays. Other student routes still
-// need a staff session or a token.
+// Login required (2026-10-18): no session → 401 and the page sends the user to login.
+// Report links carry no token, and a token alone no longer opens it. Campus-scoped
+// staff only see students of their campuses (assertStudentAccess).
 router.get(
   "/students/:studentId/scorecard",
   spiLimiter,
@@ -382,6 +382,14 @@ router.get(
     const studentId = String(req.params["studentId"] ?? "");
     if (!studentId || !validateStudentId.test(studentId)) {
       res.status(400).json({ error: "Invalid student ID" });
+      return;
+    }
+    if (!getSessionFromRequest(req)) {
+      res.status(401).json({ error: "Login required" });
+      return;
+    }
+    if (!(await assertStudentAccess(req, studentId))) {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
     const cacheKey = `scorecard:v5:${courseAttendanceConfigVersion()}:${getCourseCredits().version}:${studentId}`;

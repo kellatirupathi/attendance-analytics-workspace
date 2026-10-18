@@ -107,7 +107,12 @@ function Router() {
         {/* Public */}
         <Route path="/" component={Landing} />
         <Route path="/staff-login" component={StaffLogin} />
-        <Route path="/spi/:studentId" component={SpiReport} />
+        {/* Student report: login required; the login page brings the user back here. */}
+        <Route path="/spi/:studentId">
+          <ProtectedRoute>
+            <SpiReport />
+          </ProtectedRoute>
+        </Route>
 
         {/* Authenticated dashboard */}
         <Route path="/dashboard">
