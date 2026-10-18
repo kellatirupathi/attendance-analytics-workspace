@@ -148,6 +148,8 @@ export interface ScorecardSubject {
   total: number;
   /** Course weight (credits); null or missing when not set. */
   weight?: number | null;
+  /** Instructor assigned on the schedule; null or missing when unknown (then the course is kept). */
+  hasInstructor?: boolean | null;
 }
 
 /** Orientation courses left off the student report (0 credits everywhere). Matched ignoring case and spacing. */
@@ -244,8 +246,14 @@ export function buildScorecard(
   const keys = new Set(named.map((s) => courseKey(s.subjectTitle)));
   const classroomBy = groupQuizzes(quizRows, "classroom", keys);
   const moduleBy = groupQuizzes(quizRows, "module", keys);
+  // A course only planned so far (no attendance, no classroom or module quiz held, no
+  // instructor assigned) is left off the report, e.g. NRI's Developer Tools Tab.
+  const active = named.filter((s) => {
+    const key = courseKey(s.subjectTitle);
+    return !(s.total === 0 && !classroomBy.has(key) && !moduleBy.has(key) && s.hasInstructor === false);
+  });
 
-  const courses: ScorecardCourse[] = named.map((s) => {
+  const courses: ScorecardCourse[] = active.map((s) => {
     const key = courseKey(s.subjectTitle);
     const classroom = classroomBy.get(key) ?? null;
     const module = moduleBy.get(key) ?? null;

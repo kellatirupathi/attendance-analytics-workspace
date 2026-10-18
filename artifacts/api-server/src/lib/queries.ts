@@ -510,6 +510,8 @@ export interface SubjectAttendance {
   sessionsHeld?: number | null;
   /** semester_course_id(s) from the prod sequence; empty when the course isn't on the schedule. */
   courseIds?: string[];
+  /** An instructor is assigned to any of its sessions in the student's sections; null when not on the schedule. */
+  hasInstructor?: boolean | null;
 }
 
 interface ScheduledSubject {
@@ -517,6 +519,7 @@ interface ScheduledSubject {
   courseCategory: string | null;
   sessionsHeld: number;
   courseIds: string[];
+  hasInstructor: boolean;
 }
 
 /**
@@ -534,6 +537,7 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     course_category: string | null;
     sessions_held: string;
     course_ids: string | null;
+    has_instructor: string | boolean | null;
   }>(
     `WITH student_rows AS (
       -- The raw table: the shared source relabels a mover's old rows with their current campus.
@@ -561,7 +565,8 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
       TRIM(s.course_title) AS subject_title,
       NULLIF(TRIM(CAST(s.course_category AS STRING)), '') AS course_category,
       COUNT(DISTINCT IF(DATE(s.session_start_datetime) <= CURRENT_DATE('Asia/Kolkata'), s.session_id, NULL)) AS sessions_held,
-      STRING_AGG(DISTINCT LOWER(REPLACE(CAST(s.semester_course_id AS STRING), '-', '')), ',') AS course_ids
+      STRING_AGG(DISTINCT LOWER(REPLACE(CAST(s.semester_course_id AS STRING), '-', '')), ',') AS course_ids,
+      LOGICAL_OR(IFNULL(TRIM(s.instructor_name), '') != '') AS has_instructor
     FROM ${PROD_SEQUENCE_TABLE} s
     JOIN student_sections ss
       ON ss.section_key = REPLACE(CAST(s.section_id AS STRING), '-', '')
@@ -581,6 +586,8 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     courseCategory: row.course_category ?? null,
     sessionsHeld: Number(row.sessions_held) || 0,
     courseIds: (row.course_ids ?? "").split(",").filter(Boolean),
+    // BigQuery's REST API returns BOOL as the string "true" / "false".
+    hasInstructor: String(row.has_instructor).toLowerCase() === "true",
   }));
 }
 
@@ -606,11 +613,17 @@ export async function getStudentSubjects(
     if (existing) {
       existing.sessionsHeld = Math.max(existing.sessionsHeld, subject.sessionsHeld);
       existing.courseIds = [...new Set([...existing.courseIds, ...subject.courseIds])];
+      existing.hasInstructor = existing.hasInstructor || subject.hasInstructor;
     } else scheduledByTitle.set(key, { ...subject });
   }
   const subjects: SubjectAttendance[] = attended.map((subject) => {
     const onSchedule = scheduledByTitle.get(subject.subjectTitle.toLowerCase());
-    return { ...subject, sessionsHeld: onSchedule?.sessionsHeld ?? null, courseIds: onSchedule?.courseIds ?? [] };
+    return {
+      ...subject,
+      sessionsHeld: onSchedule?.sessionsHeld ?? null,
+      courseIds: onSchedule?.courseIds ?? [],
+      hasInstructor: onSchedule?.hasInstructor ?? null,
+    };
   });
   const shown = new Set(attended.map((subject) => subject.subjectTitle.toLowerCase()));
   for (const [key, subject] of scheduledByTitle) {
@@ -627,6 +640,7 @@ export async function getStudentSubjects(
       pctSubmittedOnly: null,
       sessionsHeld: subject.sessionsHeld,
       courseIds: subject.courseIds,
+      hasInstructor: subject.hasInstructor,
     });
   }
   return subjects.sort((a, b) => a.subjectTitle.localeCompare(b.subjectTitle));

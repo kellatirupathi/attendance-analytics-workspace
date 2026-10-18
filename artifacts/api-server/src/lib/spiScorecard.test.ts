@@ -141,6 +141,27 @@ test("Intro To NIAT is left off the report", () => {
   assert.equal(withIntro.attendance.held, 10);
 });
 
+test("a course only planned (no attendance, no quiz held, no instructor) is left off the report", () => {
+  const rows = [raw("Web", "CLASSROOM_QUIZ", 10, 5, 60, "Web Aplication Development")].map(toStudentQuizCourseRow);
+  const sc = buildScorecard(
+    { studentId: "x", studentName: "x" },
+    [
+      // NRI's Developer Tools Tab: on the schedule, nothing held, no instructor → hidden.
+      { subjectTitle: "Developer Tools Tab", present: 0, total: 0, weight: 2, hasInstructor: false },
+      // Instructor assigned but not started yet → stays (Awaited).
+      { subjectTitle: "Applied Physics", present: 0, total: 0, weight: 2, hasInstructor: true },
+      // Instructor unknown (not on the schedule) → stays.
+      { subjectTitle: "Old Course", present: 0, total: 0, weight: 2 },
+      // Quizzes held, no instructor on the schedule → stays.
+      { subjectTitle: "Web Aplication Development", present: 0, total: 0, weight: 5, hasInstructor: false },
+      // Attendance held, no instructor on the schedule → stays.
+      { subjectTitle: "Maths for CSE", present: 8, total: 10, weight: 2, hasInstructor: false },
+    ],
+    rows,
+  );
+  assert.deepEqual(sc.courses.map((c) => c.name).sort(), ["Applied Physics", "Maths for CSE", "Old Course", "Web Aplication Development"]);
+});
+
 test("a course with no weight (Not set) or weight 0 stays on the report but is left out of the SPI", () => {
   const rows = [
     raw("A", "CLASSROOM_QUIZ", 10, 10, 95, "Course A"),
