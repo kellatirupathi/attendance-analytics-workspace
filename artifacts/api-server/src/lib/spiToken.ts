@@ -73,6 +73,7 @@ export function verifyCampusAccessToken(campus: string, token: string): boolean 
   return safeEqual(expected, token);
 }
 
+/** Report links carry no token: the scorecard opens by student ID alone. */
 export function spiSharePath(studentId: string): string {
-  return `/spi/${studentId}?t=${makeSpiToken(studentId)}`;
+  return `/spi/${studentId}`;
 }
