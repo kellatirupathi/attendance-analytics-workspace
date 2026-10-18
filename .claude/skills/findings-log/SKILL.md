@@ -53,12 +53,23 @@ Good: `[Student Count] Dashboard student count too high – Overview showed 16,0
 - No credentials, internal URLs or personal student data beyond UIDs already shared internally.
 - Sort by Date ascending; within a day keep the user's order.
 
+## Shared Google Sheet
+
+The team log lives here (same 5 columns, newest row at the bottom):
+https://docs.google.com/spreadsheets/d/1vtjMdslO4HXo1aCqqhGDdH5OMrJhqCbbR0Kg_5b0FPE/edit?usp=sharing
+
+- **Read it before adding a row** (it is link-readable): fetch `.../export?format=csv` with WebFetch and follow the googleusercontent.com redirect it returns. Use it to match the style of existing rows and to avoid adding a finding that is already there.
+- **Writing:** this session type has no Google Sheets write tool, so Claude cannot edit the sheet directly. After adding the row to `findings_log.csv`, show the same row **tab-separated, with no quotes** (so it pastes into the five columns) and tell the user to paste it below the last row of the sheet. Write the Findings text without double quotes so the tab-separated row pastes cleanly.
+- If a Google Sheets connector is attached in a future session, append the row there instead and say so.
+- Always end the "Add finding" reply with the sheet link.
+
 ## "Add finding" command
 
 When the user says "add finding" (with or without details):
 1. Use what was found in this session (queries run, numbers, commits) to write the row. Ask only for what is missing.
 2. Append it to the existing log file `findings_log.csv` in the project root (create it with the header row if it does not exist). Do not rewrite other rows.
-3. Show the new row and say "Added 1 finding (N total, M open)".
+3. Show the new row and say "Added 1 finding (N total, M open)". N and M count `findings_log.csv`; the shared sheet may hold more rows.
+4. Show the paste-ready tab-separated row and the sheet link (see Shared Google Sheet).
 
 ## Updating an existing log
 
