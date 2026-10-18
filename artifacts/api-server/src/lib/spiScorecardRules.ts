@@ -152,10 +152,8 @@ export interface ScorecardSubject {
   hasInstructor?: boolean | null;
 }
 
-/** Orientation courses left off the student report (0 credits everywhere). Matched ignoring case and spacing. */
-const REPORT_EXCLUDED_COURSES = new Set(["intro to niat", "introduction to niat"]);
+/** Matches names in config/report-removed-courses.json: ignoring case and extra spaces. */
 const plainName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
-export const onReport = (name: string) => !REPORT_EXCLUDED_COURSES.has(plainName(name));
 
 export function levelFor(score: number): { level: SkillLevel; points: number } {
   if (score >= 90) return { level: "A+", points: 10 };
@@ -241,8 +239,10 @@ export function buildScorecard(
   student: { studentId: string; studentName: string },
   subjects: ScorecardSubject[],
   quizRows: StudentQuizCourseRow[],
+  /** Plain names of courses removed from the report for this student's campus (config/report-removed-courses.json). */
+  removedCourses: ReadonlySet<string> = new Set(),
 ): StudentScorecard {
-  const named = subjects.filter((s) => namedCourse(s.subjectTitle) && onReport(s.subjectTitle));
+  const named = subjects.filter((s) => namedCourse(s.subjectTitle) && !removedCourses.has(plainName(s.subjectTitle)));
   const keys = new Set(named.map((s) => courseKey(s.subjectTitle)));
   const classroomBy = groupQuizzes(quizRows, "classroom", keys);
   const moduleBy = groupQuizzes(quizRows, "module", keys);

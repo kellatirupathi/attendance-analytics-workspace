@@ -1,0 +1,26 @@
+{
+  "about": "Subjects left off the student SPI report. They are not shown, and their attendance and quizzes do not count on the report. campus \"*\" means every campus. Course names match ignoring case and extra spaces.",
+  "removedCourses": [
+    {
+      "campus": "*",
+      "course": "Intro To NIAT",
+      "reason": "Orientation course with 0 credits at every campus",
+      "removedOn": "2026-10-16"
+    },
+    {
+      "campus": "*",
+      "course": "Introduction to NIAT",
+      "reason": "Orientation course with 0 credits at every campus (other spelling)",
+      "removedOn": "2026-10-16"
+    },
+    {
+      "campus": "Sushant University",
+      "course": "Universal Human Values",
+      "reason": "Removed from the report on request",
+      "removedOn": "2026-10-18"
+    }
+  ],
+  "automaticRules": [
+    "A course with no attendance, no classroom quiz held, no module quiz held and no instructor assigned on the schedule is hidden automatically (for example NRI's Developer Tools Tab). It appears once any of the four starts."
+  ]
+}

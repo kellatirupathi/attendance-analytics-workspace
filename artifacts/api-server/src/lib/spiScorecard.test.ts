@@ -127,18 +127,19 @@ test("Skill Debt lists F courses with the parts below 50%", () => {
   assert.equal(card.skillDebt.length, 4);
 });
 
-test("Intro To NIAT is left off the report", () => {
-  const withIntro = buildScorecard(
-    { studentId: "x", studentName: "x" },
-    [
-      { subjectTitle: "Intro To NIAT", present: 0, total: 0, weight: 0 },
-      { subjectTitle: "introduction  to NIAT", present: 4, total: 4, weight: 0 },
-      { subjectTitle: "Back End Development", present: 8, total: 10, weight: 5 },
-    ],
-    [],
-  );
-  assert.deepEqual(withIntro.courses.map((c) => c.name), ["Back End Development"]);
-  assert.equal(withIntro.attendance.held, 10);
+test("courses in the removed list are left off the report (Intro To NIAT everywhere, Universal Human Values at Sushant)", () => {
+  const subjects = [
+    { subjectTitle: "Intro To NIAT", present: 0, total: 0, weight: 0 },
+    { subjectTitle: "introduction  to NIAT", present: 4, total: 4, weight: 0 },
+    { subjectTitle: "Universal Human Values", present: 3, total: 4, weight: 0 },
+    { subjectTitle: "Back End Development", present: 8, total: 10, weight: 5 },
+  ];
+  const everywhere = ["intro to niat", "introduction to niat"];
+  const atSushant = buildScorecard({ studentId: "x", studentName: "x" }, subjects, [], new Set([...everywhere, "universal human values"]));
+  assert.deepEqual(atSushant.courses.map((c) => c.name), ["Back End Development"]);
+  assert.equal(atSushant.attendance.held, 10);
+  const elsewhere = buildScorecard({ studentId: "x", studentName: "x" }, subjects, [], new Set(everywhere));
+  assert.deepEqual(elsewhere.courses.map((c) => c.name), ["Universal Human Values", "Back End Development"]);
 });
 
 test("a course only planned (no attendance, no quiz held, no instructor) is left off the report", () => {

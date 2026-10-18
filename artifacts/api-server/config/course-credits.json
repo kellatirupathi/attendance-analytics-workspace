@@ -79,7 +79,7 @@
     "15ac01f732a94802acde01afde9f20f4": 0,
     "15cc2e589bc54ce18c4d1868f85953e2": 2,
     "15f44035e98c4d8a82885c347c17fcb4": 1,
-    "15fdea1da4e049c0b6657601ee005506": 0,
+    "15fdea1da4e049c0b6657601ee005506": 2,
     "164090f3c696441ba7c2063a91be21b1": 3,
     "1658ce5ae9ab4c9387badee41e641ced": 1,
     "16e892aaaa5c4a3794f8939f81e1d2ee": 5,
@@ -146,7 +146,7 @@
     "26e691b62f0b4eed9e2138fd8b79b9e7": 0,
     "2718a61993e8468da7a4c9d66b07a0fb": 2,
     "2723f1a1ccac47dd8c29a33d27a6f13d": 2,
-    "27275770cd08469db9101d0296b42306": 0,
+    "27275770cd08469db9101d0296b42306": 3,
     "2762a19a64a747e09df6478d5e6a7c03": 1,
     "277b528815f9464aa6b512b8fd1a2ddd": 6,
     "2786b923cac841709ed53fd73f290ebf": 1,
@@ -316,7 +316,7 @@
     "4bd58ef190a942ba9bfdc64532511217": 4,
     "4bf2dda57d5a4a1e879883e43161e03e": 1,
     "4bff4a59dfce47c4816ec14adc9464cb": 5,
-    "4c16b47c1435431b9405f96df49a1db8": 0,
+    "4c16b47c1435431b9405f96df49a1db8": 2,
     "4c86c63580a248c39714fe2030c03a55": 2,
     "4ccd9c9cd50e4386a5b0478b1ec54798": 3,
     "4cd4a484eb12437a80b9f8e5b87beddc": 3,
@@ -527,7 +527,7 @@
     "7a2ab09d3d654037a8aaa87eaaa206a3": 3,
     "7a33bac44bb44cb0a6dc162e70003c36": 1,
     "7a9e7ace9ea947e7af0caf3663953f61": 1,
-    "7aa505ff649c48839dd7866fbd707859": 0,
+    "7aa505ff649c48839dd7866fbd707859": 2,
     "7ac63860b93d4df7aa0bbbb96296c98c": 2,
     "7b10e61bcce743db81249930a5c4555f": 1,
     "7b70717b6d4a46fd84739757eedb5045": 0,
@@ -692,7 +692,7 @@
     "9e0e31c41653482db07a7635c64dd94a": 1,
     "9e5d3f54bfc6433d93127fc2194e6656": 3,
     "9e6b8ec18a0d45cebaa640736a57becf": 1,
-    "9e883b70f7554d74ac78cb051e1a3d27": 0,
+    "9e883b70f7554d74ac78cb051e1a3d27": 2,
     "9eca6edf970947fb8b9e85adede3a202": 3,
     "9ef26291394b4b3bb93c53fcdce57f70": 0,
     "9f13617ffa6f4d81939dbf35bd84b002": 4,
@@ -826,7 +826,7 @@
     "b68ca878cbe44cab8485eb770fa0dae2": 1,
     "b6bf25c00bae4414b011ed1e0b916d08": 1,
     "b714cf153171449a9a9c02330f6535bf": 4,
-    "b72cb73e99e04f7f8b9b740d0703eed7": 0,
+    "b72cb73e99e04f7f8b9b740d0703eed7": 6,
     "b76117190d124d2c9502d3665e3ae130": 0,
     "b769992ae10f4657a9bf983b91c737b3": 1,
     "b76e15791d544ac8abf8dad8e4b090d5": 7,
@@ -1081,7 +1081,7 @@
     "ed8faae0ab114489b52982954e0f379e": 3,
     "ed95c713c52347b2b8582381391c5968": 1,
     "eda1c929c40249e2ac99818fbc6c78ee": 2,
-    "edc661bda9b24169aaf41ca16141ec27": 0,
+    "edc661bda9b24169aaf41ca16141ec27": 6,
     "ede5e7dcec69446e8ce676ada84e0c29": 5,
     "ee8b5c3bf7174290b8e426c7d727302e": 6,
     "ee9117fac298435a9735f8c7f4155e6b": 0,
@@ -1176,5 +1176,11 @@
     "ffc7688ddeb441d6a0f0a30d5d8eab52": 5,
     "fff14d5c76ea4093a2a5755b0fb66731": 1,
     "ffffff57bfcc47eda77c78be3f914376": 1
-  }
+  },
+  "manualUpdates": [
+    {
+      "date": "2026-10-18",
+      "note": "Annamacharya University Batch 2 Sem 1 (Co-Delivery): Web Application Development 1 = 6, Computer Programming = 6, Mathematics for CSE = 3, Communicative English Foundation = 2, Quantitative Aptitude = 2, Introduction to Generative AI = 2. SPIHER University Chennai Batch 1: Quantitative Aptitude = 2."
+    }
+  ]
 }
