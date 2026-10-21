@@ -112,7 +112,6 @@ const TIERS: { id: AttendanceTier; label: string; range: string; tone: Tone; tex
 ];
 const tierOf = (id: AttendanceTier) => TIERS.find((t) => t.id === id)!;
 
-const LEVEL_TONE: Record<SkillLevel, Tone> = { "A+": "green", A: "green", B: "blue", C: "amber", D: "amber", F: "red" };
 
 const pct1 = (n: number) => `${n.toFixed(1)}%`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -175,32 +174,27 @@ function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Top row: SPI · Attendance · Skill Debt Status                      */
+/*  Top row: SPI · Attendance · Needs Attention                        */
+/*  Mid-semester progress report: no SPI number until all 4 parts exist */
 /* ------------------------------------------------------------------ */
-/** SPI is final only when every eligibility rule is met (§4); until then it is provisional. */
-const isProvisional = (data: StudentScorecard) => {
-  const e = data.eligibility;
-  return [e.attendance, e.classroom.state, e.module.state, e.skillAssessment, e.finalAssessment].some((s) => s !== "met");
-};
+/** The SPI needs the full Skill Track Score (CQ, MQ, SA, FSA). Until the Final Skill Assessment is in, it is in progress. */
+const spiReady = (data: StudentScorecard) => data.eligibility.finalAssessment !== "not_available" && data.spi != null;
+
+const SPI_PARTS: { label: string; weight: number; on: (d: StudentScorecard) => boolean }[] = [
+  { label: "CQ", weight: 10, on: (d) => d.eligibility.classroom.total > 0 },
+  { label: "MQ", weight: 15, on: (d) => d.eligibility.module.total > 0 },
+  { label: "SA", weight: 25, on: (d) => d.eligibility.skillAssessment !== "not_available" },
+  { label: "FSA", weight: 50, on: (d) => d.eligibility.finalAssessment !== "not_available" },
+];
 
 function SpiCard({ data }: { data: StudentScorecard }) {
-  const { spi } = data;
-  const fill = spi == null ? 0 : Math.max(0, Math.min(10, spi)) * 10;
-  const facts: [string, ReactNode][] = [
-    ["Weighted points", data.totalWeightedPoints],
-    ["Course credits", data.totalWeight],
-    ["Courses scored", `${data.scoredCourses} of ${data.courses.length}`],
-  ];
+  const ready = spiReady(data);
+  const fill = ready ? Math.max(0, Math.min(10, data.spi!)) * 10 : 0;
   return (
     <Card>
-      <div className="flex items-center gap-2">
-        <CardTitle icon={ICONS.chart}>Your SPI Score</CardTitle>
-        {spi != null && isProvisional(data) && (
-          <Tag tone="blue" className="ml-auto" >Provisional</Tag>
-        )}
-      </div>
-      <div className="mt-2 grid items-center gap-4 sm:grid-cols-[200px_1fr]">
-        <div className="relative mx-auto h-[106px] w-[200px]">
+      <CardTitle icon={ICONS.chart}>Your SPI Score</CardTitle>
+      {ready ? (
+        <div className="relative mx-auto mt-2 h-[106px] w-[200px]">
           <svg width="200" height="106" viewBox="0 0 200 106" aria-hidden>
             <defs>
               <linearGradient id="spiArc" x1="0" x2="1">
@@ -209,23 +203,29 @@ function SpiCard({ data }: { data: StudentScorecard }) {
               </linearGradient>
             </defs>
             <path d="M 16 98 A 84 84 0 0 1 184 98" fill="none" stroke="#EEF2F8" strokeWidth="14" strokeLinecap="round" />
-            {spi != null && (
-              <path d="M 16 98 A 84 84 0 0 1 184 98" fill="none" stroke="url(#spiArc)" strokeWidth="14" strokeLinecap="round" pathLength={100} strokeDasharray={`${fill} 100`} />
-            )}
+            <path d="M 16 98 A 84 84 0 0 1 184 98" fill="none" stroke="url(#spiArc)" strokeWidth="14" strokeLinecap="round" pathLength={100} strokeDasharray={`${fill} 100`} />
           </svg>
           <p className="absolute inset-x-0 bottom-0.5 text-center text-[34px] font-extrabold tabular-nums text-[#0B1F4D]">
-            {spi == null ? "—" : spi.toFixed(2)} <small className="text-[13px] font-medium text-[#6B7280]">/ 10</small>
+            {data.spi!.toFixed(2)} <small className="text-[13px] font-medium text-[#6B7280]">/ 10</small>
           </p>
         </div>
-        <ul className="grid gap-2 tabular-nums">
-          {facts.map(([label, value]) => (
-            <li key={label} className="flex items-center justify-between gap-2.5 rounded-[9px] bg-[#F6F9FF] px-[11px] py-2 text-xs">
-              <span>{label}</span>
-              <b className="font-bold text-[#0B1F4D]">{value}</b>
-            </li>
-          ))}
-        </ul>
-      </div>
+      ) : (
+        <>
+          <p className="mt-3 text-[34px] font-extrabold leading-none text-[#0B1F4D]">In Progress</p>
+          <p className="mt-1.5 text-xs text-[#6B7280]">Calculated once all assessment types are complete</p>
+          <div className="mt-[22px] flex gap-1">
+            {SPI_PARTS.map((p) => {
+              const on = p.on(data);
+              return (
+                <div key={p.label} className="grid min-w-0 gap-1.5" style={{ flex: p.weight }}>
+                  <i className={`block h-3 rounded-full ${on ? "bg-gradient-to-r from-[#2563EB] to-[#60A5FA]" : "bg-[#E2E8F0]"}`} />
+                  <span className={`text-center text-[11px] font-semibold ${on ? "text-[#2563EB]" : "text-[#94A3B8]"}`}>{p.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </Card>
   );
 }
@@ -244,21 +244,7 @@ function AttendanceCard({ attendance }: { attendance: StudentScorecard["attendan
       <p className="mt-1.5 text-xs tabular-nums text-[#6B7280]">
         {attendance.held > 0 ? `${attendance.present} / ${attendance.held} sessions` : "No sessions yet"}
       </p>
-      <div className="mt-4 grid grid-cols-4 gap-1.5 tabular-nums">
-        {TIERS.map((t) => {
-          const on = t.id === attendance.tier;
-          return (
-            <div
-              key={t.id}
-              className={`rounded-[9px] px-1 py-[7px] text-center ${on ? `${TONE[t.tone]} font-bold shadow-[inset_0_0_0_1.5px_currentColor]` : "bg-[#F1F4F9] text-[#8A94A6]"}`}
-            >
-              <b className="block text-[10.5px] font-semibold leading-tight">{t.label}</b>
-              <span className="text-[10px]">{t.range}</span>
-            </div>
-          );
-        })}
-      </div>
-      <p className="mt-3 flex items-center gap-[7px] rounded-lg bg-[#EAF1FF] px-2.5 py-1.5 text-[11.5px] text-[#0B1F4D]">
+      <p className="mt-4 flex items-center gap-[7px] rounded-lg bg-[#EAF1FF] px-2.5 py-1.5 text-[11.5px] text-[#0B1F4D]">
         <span className="text-[#2563EB]"><Icon d={ICONS.info} className="!h-[15px] !w-[15px]" /></span>
         Calculated on NIAT course sessions only
       </p>
@@ -266,29 +252,26 @@ function AttendanceCard({ attendance }: { attendance: StudentScorecard["attendan
   );
 }
 
-/**
- * Skill Debt Status: the semester is still running, so an F today is a risk, not a debt.
- * At risk = level F now; on track = a level that earns points; not scored yet = no quiz held.
- */
-function SkillDebtStatusCard({ data, onOpen }: { data: StudentScorecard; onOpen: () => void }) {
-  const atRisk = data.skillDebt.length;
-  const onTrack = data.courses.filter((c) => c.level != null && c.level !== "F").length;
-  const notScored = data.courses.filter((c) => c.level == null).length;
+/** A course needs attention when its classroom or module quiz average so far is below 50% (missed quizzes count as 0). */
+const lowPart = (p: QuizPart | null) => p != null && p.avgPct < 50;
+const needsAttention = (c: ScorecardCourse) => lowPart(c.classroom) || lowPart(c.module);
+
+function NeedsAttentionCard({ data, onOpen }: { data: StudentScorecard; onOpen: () => void }) {
+  const attention = data.courses.filter(needsAttention).length;
+  const noQuizzes = data.courses.filter((c) => !c.classroom && !c.module).length;
+  const onTrack = data.courses.length - attention - noQuizzes;
   const segments = [
-    { label: "At risk", n: atRisk, color: "#F59E0B" },
+    { label: "Needs attention", n: attention, color: "#F59E0B" },
     { label: "On track", n: onTrack, color: "#22C55E" },
-    { label: "Not scored yet", n: notScored, color: "#CBD5E1" },
+    { label: "No quizzes yet", n: noQuizzes, color: "#CBD5E1" },
   ];
   return (
-    <Card className={atRisk ? "!border-[#F8DFB0] bg-gradient-to-b from-[#FFFBF2] to-[#FFF4DE]" : "!border-[#BBF7D0] !bg-[#F0FDF4]"}>
-      <div className="flex items-center gap-2">
-        <CardTitle icon={ICONS.gauge} color={atRisk ? "#D97706" : "#16A34A"}>Skill Debt Status</CardTitle>
-        <Tag tone="amber" className="ml-auto">Semester in progress</Tag>
-      </div>
-      <p className={`mt-3 text-[34px] font-extrabold leading-none tabular-nums ${atRisk ? "text-[#D97706]" : "text-[#16A34A]"}`}>
-        {atRisk ? `${atRisk} of ${data.courses.length} ${data.courses.length === 1 ? "course" : "courses"}` : "None"}
+    <Card className={attention ? "!border-[#F8DFB0] bg-gradient-to-b from-[#FFFBF2] to-[#FFF4DE]" : "!border-[#BBF7D0] !bg-[#F0FDF4]"}>
+      <CardTitle icon={ICONS.gauge} color={attention ? "#D97706" : "#16A34A"}>Needs Attention</CardTitle>
+      <p className={`mt-3 text-[34px] font-extrabold leading-none tabular-nums ${attention ? "text-[#D97706]" : "text-[#16A34A]"}`}>
+        {attention ? `${attention} of ${data.courses.length} ${data.courses.length === 1 ? "course" : "courses"}` : "None"}
       </p>
-      <p className="mt-1.5 text-xs text-[#6B7280]">{atRisk ? "at risk of Skill Debt" : "No course at risk of Skill Debt"}</p>
+      <p className="mt-1.5 text-xs text-[#6B7280]">{attention ? "quiz average below 50% so far" : "All quiz averages are 50% or more"}</p>
       {data.courses.length > 0 && (
         <>
           <div className="mt-4 flex h-3 gap-[3px] overflow-hidden rounded-full">
@@ -306,7 +289,7 @@ function SkillDebtStatusCard({ data, onOpen }: { data: StudentScorecard; onOpen:
           </div>
         </>
       )}
-      {atRisk > 0 && (
+      {attention > 0 && (
         <button
           type="button"
           onClick={onOpen}
@@ -320,10 +303,8 @@ function SkillDebtStatusCard({ data, onOpen }: { data: StudentScorecard; onOpen:
 }
 
 /* ------------------------------------------------------------------ */
-/*  Skill Debt Status details                                          */
+/*  Pop-ups                                                            */
 /* ------------------------------------------------------------------ */
-const PAUSED = ["MINT", "BRAVE", "GRIT", "Placements", "Internships", "Co-curricular support"];
-
 function Overlay({ onClose, className = "", children }: { onClose: () => void; className?: string; children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -345,17 +326,22 @@ function CloseButton({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SkillDebtStatusDialog({ data, onClose }: { data: StudentScorecard; onClose: () => void }) {
-  const byName = new Map(data.courses.map((c) => [c.name, c]));
-  const low = (d: SkillDebtCourse) =>
-    d.lowParts.map((p) => `${p.kind === "classroom" ? "Classroom" : "Module"} ${p.avgPct}%`).join(", ") || "—";
-  const toImprove = (d: SkillDebtCourse) => {
-    const c = byName.get(d.name);
+function NeedsAttentionDialog({ data, onClose }: { data: StudentScorecard; onClose: () => void }) {
+  const courses = data.courses.filter(needsAttention);
+  const part = (p: QuizPart | null) =>
+    p ? (
+      <>
+        {p.avgPct}% <small className="text-[#6B7280]">({p.attempted} of {p.total})</small>
+      </>
+    ) : (
+      "—"
+    );
+  const toDo = (c: ScorecardCourse) => {
     const pending = [
-      c?.classroom && c.classroom.total > c.classroom.attempted ? `${c.classroom.total - c.classroom.attempted} classroom` : null,
-      c?.module && c.module.total > c.module.attempted ? `${c.module.total - c.module.attempted} module` : null,
+      c.classroom && c.classroom.total > c.classroom.attempted ? `${c.classroom.total - c.classroom.attempted} classroom` : null,
+      c.module && c.module.total > c.module.attempted ? `${c.module.total - c.module.attempted} module` : null,
     ].filter(Boolean);
-    return pending.length ? `Attempt ${pending.join(" + ")} quizzes` : "Improve quiz scores";
+    return pending.length ? `Attempt ${pending.join(" + ")} pending quizzes` : "Improve your quiz scores";
   };
   return (
     <Overlay onClose={onClose} className="place-items-center p-4">
@@ -363,44 +349,32 @@ function SkillDebtStatusDialog({ data, onClose }: { data: StudentScorecard; onCl
         <div className="flex items-center gap-3 border-b border-[#F8DFB0] bg-gradient-to-b from-[#FFFBF2] to-[#FFF4DE] px-[22px] py-[18px]">
           <span className="text-[#D97706]"><Icon d={ICONS.gauge} className="!h-[26px] !w-[26px]" /></span>
           <div>
-            <h2 className="text-lg font-bold text-[#0B1F4D]">At risk of Skill Debt · {plural(data.skillDebt.length, "course", "courses")}</h2>
-            <p className="mt-0.5 text-xs text-[#6B7280]">Below 50% at the end of the semester becomes a Skill Debt</p>
+            <h2 className="text-lg font-bold text-[#0B1F4D]">Needs attention · {plural(courses.length, "course", "courses")}</h2>
+            <p className="mt-0.5 text-xs text-[#6B7280]">There is still time: every quiz you attempt from now lifts your average</p>
           </div>
           <CloseButton onClose={onClose} />
         </div>
-        <div className="grid gap-4 px-[22px] pb-[22px] pt-[18px]">
-          <div>
-            <h3 className="mb-2 text-[13px] font-bold text-[#0B1F4D]">Courses at risk</h3>
-            <div className="overflow-x-auto rounded-[10px] border border-[#E6ECF5]">
-              <table className="w-full min-w-[600px] border-collapse text-[12.5px] tabular-nums">
-                <thead>
-                  <tr className="bg-[#EAF1FF] text-left text-[11.5px] text-[#0B1F4D]">
-                    {["Course", "Weight", "Skill Track Score", "Below 50%", "To improve"].map((h) => (
-                      <th key={h} className="px-3 py-[9px] font-semibold">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.skillDebt.map((d) => (
-                    <tr key={d.name} className="border-t border-[#F1F4F9]">
-                      <td className="px-3 py-2.5 font-medium text-[#0B1F4D]">{d.name}</td>
-                      <td className="px-3 py-2.5">{d.weight ?? "Not set"}</td>
-                      <td className="px-3 py-2.5">{d.courseScore.toFixed(2)}</td>
-                      <td className="px-3 py-2.5">{low(d)}</td>
-                      <td className="px-3 py-2.5">{toImprove(d)}</td>
-                    </tr>
+        <div className="px-[22px] pb-[22px] pt-[18px]">
+          <div className="overflow-x-auto rounded-[10px] border border-[#E6ECF5]">
+            <table className="w-full min-w-[620px] border-collapse text-[12.5px] tabular-nums">
+              <thead>
+                <tr className="bg-[#EAF1FF] text-left text-[11.5px] text-[#0B1F4D]">
+                  {["Course", "Classroom Quizzes", "Module Quizzes", "What to do"].map((h) => (
+                    <th key={h} className="px-3 py-[9px] font-semibold">{h}</th>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div>
-            <h3 className="mb-2 text-[13px] font-bold text-[#0B1F4D]">Paused if it becomes a Skill Debt</h3>
-            <div className="flex flex-wrap gap-2">
-              {PAUSED.map((p) => (
-                <span key={p} className="rounded-full border border-[#F3CF8C] bg-[#FFFBF2] px-3 py-1.5 text-xs font-semibold text-[#D97706]">{p}</span>
-              ))}
-            </div>
+                </tr>
+              </thead>
+              <tbody>
+                {courses.map((c) => (
+                  <tr key={c.name} className="border-t border-[#F1F4F9]">
+                    <td className="px-3 py-2.5 font-medium text-[#0B1F4D]">{c.name}</td>
+                    <td className="px-3 py-2.5">{part(c.classroom)}</td>
+                    <td className="px-3 py-2.5">{part(c.module)}</td>
+                    <td className="px-3 py-2.5">{toDo(c)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -427,8 +401,8 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
     ["Attendance ≥ 80% per course", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} below` : e.attendance === "met" ? "Met" : "—"],
     ["Classroom Quizzes · 100%", e.classroom.state, share(e.classroom)],
     ["Module Quizzes · 100%", e.module.state, share(e.module)],
-    ["Skill Assessments · 100%", e.skillAssessment, "Unavailable"],
-    ["Final Skill Assessment", e.finalAssessment, "Unavailable"],
+    ["Skill Assessments · 100%", e.skillAssessment, e.skillAssessment === "not_available" ? "Unavailable" : e.skillAssessment === "met" ? "Met" : "Not met"],
+    ["Final Skill Assessment", e.finalAssessment, e.finalAssessment === "not_available" ? "Upcoming" : e.finalAssessment === "met" ? "Met" : "Not met"],
   ];
   return (
     <Card>
@@ -447,7 +421,7 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Course-wise performance                                           */
+/*  Course-wise progress (no score / level / points mid-semester)      */
 /* ------------------------------------------------------------------ */
 function QuizCell({ part }: { part: QuizPart | null }) {
   if (!part) return <Chip tone="purple">Awaited</Chip>;
@@ -470,15 +444,15 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
   return (
     <Card>
       <CardTitle icon={ICONS.book}>
-        <span className="text-[15px]">Course-wise Performance</span>
+        <span className="text-[15px]">Course-wise Progress</span>
       </CardTitle>
       <div className="mt-3 overflow-x-auto rounded-xl border border-[#E6ECF5]">
-        <table className="w-full min-w-[1100px] border-collapse text-[12.5px] tabular-nums">
+        <table className="w-full min-w-[900px] border-collapse text-[12.5px] tabular-nums">
           <thead>
             <tr>
               <th colSpan={3} className="bg-[#DCE6FB]" />
-              <th colSpan={4} className={`bg-[#DCE6FB] px-2.5 py-2 text-xs font-bold text-[#0B1F4D] ${sep}`}>Assessment scores (average %)</th>
-              <th colSpan={5} className={`bg-[#DCE6FB] px-2.5 py-2 text-xs font-bold text-[#0B1F4D] ${sep}`}>SPI calculation</th>
+              <th colSpan={4} className={`bg-[#DCE6FB] px-2.5 py-2 text-xs font-bold text-[#0B1F4D] ${sep}`}>Assessments (weight in SPI)</th>
+              <th className={`bg-[#DCE6FB] ${sep}`} />
             </tr>
             <tr>
               <th className={th}>#</th>
@@ -488,11 +462,7 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
               <th className={th}>Module Quizzes<span className={sub}>15%</span></th>
               <th className={th}>Skill Assessments<span className={sub}>25%</span></th>
               <th className={th}>Final Skill Assessment<span className={sub}>50%</span></th>
-              <th className={`${th} ${sep}`}>Skill Track Score<span className={sub}>out of 100</span></th>
-              <th className={th}>Skill Level</th>
-              <th className={th}>Level Points<span className={sub}>out of 10</span></th>
-              <th className={th}>Course Weight<span className={sub}>credits</span></th>
-              <th className={th}>Weighted Points<span className={sub}>points × weight</span></th>
+              <th className={`${th} ${sep}`}>Course Weight<span className={sub}>credits</span></th>
             </tr>
           </thead>
           <tbody>
@@ -515,29 +485,18 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
                   <td className={`${td} ${sep}`}><QuizCell part={c.classroom} /></td>
                   <td className={td}><QuizCell part={c.module} /></td>
                   <td className={td}><Chip tone="grey">Unavailable</Chip></td>
-                  <td className={td}><Chip tone="grey">Unavailable</Chip></td>
-                  <td className={`${td} ${sep} font-bold text-[#0B1F4D]`}>{c.courseScore == null ? "—" : c.courseScore.toFixed(2)}</td>
-                  <td className={td}>{c.level ? <Tag tone={LEVEL_TONE[c.level]}>{c.level}</Tag> : "—"}</td>
-                  <td className={`${td} font-bold text-[#0B1F4D]`}>{c.points ?? "—"}</td>
-                  <td className={td}>
+                  <td className={td}><Chip tone="grey">Upcoming</Chip></td>
+                  <td className={`${td} ${sep}`}>
                     {c.weight == null ? (
                       <Chip tone="grey">Not set</Chip>
                     ) : (
                       <span className="inline-grid h-6 min-w-[26px] place-items-center rounded-[7px] bg-[#EAF1FF] px-1.5 font-bold text-[#2563EB]">{c.weight}</span>
                     )}
                   </td>
-                  <td className={`${td} font-bold text-[#0B1F4D]`}>{c.weightedPoints ?? "—"}</td>
                 </tr>
               );
             })}
           </tbody>
-          <tfoot>
-            <tr className="bg-[#F8FAFE] font-bold text-[#0B1F4D]">
-              <td colSpan={10} className="border-t border-[#E6ECF5] px-2.5 py-2.5 text-right">Total</td>
-              <td className="border-t border-[#E6ECF5] px-2.5 py-2.5 text-center">{data.totalWeight}</td>
-              <td className="border-t border-[#E6ECF5] px-2.5 py-2.5 text-center">{data.totalWeightedPoints}</td>
-            </tr>
-          </tfoot>
         </table>
       </div>
       <button
@@ -555,7 +514,7 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
 /* ------------------------------------------------------------------ */
 /*  How SPI Score works: one pop-up; the content scrolls inside it    */
 /* ------------------------------------------------------------------ */
-type GuideSection = "weight" | "calc" | "levels" | "elig";
+type GuideSection = "elig" | "weight" | "calc" | "levels" | "att";
 
 const WEIGHT_PARTS = [
   { label: "Classroom Quizzes", pct: 10, color: "#2563EB" },
@@ -583,15 +542,39 @@ const ELIGIBILITY_RULES: [string, string][] = [
   ["Assessment honesty", "No malpractice cases"],
 ];
 
+const ATTENDANCE_ROWS: [string, Tone, string][] = [
+  ["Eligible", "green", "80% or more"],
+  ["Recovery Eligible", "amber", "60–79%: Recovery Mode, attend recovery classes"],
+  ["At Risk", "orange", "50–59%"],
+  ["Ineligible", "red", "Below 50%"],
+];
+
 const GUIDE_SECTIONS: { id: GuideSection; title: string; icon: string }[] = [
+  { id: "elig", title: "Eligibility Criteria", icon: ICONS.shield },
   { id: "weight", title: "SPI Weightage", icon: ICONS.pie },
   { id: "calc", title: "SPI Calculation", icon: ICONS.calc },
   { id: "levels", title: "Skill Level & Points", icon: ICONS.trophy },
-  { id: "elig", title: "Eligibility Criteria", icon: ICONS.shield },
+  { id: "att", title: "Attendance Status", icon: ICONS.cal },
 ];
 
 function GuideSectionBody({ id, data }: { id: GuideSection; data: StudentScorecard }) {
   switch (id) {
+    case "elig":
+      return (
+        <>
+          <p className="mb-3 text-[12.5px]">You earn SPI only when every requirement below is met.</p>
+          <table className="w-full border-collapse text-[12.5px]">
+            <tbody>
+              {ELIGIBILITY_RULES.map(([rule, need]) => (
+                <tr key={rule}>
+                  <td className="w-[45%] border-b border-[#F1F4F9] px-2 py-[7px] font-semibold text-[#0B1F4D]">{rule}</td>
+                  <td className="border-b border-[#F1F4F9] px-2 py-[7px]">{need}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      );
     case "weight": {
       let offset = 0;
       return (
@@ -637,7 +620,9 @@ function GuideSectionBody({ id, data }: { id: GuideSection; data: StudentScoreca
             <div className={box}><span className={label}>Step 1 · Skill Track Score (per course)</span>CQ × 10% + MQ × 15% + SA × 25% + FSA × 50%</div>
             <div className={box}><span className={label}>Step 2 · SPI</span>Σ (Level Points × Course Weight) ÷ Σ Course Weights</div>
             <div className="rounded-[10px] bg-[#2563EB] px-3 py-2.5 text-center text-[17px] font-bold text-white">
-              {data.spi == null ? "Your SPI = —" : `Your SPI = ${data.totalWeightedPoints} ÷ ${data.totalWeight} = ${data.spi.toFixed(2)} / 10`}
+              {spiReady(data)
+                ? `Your SPI = ${data.totalWeightedPoints} ÷ ${data.totalWeight} = ${data.spi!.toFixed(2)} / 10`
+                : "Your SPI: calculated once all assessment types are complete"}
             </div>
           </div>
           <p className="mt-3 text-[12.5px]">Quiz scores count quizzes held so far; a missed quiz counts as 0.</p>
@@ -659,16 +644,16 @@ function GuideSectionBody({ id, data }: { id: GuideSection; data: StudentScoreca
           </tbody>
         </table>
       );
-    case "elig":
+    case "att":
       return (
         <>
-          <p className="mb-3 text-[12.5px]">You earn SPI only when every requirement below is met.</p>
+          <p className="mb-3 text-[12.5px]">Your attendance status comes from your lowest course. Attendance is calculated on NIAT course sessions only.</p>
           <table className="w-full border-collapse text-[12.5px]">
             <tbody>
-              {ELIGIBILITY_RULES.map(([rule, need]) => (
-                <tr key={rule}>
-                  <td className="w-[45%] border-b border-[#F1F4F9] px-2 py-[7px] font-semibold text-[#0B1F4D]">{rule}</td>
-                  <td className="border-b border-[#F1F4F9] px-2 py-[7px]">{need}</td>
+              {ATTENDANCE_ROWS.map(([label, tone, meaning]) => (
+                <tr key={label}>
+                  <td className="w-[45%] border-b border-[#F1F4F9] px-2 py-[7px]"><Tag tone={tone}>{label}</Tag></td>
+                  <td className="border-b border-[#F1F4F9] px-2 py-[7px]">{meaning}</td>
                 </tr>
               ))}
             </tbody>
@@ -678,21 +663,25 @@ function GuideSectionBody({ id, data }: { id: GuideSection; data: StudentScoreca
   }
 }
 
-function SpiGuide({ data, start, onClose }: { data: StudentScorecard; start: GuideSection; onClose: () => void }) {
+function SpiGuide({ data, onClose }: { data: StudentScorecard; onClose: () => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const sections = useRef<Partial<Record<GuideSection, HTMLElement | null>>>({});
-  const [current, setCurrent] = useState<GuideSection>(start);
+  const [current, setCurrent] = useState<GuideSection>(GUIDE_SECTIONS[0].id);
 
   const jump = (id: GuideSection) => {
     const box = scroller.current, el = sections.current[id];
     if (box && el) box.scrollTo({ top: el.offsetTop - box.offsetTop });
     setCurrent(id);
   };
-  useEffect(() => jump(start), [start]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onScroll = () => {
     const box = scroller.current;
     if (!box) return;
+    // At the bottom the last (short) sections can't reach the top: mark the last one.
+    if (box.scrollTop + box.clientHeight >= box.scrollHeight - 4) {
+      setCurrent(GUIDE_SECTIONS[GUIDE_SECTIONS.length - 1].id);
+      return;
+    }
     const passed = GUIDE_SECTIONS.filter((s) => (sections.current[s.id]?.offsetTop ?? Infinity) - box.offsetTop <= box.scrollTop + 40);
     if (passed.length) setCurrent(passed[passed.length - 1].id);
   };
@@ -740,16 +729,17 @@ function SpiGuide({ data, start, onClose }: { data: StudentScorecard; start: Gui
 /*  Page                                                              */
 /* ------------------------------------------------------------------ */
 export default function StudentReportView({ data }: { data: StudentScorecard }) {
-  const [riskOpen, setRiskOpen] = useState(false);
-  const [guide, setGuide] = useState<GuideSection | null>(null);
+  const [attentionOpen, setAttentionOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const midSemester = !spiReady(data);
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
       <main className="mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8">
         <header className="flex flex-wrap items-center gap-3.5">
           <span className="text-[#2563EB]"><Icon d={ICONS.chart} className="!h-8 !w-8" /></span>
           <div>
-            <h1 className="text-[22px] font-bold text-[#0B1F4D]">NIAT - SPI Student Report Card</h1>
-            <p className="mt-0.5 text-[13px]">Skill Performance Index</p>
+            <h1 className="text-[22px] font-bold text-[#0B1F4D]">{midSemester ? "NIAT - SPI Progress Report" : "NIAT - SPI Student Report Card"}</h1>
+            <p className="mt-0.5 text-[13px]">Skill Performance Index{midSemester ? " · Semester in progress" : ""}</p>
           </div>
           <p className="ml-auto text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
         </header>
@@ -757,16 +747,16 @@ export default function StudentReportView({ data }: { data: StudentScorecard }) 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.15fr_1fr_1fr]">
           <SpiCard data={data} />
           <AttendanceCard attendance={data.attendance} />
-          <SkillDebtStatusCard data={data} onOpen={() => setRiskOpen(true)} />
+          <NeedsAttentionCard data={data} onOpen={() => setAttentionOpen(true)} />
         </div>
 
         <EligibilityStrip data={data} />
 
-        <CourseTable data={data} onOpenGuide={() => setGuide("weight")} />
+        <CourseTable data={data} onOpenGuide={() => setGuideOpen(true)} />
       </main>
 
-      {riskOpen && <SkillDebtStatusDialog data={data} onClose={() => setRiskOpen(false)} />}
-      {guide && <SpiGuide data={data} start={guide} onClose={() => setGuide(null)} />}
+      {attentionOpen && <NeedsAttentionDialog data={data} onClose={() => setAttentionOpen(false)} />}
+      {guideOpen && <SpiGuide data={data} onClose={() => setGuideOpen(false)} />}
     </div>
   );
 }

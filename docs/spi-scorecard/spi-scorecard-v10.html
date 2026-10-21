@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPI Progress Report v10</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0B1F4D; --text: #334155; --muted: #6B7280; --line: #E6ECF5; --bg: #F4F7FD;
+    --blue: #2563EB; --blue-soft: #EAF1FF; --blue-mid: #DCE6FB;
+    --green: #16A34A; --green-soft: #E6F7EC; --amber: #D97706; --amber-soft: #FFF4DE;
+    --orange: #EA580C; --orange-soft: #FFEDE3; --red: #E11D48; --red-soft: #FDECEF; --grey-soft: #F1F4F9;
+    --violet: #7C3AED; --violet-soft: #F5F3FF;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; }
+  .num { font-variant-numeric: tabular-nums; }
+  svg.i { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  button { font: inherit; cursor: pointer; }
+
+  .page { width: 1536px; padding: 26px 32px 30px; display: grid; gap: 16px; }
+  .head { display: flex; align-items: center; gap: 14px; }
+  .head h1 { font-size: 22px; font-weight: 700; color: var(--navy); }
+  .head p { font-size: 13px; margin-top: 2px; }
+  .spi-link { margin-top: 14px; display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--blue); font-size: 13px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+  .spi-link svg { width: 16px; height: 16px; }
+  .head .who { margin-left: auto; font-size: 17px; font-weight: 700; color: var(--navy); }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(11,31,77,0.04); }
+  .card-title { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 700; color: var(--navy); }
+  .card-title svg { color: var(--blue); }
+  .card-title .r { margin-left: auto; }
+  .tag { display: inline-block; border-radius: 999px; padding: 4px 11px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .tag.green { background: var(--green-soft); color: var(--green); }
+  .tag.amber { background: var(--amber-soft); color: var(--amber); }
+  .tag.orange { background: var(--orange-soft); color: var(--orange); }
+  .tag.red { background: var(--red-soft); color: var(--red); }
+  .tag.blue { background: var(--blue-soft); color: var(--blue); }
+  .tag.violet { background: var(--violet-soft); color: var(--violet); }
+  .big { font-size: 34px; font-weight: 800; color: var(--navy); line-height: 1; }
+  .sub { font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+  /* Row 1: three long cards */
+  .row1 { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 16px; }
+  .spi-body { display: grid; grid-template-columns: 200px 1fr; gap: 18px; align-items: center; margin-top: 8px; }
+  .gauge { position: relative; width: 200px; height: 106px; }
+  .gauge p { position: absolute; inset: auto 0 2px 0; text-align: center; font-size: 34px; font-weight: 800; color: var(--navy); }
+  .gauge p small { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .kv { display: grid; gap: 8px; }
+  .kv div { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: #F6F9FF; border-radius: 9px; padding: 8px 11px; font-size: 12px; }
+  .kv b { color: var(--navy); font-weight: 700; }
+  .prov { display: inline-flex; align-items: center; gap: 6px; }
+
+  .tier-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 16px; }
+  .tier-strip div { background: var(--grey-soft); border-radius: 9px; padding: 7px 4px; text-align: center; color: #8A94A6; }
+  .tier-strip b { display: block; font-size: 10.5px; font-weight: 600; }
+  .tier-strip span { font-size: 10px; }
+  .tier-strip div.on { font-weight: 700; box-shadow: inset 0 0 0 1.5px currentColor; background: var(--green-soft); color: var(--green); }
+  .att-note { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 11.5px; color: var(--navy); background: var(--blue-soft); border-radius: 8px; padding: 6px 10px; }
+  .att-note svg { width: 15px; height: 15px; color: var(--blue); }
+
+  .risk { background: linear-gradient(180deg, #FFFBF2, #FFF4DE); border-color: #F8DFB0; }
+  .risk .card-title svg { color: var(--amber); }
+  .risk .big { color: var(--amber); }
+  .seg { display: flex; height: 12px; border-radius: 99px; overflow: hidden; margin-top: 16px; gap: 3px; }
+  .seg i { display: block; }
+  .legend { display: flex; gap: 14px; margin-top: 9px; font-size: 11.5px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .legend b { color: var(--navy); }
+  .link-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; background: #fff; border: 1px solid #F3CF8C; color: var(--amber); border-radius: 999px; padding: 7px 14px; font-size: 12px; font-weight: 600; }
+
+  /* Row 2: eligibility as a long strip */
+  .elig { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 12px; }
+  .elig div { display: grid; grid-template-columns: 26px 1fr; gap: 4px 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; }
+  .elig span.t { font-size: 12px; color: var(--text); }
+  .elig b { grid-column: 2; font-size: 15px; color: var(--navy); font-weight: 700; }
+  .dot { grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800; }
+  .dot.ok { background: #22C55E; } .dot.no { background: var(--red); } .dot.na { background: #94A3B8; }
+  .doc-link { display: inline-flex; align-items: center; gap: 6px; color: var(--blue); font-size: 12px; font-weight: 600; background: none; border: 0; }
+  .doc-link svg { width: 15px; height: 15px; }
+
+  /* Course table */
+  .tablewrap { margin-top: 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  table.courses { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .courses thead tr.grp th { background: var(--blue-mid); color: var(--navy); font-size: 12px; font-weight: 700; padding: 8px 10px; text-align: center; }
+  .courses thead tr.cols th { background: var(--blue-soft); color: var(--navy); font-size: 11.5px; font-weight: 600; padding: 9px 10px; text-align: center; line-height: 1.25; }
+  .courses thead th small { display: block; color: var(--blue); font-weight: 600; font-size: 10.5px; margin-top: 2px; }
+  .courses thead tr.cols th.l { text-align: left; }
+  .courses th.sep, .courses td.sep { border-left: 1px solid #C9D7F5; }
+  .courses tbody td { padding: 10px; border-top: 1px solid var(--grey-soft); text-align: center; vertical-align: middle; }
+  .courses tbody td.l { text-align: left; color: var(--navy); font-weight: 500; }
+  .att { font-weight: 700; display: block; color: var(--green); }
+  .q b { color: var(--navy); font-weight: 600; }
+  .q small { display: block; font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .q small.flag { color: var(--red); }
+  .chip-na { display: inline-block; border-radius: 6px; padding: 3px 9px; font-size: 11px; font-weight: 500; background: var(--grey-soft); color: #8A94A6; }
+  .chip-await { display: inline-block; border-radius: 6px; padding: 3px 9px; font-size: 11px; font-weight: 500; background: var(--violet-soft); color: var(--violet); }
+  .grade { display: inline-grid; place-items: center; min-width: 30px; height: 24px; border-radius: 7px; font-weight: 700; font-size: 12px; }
+  .g-Aplus, .g-A { background: var(--green-soft); color: var(--green); }
+  .g-B { background: var(--blue-soft); color: var(--blue); }
+  .g-C, .g-D { background: var(--amber-soft); color: var(--amber); }
+  .g-F { background: var(--red-soft); color: var(--red); }
+  .w { display: inline-grid; place-items: center; min-width: 26px; height: 24px; border-radius: 7px; background: var(--blue-soft); color: var(--blue); font-weight: 700; }
+  .courses tfoot td { padding: 10px; font-weight: 700; color: var(--navy); background: #F8FAFE; text-align: center; border-top: 1px solid var(--line); }
+
+  /* Row 4: next steps + SPI guide buttons */
+  .row4 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .steps { list-style: none; display: grid; gap: 10px; margin-top: 12px; font-size: 12.5px; color: var(--navy); }
+  .steps li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: center; }
+  .steps .n { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 11px; }
+  .guide { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+  .guide button { display: flex; align-items: center; gap: 12px; background: #F6F9FF; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--navy); font-weight: 600; font-size: 13px; text-align: left; transition: background .15s, border-color .15s; }
+  .guide button:hover { background: var(--blue-soft); border-color: #C9D7F5; }
+  .guide button .ic { width: 34px; height: 34px; border-radius: 10px; background: #fff; display: grid; place-items: center; color: var(--blue); border: 1px solid var(--line); }
+  .guide button .go { margin-left: auto; color: var(--blue); }
+
+  /* Overlays */
+  .overlay { position: fixed; inset: 0; background: rgba(11,31,77,0.35); display: none; z-index: 10; }
+  .overlay.open { display: grid; }
+  #riskOverlay { place-items: center; }
+  .modal { width: 820px; background: #fff; border-radius: 18px; box-shadow: 0 24px 60px rgba(11,31,77,0.25); overflow: hidden; }
+  .modal-head { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+  .modal-head h2 { font-size: 18px; color: var(--navy); }
+  .modal-head p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .x { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--navy); background: #fff; font-size: 15px; }
+  .risk-head { background: linear-gradient(180deg, #FFFBF2, #FFF4DE); border-color: #F8DFB0; }
+  .modal-body { padding: 18px 22px 22px; display: grid; gap: 16px; }
+  .modal h3 { font-size: 13px; color: var(--navy); margin-bottom: 8px; }
+  .dtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .dtable th { background: var(--blue-soft); color: var(--navy); font-weight: 600; font-size: 11.5px; text-align: left; padding: 9px 12px; }
+  .dtable td { padding: 10px 12px; border-top: 1px solid var(--grey-soft); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chips span { border: 1px solid #F3CF8C; background: #FFFBF2; color: var(--amber); border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 600; }
+
+  /* SPI guide: right-side scrollable document */
+  #docOverlay { justify-items: end; }
+  .drawer { width: 640px; height: 100vh; background: #fff; display: grid; grid-template-rows: auto auto 1fr; box-shadow: -20px 0 50px rgba(11,31,77,0.2); animation: slide .25s ease-out; }
+  @keyframes slide { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .tabs { display: flex; gap: 6px; padding: 10px 22px; border-bottom: 1px solid var(--line); background: #FAFCFF; }
+  .tabs button { border: 0; background: none; padding: 7px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  .tabs button.on { background: var(--blue-soft); color: var(--blue); }
+  .doc { overflow-y: auto; padding: 6px 22px 40px; scroll-behavior: smooth; }
+  .doc section { padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .doc section:last-child { border-bottom: 0; }
+  .doc h4 { display: flex; align-items: center; gap: 10px; font-size: 16px; color: var(--navy); margin-bottom: 12px; }
+  .doc h4 svg { color: var(--blue); }
+  .doc p.lead { font-size: 12.5px; margin-bottom: 12px; }
+  .donut-wrap { display: grid; grid-template-columns: 130px 1fr; align-items: center; gap: 18px; }
+  .donut { position: relative; width: 130px; height: 130px; }
+  .donut p { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; font-size: 11px; color: var(--muted); }
+  .donut p b { display: block; font-size: 18px; color: var(--navy); }
+  .keys { display: grid; gap: 10px; font-size: 12.5px; }
+  .keys div { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; align-items: center; }
+  .keys i { width: 10px; height: 10px; border-radius: 50%; }
+  .keys b { color: var(--navy); }
+  .callout { margin-top: 14px; background: var(--green-soft); color: var(--green); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; font-weight: 600; }
+  .formula { display: grid; gap: 8px; }
+  .formula div { background: #F3F7FE; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: var(--navy); }
+  .formula div span { display: block; font-size: 10.5px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 3px; }
+  .formula .result { background: var(--blue); color: #fff; text-align: center; font-size: 17px; font-weight: 700; }
+  .levels { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .levels td { padding: 7px 8px; border-bottom: 1px solid var(--grey-soft); }
+  .levels td:nth-child(2) { color: var(--muted); }
+  .levels td:nth-child(3) { font-weight: 700; color: var(--navy); }
+  .rules td:first-child { font-weight: 600; color: var(--navy); width: 45%; }
+
+  .tracker { display: grid; gap: 8px; margin-top: 14px; }
+  .tracker div { display: grid; grid-template-columns: 26px 1fr auto; align-items: center; gap: 10px; background: #F6F9FF; border-radius: 10px; padding: 9px 12px; font-size: 12.5px; color: var(--navy); }
+  .tracker .st { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+  .st.go { background: var(--blue-soft); color: var(--blue); }
+  .st.soon { background: var(--amber-soft); color: var(--amber); }
+  .st.later { background: var(--grey-soft); color: #94A3B8; }
+  .tracker span.s { font-size: 11px; font-weight: 600; }
+  .spi-wait { display: flex; align-items: baseline; gap: 10px; margin-top: 12px; }
+  .spi-wait b { font-size: 22px; font-weight: 800; color: var(--navy); line-height: 1.2; }
+  .chip-soon { display: inline-block; border-radius: 6px; padding: 3px 9px; font-size: 11px; font-weight: 500; background: var(--amber-soft); color: var(--amber); }
+  .chip-up { display: inline-block; border-radius: 6px; padding: 3px 9px; font-size: 11px; font-weight: 500; background: var(--grey-soft); color: #64748B; }
+  #docOverlay { place-items: center; justify-items: center; padding: 16px; }
+  .drawer { height: auto; max-height: 88vh; width: 760px; border-radius: 18px; overflow: hidden; grid-template-rows: auto auto minmax(0, 1fr); box-shadow: 0 24px 60px rgba(11,31,77,0.25); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V14M10 20V8M16 20V11M22 20H2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-gaugeRisk" viewBox="0 0 24 24"><path d="M3 18a9 9 0 0 1 18 0"/><path d="M12 18l4-6"/><circle cx="12" cy="18" r="1"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2zM22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z"/></symbol>
+  <symbol id="i-pie" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v9h9"/></symbol>
+  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h8"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+</svg>
+
+<div class="page">
+  <div class="head">
+    <svg class="i" style="width:32px;height:32px;color:var(--blue)"><use href="#i-chart"/></svg>
+    <div><h1>NIAT - SPI Progress Report</h1><p>Skill Performance Index · Semester in progress</p></div>
+    <span class="who">Abdulla Suddapalle</span>
+  </div>
+
+  <section class="row1">
+    <!-- SPI: no number until the Final Skill Assessment; show where the student is on the way -->
+    <div class="card">
+      <p class="card-title"><svg class="i"><use href="#i-chart"/></svg>Your SPI<span class="r tag blue">Semester in progress</span></p>
+      <p class="spi-wait"><b>After the Final Skill Assessment</b></p>
+      <div class="tracker">
+        <div><span class="st go">✓</span>Classroom Quizzes<span class="s" style="color:var(--blue)">In progress</span></div>
+        <div><span class="st go">✓</span>Module Quizzes<span class="s" style="color:var(--blue)">In progress</span></div>
+        <div><span class="st soon">◷</span>Skill Assessments<span class="s" style="color:var(--amber)">Results coming</span></div>
+        <div><span class="st later">○</span>Final Skill Assessment<span class="s" style="color:#64748B">Upcoming</span></div>
+      </div>
+    </div>
+
+    <!-- Attendance: the NIAT-sessions note lives here only -->
+    <div class="card">
+      <p class="card-title"><svg class="i"><use href="#i-cal"/></svg>Attendance</p>
+      <p style="display:flex;align-items:center;gap:12px;margin-top:12px"><span class="big num" id="att"></span><span id="attTag"></span></p>
+      <p class="sub num" id="attSub"></p>
+      <div class="tier-strip num" id="tierStrip"></div>
+      <p class="att-note"><svg class="i"><use href="#i-info"/></svg>Calculated on NIAT course sessions only</p>
+    </div>
+
+    <!-- Needs Attention: quiz average below 50% so far; no Skill Debt wording mid-semester -->
+    <div class="card risk">
+      <p class="card-title"><svg class="i"><use href="#i-gaugeRisk"/></svg>Needs Attention</p>
+      <p class="big num" style="margin-top:12px" id="riskBig"></p>
+      <p class="sub">quiz average below 50% so far</p>
+      <div class="seg" id="seg"></div>
+      <div class="legend num" id="legend"></div>
+      <button class="link-btn" onclick="openRisk()">View Details ›</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <p class="card-title"><svg class="i"><use href="#i-shield"/></svg>Eligibility Status</p>
+    <div class="elig num" id="elig"></div>
+  </section>
+
+  <section class="card">
+    <p class="card-title" style="font-size:15px"><svg class="i"><use href="#i-book"/></svg>Course-wise Progress</p>
+    <div class="tablewrap">
+      <table class="courses num">
+        <thead>
+          <tr class="grp"><th colspan="3"></th><th colspan="4" class="sep">Assessments (weight in SPI)</th><th class="sep"></th></tr>
+          <tr class="cols">
+            <th>#</th><th class="l">Course</th><th>Attendance</th>
+            <th class="sep">Classroom Quizzes<small>10%</small></th><th>Module Quizzes<small>15%</small></th>
+            <th>Skill Assessments<small>25%</small></th><th>Final Skill Assessment<small>50%</small></th>
+            <th class="sep">Course Weight<small>credits</small></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <button class="spi-link" onclick="openDoc('weight')"><svg class="i"><use href="#i-info"/></svg>How SPI Score works</button>
+  </section>
+</div>
+
+<!-- Needs Attention details -->
+<div class="overlay" id="riskOverlay" onclick="if (event.target === this) this.classList.remove('open')">
+  <div class="modal">
+    <div class="modal-head risk-head">
+      <svg class="i" style="color:var(--amber);width:26px;height:26px"><use href="#i-gaugeRisk"/></svg>
+      <div><h2 id="mTitle"></h2><p>There is still time: every quiz you attempt from now lifts your average</p></div>
+      <button class="x" onclick="closeAll()">✕</button>
+    </div>
+    <div class="modal-body">
+      <table class="dtable num"><thead><tr><th>Course</th><th>Classroom Quizzes</th><th>Module Quizzes</th><th>What to do</th></tr></thead><tbody id="mRows"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- SPI guide: one scrollable document, opened at the clicked section -->
+<div class="overlay" id="docOverlay" onclick="if (event.target === this) closeAll()">
+  <aside class="drawer">
+    <div class="modal-head">
+      <svg class="i" style="color:var(--blue);width:24px;height:24px"><use href="#i-doc"/></svg>
+      <div><h2>How SPI Works</h2><p>NIAT-SPI Student Edition</p></div>
+      <button class="x" onclick="closeAll()">✕</button>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-s="weight">SPI Weightage</button><button data-s="calc">SPI Calculation</button>
+      <button data-s="levels">Skill Level &amp; Points</button><button data-s="elig">Eligibility Criteria</button>
+    </nav>
+    <div class="doc" id="doc">
+      <section id="s-weight">
+        <h4><svg class="i"><use href="#i-pie"/></svg>SPI Weightage</h4>
+        <p class="lead">Each assessment carries a weight. The Final Skill Assessment matters most.</p>
+        <div class="donut-wrap">
+          <div class="donut"><svg width="130" height="130" viewBox="0 0 130 130" id="donut"></svg><p><span>Total<b>100%</b></span></p></div>
+          <div class="keys" id="keys"></div>
+        </div>
+        <p class="callout">You need 50% in each assessment component to earn SPI from it.</p>
+      </section>
+      <section id="s-calc">
+        <h4><svg class="i"><use href="#i-calc"/></svg>SPI Calculation</h4>
+        <div class="formula num">
+          <div><span>Step 1 · Skill Track Score (per course)</span>CQ × 10% + MQ × 15% + SA × 25% + FSA × 50%</div>
+          <div><span>Step 2 · SPI</span>Σ (Level Points × Course Weight) ÷ Σ Course Weights</div>
+          <div class="result" id="calc"></div>
+        </div>
+        <p class="lead" style="margin:12px 0 0">Quiz scores count quizzes held so far; a missed quiz counts as 0.</p>
+      </section>
+      <section id="s-levels">
+        <h4><svg class="i"><use href="#i-trophy"/></svg>Skill Level &amp; Points</h4>
+        <table class="levels num">
+          <tr><td><span class="grade g-Aplus">A+</span></td><td>90 – 100</td><td>10</td><td>Exceptional mastery</td></tr>
+          <tr><td><span class="grade g-A">A</span></td><td>80 – 89.99</td><td>9</td><td>Strong skill-readiness</td></tr>
+          <tr><td><span class="grade g-B">B</span></td><td>70 – 79.99</td><td>8</td><td>Competent</td></tr>
+          <tr><td><span class="grade g-C">C</span></td><td>60 – 69.99</td><td>7</td><td>Developing</td></tr>
+          <tr><td><span class="grade g-D">D</span></td><td>50 – 59.99</td><td>6</td><td>Borderline</td></tr>
+          <tr><td><span class="grade g-F">F</span></td><td>Below 50</td><td>0</td><td>Skill Debt at semester end</td></tr>
+          <tr><td><span class="grade g-F">Ab</span></td><td>Absent</td><td>0</td><td>Skill Debt at semester end</td></tr>
+        </table>
+      </section>
+      <section id="s-elig">
+        <h4><svg class="i"><use href="#i-shield"/></svg>Eligibility Criteria</h4>
+        <p class="lead">You earn SPI only when every requirement below is met.</p>
+        <table class="levels rules">
+          <tr><td>Attendance</td><td>Minimum 80% per course (Recovery Mode if missed)</td></tr>
+          <tr><td>Classroom Quizzes</td><td>100% participation</td></tr>
+          <tr><td>Module Quizzes</td><td>100% completion</td></tr>
+          <tr><td>Skill Assessments</td><td>100% participation</td></tr>
+          <tr><td>Final Skill Assessment</td><td>Mandatory participation</td></tr>
+          <tr><td>Assessment honesty</td><td>No malpractice cases</td></tr>
+        </table>
+      </section>
+    </div>
+  </aside>
+</div>
+
+<script>
+  // Abdulla Suddapalle (Annamacharya University, Semester 1), live report 19 Oct.
+  const courses = [
+    { name: "Communicative English Foundation", weight: 2, att: 38.4, cq: null, mq: null },
+    { name: "Computer Programming", weight: 6, att: 40.3, cq: { pct: 8.3, done: 9, total: 77 }, mq: { pct: 0, done: 0, total: 9 } },
+    { name: "Introduction to Generative AI", weight: 2, att: 38.8, cq: { pct: 33.2, done: 8, total: 21 }, mq: { pct: 0, done: 0, total: 5 } },
+    { name: "Mathematics For CSE", weight: 3, att: 44.4, cq: { pct: 26.2, done: 6, total: 19 }, mq: { pct: 0, done: 0, total: 4 } },
+    { name: "Quantitative Aptitude", weight: 2, att: 42.8, cq: { pct: 15.2, done: 5, total: 22 }, mq: null },
+    { name: "Web Application Development 1", weight: 6, att: 39.0, cq: null, mq: null },
+  ];
+  const present = 98, held = 243;
+  const low = (p) => p && p.pct < 50;
+  const attention = courses.filter((c) => low(c.cq) || low(c.mq));
+  const fine = courses.filter((c) => (c.cq || c.mq) && !attention.includes(c));
+  const notYet = courses.filter((c) => !c.cq && !c.mq);
+  const sum = (k) => courses.reduce((a, c) => (c[k] ? [a[0] + c[k].done, a[1] + c[k].total] : a), [0, 0]);
+  const [cqD, cqT] = sum("cq"), [mqD, mqT] = sum("mq");
+
+  // Attendance
+  document.getElementById("att").textContent = `${((present / held) * 100).toFixed(1)}%`;
+  document.getElementById("attTag").innerHTML = '<span class="tag red">Ineligible</span>';
+  document.getElementById("attSub").textContent = `${present} / ${held} sessions`;
+  document.getElementById("tierStrip").innerHTML = [["Eligible", "≥80%", ""], ["Recovery Eligible", "60–79%", ""], ["At Risk", "50–59%", ""], ["Ineligible", "<50%", "on"]]
+    .map(([n, r, on]) => `<div class="${on}" style="${on ? "background:var(--red-soft);color:var(--red)" : ""}"><b>${n}</b><span>${r}</span></div>`).join("");
+
+  // Needs Attention
+  document.getElementById("riskBig").textContent = `${attention.length} of ${courses.length} courses`;
+  const segs = [[attention.length, "#F59E0B", "Needs attention"], [fine.length, "#22C55E", "On track"], [notYet.length, "#CBD5E1", "No quizzes yet"]];
+  document.getElementById("seg").innerHTML = segs.filter(([n]) => n).map(([n, c]) => `<i style="flex:${n};background:${c}"></i>`).join("");
+  document.getElementById("legend").innerHTML = segs.map(([n, c, l]) => `<span><i style="background:${c}"></i>${l} <b>${n}</b></span>`).join("");
+  document.getElementById("mTitle").textContent = `Needs attention · ${attention.length} courses`;
+  const part = (p) => (p ? `${p.pct}% <small style="color:var(--muted)">(${p.done} of ${p.total})</small>` : "—");
+  document.getElementById("mRows").innerHTML = attention.map((c) => {
+    const todo = [c.cq && c.cq.done < c.cq.total ? `${c.cq.total - c.cq.done} classroom` : null, c.mq && c.mq.done < c.mq.total ? `${c.mq.total - c.mq.done} module` : null].filter(Boolean).join(" + ");
+    return `<tr><td style="color:var(--navy);font-weight:500">${c.name}</td><td>${part(c.cq)}</td><td>${part(c.mq)}</td><td>${todo ? `Attempt ${todo} pending quizzes` : "Improve your scores"}</td></tr>`;
+  }).join("");
+
+  // Eligibility strip
+  const pc = (d, t) => `${Math.round((d / t) * 100)}%`;
+  const crit = [
+    ["Attendance ≥ 80% per course", "no", "6 below"],
+    ["Classroom Quizzes · 100%", cqD >= cqT ? "ok" : "no", pc(cqD, cqT)],
+    ["Module Quizzes · 100%", mqD >= mqT ? "ok" : "no", pc(mqD, mqT)],
+    ["Skill Assessments · 100%", "na", "Results coming"],
+    ["Final Skill Assessment", "na", "Upcoming"],
+  ];
+  const mk = { ok: "✓", no: "!", na: "–" };
+  document.getElementById("elig").innerHTML = crit.map(([t, st, v]) => `<div><span class="dot ${st}">${mk[st]}</span><span class="t">${t}</span><b>${v}</b></div>`).join("");
+
+  // Table: progress only, no score / level / points mid-semester
+  const q = (p) => !p ? '<span class="chip-await">Awaited</span>'
+    : `<div class="q"><b>${p.pct}%</b><small class="${p.done < p.total ? "flag" : ""}">${p.done} of ${p.total} attempted</small></div>`;
+  document.getElementById("rows").innerHTML = courses.map((c, i) => `<tr>
+      <td>${i + 1}</td><td class="l">${c.name}</td>
+      <td><span class="att" style="color:var(--red)">${c.att.toFixed(1)}%</span><span class="tag red" style="margin-top:3px;padding:2px 8px;font-size:10px">Ineligible</span></td>
+      <td class="sep">${q(c.cq)}</td><td>${q(c.mq)}</td>
+      <td><span class="chip-soon">Results coming</span></td><td><span class="chip-up">Upcoming</span></td>
+      <td class="sep"><span class="w">${c.weight}</span></td></tr>`).join("");
+
+  // Guide document
+  const parts = [["Classroom Quizzes", 10, "#2563EB"], ["Module Quizzes", 15, "#22C55E"], ["Skill Assessments", 25, "#F59E0B"], ["Final Skill Assessment", 50, "#A855F7"]];
+  let off = 0;
+  document.getElementById("donut").innerHTML = parts.map(([, p, c]) => {
+    const s = `<circle cx="65" cy="65" r="50" fill="none" stroke="${c}" stroke-width="20" pathLength="100" stroke-dasharray="${p} ${100 - p}" stroke-dashoffset="${-off}" transform="rotate(-90 65 65)"/>`;
+    off += p; return s;
+  }).join("");
+  document.getElementById("keys").innerHTML = parts.map(([l, p, c]) => `<div><i style="background:${c}"></i><span>${l}</span><b>${p}%</b></div>`).join("");
+  document.getElementById("calc").textContent = "Your SPI: after the Final Skill Assessment";
+
+  const doc = document.getElementById("doc"), tabs = [...document.querySelectorAll("#tabs button")];
+  function mark(id) { tabs.forEach((b) => b.classList.toggle("on", b.dataset.s === id)); }
+  function openDoc(id) {
+    document.getElementById("docOverlay").classList.add("open");
+    const el = document.getElementById(`s-${id}`);
+    doc.scrollTo({ top: el.offsetTop - doc.offsetTop, behavior: "instant" });
+    mark(id);
+  }
+  tabs.forEach((b) => b.addEventListener("click", () => { doc.scrollTo({ top: document.getElementById(`s-${b.dataset.s}`).offsetTop - doc.offsetTop }); mark(b.dataset.s); }));
+  doc.addEventListener("scroll", () => {
+    const cur = [...doc.querySelectorAll("section")].filter((s) => s.offsetTop - doc.offsetTop <= doc.scrollTop + 40).pop();
+    if (cur) mark(cur.id.slice(2));
+  });
+  function openRisk() { document.getElementById("riskOverlay").classList.add("open"); }
+  function closeAll() { document.querySelectorAll(".overlay").forEach((o) => o.classList.remove("open")); }
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+
+  if (location.hash === "#risk") openRisk();
+  if (location.hash.startsWith("#doc-")) openDoc(location.hash.slice(5));
+</script>
+</body>
+</html>
