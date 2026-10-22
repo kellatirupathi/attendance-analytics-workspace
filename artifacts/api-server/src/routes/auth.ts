@@ -15,6 +15,16 @@ import {
 import { verifyGoogleIdToken } from "../lib/googleAuth.js";
 import type { Role } from "../lib/rbac.js";
 import { omitExcludedInstitutes } from "../lib/excludedInstitutes.js";
+import { validateStudentId } from "../lib/bigquery.js";
+import {
+  STUDENT_COOKIE_NAME,
+  checkTestStudentLogin,
+  signStudentToken,
+  studentCookieMaxAge,
+  studentCookieOptions,
+  studentIdFromToken,
+  studentKey,
+} from "../lib/testStudents.js";
 
 const router = Router();
 
@@ -78,7 +88,37 @@ router.post("/login", loginLimiter, async (req, res): Promise<void> => {
 router.post("/logout", (_req, res) => {
   res.set("Cache-Control", "no-store");
   clearSessionCookie(res);
+  res.clearCookie(STUDENT_COOKIE_NAME, studentCookieOptions(process.env.NODE_ENV === "production"));
   res.json({ ok: true });
+});
+
+// Test student login: student UUID + password opens that student's report only (no staff session).
+router.post("/student-login", loginLimiter, async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store");
+  const { studentId, password } = req.body as { studentId?: string; password?: string };
+  if (!studentId || !password || !validateStudentId.test(studentId.trim())) {
+    res.status(400).json({ error: "Student ID and password required" });
+    return;
+  }
+  if (!(await checkTestStudentLogin(studentId.trim(), password))) {
+    res.status(401).json({ error: "Invalid student ID or password" });
+    return;
+  }
+  res.cookie(STUDENT_COOKIE_NAME, signStudentToken(studentId.trim()), {
+    ...studentCookieOptions(process.env.NODE_ENV === "production"),
+    maxAge: studentCookieMaxAge,
+  });
+  res.json({ studentId: studentKey(studentId) });
+});
+
+router.get("/student-me", (req, res): void => {
+  res.set("Cache-Control", "no-store");
+  const studentId = studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
+  if (!studentId) {
+    res.status(401).json({ error: "Not signed in" });
+    return;
+  }
+  res.json({ studentId });
 });
 
 router.get("/me", async (req, res): Promise<void> => {

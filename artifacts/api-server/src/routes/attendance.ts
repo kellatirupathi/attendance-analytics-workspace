@@ -19,6 +19,7 @@ import {
 import { validateStudentId } from "../lib/bigquery.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { assertStudentAccess } from "../lib/studentAccess.js";
+import { STUDENT_COOKIE_NAME, studentIdFromToken, studentKey } from "../lib/testStudents.js";
 import { getStudentScorecard } from "../lib/spiScorecard.js";
 import { getCourseCredits } from "../lib/courseCredits.js";
 import { reportRemovedCoursesVersion } from "../lib/reportRemovedCourses.js";
@@ -386,11 +387,19 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
+    // A test student (UUID + password, testStudents.ts) may open only their own report.
+    // Staff go through the usual access check.
+    const ownStudent = studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
     if (!getSessionFromRequest(req)) {
-      res.status(401).json({ error: "Login required" });
-      return;
-    }
-    if (!(await assertStudentAccess(req, studentId))) {
+      if (!ownStudent) {
+        res.status(401).json({ error: "Login required" });
+        return;
+      }
+      if (ownStudent !== studentKey(studentId)) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+    } else if (!(await assertStudentAccess(req, studentId))) {
       res.status(403).json({ error: "Forbidden" });
       return;
     }

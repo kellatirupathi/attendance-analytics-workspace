@@ -1,4 +1,5 @@
-import { useParams } from "wouter";
+import { useEffect } from "react";
+import { useLocation, useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,8 +31,15 @@ export default function SpiReport() {
     queryFn: () => fetchScorecard(studentId, token),
     enabled: !!studentId,
     // A bad link or a missing student will not fix itself on retry.
-    retry: (count, err) => !(err instanceof ScorecardError && [400, 403, 404].includes(err.status)) && count < 2,
+    retry: (count, err) => !(err instanceof ScorecardError && [400, 401, 403, 404].includes(err.status)) && count < 2,
   });
+
+  // Not signed in (no staff session, no student login): go to the student login, which comes back here.
+  const [, setLocation] = useLocation();
+  const needsLogin = error instanceof ScorecardError && error.status === 401;
+  useEffect(() => {
+    if (needsLogin) setLocation(`/student-login?next=${encodeURIComponent(`/spi/${studentId}`)}`);
+  }, [needsLogin, studentId, setLocation]);
 
   if (isLoading) {
     return (

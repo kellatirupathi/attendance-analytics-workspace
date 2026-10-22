@@ -23,7 +23,9 @@ export function signSession(payload: SessionPayload): string {
 
 export function verifySession(token: string): SessionPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] }) as SessionPayload;
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] }) as SessionPayload & { kind?: string };
+    // A test-student token (testStudents.ts) is never a staff session.
+    return payload.kind ? null : payload;
   } catch {
     return null;
   }

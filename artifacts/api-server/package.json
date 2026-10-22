@@ -10,6 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:large-json": "node ./test-large-json.mjs",
     "test:scorecard": "node ./test-scorecard.mjs",
+    "test:test-students": "node ./test-test-students.mjs",
+    "add:test-student": "node ./add-test-student.mjs",
     "migrate:mongo": "node --enable-source-maps ./dist/migrate-from-mongo.mjs",
     "seed": "pnpm run build && node --enable-source-maps ./dist/seed.mjs",
     "seed:recovery": "pnpm run build && node --enable-source-maps ./dist/seed-recovery.mjs",

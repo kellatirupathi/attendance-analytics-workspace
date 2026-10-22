@@ -3,7 +3,7 @@ import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider, ProtectedRoute } from "@/contexts/AuthContext";
+import { AuthProvider, ProtectedRoute, useAuth } from "@/contexts/AuthContext";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { PageLoader } from "@/components/PageLoader";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -14,6 +14,7 @@ import { ISO_DATE_RE } from "@/lib/dateRange";
 const NotFound = lazy(() => import("@/pages/not-found"));
 const Landing = lazy(() => import("@/pages/Landing"));
 const StaffLogin = lazy(() => import("@/pages/StaffLogin"));
+const StudentLogin = lazy(() => import("@/pages/StudentLogin"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const SpiReport = lazy(() => import("@/pages/SpiReport"));
 const Students = lazy(() => import("@/pages/Students"));
@@ -100,6 +101,17 @@ function Protected({
   );
 }
 
+/**
+ * Student report: opens for a signed-in staff user or a test student (UUID + password).
+ * With neither, the report itself sends the visitor to /student-login. Instructors still go to /instructor.
+ */
+function ReportRoute() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <PageLoader />;
+  if (user?.role === "instructor") return <Redirect to="/instructor" />;
+  return <SpiReport />;
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
@@ -107,12 +119,9 @@ function Router() {
         {/* Public */}
         <Route path="/" component={Landing} />
         <Route path="/staff-login" component={StaffLogin} />
-        {/* Student report: login required; the login page brings the user back here. */}
-        <Route path="/spi/:studentId">
-          <ProtectedRoute>
-            <SpiReport />
-          </ProtectedRoute>
-        </Route>
+        <Route path="/student-login" component={StudentLogin} />
+        {/* Student report: login required (staff, or a test student's UUID + password); the login page brings the user back here. */}
+        <Route path="/spi/:studentId" component={ReportRoute} />
 
         {/* Authenticated dashboard */}
         <Route path="/dashboard">
