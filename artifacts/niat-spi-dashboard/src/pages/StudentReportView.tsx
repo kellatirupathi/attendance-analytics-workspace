@@ -360,7 +360,7 @@ function NeedsAttentionDialog({ data, onClose }: { data: StudentScorecard; onClo
             <table className="w-full min-w-[720px] border-collapse text-[12.5px] tabular-nums">
               <thead>
                 <tr className="bg-[#EAF1FF] text-left text-[11.5px] text-[#0B1F4D]">
-                  {["Course", "Classroom Quizzes", "Module Quizzes", "Skill Assessments", "What to do"].map((h) => (
+                  {["Course", "Classroom Quizzes", "Module Quizzes", "Skill Assessments (best)", "What to do"].map((h) => (
                     <th key={h} className="px-3 py-[9px] font-semibold">{h}</th>
                   ))}
                 </tr>
@@ -462,7 +462,7 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
               <th className={th}>Attendance</th>
               <th className={`${th} ${sep}`}>Classroom Quizzes<span className={sub}>10%</span></th>
               <th className={th}>Module Quizzes<span className={sub}>15%</span></th>
-              <th className={th}>Skill Assessments<span className={sub}>25%</span></th>
+              <th className={th}>Skill Assessments<span className={sub}>25% · best score</span></th>
               <th className={th}>Final Skill Assessment<span className={sub}>50%</span></th>
               <th className={`${th} ${sep}`}>Course Weight<span className={sub}>credits</span></th>
             </tr>

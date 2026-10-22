@@ -142,7 +142,7 @@ test("courses in the removed list are left off the report (Intro To NIAT everywh
   assert.deepEqual(elsewhere.courses.map((c) => c.name), ["Universal Human Values", "Back End Development"]);
 });
 
-test("Skill Assessments: a missed one counts as 0, they add 25% to the course score and their own eligibility", () => {
+test("Skill Assessments: best score per course, they add 25% to the course score and have their own eligibility", () => {
   const rows = [raw("Back End", "CLASSROOM_QUIZ", 10, 10, 80, "Back End Development")].map(toStudentQuizCourseRow);
   const sc = buildScorecard(
     { studentId: "x", studentName: "x" },
@@ -157,11 +157,30 @@ test("Skill Assessments: a missed one counts as 0, they add 25% to the course sc
     ],
   );
   const be = sc.courses[0];
-  assert.deepEqual(be.skillAssessment, { avgPct: 45, attempted: 1, total: 2 });
-  // CQ 80 earns credit; SA 45 is below 50 → 0. (80×10 + 0×25) ÷ 35 = 22.86
-  assert.equal(be.courseScore, 22.86);
+  // Best of the held ones (90 and a missed one) is 90; the missed one still counts as held.
+  assert.deepEqual(be.skillAssessment, { avgPct: 90, attempted: 1, total: 2 });
+  // (80×10 + 90×25) ÷ 35 = 87.14
+  assert.equal(be.courseScore, 87.14);
   assert.deepEqual(sc.eligibility.skillAssessment, { state: "not_met", attempted: 1, total: 2 });
-  assert.deepEqual(sc.skillDebt[0].lowParts, [{ kind: "skill", avgPct: 45 }]);
+});
+
+test("Skill Assessments: Crescent example, best of SA-1..3 per course (two P&S codes are one course)", () => {
+  const sa = (course: string, scorePct: number) => ({ course, held: true, attempted: true, scorePct });
+  const sc = buildScorecard(
+    { studentId: "c155ec13", studentName: "x" },
+    ["Probability and Statistics", "Full Stack Back-end Development", "Numerical Ability and Reasoning Skills for Engineers", "Applied Communicative English"]
+      .map((subjectTitle) => ({ subjectTitle, present: 1, total: 1, weight: 1 })),
+    [],
+    new Set(),
+    [
+      sa("Probability and Statistics", 50), sa("Probability and Statistics", 44.67), sa("Probability and Statistics", 33.33),
+      sa("Full Stack Back-end Development", 50), sa("Full Stack Back-end Development", 44), sa("Full Stack Back-end Development", 40),
+      sa("Numerical Ability and Reasoning Skills for Engineers", 35), sa("Numerical Ability and Reasoning Skills for Engineers", 45), sa("Numerical Ability and Reasoning Skills for Engineers", 70),
+      sa("Applied Communicative English", 63.33), sa("Applied Communicative English", 66.67), sa("Applied Communicative English", 86.67),
+    ],
+  );
+  assert.deepEqual(sc.courses.map((c) => [c.skillAssessment?.avgPct, c.skillAssessment?.attempted]), [[50, 3], [50, 3], [70, 3], [86.7, 3]]);
+  assert.deepEqual(sc.eligibility.skillAssessment, { state: "met", attempted: 12, total: 12 });
 });
 
 test("a course only planned (no attendance, no quiz held, no instructor) is left off the report", () => {

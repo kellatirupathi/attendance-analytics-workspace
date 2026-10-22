@@ -240,22 +240,26 @@ export function groupQuizzes(
   return parts;
 }
 
-/** Skill Assessments per report course, scored like quizzes: a missed one counts as 0. */
+/**
+ * Skill Assessments per report course: the course takes the BEST score among the Skill
+ * Assessments held (agreed 2026-10-22). Attempted / total count every one held; when none was
+ * attempted the score is 0.
+ */
 export function groupSkillAssessments(rows: SkillAssessmentRow[], courseKeys: Set<string>): Map<string, QuizPart> {
-  const sums = new Map<string, { held: number; attempted: number; score: number }>();
+  const sums = new Map<string, { held: number; attempted: number; best: number }>();
   for (const row of rows) {
     const key = courseKey(row.course);
     if (!courseKeys.has(key) || !row.held) continue;
-    const sum = sums.get(key) ?? { held: 0, attempted: 0, score: 0 };
+    const sum = sums.get(key) ?? { held: 0, attempted: 0, best: 0 };
     sum.held += 1;
     if (row.attempted) sum.attempted += 1;
-    sum.score += row.scorePct ?? 0;
+    sum.best = Math.max(sum.best, row.scorePct ?? 0);
     sums.set(key, sum);
   }
   const parts = new Map<string, QuizPart>();
   for (const [key, sum] of sums) {
     if (sum.held <= 0) continue;
-    parts.set(key, { avgPct: Math.round((sum.score / sum.held) * 10) / 10, attempted: sum.attempted, total: sum.held });
+    parts.set(key, { avgPct: Math.round(sum.best * 10) / 10, attempted: sum.attempted, total: sum.held });
   }
   return parts;
 }
