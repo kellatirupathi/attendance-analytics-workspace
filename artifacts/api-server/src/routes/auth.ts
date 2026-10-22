@@ -15,7 +15,6 @@ import {
 import { verifyGoogleIdToken } from "../lib/googleAuth.js";
 import type { Role } from "../lib/rbac.js";
 import { omitExcludedInstitutes } from "../lib/excludedInstitutes.js";
-import { validateStudentId } from "../lib/bigquery.js";
 import {
   STUDENT_COOKIE_NAME,
   checkTestStudentLogin,
@@ -23,7 +22,6 @@ import {
   studentCookieMaxAge,
   studentCookieOptions,
   studentIdFromToken,
-  studentKey,
 } from "../lib/testStudents.js";
 
 const router = Router();
@@ -95,20 +93,22 @@ router.post("/logout", (_req, res) => {
 // Test student login: student UUID + password opens that student's report only (no staff session).
 router.post("/student-login", loginLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
-  const { studentId, password } = req.body as { studentId?: string; password?: string };
-  if (!studentId || !password || !validateStudentId.test(studentId.trim())) {
-    res.status(400).json({ error: "Student ID and password required" });
+  const { login, password } = req.body as { login?: string; password?: string };
+  const who = typeof login === "string" ? login.trim() : "";
+  if (!who || who.length > 100 || typeof password !== "string" || !password) {
+    res.status(400).json({ error: "Email or student ID and password required" });
     return;
   }
-  if (!(await checkTestStudentLogin(studentId.trim(), password))) {
-    res.status(401).json({ error: "Invalid student ID or password" });
+  const studentId = await checkTestStudentLogin(who, password);
+  if (!studentId) {
+    res.status(401).json({ error: "Invalid email, student ID or password" });
     return;
   }
-  res.cookie(STUDENT_COOKIE_NAME, signStudentToken(studentId.trim()), {
+  res.cookie(STUDENT_COOKIE_NAME, signStudentToken(studentId), {
     ...studentCookieOptions(process.env.NODE_ENV === "production"),
     maxAge: studentCookieMaxAge,
   });
-  res.json({ studentId: studentKey(studentId) });
+  res.json({ studentId });
 });
 
 router.get("/student-me", (req, res): void => {

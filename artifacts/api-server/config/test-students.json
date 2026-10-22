@@ -2,7 +2,8 @@
   "students": [
     {
       "studentId": "fd977eae-360d-47f6-b86c-2a096c05b51d",
-      "passwordHash": "$2b$10$bC4/hlbTdUB6XFjr654eVe70QXw3mZG.BUF7qtLmXxJirGQPEY/0S",
+      "email": "dummy.student@test.niat",
+      "passwordHash": "$2b$10$gpWVim0p.7TbIbbjO55wzu8/kSrm2awjysQ09T4yx1RNwI8KuqJ8y",
       "expiresAt": "2026-11-05"
     }
   ]

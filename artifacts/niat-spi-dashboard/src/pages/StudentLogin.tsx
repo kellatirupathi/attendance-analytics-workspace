@@ -34,10 +34,12 @@ export default function StudentLogin() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId: id, password }),
+        body: JSON.stringify({ login: id, password }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      setLocation(safeNext && safeNext.startsWith(`/spi/${id}`) ? safeNext : `/spi/${encodeURIComponent(id)}`);
+      // The server says which student this login opens (the login may be an email).
+      const { studentId: opened } = (await res.json()) as { studentId: string };
+      setLocation(`/spi/${encodeURIComponent(opened)}`);
     } catch {
       setFailed(true);
     } finally {
@@ -57,13 +59,13 @@ export default function StudentLogin() {
         {failed && (
           <Alert role="alert" variant="destructive" className="mb-5 border-red-200 bg-red-50 text-red-900 [&>svg]:text-red-600">
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="text-[13px] font-medium">Invalid student ID or password. Please try again.</AlertDescription>
+            <AlertDescription className="text-[13px] font-medium">Invalid email, student ID or password. Please try again.</AlertDescription>
           </Alert>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="studentId" className="text-sm font-medium text-slate-700">Student ID</Label>
+            <Label htmlFor="studentId" className="text-sm font-medium text-slate-700">Email or student ID</Label>
             <Input
               id="studentId"
               autoComplete="username"

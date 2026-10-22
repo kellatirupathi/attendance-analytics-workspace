@@ -4,11 +4,11 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
 /**
- * Test student logins: a student UUID plus a password opens that one student's report.
+ * Test student logins: a student UUID (or the test email given to it) plus a password opens that one student's report.
  * For testing until the Learning Portal SSO passes the UUID in. No database change, and the
  * cookie opens nothing but the report of the student it was issued for.
  *
- * Read from config/test-students.json ({ students: [{ studentId, passwordHash, expiresAt?, note? }] }),
+ * Read from config/test-students.json ({ students: [{ studentId, passwordHash, email?, expiresAt? }] }),
  * or TEST_STUDENTS_PATH. The file is re-read when it changes, so removing a row or passing
  * its expiresAt ends that login at once (the cookie is checked against the file on every request).
  * Ids are matched without hyphens, lower-cased.
@@ -24,6 +24,7 @@ export const studentKey = (id: string) => id.trim().toLowerCase().replace(/-/g, 
 interface TestStudent {
   studentId: string;
   passwordHash: string;
+  email?: string;
   expiresAt?: string;
 }
 
@@ -52,6 +53,7 @@ function loadTestStudents(): Map<string, TestStudent> {
       students.set(studentKey(row.studentId), {
         studentId: row.studentId,
         passwordHash: row.passwordHash,
+        email: typeof row.email === "string" && row.email.trim() ? row.email.trim().toLowerCase() : undefined,
         expiresAt: typeof row.expiresAt === "string" ? row.expiresAt : undefined,
       });
     }
@@ -63,9 +65,18 @@ function loadTestStudents(): Map<string, TestStudent> {
   }
 }
 
+/** The row for a login that is a student id or a test email, if it is in the file. */
+function findTestStudent(login: string): TestStudent | undefined {
+  const students = loadTestStudents();
+  const byId = students.get(studentKey(login));
+  if (byId) return byId;
+  const email = login.trim().toLowerCase();
+  return [...students.values()].find((row) => row.email === email);
+}
+
 /** Active = in the file and not past its expiresAt (end of that day, UTC). */
-function activeTestStudent(studentId: string, now = Date.now()): TestStudent | null {
-  const row = loadTestStudents().get(studentKey(studentId));
+function activeTestStudent(login: string, now = Date.now()): TestStudent | null {
+  const row = findTestStudent(login);
   if (!row) return null;
   if (row.expiresAt) {
     const end = Date.parse(`${row.expiresAt.slice(0, 10)}T23:59:59Z`);
@@ -77,11 +88,11 @@ function activeTestStudent(studentId: string, now = Date.now()): TestStudent | n
 // Compared when the id is unknown, so a wrong id and a wrong password take the same time.
 const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 10);
 
-/** True when the id is an active test student and the password matches. */
-export async function checkTestStudentLogin(studentId: string, password: string): Promise<boolean> {
-  const row = activeTestStudent(studentId);
+/** The student id (no hyphens) when the login is an active test student and the password matches; otherwise null. */
+export async function checkTestStudentLogin(login: string, password: string): Promise<string | null> {
+  const row = activeTestStudent(login);
   const ok = await bcrypt.compare(password, row?.passwordHash ?? DUMMY_HASH);
-  return Boolean(row) && ok;
+  return row && ok ? studentKey(row.studentId) : null;
 }
 
 export function signStudentToken(studentId: string): string {
