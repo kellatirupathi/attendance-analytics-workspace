@@ -1,0 +1,9 @@
+{
+  "description": "Colleges (institutes) removed from the dashboard and the quiz CSV deliverables. Names match the institute name exactly (case-insensitive).",
+  "excludedColleges": [
+    { "name": "Intensive Offline DC", "removedFrom": "Dashboard pages and CSV exports", "note": "Already omitted on every page (src/lib/excludedInstitutes.ts)" },
+    { "name": "Training Institute", "removedFrom": "CSV exports", "note": "Not a college; Program_Ops / Training Institute accounts are not students" },
+    { "name": "Program_Ops", "removedFrom": "CSV exports", "note": "Not a college; internal accounts" },
+    { "name": "Nxtwave & IIT KGP OCN", "removedFrom": "CSV exports (Desktop quiz reports)", "note": "Removed on request, 22 Oct 2026" }
+  ]
+}
