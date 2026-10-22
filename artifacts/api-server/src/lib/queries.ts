@@ -4919,6 +4919,61 @@ export async function getStudentQuizCourseRows(studentId: string): Promise<Stude
   return rows.map(toStudentQuizCourseRow);
 }
 
+const SKILL_ASSESSMENT_TABLE =
+  "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.y_niat_students_topin_assessment_attempt_and_score_details_spi_dashboard`";
+
+/** One Skill Assessment of a student as the assessment data names it (course not yet linked to the report). */
+export interface StudentSkillAssessment {
+  college: string;
+  batch: string;
+  saCourse: string;
+  held: boolean;
+  attempted: boolean;
+  scorePct: number | null;
+}
+
+/**
+ * A student's Skill Assessments (MAIN variant; MOCK is practice). One row per assessment.
+ * Held = attempted, or its window has closed; a missed one counts as 0. An attempt still
+ * waiting for evaluation is left out until it has a score.
+ */
+export async function getStudentSkillAssessments(studentId: string): Promise<StudentSkillAssessment[]> {
+  if (!validateStudentId.test(studentId)) return [];
+  const rows = await bqQuery<{
+    college: string | null;
+    batch: string | null;
+    sa_course: string | null;
+    attempted: string | null;
+    held: string | null;
+    score_pct: string | null;
+  }>(
+    `SELECT
+      TRIM(institute_name) AS college,
+      TRIM(batch_name) AS batch,
+      TRIM(semester_course_name) AS sa_course,
+      CAST(UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED' AS STRING) AS attempted,
+      CAST(
+        (UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED' AND UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED')
+        OR (UPPER(TRIM(IFNULL(attempt_status, ''))) != 'ATTEMPTED' AND IFNULL(assessment_close_at <= CURRENT_DATETIME('Asia/Kolkata'), TRUE))
+      AS STRING) AS held,
+      IF(UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED', score_percentage, NULL) AS score_pct
+    FROM ${SKILL_ASSESSMENT_TABLE}
+    WHERE ${studentIdMatch("student_user_id")}
+      AND UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
+      AND semester_course_name IS NOT NULL`,
+    { studentId: normalizeStudentId(studentId) },
+  );
+  // BigQuery's REST API returns BOOL as the string "true" / "false".
+  return rows.map((r) => ({
+    college: r.college ?? "",
+    batch: r.batch ?? "",
+    saCourse: r.sa_course ?? "",
+    held: r.held === "true",
+    attempted: r.attempted === "true",
+    scorePct: r.score_pct == null ? null : Number(r.score_pct),
+  }));
+}
+
 export interface QuizItem {
   subjectTitle: string;
   title: string;

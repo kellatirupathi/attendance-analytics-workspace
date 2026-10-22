@@ -142,6 +142,28 @@ test("courses in the removed list are left off the report (Intro To NIAT everywh
   assert.deepEqual(elsewhere.courses.map((c) => c.name), ["Universal Human Values", "Back End Development"]);
 });
 
+test("Skill Assessments: a missed one counts as 0, they add 25% to the course score and their own eligibility", () => {
+  const rows = [raw("Back End", "CLASSROOM_QUIZ", 10, 10, 80, "Back End Development")].map(toStudentQuizCourseRow);
+  const sc = buildScorecard(
+    { studentId: "x", studentName: "x" },
+    [{ subjectTitle: "Back End Development", present: 10, total: 10, weight: 4 }],
+    rows,
+    new Set(),
+    [
+      { course: "Back End Development", held: true, attempted: true, scorePct: 90 },
+      { course: "Back End Development", held: true, attempted: false, scorePct: null }, // missed → 0
+      { course: "Back End Development", held: false, attempted: false, scorePct: null }, // still open → not counted
+      { course: "Some Other Course", held: true, attempted: true, scorePct: 100 }, // not on the report → ignored
+    ],
+  );
+  const be = sc.courses[0];
+  assert.deepEqual(be.skillAssessment, { avgPct: 45, attempted: 1, total: 2 });
+  // CQ 80 earns credit; SA 45 is below 50 → 0. (80×10 + 0×25) ÷ 35 = 22.86
+  assert.equal(be.courseScore, 22.86);
+  assert.deepEqual(sc.eligibility.skillAssessment, { state: "not_met", attempted: 1, total: 2 });
+  assert.deepEqual(sc.skillDebt[0].lowParts, [{ kind: "skill", avgPct: 45 }]);
+});
+
 test("a course only planned (no attendance, no quiz held, no instructor) is left off the report", () => {
   const rows = [raw("Web", "CLASSROOM_QUIZ", 10, 5, 60, "Web Aplication Development")].map(toStudentQuizCourseRow);
   const sc = buildScorecard(

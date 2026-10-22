@@ -3,8 +3,9 @@
  * BigQuery imports, so the rules can be tested on their own (spiScorecard.test.ts).
  *
  * - Course score (Skill Track Score) = Classroom × 10% + Module × 15% + Skill × 25% + Final × 50%,
- *   using only the assessment types with data, re-scaled to 100. Skill Assessment and
- *   Final scores are not in the warehouse yet, so today it is (Classroom × 10 + Module × 15) ÷ 25.
+ *   using only the assessment types with data, re-scaled to 100. Final scores are not in the
+ *   warehouse yet. Skill Assessments come from the assessment team's data, linked to report
+ *   courses by hand (config/skill-assessment-course-map.csv).
  * - An assessment type below 50% earns no credit for it (§3.2 note).
  * - Course score → level and points (§3.2); SPI = Σ (points × course weight) ÷ Σ course weights (§3.3).
  *   Course weight = credits (config/course-credits.json). A course with no weight ("Not set") or
@@ -14,7 +15,7 @@
  */
 
 const TARGET_PCT = 80;
-const WEIGHTS = { classroom: 10, module: 15 } as const;
+const WEIGHTS = { classroom: 10, module: 15, skill: 25 } as const;
 
 export type CriterionState = "met" | "not_met" | "not_available";
 export type AttendanceTier = "eligible" | "recovery_eligible" | "at_risk" | "ineligible";
@@ -60,6 +61,16 @@ export function toStudentQuizCourseRow(r: RawQuizCourseRow): StudentQuizCourseRo
   };
 }
 
+/** One Skill Assessment of a student, already linked to its report course (MAIN variant only). */
+export interface SkillAssessmentRow {
+  course: string;
+  /** Counts toward the total: attempted, or not attempted and its window has closed. */
+  held: boolean;
+  attempted: boolean;
+  /** 0–100 when attempted and evaluated; null otherwise. */
+  scorePct: number | null;
+}
+
 export interface QuizPart {
   /** Score (%) over the quizzes held: best-attempt scores ÷ quizzes held, so a missed quiz counts as 0 (§4). */
   avgPct: number;
@@ -80,6 +91,7 @@ export interface ScorecardCourse {
   tier: AttendanceTier | null;
   classroom: QuizPart | null;
   module: QuizPart | null;
+  skillAssessment: QuizPart | null;
   /** Course score out of 100; null when the course has no assessment data yet. */
   courseScore: number | null;
   level: SkillLevel | null;
@@ -96,7 +108,7 @@ export interface SkillDebtCourse {
   courseScore: number;
   level: SkillLevel;
   /** Assessment types scored below 50%, which earn no credit (§3.2 note). */
-  lowParts: { kind: QuizKind; avgPct: number }[];
+  lowParts: { kind: QuizKind | "skill"; avgPct: number }[];
 }
 
 export type NextStep =
@@ -133,7 +145,7 @@ export interface StudentScorecard {
     attendance: CriterionState;
     classroom: { state: CriterionState; attempted: number; total: number };
     module: { state: CriterionState; attempted: number; total: number };
-    skillAssessment: CriterionState;
+    skillAssessment: { state: CriterionState; attempted: number; total: number };
     finalAssessment: CriterionState;
   };
   skillDebt: SkillDebtCourse[];
@@ -228,6 +240,26 @@ export function groupQuizzes(
   return parts;
 }
 
+/** Skill Assessments per report course, scored like quizzes: a missed one counts as 0. */
+export function groupSkillAssessments(rows: SkillAssessmentRow[], courseKeys: Set<string>): Map<string, QuizPart> {
+  const sums = new Map<string, { held: number; attempted: number; score: number }>();
+  for (const row of rows) {
+    const key = courseKey(row.course);
+    if (!courseKeys.has(key) || !row.held) continue;
+    const sum = sums.get(key) ?? { held: 0, attempted: 0, score: 0 };
+    sum.held += 1;
+    if (row.attempted) sum.attempted += 1;
+    sum.score += row.scorePct ?? 0;
+    sums.set(key, sum);
+  }
+  const parts = new Map<string, QuizPart>();
+  for (const [key, sum] of sums) {
+    if (sum.held <= 0) continue;
+    parts.set(key, { avgPct: Math.round((sum.score / sum.held) * 10) / 10, attempted: sum.attempted, total: sum.held });
+  }
+  return parts;
+}
+
 function participation(parts: (QuizPart | null)[]): { state: CriterionState; attempted: number; total: number } {
   const attempted = parts.reduce((sum, p) => sum + (p?.attempted ?? 0), 0);
   const total = parts.reduce((sum, p) => sum + (p?.total ?? 0), 0);
@@ -241,22 +273,25 @@ export function buildScorecard(
   quizRows: StudentQuizCourseRow[],
   /** Plain names of courses removed from the report for this student's campus (config/report-removed-courses.json). */
   removedCourses: ReadonlySet<string> = new Set(),
+  skillRows: SkillAssessmentRow[] = [],
 ): StudentScorecard {
   const named = subjects.filter((s) => namedCourse(s.subjectTitle) && !removedCourses.has(plainName(s.subjectTitle)));
   const keys = new Set(named.map((s) => courseKey(s.subjectTitle)));
   const classroomBy = groupQuizzes(quizRows, "classroom", keys);
   const moduleBy = groupQuizzes(quizRows, "module", keys);
+  const skillBy = groupSkillAssessments(skillRows, keys);
   // A course only planned so far (no attendance, no classroom or module quiz held, no
   // instructor assigned) is left off the report, e.g. NRI's Developer Tools Tab.
   const active = named.filter((s) => {
     const key = courseKey(s.subjectTitle);
-    return !(s.total === 0 && !classroomBy.has(key) && !moduleBy.has(key) && s.hasInstructor === false);
+    return !(s.total === 0 && !classroomBy.has(key) && !moduleBy.has(key) && !skillBy.has(key) && s.hasInstructor === false);
   });
 
   const courses: ScorecardCourse[] = active.map((s) => {
     const key = courseKey(s.subjectTitle);
     const classroom = classroomBy.get(key) ?? null;
     const module = moduleBy.get(key) ?? null;
+    const skillAssessment = skillBy.get(key) ?? null;
 
     let sum = 0;
     let weight = 0;
@@ -267,6 +302,10 @@ export function buildScorecard(
     if (module) {
       sum += credit(module.avgPct) * WEIGHTS.module;
       weight += WEIGHTS.module;
+    }
+    if (skillAssessment) {
+      sum += credit(skillAssessment.avgPct) * WEIGHTS.skill;
+      weight += WEIGHTS.skill;
     }
     const courseScore = weight > 0 ? round2(sum / weight) : null;
     const graded = courseScore == null ? null : levelFor(courseScore);
@@ -287,6 +326,7 @@ export function buildScorecard(
       tier: attendancePct == null ? null : tierFor(attendancePct),
       classroom,
       module,
+      skillAssessment,
       courseScore,
       level: graded?.level ?? null,
       points: graded?.points ?? null,
@@ -314,6 +354,7 @@ export function buildScorecard(
 
   const classroom = participation(courses.map((c) => c.classroom));
   const module = participation(courses.map((c) => c.module));
+  const skillAssessment = participation(courses.map((c) => c.skillAssessment));
 
   const nextSteps: NextStep[] = [];
   for (const c of below) nextSteps.push({ kind: "attend_sessions", course: c.name, sessions: c.sessionsNeeded });
@@ -345,7 +386,7 @@ export function buildScorecard(
       attendance: attendanceState,
       classroom,
       module,
-      skillAssessment: "not_available",
+      skillAssessment,
       finalAssessment: "not_available",
     },
     skillDebt: courses
@@ -358,6 +399,7 @@ export function buildScorecard(
         lowParts: [
           ...(c.classroom && c.classroom.avgPct < 50 ? [{ kind: "classroom" as const, avgPct: c.classroom.avgPct }] : []),
           ...(c.module && c.module.avgPct < 50 ? [{ kind: "module" as const, avgPct: c.module.avgPct }] : []),
+          ...(c.skillAssessment && c.skillAssessment.avgPct < 50 ? [{ kind: "skill" as const, avgPct: c.skillAssessment.avgPct }] : []),
         ],
       })),
     courses,

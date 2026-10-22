@@ -24,6 +24,7 @@ interface ScorecardCourse {
   tier: AttendanceTier | null;
   classroom: QuizPart | null;
   module: QuizPart | null;
+  skillAssessment: QuizPart | null;
   courseScore: number | null;
   level: SkillLevel | null;
   points: number | null;
@@ -36,7 +37,7 @@ interface SkillDebtCourse {
   weight: number | null;
   courseScore: number;
   level: SkillLevel;
-  lowParts: { kind: "classroom" | "module"; avgPct: number }[];
+  lowParts: { kind: "classroom" | "module" | "skill"; avgPct: number }[];
 }
 
 type NextStep =
@@ -70,7 +71,7 @@ export interface StudentScorecard {
     attendance: CriterionState;
     classroom: { state: CriterionState; attempted: number; total: number };
     module: { state: CriterionState; attempted: number; total: number };
-    skillAssessment: CriterionState;
+    skillAssessment: { state: CriterionState; attempted: number; total: number };
     finalAssessment: CriterionState;
   };
   skillDebt: SkillDebtCourse[];
@@ -183,7 +184,7 @@ const spiReady = (data: StudentScorecard) => data.eligibility.finalAssessment !=
 const SPI_PARTS: { label: string; weight: number; on: (d: StudentScorecard) => boolean }[] = [
   { label: "CQ", weight: 10, on: (d) => d.eligibility.classroom.total > 0 },
   { label: "MQ", weight: 15, on: (d) => d.eligibility.module.total > 0 },
-  { label: "SA", weight: 25, on: (d) => d.eligibility.skillAssessment !== "not_available" },
+  { label: "SA", weight: 25, on: (d) => d.eligibility.skillAssessment.total > 0 },
   { label: "FSA", weight: 50, on: (d) => d.eligibility.finalAssessment !== "not_available" },
 ];
 
@@ -252,18 +253,18 @@ function AttendanceCard({ attendance }: { attendance: StudentScorecard["attendan
   );
 }
 
-/** A course needs attention when its classroom or module quiz average so far is below 50% (missed quizzes count as 0). */
+/** A course needs attention when its classroom quiz, module quiz or Skill Assessment average so far is below 50% (missed ones count as 0). */
 const lowPart = (p: QuizPart | null) => p != null && p.avgPct < 50;
-const needsAttention = (c: ScorecardCourse) => lowPart(c.classroom) || lowPart(c.module);
+const needsAttention = (c: ScorecardCourse) => lowPart(c.classroom) || lowPart(c.module) || lowPart(c.skillAssessment);
 
 function NeedsAttentionCard({ data, onOpen }: { data: StudentScorecard; onOpen: () => void }) {
   const attention = data.courses.filter(needsAttention).length;
-  const noQuizzes = data.courses.filter((c) => !c.classroom && !c.module).length;
+  const noQuizzes = data.courses.filter((c) => !c.classroom && !c.module && !c.skillAssessment).length;
   const onTrack = data.courses.length - attention - noQuizzes;
   const segments = [
     { label: "Needs attention", n: attention, color: "#F59E0B" },
     { label: "On track", n: onTrack, color: "#22C55E" },
-    { label: "No quizzes yet", n: noQuizzes, color: "#CBD5E1" },
+    { label: "No scores yet", n: noQuizzes, color: "#CBD5E1" },
   ];
   return (
     <Card className={attention ? "!border-[#F8DFB0] bg-gradient-to-b from-[#FFFBF2] to-[#FFF4DE]" : "!border-[#BBF7D0] !bg-[#F0FDF4]"}>
@@ -271,7 +272,7 @@ function NeedsAttentionCard({ data, onOpen }: { data: StudentScorecard; onOpen: 
       <p className={`mt-3 text-[34px] font-extrabold leading-none tabular-nums ${attention ? "text-[#D97706]" : "text-[#16A34A]"}`}>
         {attention ? `${attention} of ${data.courses.length} ${data.courses.length === 1 ? "course" : "courses"}` : "None"}
       </p>
-      <p className="mt-1.5 text-xs text-[#6B7280]">{attention ? "quiz average below 50% so far" : "All quiz averages are 50% or more"}</p>
+      <p className="mt-1.5 text-xs text-[#6B7280]">{attention ? "average below 50% so far" : "All averages are 50% or more"}</p>
       {data.courses.length > 0 && (
         <>
           <div className="mt-4 flex h-3 gap-[3px] overflow-hidden rounded-full">
@@ -356,10 +357,10 @@ function NeedsAttentionDialog({ data, onClose }: { data: StudentScorecard; onClo
         </div>
         <div className="px-[22px] pb-[22px] pt-[18px]">
           <div className="overflow-x-auto rounded-[10px] border border-[#E6ECF5]">
-            <table className="w-full min-w-[620px] border-collapse text-[12.5px] tabular-nums">
+            <table className="w-full min-w-[720px] border-collapse text-[12.5px] tabular-nums">
               <thead>
                 <tr className="bg-[#EAF1FF] text-left text-[11.5px] text-[#0B1F4D]">
-                  {["Course", "Classroom Quizzes", "Module Quizzes", "What to do"].map((h) => (
+                  {["Course", "Classroom Quizzes", "Module Quizzes", "Skill Assessments", "What to do"].map((h) => (
                     <th key={h} className="px-3 py-[9px] font-semibold">{h}</th>
                   ))}
                 </tr>
@@ -370,6 +371,7 @@ function NeedsAttentionDialog({ data, onClose }: { data: StudentScorecard; onClo
                     <td className="px-3 py-2.5 font-medium text-[#0B1F4D]">{c.name}</td>
                     <td className="px-3 py-2.5">{part(c.classroom)}</td>
                     <td className="px-3 py-2.5">{part(c.module)}</td>
+                    <td className="px-3 py-2.5">{part(c.skillAssessment)}</td>
                     <td className="px-3 py-2.5">{toDo(c)}</td>
                   </tr>
                 ))}
@@ -401,7 +403,7 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
     ["Attendance ≥ 80% per course", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} below` : e.attendance === "met" ? "Met" : "—"],
     ["Classroom Quizzes · 100%", e.classroom.state, share(e.classroom)],
     ["Module Quizzes · 100%", e.module.state, share(e.module)],
-    ["Skill Assessments · 100%", e.skillAssessment, e.skillAssessment === "not_available" ? "Unavailable" : e.skillAssessment === "met" ? "Met" : "Not met"],
+    ["Skill Assessments · 100%", e.skillAssessment.state, e.skillAssessment.total > 0 ? share(e.skillAssessment) : "Unavailable"],
     ["Final Skill Assessment", e.finalAssessment, e.finalAssessment === "not_available" ? "Upcoming" : e.finalAssessment === "met" ? "Met" : "Not met"],
   ];
   return (
@@ -484,7 +486,7 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
                   </td>
                   <td className={`${td} ${sep}`}><QuizCell part={c.classroom} /></td>
                   <td className={td}><QuizCell part={c.module} /></td>
-                  <td className={td}><Chip tone="grey">Unavailable</Chip></td>
+                  <td className={td}>{c.skillAssessment ? <QuizCell part={c.skillAssessment} /> : <Chip tone="grey">Unavailable</Chip>}</td>
                   <td className={td}><Chip tone="grey">Upcoming</Chip></td>
                   <td className={`${td} ${sep}`}>
                     {c.weight == null ? (

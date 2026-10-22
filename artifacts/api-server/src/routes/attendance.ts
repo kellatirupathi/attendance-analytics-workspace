@@ -22,6 +22,7 @@ import { assertStudentAccess } from "../lib/studentAccess.js";
 import { getStudentScorecard } from "../lib/spiScorecard.js";
 import { getCourseCredits } from "../lib/courseCredits.js";
 import { reportRemovedCoursesVersion } from "../lib/reportRemovedCourses.js";
+import { skillAssessmentMapVersion } from "../lib/skillAssessmentMap.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -393,7 +394,7 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const cacheKey = `scorecard:v6:${courseAttendanceConfigVersion()}:${getCourseCredits().version}:${reportRemovedCoursesVersion()}:${studentId}`;
+    const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${getCourseCredits().version}:${reportRemovedCoursesVersion()}:${skillAssessmentMapVersion()}:${studentId}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
