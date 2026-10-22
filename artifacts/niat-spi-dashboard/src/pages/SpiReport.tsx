@@ -5,9 +5,13 @@ import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import StudentReportView, { type StudentScorecard } from "@/pages/StudentReportView";
+import SpiQuiz from "@/pages/SpiQuiz";
 
 class ScorecardError extends Error {
-  constructor(public status: number) {
+  constructor(
+    public status: number,
+    public code?: string,
+  ) {
     super(`Scorecard request failed (${status})`);
   }
 }
@@ -17,7 +21,10 @@ async function fetchScorecard(studentId: string, token: string | undefined): Pro
   const res = await fetch(`/api/attendance/students/${encodeURIComponent(studentId)}/scorecard${qs}`, {
     credentials: "include",
   });
-  if (!res.ok) throw new ScorecardError(res.status);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new ScorecardError(res.status, body?.error);
+  }
   return (await res.json()) as StudentScorecard;
 }
 
@@ -40,6 +47,11 @@ export default function SpiReport() {
   useEffect(() => {
     if (needsLogin) setLocation(`/student-login?next=${encodeURIComponent(`/spi/${studentId}`)}`);
   }, [needsLogin, studentId, setLocation]);
+
+  // A student login opens the report only after the SPI quick quiz; finishing it unlocks the report.
+  if (error instanceof ScorecardError && error.status === 403 && error.code === "quiz_required") {
+    return <SpiQuiz onDone={() => void refetch()} />;
+  }
 
   if (isLoading) {
     return (

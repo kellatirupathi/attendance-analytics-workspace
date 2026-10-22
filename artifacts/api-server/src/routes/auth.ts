@@ -15,6 +15,7 @@ import {
 import { verifyGoogleIdToken } from "../lib/googleAuth.js";
 import type { Role } from "../lib/rbac.js";
 import { omitExcludedInstitutes } from "../lib/excludedInstitutes.js";
+import { QUIZ_COOKIE_NAME } from "../lib/spiQuiz.js";
 import {
   STUDENT_COOKIE_NAME,
   checkTestStudentLogin,
@@ -87,6 +88,7 @@ router.post("/logout", (_req, res) => {
   res.set("Cache-Control", "no-store");
   clearSessionCookie(res);
   res.clearCookie(STUDENT_COOKIE_NAME, studentCookieOptions(process.env.NODE_ENV === "production"));
+  res.clearCookie(QUIZ_COOKIE_NAME, studentCookieOptions(process.env.NODE_ENV === "production"));
   res.json({ ok: true });
 });
 
