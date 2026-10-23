@@ -10,7 +10,8 @@
   "scripts": {
     "prepare:recovery-progress": "node ./scripts/prepare-recovery-progress.mjs",
     "push": "pnpm run prepare:recovery-progress && drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "pnpm run prepare:recovery-progress && drizzle-kit push --force --config ./drizzle.config.ts"
+    "push-force": "pnpm run prepare:recovery-progress && drizzle-kit push --force --config ./drizzle.config.ts",
+    "seed:course-credits": "node ./scripts/seed-course-credits.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
