@@ -131,10 +131,9 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
   if (!started) {
     return shell(
       <div className="text-center">
-        <h1 className="mb-2 text-xl font-bold text-slate-900">Please complete this quiz to unlock your SPI</h1>
+        <h1 className="mb-2 text-xl font-bold text-slate-900">Please complete this quiz to unlock your SPI Score Card</h1>
         <p className="mb-6 text-sm leading-relaxed text-slate-600">
-          It has {questions.length} short questions about how SPI works. You will see the right answer and a short
-          explanation after each question. When you finish, your report opens.
+          It has {questions.length} short questions about how SPI works. When you finish, your report opens.
         </p>
         <button
           type="button"

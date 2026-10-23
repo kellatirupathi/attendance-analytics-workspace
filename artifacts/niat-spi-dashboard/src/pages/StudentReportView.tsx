@@ -181,11 +181,13 @@ function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
 /** The SPI needs the full Skill Track Score (CQ, MQ, SA, FSA). Until the Final Skill Assessment is in, it is in progress. */
 const spiReady = (data: StudentScorecard) => data.eligibility.finalAssessment !== "not_available" && data.spi != null;
 
-const SPI_PARTS: { label: string; weight: number; on: (d: StudentScorecard) => boolean }[] = [
-  { label: "CQ", weight: 10, on: (d) => d.eligibility.classroom.total > 0 },
-  { label: "MQ", weight: 15, on: (d) => d.eligibility.module.total > 0 },
-  { label: "SA", weight: 25, on: (d) => d.eligibility.skillAssessment.total > 0 },
-  { label: "FSA", weight: 50, on: (d) => d.eligibility.finalAssessment !== "not_available" },
+/** Each part is filled by the share attempted so far (attempted ÷ held), so an empty part means nothing attempted yet. */
+const attemptedShare = (p: { attempted: number; total: number }) => (p.total > 0 ? Math.min(1, p.attempted / p.total) : 0);
+const SPI_PARTS: { label: string; weight: number; fill: (d: StudentScorecard) => number }[] = [
+  { label: "CQ", weight: 10, fill: (d) => attemptedShare(d.eligibility.classroom) },
+  { label: "MQ", weight: 15, fill: (d) => attemptedShare(d.eligibility.module) },
+  { label: "SA", weight: 25, fill: (d) => attemptedShare(d.eligibility.skillAssessment) },
+  { label: "FSA", weight: 50, fill: (d) => (d.eligibility.finalAssessment === "met" ? 1 : 0) },
 ];
 
 function SpiCard({ data }: { data: StudentScorecard }) {
@@ -216,11 +218,13 @@ function SpiCard({ data }: { data: StudentScorecard }) {
           <p className="mt-1.5 text-xs text-[#6B7280]">Calculated once all assessment types are complete</p>
           <div className="mt-[22px] flex gap-1">
             {SPI_PARTS.map((p) => {
-              const on = p.on(data);
+              const share = p.fill(data);
               return (
-                <div key={p.label} className="grid min-w-0 gap-1.5" style={{ flex: p.weight }}>
-                  <i className={`block h-3 rounded-full ${on ? "bg-gradient-to-r from-[#2563EB] to-[#60A5FA]" : "bg-[#E2E8F0]"}`} />
-                  <span className={`text-center text-[11px] font-semibold ${on ? "text-[#2563EB]" : "text-[#94A3B8]"}`}>{p.label}</span>
+                <div key={p.label} className="grid min-w-0 gap-1.5" style={{ flex: p.weight }} title={`${p.label}: ${Math.round(share * 100)}% attempted`}>
+                  <i className="block h-3 overflow-hidden rounded-full bg-[#E2E8F0]">
+                    <i className="block h-full rounded-full bg-gradient-to-r from-[#2563EB] to-[#60A5FA]" style={{ width: `${share * 100}%` }} />
+                  </i>
+                  <span className={`text-center text-[11px] font-semibold ${share > 0 ? "text-[#2563EB]" : "text-[#94A3B8]"}`}>{p.label}</span>
                 </div>
               );
             })}
@@ -400,10 +404,10 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
   const e = data.eligibility;
   const share = (p: { attempted: number; total: number }) => (p.total > 0 ? `${Math.round((p.attempted / p.total) * 100)}%` : "—");
   const rows: [string, CriterionState, string][] = [
-    ["Attendance ≥ 80% per course", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} below` : e.attendance === "met" ? "Met" : "—"],
-    ["Classroom Quizzes · 100%", e.classroom.state, share(e.classroom)],
-    ["Module Quizzes · 100%", e.module.state, share(e.module)],
-    ["Skill Assessments · 100%", e.skillAssessment.state, e.skillAssessment.total > 0 ? share(e.skillAssessment) : "Unavailable"],
+    ["Attendance · need 80%", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} courses below` : e.attendance === "met" ? "Met" : "—"],
+    ["Classroom Quizzes · need 100%", e.classroom.state, e.classroom.total > 0 ? `${share(e.classroom)} attempted` : "—"],
+    ["Module Quizzes · need 100%", e.module.state, e.module.total > 0 ? `${share(e.module)} attempted` : "—"],
+    ["Skill Assessments · need 100%", e.skillAssessment.state, e.skillAssessment.total > 0 ? `${share(e.skillAssessment)} attempted` : "Unavailable"],
     ["Final Skill Assessment", e.finalAssessment, e.finalAssessment === "not_available" ? "Upcoming" : e.finalAssessment === "met" ? "Met" : "Not met"],
   ];
   return (
