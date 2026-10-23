@@ -55,3 +55,8 @@ export function excludeInstituteSql(column = "institute_name"): string {
     .join(", ");
   return `LOWER(TRIM(IFNULL(${column}, ''))) NOT IN (${list})`;
 }
+
+/** The excluded campus names, lower-cased, for queries outside BigQuery. */
+export function excludedInstituteNames(): string[] {
+  return [...excludedNames()];
+}

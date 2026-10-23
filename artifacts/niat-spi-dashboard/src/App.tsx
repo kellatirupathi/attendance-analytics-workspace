@@ -31,6 +31,7 @@ const SubjectAttendanceStudents = lazy(
 );
 const CampusWiseStats = lazy(() => import("@/pages/CampusWiseStats"));
 const Assessments = lazy(() => import("@/pages/Assessments"));
+const SpiQuizAnalytics = lazy(() => import("@/pages/SpiQuizAnalytics"));
 const SubjectSessions = lazy(() => import("@/pages/SubjectSessions"));
 // Recovery is switched off for now (commented out, not deleted).
 // const Recovery = lazy(() => import("@/pages/Recovery"));
@@ -157,6 +158,11 @@ function Router() {
         <Route path="/dashboard/spi-record">
           <Protected>
             <SpiRecordDashboard />
+          </Protected>
+        </Route>
+        <Route path="/dashboard/spi-quiz">
+          <Protected>
+            <SpiQuizAnalytics />
           </Protected>
         </Route>
         <Route path="/dashboard/assessments/students">

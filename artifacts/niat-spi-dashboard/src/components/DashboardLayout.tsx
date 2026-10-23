@@ -30,6 +30,7 @@ import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { FEATURES } from "@/lib/featureFlags";
 
 const REQUEST_ROLES = ["superadmin", "admin", "boa", "hod"];
+const QUIZ_ANALYTICS_ROLES = ["superadmin", "admin", "hod", "capability_manager"];
 
 interface NavItem {
   label: string;
@@ -43,6 +44,7 @@ const mainNav: NavItem[] = [
   { label: "Student Attendance Stats", href: "/dashboard/attendance-stats", icon: BarChart3 },
   { label: "SPI Record Dashboard", href: "/dashboard/spi-record", icon: FileBarChart2 },
   { label: "Assessments", href: "/dashboard/assessments", icon: BookOpenCheck },
+  { label: "SPI Quiz", href: "/dashboard/spi-quiz", icon: ClipboardCheck },
   { label: "Campus Analytics", href: "/dashboard/campuses", icon: MapPin },
   // { label: "Recovery", href: "/dashboard/recovery", icon: AlertTriangle }, // Recovery is switched off for now
 ];
@@ -225,8 +227,9 @@ function SidebarInner({
   const unread = useUnreadNotificationCount(canRequests);
   const visibleMainNav = mainNav.filter(
     (item) =>
-      item.href !== "/dashboard/campuses" ||
-      (FEATURES.campusAnalytics && user?.role !== "boa"),
+      (item.href !== "/dashboard/campuses" ||
+        (FEATURES.campusAnalytics && user?.role !== "boa")) &&
+      (item.href !== "/dashboard/spi-quiz" || QUIZ_ANALYTICS_ROLES.includes(user?.role ?? "")),
   );
   const instructorNav: NavItem[] = [
     // { label: "Report recovery", href: "/instructor", icon: ClipboardCheck }, // Recovery is switched off for now

@@ -5938,3 +5938,101 @@ export async function getAssessmentSummary(
     },
   };
 }
+
+/* ------------------------------------------------------------------ */
+/*  SPI quiz analytics: the student base the quiz numbers are out of   */
+/* ------------------------------------------------------------------ */
+
+export interface QuizRosterFilters {
+  college?: string;
+  semester?: string;
+  section?: string;
+}
+
+export interface QuizRosterOption {
+  college: string;
+  semester: string;
+  section: string;
+}
+
+/** Current-semester college × semester × section choices for the quiz analytics filters. */
+export async function getQuizRosterOptions(scope: SessionScope): Promise<QuizRosterOption[]> {
+  const params: Record<string, unknown> = {};
+  const where = scopeClause({ campuses: scope.campuses }, params);
+  const key = `quizRosterOptions:${getAttendanceExclusions().version}:${JSON.stringify(scope.campuses ?? [])}`;
+  const hit = cacheGet<QuizRosterOption[]>(key);
+  if (hit) return hit;
+  const rows = await bqQuery<{ college: string; semester: string; section: string }>(
+    `SELECT DISTINCT TRIM(institute_name) AS college, TRIM(CAST(semester_title AS STRING)) AS semester, TRIM(batch_section_name) AS section
+     FROM ${attendanceSource()}
+     WHERE ${where} AND institute_name IS NOT NULL AND semester_title IS NOT NULL AND batch_section_name IS NOT NULL
+     ORDER BY college, semester, section`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  cacheSet(key, rows, 30 * 60 * 1000);
+  return rows;
+}
+
+/**
+ * Current-semester students (eligible, one campus each) for the quiz analytics: the total and
+ * one count per college, or per section when a college is chosen. Counted in SQL, cached 30 min.
+ */
+export async function getQuizRosterCounts(
+  scope: SessionScope,
+  filters: QuizRosterFilters,
+): Promise<{ total: number; groups: { name: string; students: number }[] }> {
+  const params: Record<string, unknown> = {};
+  const clauses = [scopeClause({ campuses: scope.campuses }, params)];
+  if (filters.college) {
+    clauses.push("TRIM(institute_name) = @college");
+    params["college"] = filters.college;
+  }
+  if (filters.semester) {
+    clauses.push("TRIM(CAST(semester_title AS STRING)) = @semesterTitle");
+    params["semesterTitle"] = filters.semester;
+  }
+  if (filters.section) {
+    clauses.push("TRIM(batch_section_name) = @section");
+    params["section"] = filters.section;
+  }
+  const groupColumn = filters.college ? "TRIM(batch_section_name)" : "TRIM(institute_name)";
+  const key = `quizRosterCounts:${getAttendanceExclusions().version}:${JSON.stringify([scope.campuses ?? [], filters])}`;
+  const hit = cacheGet<{ total: number; groups: { name: string; students: number }[] }>(key);
+  if (hit) return hit;
+  const rows = await bqQuery<{ grp: string | null; students: string }>(
+    `WITH base AS (
+       SELECT DISTINCT LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key, ${groupColumn} AS grp
+       FROM ${attendanceSource()}
+       WHERE ${clauses.join(" AND ")}
+     )
+     SELECT CAST(NULL AS STRING) AS grp, COUNT(DISTINCT student_key) AS students FROM base
+     UNION ALL
+     SELECT grp, COUNT(DISTINCT student_key) AS students FROM base WHERE grp IS NOT NULL GROUP BY grp`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  const result = {
+    total: Number(rows.find((row) => row.grp == null)?.students ?? 0),
+    groups: rows.filter((row) => row.grp != null).map((row) => ({ name: row.grp!, students: Number(row.students) })),
+  };
+  cacheSet(key, result, 30 * 60 * 1000);
+  return result;
+}
+
+/** Student names by student key (lower-case id without hyphens), from the attendance table. */
+export async function getStudentNames(keys: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (keys.length === 0) return names;
+  const rows = await bqQuery<{ student_key: string; name: string | null }>(
+    `SELECT LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key, MAX(TRIM(student_name)) AS name
+     FROM ${RAW_ATTENDANCE_TABLE}
+     WHERE is_current_semester = 1 AND LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) IN UNNEST(@keys)
+     GROUP BY student_key`,
+    { keys },
+  );
+  for (const row of rows) if (row.name) names.set(row.student_key, row.name);
+  return names;
+}

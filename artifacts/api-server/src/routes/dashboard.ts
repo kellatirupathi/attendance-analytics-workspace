@@ -89,6 +89,8 @@ import {
   type SortKey,
 } from "../lib/studentDirectory.js";
 import type { Role } from "../lib/rbac.js";
+import { getQuizAnalytics } from "../lib/quizAnalytics.js";
+import { getQuizRosterOptions } from "../lib/queries.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 
 const router = Router();
@@ -551,6 +553,66 @@ router.get("/student-directory", requireSession(), async (req, res): Promise<voi
     if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: "Failed to load students" });
     }
+  }
+});
+
+/** Roles that see the SPI quiz analytics (not BOA or instructors). */
+const QUIZ_ANALYTICS_ROLES = new Set<Role>(["superadmin", "admin", "hod", "capability_manager"]);
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Filter choices for SPI quiz analytics: current-semester college × semester × section. */
+router.get("/spi-quiz/options", async (req, res): Promise<void> => {
+  const session = req.session!;
+  if (!QUIZ_ANALYTICS_ROLES.has(session.role as Role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const scope = scopeForSession({ role: session.role as Role, campuses: session.campuses, subjects: session.subjects });
+  try {
+    res.json({ options: await getQuizRosterOptions(scope) });
+  } catch (err) {
+    req.log.error({ err }, "Error fetching SPI quiz options");
+    res.status(500).json({ error: "Failed to load filters" });
+  }
+});
+
+/**
+ * SPI quiz analytics: funnel, college/section-wise, score spread, question-wise and one page of
+ * students. `export=1` returns every student row for CSV.
+ */
+router.get("/spi-quiz", async (req, res): Promise<void> => {
+  const session = req.session!;
+  if (!QUIZ_ANALYTICS_ROLES.has(session.role as Role)) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  const scope = scopeForSession({ role: session.role as Role, campuses: session.campuses, subjects: session.subjects });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const college = firstQuery(q, "college");
+  if (college && scope.campuses?.length && !scope.campuses.includes(college)) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const from = firstQuery(q, "from");
+  const to = firstQuery(q, "to");
+  try {
+    const data = await getQuizAnalytics(
+      scope,
+      {
+        college: college || undefined,
+        semester: firstQuery(q, "semester") || undefined,
+        section: (college && firstQuery(q, "section")) || undefined,
+        from: ISO_DAY.test(from) ? from : undefined,
+        to: ISO_DAY.test(to) ? to : undefined,
+        includeTest: firstQuery(q, "test") === "1",
+      },
+      readPageRequest(q),
+    );
+    res.set("Cache-Control", "no-store");
+    res.json(data);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching SPI quiz analytics");
+    if (!res.headersSent) res.status(500).json({ error: "Failed to load quiz analytics" });
   }
 });
 
