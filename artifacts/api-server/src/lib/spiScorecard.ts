@@ -1,4 +1,4 @@
-import { courseWeight } from "./courseCredits.js";
+import { courseWeight, getCourseCredits } from "./courseCredits.js";
 import { getStudentOverview, getStudentQuizCourseRows, getStudentSkillAssessments, getStudentSubjects } from "./queries.js";
 import { removedCoursesFor } from "./reportRemovedCourses.js";
 import { reportCourseFor } from "./skillAssessmentMap.js";
@@ -8,14 +8,15 @@ export type { StudentScorecard } from "./spiScorecardRules.js";
 
 /** The student SPI scorecard: loads the data, then applies the rules in spiScorecardRules.ts. */
 export async function getStudentScorecard(studentId: string): Promise<StudentScorecard | null> {
-  const [overview, subjects, quizRows, skillAssessments] = await Promise.all([
+  const [overview, subjects, quizRows, skillAssessments, credits] = await Promise.all([
     getStudentOverview(studentId),
     getStudentSubjects(studentId),
     getStudentQuizCourseRows(studentId),
     getStudentSkillAssessments(studentId),
+    getCourseCredits(),
   ]);
   if (!overview) return null;
-  const weighted = subjects.map((subject) => ({ ...subject, weight: courseWeight(subject.courseIds ?? []) }));
+  const weighted = subjects.map((subject) => ({ ...subject, weight: courseWeight(credits, subject.courseIds ?? []) }));
   // Skill Assessments carry the assessment team's course codes; config/skill-assessment-course-map.csv
   // links them to report courses. Unmapped ones stay off the report until the map has them.
   const skillRows: SkillAssessmentRow[] = skillAssessments.flatMap((sa) => {

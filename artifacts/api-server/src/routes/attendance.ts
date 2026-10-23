@@ -409,7 +409,7 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${getCourseCredits().version}:${reportRemovedCoursesVersion()}:${skillAssessmentMapVersion()}:${studentId}`;
+    const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${(await getCourseCredits()).version}:${reportRemovedCoursesVersion()}:${skillAssessmentMapVersion()}:${studentId}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);
