@@ -10,6 +10,7 @@ import {
   signQuizDone,
 } from "../lib/spiQuiz.js";
 import { STUDENT_COOKIE_NAME, studentCookieOptions, studentIdFromToken } from "../lib/testStudents.js";
+import { quizFinished, recordAnswer, recordFinished, recordOpened, recordStarted } from "../lib/quizTracking.js";
 
 const router = Router();
 
@@ -30,10 +31,14 @@ router.get("/spi", quizLimiter, async (req, res): Promise<void> => {
     res.status(401).json({ error: "Login required" });
     return;
   }
-  res.json({
-    done: who.student ? quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, who.student) : false,
-    questions: await publicQuestions(),
-  });
+  // A student reaching the gate counts as "opened" (saved once). Done = finished in the database
+  // (any device), or the done cookie from before tracking existed.
+  let done = false;
+  if (who.student) {
+    await recordOpened(who.student);
+    done = quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, who.student) || (await quizFinished(who.student));
+  }
+  res.json({ done, questions: await publicQuestions() });
 });
 
 router.post("/spi/answer", quizLimiter, async (req, res): Promise<void> => {
@@ -43,13 +48,28 @@ router.post("/spi/answer", quizLimiter, async (req, res): Promise<void> => {
     res.status(401).json({ error: "Login required" });
     return;
   }
-  const { questionId, option } = req.body as { questionId?: string; option?: string };
+  const { questionId, option, position } = req.body as { questionId?: string; option?: string; position?: number };
   const result = typeof questionId === "string" && typeof option === "string" ? await checkQuizAnswer(questionId, option) : null;
   if (!result) {
     res.status(400).json({ error: "Unknown question or option" });
     return;
   }
+  if (who.student) {
+    const pos = Number.isInteger(position) && (position as number) > 0 && (position as number) <= 100 ? (position as number) : null;
+    await recordAnswer(who.student, { questionId: questionId as string, option: option as string, correct: result.correct, position: pos });
+  }
   res.json(result);
+});
+
+router.post("/spi/start", quizLimiter, async (req, res): Promise<void> => {
+  res.set("Cache-Control", "no-store");
+  const who = await whoIsAsking(req);
+  if (!who.student && !who.staff) {
+    res.status(401).json({ error: "Login required" });
+    return;
+  }
+  if (who.student) await recordStarted(who.student);
+  res.json({ started: true });
 });
 
 router.post("/spi/complete", quizLimiter, async (req, res): Promise<void> => {
@@ -61,6 +81,7 @@ router.post("/spi/complete", quizLimiter, async (req, res): Promise<void> => {
   }
   // Staff may preview the quiz; only a student login is marked as done.
   if (who.student) {
+    await recordFinished(who.student, (await publicQuestions()).length);
     res.cookie(QUIZ_COOKIE_NAME, signQuizDone(who.student), {
       ...studentCookieOptions(process.env.NODE_ENV === "production"),
       maxAge: quizCookieMaxAge,

@@ -70,7 +70,7 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
     try {
       const result = await api<Feedback>("/spi/answer", {
         method: "POST",
-        body: JSON.stringify({ questionId: question.id, option: key }),
+        body: JSON.stringify({ questionId: question.id, option: key, position: index + 1 }),
       });
       setFeedback(result);
       if (result.correct) setCorrectCount((n) => n + 1);
@@ -137,7 +137,11 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
         </p>
         <button
           type="button"
-          onClick={() => setStarted(true)}
+          onClick={() => {
+            setStarted(true);
+            // Saved for the quiz analytics; the quiz goes on even if this call fails.
+            void api("/spi/start", { method: "POST", body: "{}" }).catch(() => {});
+          }}
           className="min-h-11 rounded-xl bg-[#2563EB] px-6 text-sm font-semibold text-white hover:bg-[#1D4ED8]"
         >
           Start quiz

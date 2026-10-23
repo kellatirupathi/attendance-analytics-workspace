@@ -4919,6 +4919,18 @@ export async function getStudentQuizCourseRows(studentId: string): Promise<Stude
   return rows.map(toStudentQuizCourseRow);
 }
 
+/** The student's current batch and semester (current-semester attendance rows); nulls when none. */
+export async function getStudentPlacement(studentId: string): Promise<{ batch: string | null; semester: string | null }> {
+  if (!validateStudentId.test(studentId)) return { batch: null, semester: null };
+  const [row] = await bqQuery<{ batch: string | null; semester: string | null }>(
+    `SELECT ANY_VALUE(TRIM(batch_name)) AS batch, ANY_VALUE(TRIM(semester_title)) AS semester
+    FROM ${RAW_ATTENDANCE_TABLE}
+    WHERE ${studentIdMatch("student_user_id")} AND is_current_semester = 1`,
+    { studentId: normalizeStudentId(studentId) },
+  );
+  return { batch: row?.batch ?? null, semester: row?.semester ?? null };
+}
+
 const SKILL_ASSESSMENT_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.y_niat_students_topin_assessment_attempt_and_score_details_spi_dashboard`";
 

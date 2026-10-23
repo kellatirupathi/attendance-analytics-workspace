@@ -21,6 +21,7 @@ import { cacheGet, cacheSet } from "../lib/cache.js";
 import { assertStudentAccess } from "../lib/studentAccess.js";
 import { STUDENT_COOKIE_NAME, studentIdFromToken, studentKey } from "../lib/testStudents.js";
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
+import { quizFinished } from "../lib/quizTracking.js";
 import { getStudentScorecard } from "../lib/spiScorecard.js";
 import { getCourseCredits } from "../lib/courseCredits.js";
 import { getRemovedCourses } from "../lib/reportRemovedCourses.js";
@@ -401,7 +402,7 @@ router.get(
         return;
       }
       // A student sees the report only after the SPI quick quiz (spiQuiz.ts); staff are not gated.
-      if (!quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, ownStudent)) {
+      if (!quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, ownStudent) && !(await quizFinished(ownStudent))) {
         res.status(403).json({ error: "quiz_required" });
         return;
       }

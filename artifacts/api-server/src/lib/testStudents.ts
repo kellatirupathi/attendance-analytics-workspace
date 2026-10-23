@@ -72,6 +72,11 @@ async function loadTestStudents(): Promise<Map<string, TestStudent>> {
   return (await fromDb()).value;
 }
 
+/** True when this student id is one of the test logins (their quiz attempts are marked as test). */
+export async function isTestStudent(studentId: string): Promise<boolean> {
+  return (await loadTestStudents()).has(studentKey(studentId));
+}
+
 /** The row for a login that is a student id or a test email, if it is in the list. */
 async function findTestStudent(login: string): Promise<TestStudent | undefined> {
   const students = await loadTestStudents();
