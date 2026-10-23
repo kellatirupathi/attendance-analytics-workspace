@@ -404,11 +404,11 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
   const e = data.eligibility;
   const share = (p: { attempted: number; total: number }) => (p.total > 0 ? `${Math.round((p.attempted / p.total) * 100)}%` : "—");
   const rows: [string, CriterionState, string][] = [
-    ["Attendance · need 80%", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} courses below` : e.attendance === "met" ? "Met" : "—"],
-    ["Classroom Quizzes · need 100%", e.classroom.state, e.classroom.total > 0 ? `${share(e.classroom)} attempted` : "—"],
-    ["Module Quizzes · need 100%", e.module.state, e.module.total > 0 ? `${share(e.module)} attempted` : "—"],
-    ["Skill Assessments · need 100%", e.skillAssessment.state, e.skillAssessment.total > 0 ? `${share(e.skillAssessment)} attempted` : "Unavailable"],
-    ["Final Skill Assessment", e.finalAssessment, e.finalAssessment === "not_available" ? "Upcoming" : e.finalAssessment === "met" ? "Met" : "Not met"],
+    ["Attendance · 80% per course", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} courses below` : e.attendance === "met" ? "Met" : "—"],
+    ["Classroom Quizzes · 100% completion", e.classroom.state, e.classroom.total > 0 ? `${share(e.classroom)} completed` : "—"],
+    ["Module Quizzes · 100% completion", e.module.state, e.module.total > 0 ? `${share(e.module)} completed` : "—"],
+    ["Skill Assessments · 100% completion", e.skillAssessment.state, e.skillAssessment.total > 0 ? `${share(e.skillAssessment)} completed` : "Unavailable"],
+    ["Final Skill Assessment · mandatory", e.finalAssessment, e.finalAssessment === "not_available" ? "Upcoming" : e.finalAssessment === "met" ? "Met" : "Not met"],
   ];
   return (
     <Card>
