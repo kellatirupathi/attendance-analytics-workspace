@@ -417,7 +417,11 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
         {rows.map(([title, state, value]) => (
           <li key={title} className="grid grid-cols-[26px_1fr] items-center gap-x-2.5 gap-y-1 rounded-xl border border-[#E6ECF5] px-[13px] py-[11px]">
             <StateDot state={state} />
-            <span className="text-xs">{title}</span>
+            {/* Name on one line, the requirement on the next, so every box breaks the same way. */}
+            <span className="text-xs leading-snug">
+              {title.split(" · ")[0]}
+              <span className="block text-[#6B7280]">{title.split(" · ")[1]}</span>
+            </span>
             <b className="text-[15px] font-bold text-[#0B1F4D]">{value}</b>
           </li>
         ))}
