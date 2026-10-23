@@ -1,0 +1,74 @@
+{
+ "rows": [
+  {
+   "student_id": "fd977eae-360d-47f6-b86c-2a096c05b51d",
+   "email": "dummy.student@test.niat",
+   "password_hash": "$2b$10$gpWVim0p.7TbIbbjO55wzu8/kSrm2awjysQ09T4yx1RNwI8KuqJ8y",
+   "college": null,
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "637ad065-8b45-41fa-bab4-441c4d4e5c02",
+   "email": "dummy1.student@test.niat",
+   "password_hash": "$2b$10$01ubPKC6S9eSmDS72GFPA.4eC7PvaXE2d/cFEM./nvXgLOwCsVcGK",
+   "college": "NRI",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "31be27a1-544d-43d2-adc5-2ea80793c299",
+   "email": "dummy2.student@test.niat",
+   "password_hash": "$2b$10$SsnAwklt3b.wrnWip6zawOAWDPptLXrtZutKxf221Z9XQn6TEawj6",
+   "college": "Annamacharya University",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "276f375b-f8e3-4bd4-b203-b6c5915483e9",
+   "email": "dummy3.student@test.niat",
+   "password_hash": "$2b$10$w8rOhWmWKZiNNGHFWLc7wuAWNfBpwNCuGtsPBjDjYvDqVtaCHkwFK",
+   "college": "Chaitanya Deemed-to-be University",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "0155acc5-7f52-45b1-ae07-00faf9223cd4",
+   "email": "dummy4.student@test.niat",
+   "password_hash": "$2b$10$rok18r9Zh37yOYw5K0IFheJ//9ckbZfSSTVLTOQp6Q2DzRUj58y66",
+   "college": "Joy University",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "67a727f1-ac00-432c-9477-fa2c673da7d3",
+   "email": "dummy5.student@test.niat",
+   "password_hash": "$2b$10$nVFMLrNqNbak38auEm9yReWe1Bfsf6bh6dOBDKZsU1OyXFyIxtp..",
+   "college": "Aurora University",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "17d58b84-509c-4e36-a478-b18d4b48d16f",
+   "email": "dummy6.student@test.niat",
+   "password_hash": "$2b$10$9Ct5jx6B932HQLSzK9iEjOUpUrgDb7mTuxQmB8SEf0So7Kc5/5kte",
+   "college": "Malla Reddy University",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "caa8d55f-c27b-4201-be3e-57919e88f210",
+   "email": "dummy7.student@test.niat",
+   "password_hash": "$2b$10$wM6QOpxR5h5RIb64hBbptecM9qqnYGNq83g5ZwU4jIfgTOoHIIuW.",
+   "college": "Geeta University",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "c155ec13-7c0e-4d5e-ab2c-ee78420786ec",
+   "email": "dummy8.student@test.niat",
+   "password_hash": "$2b$10$RM0gANIh.ct3VDVQtPpOq.H5jFrGNG.pbarUQ/bO5f5v.NcQ.63JO",
+   "college": "Crescent University (has Skill Assessments)",
+   "expires_at": "2026-11-05"
+  },
+  {
+   "student_id": "c690f3cd-f6fd-4cfa-b41a-017bee5da0ac",
+   "email": "dummy9.student@test.niat",
+   "password_hash": "$2b$10$EQskeP1rFPPwCuQnOTe3QO.um.hxLXMCp38PjaLNPaUwnHWSQvZNW",
+   "college": "SMR University (has Skill Assessments)",
+   "expires_at": "2026-11-05"
+  }
+ ]
+}

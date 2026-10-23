@@ -113,9 +113,9 @@ router.post("/student-login", loginLimiter, async (req, res): Promise<void> => {
   res.json({ studentId });
 });
 
-router.get("/student-me", (req, res): void => {
+router.get("/student-me", async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
-  const studentId = studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
+  const studentId = await studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
   if (!studentId) {
     res.status(401).json({ error: "Not signed in" });
     return;

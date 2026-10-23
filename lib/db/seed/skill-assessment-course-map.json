@@ -1,0 +1,998 @@
+{
+ "rows": [
+  {
+   "college": "A Dy Patil University",
+   "batch": "ADYPU Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "A Dy Patil University",
+   "batch": "ADYPU Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "A Dy Patil University",
+   "batch": "ADYPU Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "A Dy Patil University",
+   "batch": "ADYPU Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "A Dy Patil University",
+   "batch": "ADYPU Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "A Dy Patil University",
+   "batch": "ADYPU Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Alard University",
+   "batch": "Alard University Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Alard University",
+   "batch": "Alard University Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "Alard University",
+   "batch": "Alard University Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Alard University",
+   "batch": "Alard University Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "AMET",
+   "batch": "AMET Batch -1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communications Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "AMET",
+   "batch": "AMET Batch -1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "AMET",
+   "batch": "AMET Batch -1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "AMET",
+   "batch": "AMET Batch -1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "AMET",
+   "batch": "AMET Batch -1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "AMET",
+   "batch": "AMET Batch -1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Annamacharya University",
+   "batch": "ANNAMACHARYA Batch- 1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Annamacharya University",
+   "batch": "ANNAMACHARYA Batch- 1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "Annamacharya University",
+   "batch": "ANNAMACHARYA Batch- 1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Annamacharya University",
+   "batch": "ANNAMACHARYA Batch- 1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Annamacharya University",
+   "batch": "ANNAMACHARYA Batch- 1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Annamacharya University",
+   "batch": "ANNAMACHARYA Batch- 1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Aurora University",
+   "batch": "AURORA Batch -2",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Fundamentals of Web Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Aurora University",
+   "batch": "AURORA Batch -2",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Problem Solving With Python Programming I Quizzes",
+   "status": "Mapped"
+  },
+  {
+   "college": "BEST University",
+   "batch": "BEST University Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development 1",
+   "status": "Mapped"
+  },
+  {
+   "college": "BEST University",
+   "batch": "BEST University Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "BEST University",
+   "batch": "BEST University Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "BEST University",
+   "batch": "BEST University Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chaitanya Deemed-to-be University",
+   "batch": "CDU Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chaitanya Deemed-to-be University",
+   "batch": "CDU Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finance",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chaitanya Deemed-to-be University",
+   "batch": "CDU Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chaitanya Deemed-to-be University",
+   "batch": "CDU Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chaitanya Deemed-to-be University",
+   "batch": "CDU Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chaitanya Deemed-to-be University",
+   "batch": "CDU Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chalapathy (CITY)",
+   "batch": "CITY Batch -1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chalapathy (CITY)",
+   "batch": "CITY Batch -1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chalapathy (CITY)",
+   "batch": "CITY Batch -1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chalapathy (CITY)",
+   "batch": "CITY Batch -1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chalapathy (CITY)",
+   "batch": "CITY Batch -1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Chalapathy (CITY)",
+   "batch": "CITY Batch -1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Crescent University",
+   "batch": "CU Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Applied Communicative English",
+   "status": "Mapped"
+  },
+  {
+   "college": "Crescent University",
+   "batch": "CU Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Full Stack Back-end Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Crescent University",
+   "batch": "CU Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Numerical Ability and Reasoning Skills for Engineers",
+   "status": "Mapped"
+  },
+  {
+   "college": "Crescent University",
+   "batch": "CU Batch-1",
+   "skill_assessment_course_name": "PROBABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Crescent University",
+   "batch": "CU Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Geeta University",
+   "batch": "Geeta-Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Geeta University",
+   "batch": "Geeta-Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "Geeta University",
+   "batch": "Geeta-Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Geeta University",
+   "batch": "Geeta-Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "GMRIT",
+   "batch": "GMRIT",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "GMRIT",
+   "batch": "GMRIT",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "English",
+   "status": "Mapped"
+  },
+  {
+   "college": "GMRIT",
+   "batch": "GMRIT",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "GMRIT",
+   "batch": "GMRIT",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "LIMAT",
+   "batch": "LIMAT",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "English",
+   "status": "Mapped"
+  },
+  {
+   "college": "LIMAT",
+   "batch": "LIMAT",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Malla Reddy Vishwavidyapeeth",
+   "batch": "Malla Reddy Batch-1 CSE AI Data Science",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Malla Reddy Vishwavidyapeeth",
+   "batch": "Malla Reddy Batch-1 CSE AI Data Science",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "Malla Reddy Vishwavidyapeeth",
+   "batch": "Malla Reddy Batch-1 CSE AI Data Science",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Malla Reddy Vishwavidyapeeth",
+   "batch": "Malla Reddy Batch-1 CSE AI Data Science",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Malla Reddy Vishwavidyapeeth",
+   "batch": "Malla Reddy Batch-1 CSE AI Data Science",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Malla Reddy Vishwavidyapeeth",
+   "batch": "Malla Reddy Batch-1 CSE AI Data Science",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_ADVANCED",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "DATA_BASE_MANAGEMENT_SYSTEMS",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "DATA_STRUCTURES",
+   "report_course_name": "Data Structures and Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "NUMERICAL_ABILITY",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "NIAT Chevella",
+   "batch": "NIAT Chevella Batch-1",
+   "skill_assessment_course_name": "WEB_APPLICATION_DEVELOPMENT_2",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch -1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch -1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch -1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch -1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch -1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch -1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Noida International University",
+   "batch": "Noida International University Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "NRI",
+   "batch": "NRI Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "NRI",
+   "batch": "NRI Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "NRI",
+   "batch": "NRI Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "NRI",
+   "batch": "NRI Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "NRI",
+   "batch": "NRI Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "NRI",
+   "batch": "NRI Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_ADVANCED",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "DATA_BASE_MANAGEMENT_SYSTEMS",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "DATA_STRUCTURES",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "NUMERICAL_ABILITY",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "NSRIT University",
+   "batch": "NSRIT Batch-1",
+   "skill_assessment_course_name": "WEB_APPLICATION_DEVELOPMENT_2",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "Sanjay Ghodawat University",
+   "batch": "SGU Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanjay Ghodawat University",
+   "batch": "SGU Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanjay Ghodawat University",
+   "batch": "SGU Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanjay Ghodawat University",
+   "batch": "SGU Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanjay Ghodawat University",
+   "batch": "SGU Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanjay Ghodawat University",
+   "batch": "SGU Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanskriti University",
+   "batch": "Sanskriti University Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanskriti University",
+   "batch": "Sanskriti University Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanskriti University",
+   "batch": "Sanskriti University Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sanskriti University",
+   "batch": "Sanskriti University Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "SMR University",
+   "batch": "SMRU Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "SMR University",
+   "batch": "SMRU Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "SMR University",
+   "batch": "SMRU Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "SMR University",
+   "batch": "SMRU Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sri Sri University",
+   "batch": "Sri Sri University Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sri Sri University",
+   "batch": "Sri Sri University Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "English",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sri Sri University",
+   "batch": "Sri Sri University Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Sri Sri University",
+   "batch": "Sri Sri University Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "Subharti University",
+   "batch": "Subharti University- Batch 1",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Subharti University",
+   "batch": "Subharti University- Batch 1",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "Subharti University",
+   "batch": "Subharti University- Batch 1",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Subharti University",
+   "batch": "Subharti University- Batch 1",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "Takshasila University",
+   "batch": "TU Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "Takshasila University",
+   "batch": "TU Batch-1",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "Takshasila University",
+   "batch": "TU Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Backend Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Takshasila University",
+   "batch": "TU Batch-1",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "Takshasila University",
+   "batch": "TU Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning",
+   "status": "Mapped"
+  },
+  {
+   "college": "Takshasila University",
+   "batch": "TU Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-1",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": null,
+   "status": "To confirm"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-1",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-1",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-1",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-2",
+   "skill_assessment_course_name": "BUILD_YOUR_OWN_STATIC_WEBSITE",
+   "report_course_name": "Web Application Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-2",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "Communicative English Foundation",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-2",
+   "skill_assessment_course_name": "PROGRAMMING_FOUNDATIONS",
+   "report_course_name": "Computer Programming",
+   "status": "Mapped"
+  },
+  {
+   "college": "Vivekananda global University",
+   "batch": "VGU Batch-2",
+   "skill_assessment_course_name": "QUANTITATIVE_APTITUDE",
+   "report_course_name": "Quantitative Aptitude",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University",
+   "batch": "YENEPOYA Batch-1 CSE AI",
+   "skill_assessment_course_name": "ADVANCED_COMMUNICATION_SKILLS",
+   "report_course_name": "Advanced Communication Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University",
+   "batch": "YENEPOYA Batch-1 CSE AI",
+   "skill_assessment_course_name": "AI_FOR_FINANCE",
+   "report_course_name": "AI For Finanace",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University",
+   "batch": "YENEPOYA Batch-1 CSE AI",
+   "skill_assessment_course_name": "BACKEND_DEVELOPMENT",
+   "report_course_name": "Back End Development",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University",
+   "batch": "YENEPOYA Batch-1 CSE AI",
+   "skill_assessment_course_name": "DESIGN_AND_ANALYSIS_OF_ALGORITHMS",
+   "report_course_name": "Design and Analysis of Algorithms",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University",
+   "batch": "YENEPOYA Batch-1 CSE AI",
+   "skill_assessment_course_name": "LOGICAL_REASONING_AND_ANALYTICAL_SKILLS",
+   "report_course_name": "Logical Reasoning and Analytical Skills",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University",
+   "batch": "YENEPOYA Batch-1 CSE AI",
+   "skill_assessment_course_name": "PROPABILITY_AND_STATISTICS",
+   "report_course_name": "Probability and Statistics",
+   "status": "Mapped"
+  },
+  {
+   "college": "Yenapoya University Banglore",
+   "batch": "YENEPOYA BA Batch-1 CSE AI",
+   "skill_assessment_course_name": "COMMUNICATIVE_ENGLISH_FOUNDATION",
+   "report_course_name": "English",
+   "status": "Mapped"
+  }
+ ]
+}

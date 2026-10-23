@@ -1,0 +1,22 @@
+{
+ "rows": [
+  {
+   "campus": "*",
+   "course": "Intro To NIAT",
+   "reason": "Orientation course with 0 credits at every campus",
+   "removed_on": "2026-10-16"
+  },
+  {
+   "campus": "*",
+   "course": "Introduction to NIAT",
+   "reason": "Orientation course with 0 credits at every campus (other spelling)",
+   "removed_on": "2026-10-16"
+  },
+  {
+   "campus": "Sushant University",
+   "course": "Universal Human Values",
+   "reason": "Removed from the report on request",
+   "removed_on": "2026-10-18"
+  }
+ ]
+}

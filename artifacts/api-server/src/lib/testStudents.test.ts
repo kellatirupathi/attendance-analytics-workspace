@@ -34,12 +34,12 @@ test("wrong password, unknown id and an expired login are refused", async () => 
   assert.equal(await checkTestStudentLogin("11111111-2222-3333-4444-555555555555", "right-password"), null);
 });
 
-test("the cookie names only its own student and stops working once the row is removed", () => {
+test("the cookie names only its own student and stops working once the row is removed", async () => {
   write([{ studentId: ID, passwordHash: hash }]);
   const token = signStudentToken(ID);
-  assert.equal(studentIdFromToken(token), ID.replaceAll("-", ""));
-  assert.equal(studentIdFromToken(undefined), null);
-  assert.equal(studentIdFromToken(`${token}x`), null);
+  assert.equal(await studentIdFromToken(token), ID.replaceAll("-", ""));
+  assert.equal(await studentIdFromToken(undefined), null);
+  assert.equal(await studentIdFromToken(`${token}x`), null);
   write([]);
-  assert.equal(studentIdFromToken(token), null);
+  assert.equal(await studentIdFromToken(token), null);
 });

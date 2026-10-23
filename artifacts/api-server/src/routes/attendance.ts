@@ -23,8 +23,8 @@ import { STUDENT_COOKIE_NAME, studentIdFromToken, studentKey } from "../lib/test
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
 import { getStudentScorecard } from "../lib/spiScorecard.js";
 import { getCourseCredits } from "../lib/courseCredits.js";
-import { reportRemovedCoursesVersion } from "../lib/reportRemovedCourses.js";
-import { skillAssessmentMapVersion } from "../lib/skillAssessmentMap.js";
+import { getRemovedCourses } from "../lib/reportRemovedCourses.js";
+import { getSkillAssessmentMap } from "../lib/skillAssessmentMap.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -390,7 +390,7 @@ router.get(
     }
     // A test student (UUID + password, testStudents.ts) may open only their own report.
     // Staff go through the usual access check.
-    const ownStudent = studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
+    const ownStudent = await studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
     if (!getSessionFromRequest(req)) {
       if (!ownStudent) {
         res.status(401).json({ error: "Login required" });
@@ -409,7 +409,7 @@ router.get(
       res.status(403).json({ error: "Forbidden" });
       return;
     }
-    const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${(await getCourseCredits()).version}:${reportRemovedCoursesVersion()}:${skillAssessmentMapVersion()}:${studentId}`;
+    const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${(await getCourseCredits()).version}:${(await getRemovedCourses()).version}:${(await getSkillAssessmentMap()).version}:${studentId}`;
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
       res.json(cached);

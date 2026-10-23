@@ -3,188 +3,157 @@
   "questions": [
     {
       "id": "q1",
-      "topic": "What SPI is",
-      "question": "What is SPI?",
+      "topic": "How you are assessed",
+      "question": "How are you assessed under SPI?",
       "options": {
-        "A": "A percentage that shows only how many classes you attended.",
-        "B": "A skill score from 0 to 10 that reflects how consistently you learn, how you take part in assessments, and how well you master skills.",
-        "C": "A rank that compares your marks with other students in your batch.",
-        "D": "A grade (A+ to F) given only for your Final Skill Assessment."
+        "A": "One final assessment at the end of the course.",
+        "B": "Two assessments: mid-course and final.",
+        "C": "Four checkpoints: Classroom Quizzes, Module Quizzes, Skill Assessments, and Final Skill Assessment.",
+        "D": "Weekly tests with no final assessment."
       },
-      "correct": "B",
+      "correct": "C",
       "explanation": [
-        "SPI is a skill score from 0 to 10. It looks at three things together: continuous learning, assessment participation and skill mastery. It is not a rank or a single exam grade.",
-        "Every course gets its own score, and these combine into your overall SPI."
+        "SPI tracks your progress through Classroom Quizzes, Module Quizzes, Skill Assessments, and the Final Skill Assessment. Each checkpoint contributes to your overall SPI score."
       ]
     },
     {
       "id": "q2",
-      "topic": "How you are assessed",
-      "question": "How are you assessed in a course under SPI?",
+      "topic": "Weightage of assessments",
+      "question": "Which assessment carries the highest weightage?",
       "options": {
-        "A": "One Final Skill Assessment at the end of the course; everything before it is just practice.",
-        "B": "Two checkpoints: a mid-course exam and a final exam.",
-        "C": "Four checkpoints that build up through the course: Classroom Quizzes, Module Quizzes, Skill Assessments and one Final Skill Assessment.",
-        "D": "Weekly tests in every course, with no final assessment."
+        "A": "Classroom Quizzes",
+        "B": "Module Quizzes",
+        "C": "Skill Assessments",
+        "D": "Final Skill Assessment"
       },
-      "correct": "C",
+      "correct": "D",
       "explanation": [
-        "Your learning is checked at four levels, not only at the end.",
-        "• Classroom Quizzes (2 per topic) check topic-level clarity.",
-        "• Module Quizzes (every 3 topics) check how you apply concepts across a module.",
-        "• Skill Assessments (every 15–30 days) check speed, accuracy and retention.",
-        "• The Final Skill Assessment (once, at the end of the course) checks full skill readiness.",
-        "Every checkpoint counts, so your SPI is built from day one."
+        "The Final Skill Assessment carries 50%. Skill Assessments carry 25%, Module Quizzes 15% and Classroom Quizzes 10%.",
+        "Every checkpoint counts, so start preparing from day one."
       ]
     },
     {
       "id": "q3",
-      "topic": "Weightage of assessments",
-      "question": "How do the assessments contribute to your course score?",
+      "topic": "Skill Debt score line",
+      "question": "Scoring below what % puts a course in Skill Debt?",
       "options": {
-        "A": "Each carries a different weight. The Final Skill Assessment carries the most (50%), and you need at least 50% in every component to get SPI.",
-        "B": "All four carry equal weight, 25% each.",
-        "C": "Classroom Quizzes carry the most weight because you take them most often.",
-        "D": "Skill Assessments carry the most weight at 50%."
+        "A": "Below 40%",
+        "B": "Below 50%",
+        "C": "Below 60%",
+        "D": "Below 80%"
       },
-      "correct": "A",
+      "correct": "B",
       "explanation": [
-        "The weights are Classroom Quizzes 10%, Module Quizzes 15%, Skill Assessments 25% and Final Skill Assessment 50%. For example, averages of 80, 80, 72 and 88 give a course score of 82 out of 100.",
-        "The Final Skill Assessment moves your score the most, but it cannot carry you alone. You must score at least 50% in each component to get SPI."
+        "Below 50% is an F and earns 0 points. Being absent (Ab) also earns 0. Either one becomes a Skill Debt.",
+        "Scores of 50% and above earn 6 to 10 points, and you need at least 50% in every assessment to get SPI."
       ]
     },
     {
       "id": "q4",
-      "topic": "Score to level to points",
-      "question": "How does your course score turn into SPI points?",
+      "topic": "Eligibility to earn SPI",
+      "question": "Which of the following is required to earn your SPI?",
       "options": {
-        "A": "Your score is divided by 10 to give your points.",
-        "B": "Every pass earns 10 points and every fail earns 0.",
-        "C": "Points are the average of your attendance and quiz scores.",
-        "D": "Your score falls in a level band (A+ to F), and each level earns fixed points. F (below 50%) and Ab (absent) earn 0 points."
+        "A": "Minimum 60% attendance and an attempt at the Final Skill Assessment.",
+        "B": "A high final score that compensates for missed Classroom quizzes and low attendance.",
+        "C": "Minimum 80% attendance, 100% completion of all classroom quizzes, Module quizzes and skill assessments, a mandatory Final Skill Assessment, and no malpractice cases.",
+        "D": "Minimum 80% attendance alone; assessments are optional."
       },
-      "correct": "D",
+      "correct": "C",
       "explanation": [
-        "Your score maps to a level, and each level earns fixed points:",
-        "• 90–100 → Level A+ → 10 points",
-        "• 80–89.99 → Level A → 9 points",
-        "• 70–79.99 → Level B → 8 points",
-        "• 60–69.99 → Level C → 7 points",
-        "• 50–59.99 → Level D → 6 points",
-        "• Below 50 → Level F → 0 points",
-        "• Absent → Level Ab → 0 points",
-        "A course score of 82 is Level A, which earns 9 points. Scoring 49% earns 0 points, not 4.9. An F or Ab also turns the course into a Skill Debt."
+        "To earn SPI, you must maintain at least 80% attendance, complete all required assessments, take the mandatory Final Skill Assessment, and have no malpractice cases. All requirements must be met."
       ]
     },
     {
       "id": "q5",
-      "topic": "Overall SPI calculation",
-      "question": "How is your overall SPI for a skill cycle calculated?",
+      "topic": "Minimum attendance",
+      "question": "Minimum attendance needed to earn SPI?",
       "options": {
-        "A": "Take the simple average of the points of all courses.",
-        "B": "Multiply each course's points by its weight, add them up, and divide by the total of the weights.",
-        "C": "Add up the points of all courses.",
-        "D": "Take the points of your best course."
+        "A": "60%",
+        "B": "70%",
+        "C": "80%",
+        "D": "90%"
       },
-      "correct": "B",
+      "correct": "C",
       "explanation": [
-        "SPI = Sum of (Course Points × Weights) ÷ Total Weights. For example, a weighted total of 165 divided by total weights of 20 gives 8.25 out of 10.",
-        "Higher-weighted courses pull your SPI more, so a low result in a high-weight course hurts more than in a low-weight one."
+        "You need at least 80% attendance. If it drops below that, Recovery Mode applies."
       ]
     },
     {
       "id": "q6",
-      "topic": "Eligibility to earn SPI",
-      "question": "Which of these is required to earn your SPI?",
+      "topic": "Attendance and Recovery Mode",
+      "question": "Your attendance drops below 80%. What happens?",
       "options": {
-        "A": "Minimum 60% attendance and an attempt at the Final Skill Assessment.",
-        "B": "A high Final Skill Assessment score, which makes up for missed quizzes and low attendance.",
-        "C": "Minimum 80% attendance, full participation in every assessment (the Final Skill Assessment is mandatory), and no malpractice cases.",
-        "D": "Minimum 80% attendance alone; taking part in assessments is optional."
+        "A": "You go into Recovery Mode",
+        "B": "Nothing, if you pass the exams",
+        "C": "Your SPI drops slightly",
+        "D": "You are removed from the course"
       },
-      "correct": "C",
+      "correct": "A",
       "explanation": [
-        "You earn SPI only when every requirement is met:",
-        "• at least 80% attendance",
-        "• 100% participation in Classroom Quizzes and Skill Assessments",
-        "• 100% completion of Module Quizzes",
-        "• the Final Skill Assessment, which is mandatory",
-        "• no malpractice cases",
-        "If even one is missing, you do not get SPI, however well you score elsewhere."
+        "You must attend assigned recovery classes to reach 80% again. Watching recordings doesn't undo an absence.",
+        "If you skip recovery classes, you can't sit the assessment and the course becomes a Skill Debt. For a genuine medical or emergency absence, submit proof within 5 days."
       ]
     },
     {
       "id": "q7",
-      "topic": "Attendance and Recovery Mode",
-      "question": "You miss classes and your attendance drops below 80%. What happens?",
+      "topic": "Assessment participation",
+      "question": "Which assessments must you take part in to earn SPI?",
       "options": {
-        "A": "You are placed in Recovery Mode and must attend assigned recovery classes to get back to 80% and catch up on the missed topics.",
-        "B": "Watching the recordings of the missed classes removes the absence.",
-        "C": "Nothing happens as long as you pass the assessments.",
-        "D": "Your SPI is reduced slightly and you carry on as usual."
+        "A": "Only the Final Skill Assessment",
+        "B": "Only the quizzes",
+        "C": "Any two of the four",
+        "D": "All of them"
       },
-      "correct": "A",
+      "correct": "D",
       "explanation": [
-        "A missed class counts as absent. Watching the recording helps you catch up on content but does not undo the absence. Recovery Mode is a mandatory way to catch up, not a punishment.",
-        "• Recovery classes are scheduled outside regular college hours.",
-        "• They are compulsory and tracked like a normal class, with camera on if online.",
-        "• Once you reach 80% again, you are back to normal and all benefits reopen.",
-        "If you skip recovery classes, you will not be allowed to sit the assessment, and the course is automatically marked as Skill Debt. For a genuine medical or emergency reason, inform your mentor and submit valid proof within 5 days."
+        "Classroom Quizzes, Module Quizzes, Skill Assessments and the Final Skill Assessment all need full participation. Any malpractice case also makes you ineligible."
       ]
     },
     {
       "id": "q8",
       "topic": "Impact of Skill Debt",
-      "question": "You get an F in a course, so it becomes a Skill Debt. What does an active Skill Debt mean for you?",
+      "question": "With an active Skill Debt, what is put on hold?",
       "options": {
-        "A": "Only that course's SPI is affected; everything else continues as normal.",
-        "B": "Only placement drives are blocked; internships and other activities stay open.",
-        "C": "You can continue all activities, but with lower priority.",
-        "D": "You cannot take part in any NIAT-specific activities (MINT, BRAVE, GRIT, placements, internships, co-curricular support) until it is cleared."
+        "A": "All NIAT activities",
+        "B": "Only placements",
+        "C": "Only internships",
+        "D": "Only MINT, BRAVE and GRIT"
       },
-      "correct": "D",
+      "correct": "A",
       "explanation": [
-        "Even a single Skill Debt puts all of these on hold until it is cleared. A Skill Debt is created by an F (below 50%) or Ab (absent) in a course, or by skipping recovery classes.",
-        "You must clear all Skill Debts within the next cycle, or face a review that could lead to program extension or discontinuation."
+        "Even one Skill Debt blocks MINT, BRAVE, GRIT, placements, internships and co-curricular support until it is cleared.",
+        "Clear it within the next cycle, or face a review."
       ]
     },
     {
       "id": "q9",
-      "topic": "Clearing a Skill Debt",
-      "question": "What should you do to clear a Skill Debt?",
+      "topic": "Good SPI score",
+      "question": "What should you maintain to achieve a good SPI score?",
       "options": {
-        "A": "Nothing, it clears automatically when the cycle ends.",
-        "B": "Attend the recovery classes, finish the pending work, and re-attempt the Final Skill Assessment for that course, all within the next cycle.",
-        "C": "Just re-sit the Final Skill Assessment; recovery classes and pending work are optional.",
-        "D": "Carry it forward; there is no time limit as long as you attend regular classes."
+        "A": "Skill Assessment average above 80%",
+        "B": "Classroom Quiz (CQ) average above 80%",
+        "C": "Module Quiz (MQ) average above 80%",
+        "D": "All of the above"
       },
-      "correct": "B",
+      "correct": "D",
       "explanation": [
-        "Skill Debt courses are auto-enrolled into the recovery window. The path has four steps:",
-        "1. Recovery window",
-        "2. Attend recovery classes",
-        "3. Finish pending assignments, module assessments or practice work",
-        "4. Re-attempt the Final Skill Assessment for that course",
-        "For a medical or emergency reason, submit proof within 5 days to re-sit as a first attempt, with no grade cap and no fee. If you have 2 or more F/Ab grades, counselling with your mentor is mandatory before you restart, and a recovery plan is tracked."
+        "Maintain an average above 80% in Skill Assessments, CQs, and MQs to achieve a good SPI score."
       ]
     },
     {
       "id": "q10",
       "topic": "Assessment honesty",
-      "question": "Two students work together on their answers during a Skill Assessment without permission. How does NIAT treat this?",
+      "question": "What happens if you are caught cheating in an exam?",
       "options": {
-        "A": "It is fine as long as both write their own final answers.",
-        "B": "A warning the first time, and they can retake in the same cycle.",
-        "C": "It is a breach: the course result is reset to fail, with no retake in that skill cycle.",
-        "D": "Only a small mark deduction for that assessment."
+        "A": "A warning only",
+        "B": "A small mark deduction",
+        "C": "Course result reset to fail",
+        "D": "Retake the next week"
       },
       "correct": "C",
       "explanation": [
-        "NIAT has zero tolerance for cheating, plagiarism, fabricating data, unauthorised collaboration and falsifying records. The consequences are:",
-        "• the course result is reset to fail, with no retake that skill cycle (you repeat it when it reopens)",
-        "• removal from any official position or title at NIAT",
-        "• exclusion from external PR activities",
-        "Malpractice also makes you ineligible to earn SPI."
+        "NIAT has zero tolerance. The course result is reset to fail, with no retake that skill cycle.",
+        "You also lose any official position or title and are excluded from external PR activities. Plagiarism, fabricating data and unauthorised collaboration count too."
       ]
     }
   ]

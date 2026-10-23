@@ -19,7 +19,11 @@ try {
     logLevel: "warning",
     banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
   });
-  const result = spawnSync(process.execPath, ["--test", join(tempDir, "testStudents.test.mjs"), join(tempDir, "spiQuiz.test.mjs")], { stdio: "inherit" });
+  const result = spawnSync(process.execPath, ["--test", join(tempDir, "testStudents.test.mjs"), join(tempDir, "spiQuiz.test.mjs")], {
+    stdio: "inherit",
+    // The quiz tests read the question file; the app reads the spi_quiz_questions table.
+    env: { ...process.env, SPI_QUIZ_PATH: join(artifactDir, "config", "spi-quiz.json") },
+  });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {
