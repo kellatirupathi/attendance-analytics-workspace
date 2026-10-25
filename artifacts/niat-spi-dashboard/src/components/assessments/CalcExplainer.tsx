@@ -6,7 +6,7 @@ import { FOCUS_RING } from "./parts";
 
 const TERMS: [string, string][] = [
   ["Scheduled", "All assessments planned for a campus and semester."],
-  ["Conducted", "Scheduled assessments whose status is conducted (or whose date has passed). Only conducted assessments enter any calculation."],
+  ["Conducted", "Scheduled assessments whose date has passed and whose session is marked completed or partially completed. Only conducted assessments enter any calculation."],
   ["Roster", "Active students of that campus and semester."],
   ["Expected attempts", "Students × conducted assessments: one slot per student per conducted assessment."],
   ["Attempted", "A slot with a submitted attempt. A submitted 0 counts as attempted; absent and unsubmitted slots do not."],
@@ -23,14 +23,14 @@ const FORMULAS: [string, string][] = [
 export function CalcExplainer() {
   const [open, setOpen] = useState(false);
   return (
-    <section className="overflow-hidden rounded-[14px] border border-[#E6ECF5] bg-white shadow-[0_1px_2px_rgba(11,31,77,0.04)]">
+    <section className="border-y border-slate-200 bg-white">
       <h2>
         <button
           type="button"
           aria-expanded={open}
           aria-controls="calc-explainer"
           onClick={() => setOpen((v) => !v)}
-          className={cn("flex w-full items-center justify-between px-5 py-3.5 text-left text-[13px] font-bold text-[#0B1F4D] hover:bg-[#F8FAFD]", FOCUS_RING)}
+          className={cn("flex w-full items-center justify-between px-5 py-3.5 text-left text-sm font-semibold text-slate-900 hover:bg-slate-50", FOCUS_RING)}
         >
           How these numbers are calculated
           <ChevronDown className={cn("h-4 w-4 text-slate-600 transition-transform", open && "rotate-180")} aria-hidden="true" />

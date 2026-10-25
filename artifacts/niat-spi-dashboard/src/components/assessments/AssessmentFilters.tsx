@@ -64,7 +64,7 @@ export function AssessmentFilters({
   ];
 
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-[14px] border border-[#E6ECF5] bg-white px-5 py-4 shadow-[0_1px_2px_rgba(11,31,77,0.04)]">
+    <div className="flex flex-wrap items-end gap-3 border-y border-slate-200 bg-white px-5 py-3">
       <Field label="Group by">
         <SearchableSelect
           value={state.groupBy}

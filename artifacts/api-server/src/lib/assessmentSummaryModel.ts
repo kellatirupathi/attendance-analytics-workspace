@@ -69,12 +69,6 @@ export interface SummarySqlRow {
   score_sum: string | null;
   scheduled: string | null;
   conducted: string | null;
-  /**
-   * Campus × subject pairs with quiz units, and how many of them have no quiz-table records.
-   * Only the in-memory model fills these; the SQL fallback leaves them out.
-   */
-  unit_subjects?: string;
-  uncovered_subjects?: string;
 }
 
 export interface ModelFilters {
@@ -141,8 +135,6 @@ interface Acc {
   termWise: boolean;
   /** unit -> conducted in any of its sessions */
   units: Map<string, boolean>;
-  /** campus + TAB + subject -> has quiz units, and the quiz-table rows it carries (total + expected) */
-  pairs: Map<string, { hasUnits: boolean; quizRows: number }>;
 }
 
 /**
@@ -172,7 +164,7 @@ export function summarizeAssessmentModel(
         g, p, gg, gp, first: slot,
         students: new Set(), campuses: new Set(),
         total: 0, expected: 0, attempted: 0, score: 0,
-        start: null, end: null, termWise: false, units: new Map(), pairs: new Map(),
+        start: null, end: null, termWise: false, units: new Map(),
       };
       accs.set(id, acc);
     }
@@ -209,12 +201,6 @@ export function summarizeAssessmentModel(
       if (slot.startD && (!acc.start || slot.startD < acc.start)) acc.start = slot.startD;
       if (slot.endD && (!acc.end || slot.endD > acc.end)) acc.end = slot.endD;
       if (slot.termWise) acc.termWise = true;
-      // Coverage: a subject whose quizzes were run but that has no quiz-table records at all.
-      const pairKey = `${slot.campus}\t${slot.subject}`;
-      const pair = acc.pairs.get(pairKey) ?? { hasUnits: false, quizRows: 0 };
-      pair.hasUnits ||= unitList.length > 0;
-      pair.quizRows += sums[0]! + sums[1]!;
-      acc.pairs.set(pairKey, pair);
       if (takesUnits) {
         for (const unit of unitList) acc.units.set(unit.unit, (acc.units.get(unit.unit) ?? false) || unit.done);
       }
@@ -231,13 +217,6 @@ export function summarizeAssessmentModel(
     } else {
       scheduled = acc.units.size;
       for (const done of acc.units.values()) if (done) conducted += 1;
-    }
-    let unitSubjects = 0;
-    let uncoveredSubjects = 0;
-    for (const pair of acc.pairs.values()) {
-      if (!pair.hasUnits) continue;
-      unitSubjects += 1;
-      if (pair.quizRows === 0) uncoveredSubjects += 1;
     }
     return {
       g: acc.g,
@@ -262,8 +241,6 @@ export function summarizeAssessmentModel(
       score_sum: String(acc.score),
       scheduled: String(scheduled),
       conducted: String(conducted),
-      unit_subjects: String(unitSubjects),
-      uncovered_subjects: String(uncoveredSubjects),
     };
   });
 }

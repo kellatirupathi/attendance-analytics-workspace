@@ -1552,7 +1552,7 @@ components:
       required: [scheduled, conducted, students, campuses, expectedAttempts, attempted, notAttempted, scoreSum, completionPct, avgScoreAttempted, overallScore, conductedPct]
       properties:
         scheduled: { type: integer, description: Distinct quizzes scheduled in the current semester window }
-        conducted: { type: integer, description: Scheduled quizzes whose date has passed or whose session is completed or partially completed }
+        conducted: { type: integer, description: Scheduled quizzes whose session is completed or partially completed and whose date has passed }
         students: { type: integer }
         campuses: { type: integer, description: Distinct campuses in the row }
         expectedAttempts: { type: integer }
@@ -1563,8 +1563,6 @@ components:
         avgScoreAttempted: { type: number, nullable: true }
         overallScore: { type: number, nullable: true }
         conductedPct: { type: number, nullable: true }
-        unitSubjects: { type: integer, nullable: true, description: Distinct campus × subject pairs in the row that have quiz units of the selected type; null when not computed }
-        uncoveredSubjects: { type: integer, nullable: true, description: Of unitSubjects, the pairs with no quiz-table records, so their expected attempts and scores are missing (Data incomplete); null when not computed }
     AssessmentSummarySemester:
       allOf:
         - $ref: "#/components/schemas/AssessmentSummaryMetrics"

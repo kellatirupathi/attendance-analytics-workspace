@@ -13,8 +13,8 @@
  * institute such as Aurora sit on different semesters at the same time.
  *
  * Distinct assessments (scheduled / conducted) come from the session resources: quiz units of the
- * section's current semester, conducted once the session date has passed or the session is marked
- * COMPLETED or PARTIALLY_COMPLETED (the Assessments definitions: "status is conducted or date has passed").
+ * section's current semester, conducted once the session date has passed and the session is marked
+ * COMPLETED or PARTIALLY_COMPLETED (PENDING / STARTED sessions are scheduled, not conducted).
  * Student-wise rows carry the student's own slots as conducted / scheduled; the period and overall
  * rows still count distinct units.
  *
@@ -200,8 +200,8 @@ export function buildAssessmentSummarySql(
     SELECT DISTINCT
       ${byStudent ? "" : "s.row_key, "}s.period_key,
       ${KEY("res.resource_id")} AS unit,
-      (res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata')
-        OR UPPER(TRIM(IFNULL(res.session_status, ''))) IN (${CONDUCTED_STATUSES.map((s) => `'${s}'`).join(", ")})) AS done
+      res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata')
+        AND UPPER(TRIM(IFNULL(res.session_status, ''))) IN (${CONDUCTED_STATUSES.map((s) => `'${s}'`).join(", ")}) AS done
     FROM ${t.sessionResources} res
     JOIN ${t.resourceTypes} rt
       ON rt.session_id = res.session_id AND rt.resource_id = res.resource_id
@@ -276,8 +276,8 @@ SELECT DISTINCT
   w.section_key, w.subject, w.start_d, w.end_d,
   UPPER(rt.derived_unit_type) AS unit_type,
   ${KEY("res.resource_id")} AS unit,
-  (res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata')
-    OR UPPER(TRIM(IFNULL(res.session_status, ''))) IN (${CONDUCTED_STATUSES.map((s) => `'${s}'`).join(", ")})) AS done
+  res.session_start_datetime <= CURRENT_DATETIME('Asia/Kolkata')
+    AND UPPER(TRIM(IFNULL(res.session_status, ''))) IN (${CONDUCTED_STATUSES.map((s) => `'${s}'`).join(", ")}) AS done
 FROM ${t.sessionResources} res
 JOIN ${t.resourceTypes} rt
   ON rt.session_id = res.session_id AND rt.resource_id = res.resource_id

@@ -1,13 +1,13 @@
 import { Fragment, type ReactNode } from "react";
 import { Link } from "wouter";
-import { ArrowDown, ArrowUp, Building2, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronsUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronsUpDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionError } from "@/components/dashboard/overview";
 import { cn } from "@/lib/utils";
-import { BAND_LABEL, completionBand, fmtInt, fmtPct, fmtScore } from "@/lib/assessmentMetrics";
+import { fmtInt, fmtPct, fmtScore } from "@/lib/assessmentMetrics";
 import type { SemesterMetrics, SummaryGroupBy, SummaryMetrics, SummaryRow } from "@/lib/assessmentSummary";
-import { BandPill, CompletionCell, CoveragePill, FOCUS_RING, TermWiseTag, fmtDateRange, isDataIncomplete } from "./parts";
+import { CompletionCell, FOCUS_RING, TermWiseTag, fmtDateRange } from "./parts";
 
 export interface TableColumn {
   key: string;
@@ -34,12 +34,7 @@ const METRICS: Record<string, TableColumn> = {
     kind: "metric",
     align: "right",
     sortValue: (r) => r.conducted,
-    render: (r) => (
-      <span className="tabular-nums">
-        <span className="font-medium text-[#0B1F4D]">{conductedText(r)}</span>
-        {r.scheduled > 0 && <span className="block text-xs text-[#6B7280]">{fmtPct(r.conductedPct)}</span>}
-      </span>
-    ),
+    render: (r) => <span className="tabular-nums">{conductedText(r)}</span>,
     csv: (r) => conductedText(r),
   },
   // Student-wise: the student's own conducted quizzes, i.e. their expected attempts (the roll-up adds them up).
@@ -47,35 +42,17 @@ const METRICS: Record<string, TableColumn> = {
   expected: { key: "expected", label: "Expected attempts", kind: "metric", align: "right", sortValue: (r) => r.expectedAttempts, render: (r) => num(r.expectedAttempts), csv: (r) => r.expectedAttempts },
   attempted: { key: "attempted", label: "Attempted", kind: "metric", align: "right", sortValue: (r) => r.attempted, render: (r) => num(r.attempted), csv: (r) => r.attempted },
   notAttempted: { key: "notAttempted", label: "Not attempted", kind: "metric", align: "right", sortValue: (r) => r.notAttempted, render: (r) => <span className="tabular-nums">{fmtInt(r.expectedAttempts ? r.notAttempted : null)}</span>, csv: (r) => (r.expectedAttempts ? r.notAttempted : "–") },
-  completion: { key: "completion", label: "Completion %", kind: "metric", align: "right", sortValue: (r) => r.completionPct, render: (r) => <CompletionCell pct={r.completionPct} />, csv: (r) => fmtPct(r.completionPct) },
-  // Good / Watch / Low stays the performance band; "Data incomplete" is separate and only shows where quiz records are missing.
-  status: {
-    key: "status",
-    label: "Performance status",
-    kind: "metric",
-    align: "left",
-    sortValue: (r) => r.completionPct,
-    render: (r) => (
-      <div className="flex flex-col items-start gap-1">
-        {r.completionPct != null ? <BandPill pct={r.completionPct} /> : <span className="text-slate-500">–</span>}
-        <CoveragePill m={r} />
-      </div>
-    ),
-    csv: (r) => {
-      const band = completionBand(r.completionPct);
-      return [band ? BAND_LABEL[band] : "–", isDataIncomplete(r) ? "Data incomplete" : ""].filter(Boolean).join(" · ");
-    },
-  },
+  completion: { key: "completion", label: "Completion", kind: "metric", align: "right", sortValue: (r) => r.completionPct, render: (r) => <CompletionCell pct={r.completionPct} />, csv: (r) => fmtPct(r.completionPct) },
   avg: { key: "avg", label: "Avg (attempted)", kind: "metric", align: "right", sortValue: (r) => r.avgScoreAttempted, render: (r) => <span className="tabular-nums">{fmtScore(r.avgScoreAttempted)}</span>, csv: (r) => fmtScore(r.avgScoreAttempted) },
   overall: { key: "overall", label: "Overall (absent = 0)", kind: "metric", align: "right", sortValue: (r) => r.overallScore, render: (r) => <span className="font-medium tabular-nums">{fmtScore(r.overallScore)}</span>, csv: (r) => fmtScore(r.overallScore) },
 };
 
 const VIEW_METRICS: Record<SummaryGroupBy, string[]> = {
-  campus: ["students", "conducted", "expected", "attempted", "notAttempted", "completion", "avg", "overall", "status"],
-  subject: ["campuses", "students", "conducted", "completion", "notAttempted", "avg", "overall", "status"],
-  section: ["students", "conducted", "completion", "notAttempted", "avg", "overall", "status"],
-  semester: ["students", "conducted", "expected", "attempted", "completion", "avg", "overall", "status"],
-  student: ["studentConducted", "attempted", "notAttempted", "completion", "avg", "overall", "status"],
+  campus: ["students", "conducted", "expected", "attempted", "notAttempted", "completion", "avg", "overall"],
+  subject: ["campuses", "students", "conducted", "completion", "notAttempted", "avg", "overall"],
+  section: ["students", "conducted", "completion", "notAttempted", "avg", "overall"],
+  semester: ["students", "conducted", "expected", "attempted", "completion", "avg", "overall"],
+  student: ["studentConducted", "attempted", "notAttempted", "completion", "avg", "overall"],
 };
 
 /** A full row object for the roll-up ("All campuses") line and its CSV export. */
@@ -177,12 +154,7 @@ function SemesterSplit({ semesters }: { semesters: SemesterMetrics[] }) {
             <td className="px-4 py-2 text-right tabular-nums">{conductedText(s)}</td>
             <td className="px-4 py-2 text-right tabular-nums">{fmtInt(s.expectedAttempts)}</td>
             <td className="px-4 py-2 text-right tabular-nums">{fmtInt(s.attempted)}</td>
-            <td className="px-4 py-2 text-right">
-              <span className="inline-flex items-center justify-end gap-2">
-                <CompletionCell pct={s.completionPct} />
-                <BandPill pct={s.completionPct} />
-              </span>
-            </td>
+            <td className="px-4 py-2 text-right"><CompletionCell pct={s.completionPct} /></td>
             <td className="px-4 py-2 text-right tabular-nums">{fmtScore(s.avgScoreAttempted)}</td>
             <td className="px-4 py-2 text-right font-medium tabular-nums">{fmtScore(s.overallScore)}</td>
           </tr>
@@ -224,10 +196,7 @@ export function AssessmentTable({
   totalRows,
   onPage,
   onPageSize,
-  rowAction,
 }: {
-  /** Action link of a row besides Student-wise's SPI report, e.g. Campus-wise "View sections". */
-  rowAction?: (row: SummaryRow) => { href: string; label: string } | null;
   groupBy: SummaryGroupBy;
   columns: TableColumn[];
   /** The rows of the current page, already sorted by the server. */
@@ -254,33 +223,28 @@ export function AssessmentTable({
   const current = page;
   const shown = rows;
   const expandable = groupBy === "campus" && Boolean(onToggleExpand);
-  const withLink = groupBy === "student" || Boolean(rowAction);
-  const span = columns.length + 1 + (withLink ? 1 : 0);
+  const withLink = groupBy === "student";
+  const span = columns.length + (withLink ? 1 : 0);
 
   if (onRetry) return <SectionError what="the table" onRetry={onRetry} />;
   if (loading && !rows.length) return <div className="p-5"><Skeleton className="h-64 w-full" /></div>;
   if (!rows.length) return <>{emptyState ?? <p className="p-5 text-sm text-slate-600">No assessments match these filters.</p>}</>;
 
   const cellAlign = (c: TableColumn) => (c.align === "right" ? "text-right" : "text-left");
-  // The rank column and the name column stay in view when the table scrolls sideways.
-  const rankWidth = "w-12 min-w-[3rem] max-w-[3rem]";
-  const stickyRank = cn("sticky left-0 z-10", rankWidth);
-  const sticky = "sticky left-12 z-10";
-  const firstRank = (page - 1) * pageSize;
+  const sticky = "sticky left-0 z-10";
 
   return (
     <div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[56rem] text-sm">
           <thead>
-            <tr className="border-b border-[#E6ECF5] bg-white text-left text-xs font-semibold text-[#0B1F4D]">
-              <th scope="col" className={cn("bg-white px-3 py-3 text-center font-semibold text-[#6B7280]", stickyRank)}>#</th>
+            <tr className="border-b border-slate-200 bg-white text-left text-xs uppercase tracking-wide text-slate-500">
               {columns.map((c, i) => (
                 <th
                   key={c.key}
                   scope="col"
                   aria-sort={sort.key === c.key ? (sort.dir === 1 ? "ascending" : "descending") : undefined}
-                  className={cn("whitespace-nowrap bg-white px-4 py-3 font-semibold", cellAlign(c), i === 0 && cn(sticky, "border-r border-[#E6ECF5]"))}
+                  className={cn("whitespace-nowrap bg-white px-5 py-2 font-medium", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100"))}
                 >
                   <button
                     type="button"
@@ -298,36 +262,32 @@ export function AssessmentTable({
                   </button>
                 </th>
               ))}
-              {withLink && <th scope="col" className="bg-white px-4 py-3 text-center font-semibold">Action</th>}
+              {withLink && <th scope="col" className="bg-white px-4 py-2"><span className="sr-only">SPI report</span></th>}
             </tr>
           </thead>
           <tbody>
             {rollup && (
-              <tr className="border-b border-[#E6ECF5] bg-[#EAF1FF] font-semibold text-[#0B1F4D]">
-                <td className={cn("bg-[#EAF1FF] px-3 py-3 text-center text-[#6B7280]", stickyRank)}>–</td>
+              <tr className="border-b-2 border-slate-200 bg-slate-50 font-semibold">
                 {columns.map((c, i) => (
-                  <td key={c.key} className={cn("px-4 py-3", cellAlign(c), i === 0 && cn(sticky, "border-r border-[#DCE6FB] bg-[#EAF1FF]"))}>
+                  <td key={c.key} className={cn("px-5 py-2.5", cellAlign(c), i === 0 && cn(sticky, "border-r border-slate-100 bg-slate-50"))}>
                     {i === 0 ? rollupLabel : c.kind === "metric" ? c.render(rollupRow(rollup, rollupLabel)) : ""}
                   </td>
                 ))}
-                {withLink && <td className="px-4 py-3" />}
+                {withLink && <td className="px-4 py-2.5" />}
               </tr>
             )}
-            {shown.map((row, index) => {
+            {shown.map((row) => {
               const open = expandable && expandedId === row.id;
               return (
                 <Fragment key={row.id}>
-                  <tr className={cn("group border-b border-[#E6ECF5]", open ? "bg-[#EAF1FF]" : "hover:bg-[#F8FAFD]")}>
-                    <td className={cn("px-3 py-3 text-center text-xs tabular-nums text-[#6B7280]", stickyRank, open ? "bg-[#EAF1FF]" : "bg-white group-hover:bg-[#F8FAFD]")}>
-                      {firstRank + index + 1}
-                    </td>
+                  <tr className={cn("group border-b border-slate-100", open ? "bg-brand-50" : "hover:bg-slate-50")}>
                     {columns.map((c, i) => (
                       <td
                         key={c.key}
                         className={cn(
-                          "px-4 py-3 align-middle text-[#0B1F4D]",
+                          "px-5 py-2",
                           cellAlign(c),
-                          i === 0 && cn(sticky, "border-r border-[#E6ECF5]", open ? "bg-[#EAF1FF]" : "bg-white group-hover:bg-[#F8FAFD]"),
+                          i === 0 && cn(sticky, "border-r border-slate-100", open ? "bg-brand-50" : "bg-white group-hover:bg-slate-50"),
                         )}
                       >
                         {i === 0 && expandable ? (
@@ -335,13 +295,10 @@ export function AssessmentTable({
                             type="button"
                             aria-expanded={open}
                             onClick={() => onToggleExpand!(row)}
-                            className={cn("inline-flex min-h-8 items-center gap-2.5 text-left font-semibold text-[#0B1F4D] hover:text-[#2563EB]", FOCUS_RING)}
+                            className={cn("inline-flex items-center gap-1.5 text-left font-medium text-slate-900 hover:text-brand-800", FOCUS_RING)}
                           >
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#EAF1FF] text-[#2563EB]">
-                              <Building2 className="h-4 w-4" aria-hidden="true" />
-                            </span>
-                            {row.name}
                             {open ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />}
+                            {row.name}
                             <span className="sr-only">{open ? ": hide semesters" : ": show semesters"}</span>
                           </button>
                         ) : (
@@ -350,20 +307,12 @@ export function AssessmentTable({
                       </td>
                     ))}
                     {withLink && (
-                      <td className="whitespace-nowrap px-4 py-3 text-center">
-                        {(() => {
-                          const action = row.spiPath ? { href: row.spiPath, label: "View SPI report" } : (rowAction?.(row) ?? null);
-                          return action ? (
-                            <Link
-                              href={action.href}
-                              aria-label={`${action.label}: ${row.name}`}
-                              title={action.label}
-                              className={cn("inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#DCE6FB] text-[#2563EB] hover:bg-[#EAF1FF]", FOCUS_RING)}
-                            >
-                              <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                            </Link>
-                          ) : null;
-                        })()}
+                      <td className="whitespace-nowrap px-4 py-2 text-right">
+                        {row.spiPath && (
+                          <Link href={row.spiPath} className={cn("inline-flex items-center gap-1 text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
+                            View SPI report <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </Link>
+                        )}
                       </td>
                     )}
                   </tr>

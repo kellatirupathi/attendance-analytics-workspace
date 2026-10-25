@@ -28,11 +28,7 @@ export function AssessmentTypeTabs({
   };
 
   return (
-    <div
-      role="tablist"
-      aria-label="Assessment type"
-      className="flex items-center gap-1 overflow-x-auto rounded-[14px] border border-[#E6ECF5] bg-white px-2 shadow-[0_1px_2px_rgba(11,31,77,0.04)]"
-    >
+    <div role="tablist" aria-label="Assessment type" className="flex items-center gap-1 overflow-x-auto border-b border-gray-200">
       {ASSESSMENT_TYPES.map((t, i) => {
         const active = t.id === value;
         return (
@@ -50,23 +46,16 @@ export function AssessmentTypeTabs({
             onClick={() => !t.locked && onChange(t.id)}
             title={t.locked ? "Coming soon" : undefined}
             className={cn(
-              "inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-semibold transition-colors",
+              "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600",
-              active ? "border-[#2563EB] text-[#2563EB]" : "border-transparent text-[#6B7280] hover:text-[#0B1F4D]",
-              t.locked && "cursor-not-allowed text-[#6B7280] hover:text-[#6B7280]",
+              active ? "border-brand-600 text-brand-700" : "border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900",
+              t.locked && "cursor-not-allowed text-gray-500 hover:border-transparent hover:text-gray-500",
             )}
           >
             {t.locked && <Lock className="h-3.5 w-3.5" aria-hidden="true" />}
             {t.label}
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
-                active ? "bg-[#EAF1FF] text-[#2563EB]" : "bg-[#F1F4F9] text-[#6B7280]",
-              )}
-            >
-              {t.spiWeight}%
-            </span>
-            {t.locked && <span className="text-xs font-normal text-[#6B7280]">· Coming soon</span>}
+            <span className="text-xs font-normal tabular-nums text-gray-500">{t.spiWeight}%</span>
+            {t.locked && <span className="text-xs font-normal text-gray-500">· Coming soon</span>}
           </button>
         );
       })}
