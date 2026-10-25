@@ -13,4 +13,5 @@ export const GetAssessmentSummaryType = {
   cq: 'cq',
   mq: 'mq',
   all: 'all',
+  skill: 'skill',
 } as const;

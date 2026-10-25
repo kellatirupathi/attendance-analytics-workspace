@@ -623,6 +623,8 @@ export interface AssessmentSummary {
   semesters: AssessmentSummarySemester[];
   /** Section-wise needs a campus; Student-wise a campus, section or student search */
   needsCampus: boolean;
+  /** Skill Assessments only; roster campuses that have no Skill Assessment data, so the totals do not cover them */
+  missingCampuses?: string[];
   options: AssessmentSummaryOptions;
 }
 
@@ -632,6 +634,7 @@ export const GetAssessmentSummaryType = {
   cq: 'cq',
   mq: 'mq',
   all: 'all',
+  skill: 'skill',
 } as const;
 
 export type GetAssessmentSummaryGroupBy = typeof GetAssessmentSummaryGroupBy[keyof typeof GetAssessmentSummaryGroupBy];

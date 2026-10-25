@@ -513,7 +513,7 @@ paths:
         avg score = score sum / attempted; overall score = score sum / expected (absent = 0).
         Rates are derived from raw sums (sum first, divide last) and are null when the denominator is 0.
       parameters:
-        - { name: type, in: query, required: false, schema: { type: string, enum: [cq, mq, all], default: cq } }
+        - { name: type, in: query, required: false, schema: { type: string, enum: [cq, mq, all, skill], default: cq } }
         - { name: groupBy, in: query, required: false, schema: { type: string, enum: [campus, subject, section, semester, student], default: campus } }
         - { name: semester, in: query, required: false, description: 'Derived semester label (e.g. "Semester 1") or "current" for every current semester', schema: { type: string } }
         - { name: campuses, in: query, required: false, description: Campus names joined with "||", schema: { type: string } }
@@ -1615,6 +1615,10 @@ components:
           type: array
           items: { $ref: "#/components/schemas/AssessmentSummarySemester" }
         needsCampus: { type: boolean, description: Section-wise needs a campus; Student-wise a campus, section or student search }
+        missingCampuses:
+          description: Skill Assessments only; roster campuses that have no Skill Assessment data, so the totals do not cover them
+          type: array
+          items: { type: string }
         options:
           type: object
           required: [campuses, semesters, sections, subjects]

@@ -22,7 +22,7 @@ export function AssessmentKpiStrip({
           m ? (
             <>
               <MiniBar pct={m.conductedPct} tone="neutral" className="mb-1 mt-1" />
-              {fmtPct(m.conductedPct)} of scheduled quizzes held so far
+              {fmtPct(m.conductedPct)} of scheduled assessments held so far
             </>
           ) : undefined
         }

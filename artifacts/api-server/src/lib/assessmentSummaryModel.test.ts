@@ -107,3 +107,49 @@ test("filter options follow the campus scope only", () => {
   assert.equal(scopedSlots(model, []).length, 4);
   assert.deepEqual(scopedSlots(model, ["Alpha"]).map((s) => s.subject), ["Maths", "Maths", "Physics"]);
 });
+
+// Skill Assessments: slots carry sa sums (total, held, attempted, score); units are distinct assessments.
+const SA = "SKILL_ASSESSMENT";
+const saModel: AssessmentModel = {
+  slots: [
+    // 4 assessments, 3 held; attempted 2 of them (scores 60 + 80); the third held one was missed (0).
+    slot({ campus: "Sa", sectionKey: "secS", subject: "Backend Development", studentKey: "k1", studentId: "k-1", studentName: null, periodKey: "Sa\tB1\tSemester 3", cq: [0, 0, 0, 0], mq: [0, 0, 0, 0], sa: [4, 3, 2, 140] }),
+    slot({ campus: "Sa", sectionKey: "secS", subject: "Backend Development", studentKey: "k2", studentId: "k-2", studentName: null, periodKey: "Sa\tB1\tSemester 3", cq: [0, 0, 0, 0], mq: [0, 0, 0, 0], sa: [4, 3, 0, 0] }),
+  ],
+  units: new Map([
+    [unitWindowKey("secS", "Backend Development", "2026-07-01", "2026-11-30"), [
+      { unit: "a1", done: true, type: SA }, { unit: "a2", done: true, type: SA }, { unit: "a3", done: true, type: SA }, { unit: "a4", done: false, type: SA },
+    ]],
+  ]),
+};
+
+// Rates from the roll-up row's raw sums (sum first, divide last).
+const sumOf = (rows: SummarySqlRow[]) => {
+  const all = find(rows, "1", "1", null)!;
+  const expected = Number(all.expected_attempts);
+  const attempted = Number(all.attempted);
+  const scoreSum = Number(all.score_sum);
+  return {
+    completion: expected ? (attempted / expected) * 100 : null,
+    avgAttempted: attempted ? scoreSum / attempted : null,
+    overall: expected ? scoreSum / expected : null,
+  };
+};
+
+test("skill assessments: held slots are expected, a missed one is 0, quiz sums stay out", () => {
+  const rows = summarizeAssessmentModel(saModel, "campus", { ...none, types: [SA] });
+  const all = find(rows, "1", "1", null)!;
+  assert.equal(all.students, "2");
+  assert.equal(all.expected_attempts, "6", "2 students × 3 held assessments");
+  assert.equal(all.attempted, "2");
+  assert.equal(all.score_sum, "140");
+  assert.equal(all.scheduled, "4");
+  assert.equal(all.conducted, "3");
+  const m = sumOf(rows);
+  assert.ok(Math.abs(m.completion! - (2 / 6) * 100) < 1e-9);
+  assert.equal(m.avgAttempted, 70);
+  assert.ok(Math.abs(m.overall! - 140 / 6) < 1e-9);
+  // The same model under a quiz type contributes nothing.
+  const quiz = find(summarizeAssessmentModel(saModel, "campus", none), "1", "1", null)!;
+  assert.equal(quiz.expected_attempts, "0");
+});

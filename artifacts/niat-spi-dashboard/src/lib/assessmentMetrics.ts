@@ -38,7 +38,7 @@ export interface AssessmentTypeConfig {
 export const ASSESSMENT_TYPES: AssessmentTypeConfig[] = [
   { id: "cq", label: "Classroom quizzes", short: "Classroom quizzes", spiWeight: 10 },
   { id: "mq", label: "Module quizzes", short: "Module quizzes", spiWeight: 15 },
-  { id: "skill", label: "Skill assessments", short: "Skill assessments", spiWeight: 25, locked: true },
+  { id: "skill", label: "Skill assessments", short: "Skill assessments", spiWeight: 25 },
   { id: "final", label: "Final skill assessment", short: "Final skill assessment", spiWeight: 50, locked: true },
 ];
 

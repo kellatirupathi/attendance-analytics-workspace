@@ -1515,7 +1515,7 @@ router.get(
 //   },
 // );
 
-const SUMMARY_TYPE_VALUES: SummaryType[] = ["cq", "mq", "all"];
+const SUMMARY_TYPE_VALUES: SummaryType[] = ["cq", "mq", "all", "skill"];
 const SUMMARY_GROUP_VALUES: SummaryGroupBy[] = ["campus", "subject", "section", "semester", "student"];
 
 /** Assessments page: slot-model metrics with roll-ups for one assessment type and group-by. */

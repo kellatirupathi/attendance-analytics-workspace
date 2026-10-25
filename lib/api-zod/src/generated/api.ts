@@ -446,7 +446,7 @@ export const getAssessmentSummaryQueryPageSizeDefault = 50;
 export const getAssessmentSummaryQueryDirDefault = `asc`;
 
 export const GetAssessmentSummaryQueryParams = zod.object({
-  "type": zod.enum(['cq', 'mq', 'all']).default(getAssessmentSummaryQueryTypeDefault),
+  "type": zod.enum(['cq', 'mq', 'all', 'skill']).default(getAssessmentSummaryQueryTypeDefault),
   "groupBy": zod.enum(['campus', 'subject', 'section', 'semester', 'student']).default(getAssessmentSummaryQueryGroupByDefault),
   "semester": zod.coerce.string().optional().describe('Derived semester label (e.g. \"Semester 1\") or \"current\" for every current semester'),
   "campuses": zod.coerce.string().optional().describe('Campus names joined with \"||\"'),
@@ -553,6 +553,7 @@ export const GetAssessmentSummaryResponse = zod.object({
   "termWise": zod.boolean()
 }))),
   "needsCampus": zod.boolean().describe('Section-wise needs a campus; Student-wise a campus'),
+  "missingCampuses": zod.array(zod.string()).optional().describe('Skill Assessments only; roster campuses that have no Skill Assessment data, so the totals do not cover them'),
   "options": zod.object({
   "campuses": zod.array(zod.string()),
   "semesters": zod.array(zod.string()),

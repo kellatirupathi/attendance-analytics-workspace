@@ -67,6 +67,12 @@ export function CalcExplainer() {
               {COMPLETION_BANDS.good}%, Low &lt; {COMPLETION_BANDS.watch}%.
             </p>
             <p>
+              <span className="font-medium text-slate-900">Skill assessments:</span> main assessments only (practice ones are left out). One slot per
+              student per assessment that has been held: attempted and evaluated, or its window has closed. A held assessment that was not attempted
+              counts as 0; an attempt still waiting for evaluation is left out. Students come from the Skill Assessment data, and its courses follow
+              the Skill Assessment course map, so an unmapped course shows under its assessment code.
+            </p>
+            <p>
               <span className="font-medium text-slate-900">Semester dates:</span> each batch uses its own current semester window, so term-wise
               institutes can have batches on different semesters at once.
             </p>

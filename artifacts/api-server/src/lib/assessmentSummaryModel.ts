@@ -27,6 +27,8 @@ export interface AssessmentSlot {
   cq: [number, number, number, number];
   /** Module quiz slot sums, same order. */
   mq: [number, number, number, number];
+  /** Skill Assessment slot sums, same order (total, held, attempted, score); only the Skill Assessment model fills it. */
+  sa?: [number, number, number, number];
 }
 
 export interface AssessmentUnit {
@@ -152,6 +154,7 @@ export function summarizeAssessmentModel(
   const types = new Set(filters.types);
   const useCq = types.has("CLASSROOM_QUIZ");
   const useMq = types.has("MODULE_QUIZ");
+  const useSa = types.has("SKILL_ASSESSMENT");
   const byStudent = groupBy === "student";
   const bySemester = groupBy === "semester";
   const groupKey = GROUP_KEY[groupBy];
@@ -174,7 +177,7 @@ export function summarizeAssessmentModel(
   for (const slot of model.slots) {
     if (scope && !scope.has(slot.campus)) continue;
     if (!passes(slot)) continue;
-    const sums = [0, 1, 2, 3].map((i) => (useCq ? slot.cq[i]! : 0) + (useMq ? slot.mq[i]! : 0));
+    const sums = [0, 1, 2, 3].map((i) => (useCq ? slot.cq[i]! : 0) + (useMq ? slot.mq[i]! : 0) + (useSa ? (slot.sa?.[i] ?? 0) : 0));
     const unitList = (model.units.get(unitWindowKey(slot.sectionKey, slot.subject, slot.startD, slot.endD)) ?? [])
       .filter((unit) => types.has(unit.type));
     const g = groupKey(slot);

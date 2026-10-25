@@ -51,6 +51,7 @@ import {
   niatSessionSource,
 } from "./attendance-contract.js";
 import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
+import { getSkillAssessmentMap, reportCourseIn } from "./skillAssessmentMap.js";
 import { createSnapshot } from "./snapshot.js";
 import {
   scopedSlots,
@@ -5645,13 +5646,14 @@ const SUMMARY_TABLES = {
   resourceTypes: `\`${WORKSPACE}.niat_session_wise_resource_details\``,
 };
 
-export type SummaryType = "cq" | "mq" | "all";
+export type SummaryType = "cq" | "mq" | "all" | "skill";
 export type { SummaryGroupBy };
 
 const SUMMARY_TYPES: Record<SummaryType, string[]> = {
   cq: ["CLASSROOM_QUIZ"],
   mq: ["MODULE_QUIZ"],
   all: ["CLASSROOM_QUIZ", "MODULE_QUIZ"],
+  skill: ["SKILL_ASSESSMENT"],
 };
 
 export interface SummaryMetrics {
@@ -5697,6 +5699,8 @@ export interface SummaryRow extends SummaryMetrics {
 }
 
 export interface AssessmentSummaryResult {
+  /** Skill Assessments only: campuses on the roster that have no Skill Assessment data at all. */
+  missingCampuses?: string[];
   overall: SummaryMetrics;
   rows: SummaryRow[];
   semesters: SummarySemester[];
@@ -5757,9 +5761,94 @@ const assessmentSnapshot = createSnapshot<AssessmentModel>("assessment-summary",
   return { slots, units };
 });
 
-/** Changes whenever the shared assessment snapshot refreshes; part of route cache keys. */
+/**
+ * Skill Assessments (MAIN variant) in the same slot shape as the quiz snapshot, so the summary model groups
+ * and rolls them up the same way. One slot per student × Skill Assessment course (mapped to its report
+ * course through skill_assessment_course_map; an unmapped one keeps the assessment team's course code).
+ * Held = attempted and evaluated, or its window has closed; a held assessment that was not attempted counts
+ * as 0. Students come from the Skill Assessment data itself, so a campus with no Skill Assessment data has no
+ * rows. Units are the distinct assessments of a section × course; done = held for any student.
+ */
+const skillSnapshot = createSnapshot<AssessmentModel>("assessment-skill", async () => {
+  const attempted = `UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED'`;
+  const held = `((${attempted} AND UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED')
+      OR (NOT (${attempted}) AND IFNULL(assessment_close_at <= CURRENT_DATETIME('Asia/Kolkata'), TRUE)))`;
+  const where = `UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
+      AND semester_course_name IS NOT NULL AND institute_name IS NOT NULL AND TRIM(institute_name) != ''
+      AND student_user_id IS NOT NULL AND assessment_id IS NOT NULL
+      AND ${excludeInstituteSql("institute_name")}`;
+  const dims = `TRIM(institute_name) AS campus, TRIM(batch_name) AS batch, TRIM(IFNULL(derived_semester_title, '')) AS derived,
+      COALESCE(NULLIF(TRIM(section), ''), '—') AS section, TRIM(semester_course_name) AS sa_course`;
+  const [slotRows, unitRows, saMap] = await Promise.all([
+    bqQuery<Record<string, string | null>>(
+      `SELECT ${dims},
+        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+        ANY_VALUE(CAST(student_user_id AS STRING)) AS student_id,
+        COUNT(DISTINCT assessment_id) AS total_n,
+        COUNT(DISTINCT IF(${held}, assessment_id, NULL)) AS held_n,
+        COUNT(DISTINCT IF(${held} AND ${attempted}, assessment_id, NULL)) AS attempted_n,
+        SUM(IF(${held} AND ${attempted}, IFNULL(score_percentage, 0), 0)) AS score_sum
+      FROM ${SKILL_ASSESSMENT_TABLE}
+      WHERE ${where}
+      GROUP BY campus, batch, derived, section, sa_course, student_key`,
+      {},
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+    bqQuery<Record<string, string | null>>(
+      `SELECT ${dims}, CAST(assessment_id AS STRING) AS unit, CAST(LOGICAL_OR(${held}) AS STRING) AS done
+      FROM ${SKILL_ASSESSMENT_TABLE}
+      WHERE ${where}
+      GROUP BY campus, batch, derived, section, sa_course, unit`,
+      {},
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+    getSkillAssessmentMap(),
+  ]);
+  const num = (v: unknown) => Number(v) || 0;
+  const subjectOf = (r: Record<string, string | null>) => {
+    const saCourse = String(r["sa_course"] ?? "");
+    return reportCourseIn(saMap.value, String(r["campus"] ?? ""), String(r["batch"] ?? ""), saCourse) ?? saCourse;
+  };
+  const sectionKeyOf = (r: Record<string, string | null>) => `${r["campus"]}\t${r["batch"]}\t${r["section"]}`;
+  const slots = slotRows.map((r) => {
+    const campus = String(r["campus"]);
+    const batch = String(r["batch"]);
+    const derived = String(r["derived"] ?? "");
+    return {
+      campus,
+      section: `${batch}-${r["section"]}`,
+      sectionKey: sectionKeyOf(r),
+      subject: subjectOf(r),
+      studentKey: String(r["student_key"]),
+      studentId: r["student_id"] ?? null,
+      studentName: null,
+      startD: null,
+      endD: null,
+      batch,
+      periodTitle: derived,
+      derived,
+      termWise: false,
+      periodKey: `${campus}\t${batch}\t${derived}`,
+      cq: [0, 0, 0, 0] as [number, number, number, number],
+      mq: [0, 0, 0, 0] as [number, number, number, number],
+      sa: [num(r["total_n"]), num(r["held_n"]), num(r["attempted_n"]), num(r["score_sum"])] as [number, number, number, number],
+    };
+  });
+  const units = new Map<string, AssessmentUnit[]>();
+  for (const r of unitRows) {
+    const key = unitWindowKey(sectionKeyOf(r), subjectOf(r), null, null);
+    const list = units.get(key) ?? [];
+    list.push({ unit: String(r["unit"]), done: isTrue(r["done"]), type: "SKILL_ASSESSMENT" });
+    units.set(key, list);
+  }
+  return { slots, units };
+});
+
+/** Changes whenever a shared assessment snapshot refreshes; part of route cache keys. */
 export function assessmentSummaryVersion(): number {
-  return assessmentSnapshot.version();
+  return assessmentSnapshot.version() * 1000 + skillSnapshot.version();
 }
 
 /** Rates from raw sums (sum first, divide last). null when the denominator is 0, never 0%. */
@@ -5826,6 +5915,24 @@ function summaryRow(groupBy: SummaryGroupBy, r: SummarySqlRow, semesters: Summar
   };
 }
 
+/** Roster campuses (inside the user's scope) that have no Skill Assessment data, so a total is not read as every campus. */
+async function campusesWithoutSkillData(scope: SessionScope): Promise<string[]> {
+  const [roster, skillModel] = await Promise.all([assessmentSnapshot.get(), skillSnapshot.get()]);
+  const scoped = (scope.campuses ?? []).map((name) => name.trim());
+  const have = new Set(skillModel.slots.map((slot) => slot.campus));
+  const missing = new Set<string>();
+  for (const slot of roster.slots) {
+    if ((!scoped.length || scoped.includes(slot.campus)) && !have.has(slot.campus) && !isExcludedInstitute(slot.campus)) missing.add(slot.campus);
+  }
+  return [...missing].sort((a, b) => a.localeCompare(b));
+}
+
+/** The requested subjects limited to a user's subject scope; a request outside the scope matches nothing. */
+function skillSubjects(requested: string[], scoped: string[]): string[] {
+  const allowed = requested.length ? requested.filter((s) => scoped.includes(s)) : scoped;
+  return allowed.length ? allowed : ["\u0000none"];
+}
+
 export async function getAssessmentSummary(
   scope: SessionScope,
   opts: {
@@ -5860,7 +5967,8 @@ export async function getAssessmentSummary(
 
   // Campus-scoped and unscoped users read the shared snapshot. A subject-limited scope also
   // narrows the quiz join by exact course title, which the snapshot cannot repeat, so it queries.
-  const [rows, optionRows] = scope.subjects?.length
+  const skill = opts.type === "skill";
+  const [rows, optionRows] = scope.subjects?.length && !skill
     ? await Promise.all([
         bqQuery<SummarySqlRow>(
           buildAssessmentSummarySql(SUMMARY_TABLES, groupBy, attWhere, quizWhere),
@@ -5876,7 +5984,7 @@ export async function getAssessmentSummary(
         ),
       ])
     : await (async () => {
-        const model = await assessmentSnapshot.get();
+        const model = skill ? await skillSnapshot.get() : await assessmentSnapshot.get();
         const scopeCampuses = (scope.campuses ?? []).map((name) => name.trim());
         const summaryRows = summarizeAssessmentModel(model, groupBy, {
           types: SUMMARY_TYPES[opts.type],
@@ -5884,7 +5992,8 @@ export async function getAssessmentSummary(
           campuses: opts.campuses,
           semester: opts.semester,
           sections: opts.sections,
-          subjects: opts.subjects,
+          // The Skill Assessment model has no SQL fallback, so a subject-limited scope narrows the subject filter here.
+          subjects: skill && scope.subjects?.length ? skillSubjects(opts.subjects, scope.subjects) : opts.subjects,
           student: opts.student.trim(),
         });
         const options = scopedSlots(model, scopeCampuses).map((slot) => ({
@@ -5926,6 +6035,7 @@ export async function getAssessmentSummary(
 
   const empty: SummarySqlRow = { g: null, p: null, gg: "1", gp: "1", r_campus: null, r_section: null, r_subject: null, r_batch: null, r_period_title: null, r_derived: null, r_term_wise: null, r_start: null, r_end: null, r_student_id: null, r_student_name: null, students: "0", campuses: "0", expected_attempts: "0", attempted: "0", score_sum: "0", scheduled: "0", conducted: "0" };
   return {
+    ...(skill ? { missingCampuses: await campusesWithoutSkillData(scope) } : {}),
     overall: summaryMetrics(overallRow ?? empty),
     rows: groupRows,
     semesters,

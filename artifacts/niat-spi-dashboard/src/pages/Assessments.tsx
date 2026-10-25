@@ -29,7 +29,7 @@ import { CalcExplainer } from "@/components/assessments/CalcExplainer";
 
 const BASE = "/dashboard/assessments";
 const COLUMNS_KEY = "assessments-hidden-columns";
-const TYPES: SummaryType[] = ["cq", "mq"];
+const TYPES: SummaryType[] = ["cq", "mq", "skill"];
 const GROUPS = GROUP_OPTIONS.map((g) => g.value);
 
 const splitList = (v: string | null) => (v ? v.split("||").map((x) => x.trim()).filter(Boolean) : []);
@@ -246,6 +246,7 @@ function AssessmentsPage() {
 
       <div className="space-y-6 pt-4">
         <AssessmentKpiStrip metrics={data?.overall ?? null} updating={updating} onRetry={retry} />
+        {type === "skill" && data?.missingCampuses?.length ? <SkillCoverageNote campuses={data.missingCampuses} /> : null}
 
         <Section
           title={campuses.length === 1 && groupBy !== "campus" ? `${groupLabel} · ${campuses[0]}` : groupLabel}
@@ -284,6 +285,21 @@ function AssessmentsPage() {
 
         <CalcExplainer />
       </div>
+    </div>
+  );
+}
+
+/** Skill Assessment totals cover only the campuses that have Skill Assessment data; say which ones are left out. */
+function SkillCoverageNote({ campuses }: { campuses: string[] }) {
+  return (
+    <div role="note" className="border-y border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+      <p>
+        <span className="font-semibold">{campuses.length} {campuses.length === 1 ? "campus has" : "campuses have"} no Skill Assessment data</span>, so these totals do not include {campuses.length === 1 ? "it" : "them"}.
+      </p>
+      <details className="mt-1">
+        <summary className="cursor-pointer text-xs font-medium underline">Show {campuses.length === 1 ? "campus" : "campuses"}</summary>
+        <p className="mt-1 text-xs">{campuses.join(" · ")}</p>
+      </details>
     </div>
   );
 }
