@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { keepPreviousData } from "@tanstack/react-query";
-import { Columns3, Download } from "lucide-react";
+import { Building2, Columns3, Download } from "lucide-react";
 import {
   getAssessmentSummary,
   getGetAssessmentSummaryQueryKey,
@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PageHeader } from "@/components/PageHeader";
-import { Section } from "@/components/dashboard/overview";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
@@ -26,6 +25,7 @@ import { AssessmentKpiStrip } from "@/components/assessments/AssessmentKpiStrip"
 import { AssessmentFilters, CURRENT_SEMESTERS, GROUP_OPTIONS, type FilterState } from "@/components/assessments/AssessmentFilters";
 import { AssessmentTable, DEFAULT_SORT, columnsFor, rollupRow, type Sort } from "@/components/assessments/AssessmentTable";
 import { CalcExplainer } from "@/components/assessments/CalcExplainer";
+import { AssessmentCard, CoverageNotice } from "@/components/assessments/parts";
 
 const BASE = "/dashboard/assessments";
 const COLUMNS_KEY = "assessments-hidden-columns";
@@ -171,8 +171,10 @@ function AssessmentsPage() {
   const semLabel = semester === CURRENT_SEMESTERS ? "Current semesters" : semester;
   const studentsLabel = data ? `${fmtInt(data.overall.students)} students` : "… students";
   const groupLabel = GROUP_OPTIONS.find((g) => g.value === groupBy)!.label;
+  // The roll-up names the institutes it adds up: the distinct campuses under the current filters.
+  const instituteCount = data?.overall.campuses ?? 0;
   const rollupLabel =
-    groupBy === "campus" ? campusLabel : groupBy === "subject" ? "All subjects" : groupBy === "section" ? "All sections" : groupBy === "semester" ? "All semesters" : "All students";
+    groupBy === "campus" ? (instituteCount ? `All institutes (${fmtInt(instituteCount)})` : campusLabel) : groupBy === "subject" ? "All subjects" : groupBy === "section" ? "All sections" : groupBy === "semester" ? "All semesters" : "All students";
 
   /* ---- exports ---- */
   /** CSV needs every row, not the page on screen, so it asks the server for the whole view. */
@@ -233,6 +235,7 @@ function AssessmentsPage() {
         }
       />
 
+      <div className="space-y-4 bg-[#F4F7FC] px-5 py-4">
       <AssessmentTypeTabs value={type as AssessmentTypeId} onChange={(next) => writeQuery({ type: next === "cq" ? undefined : next })} />
 
       <AssessmentFilters
@@ -244,10 +247,12 @@ function AssessmentsPage() {
         onReset={() => setLocation(type === "cq" ? BASE : `${BASE}?type=${type}`)}
       />
 
-      <div className="space-y-6 pt-4">
+      <div className="space-y-4">
         <AssessmentKpiStrip metrics={data?.overall ?? null} updating={updating} onRetry={retry} />
+        {data && <CoverageNotice m={data.overall} />}
 
-        <Section
+        <AssessmentCard
+          icon={<Building2 className="h-4 w-4" aria-hidden="true" />}
           title={campuses.length === 1 && groupBy !== "campus" ? `${groupLabel} · ${campuses[0]}` : groupLabel}
           subtitle={
             data?.needsCampus
@@ -270,6 +275,18 @@ function AssessmentsPage() {
             onRetry={retry}
             expandedId={openCampus}
             onToggleExpand={(row) => writeQuery({ open: openCampus === row.id ? undefined : row.id }, true)}
+            rowAction={
+              groupBy === "campus"
+                ? (row) => {
+                    const next = new URLSearchParams();
+                    if (type !== "cq") next.set("type", type);
+                    next.set("group", "section");
+                    next.set("campuses", row.name);
+                    if (semester !== CURRENT_SEMESTERS) next.set("sem", semester);
+                    return { href: `${BASE}?${next.toString()}`, label: "View sections" };
+                  }
+                : undefined
+            }
             emptyState={data?.needsCampus ? <PickCampus groupBy={groupBy} /> : undefined}
             sort={sort}
             onSort={setSort}
@@ -280,9 +297,10 @@ function AssessmentsPage() {
             onPage={(next) => setPageState({ key: viewKey, page: next })}
             onPageSize={setPageSize}
           />
-        </Section>
+        </AssessmentCard>
 
         <CalcExplainer />
+      </div>
       </div>
     </div>
   );

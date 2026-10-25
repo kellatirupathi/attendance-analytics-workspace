@@ -559,6 +559,10 @@ export interface AssessmentSummaryMetrics {
   overallScore: number | null;
   /** @nullable */
   conductedPct: number | null;
+  /** @nullable */
+  unitSubjects?: number | null;
+  /** @nullable */
+  uncoveredSubjects?: number | null;
 }
 
 export type AssessmentSummarySemester = AssessmentSummaryMetrics & {

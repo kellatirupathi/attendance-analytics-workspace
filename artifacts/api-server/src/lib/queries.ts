@@ -5668,6 +5668,9 @@ export interface SummaryMetrics {
   avgScoreAttempted: number | null;
   overallScore: number | null;
   conductedPct: number | null;
+  /** Campus × subject pairs with quiz units, and those with no quiz-table records; null when not computed. */
+  unitSubjects: number | null;
+  uncoveredSubjects: number | null;
 }
 
 export interface SummarySemester extends SummaryMetrics {
@@ -5783,6 +5786,8 @@ function summaryMetrics(r: SummarySqlRow): SummaryMetrics {
     avgScoreAttempted: ratio(scoreSum, attempted),
     overallScore: ratio(scoreSum, expected),
     conductedPct: ratio(conducted, scheduled, 100),
+    unitSubjects: r.unit_subjects == null ? null : Number(r.unit_subjects) || 0,
+    uncoveredSubjects: r.uncovered_subjects == null ? null : Number(r.uncovered_subjects) || 0,
   };
 }
 

@@ -473,7 +473,9 @@ export const GetAssessmentSummaryResponse = zod.object({
   "completionPct": zod.number().nullable(),
   "avgScoreAttempted": zod.number().nullable(),
   "overallScore": zod.number().nullable(),
-  "conductedPct": zod.number().nullable()
+  "conductedPct": zod.number().nullable(),
+  "unitSubjects": zod.number().nullable().optional(),
+  "uncoveredSubjects": zod.number().nullable().optional()
 }),
   "rows": zod.array(zod.object({
   "scheduled": zod.number().describe('Distinct quizzes scheduled in the current semester window'),
@@ -487,7 +489,9 @@ export const GetAssessmentSummaryResponse = zod.object({
   "completionPct": zod.number().nullable(),
   "avgScoreAttempted": zod.number().nullable(),
   "overallScore": zod.number().nullable(),
-  "conductedPct": zod.number().nullable()
+  "conductedPct": zod.number().nullable(),
+  "unitSubjects": zod.number().nullable().optional(),
+  "uncoveredSubjects": zod.number().nullable().optional()
 }).and(zod.object({
   "id": zod.string(),
   "name": zod.string(),
@@ -513,7 +517,9 @@ export const GetAssessmentSummaryResponse = zod.object({
   "completionPct": zod.number().nullable(),
   "avgScoreAttempted": zod.number().nullable(),
   "overallScore": zod.number().nullable(),
-  "conductedPct": zod.number().nullable()
+  "conductedPct": zod.number().nullable(),
+  "unitSubjects": zod.number().nullable().optional(),
+  "uncoveredSubjects": zod.number().nullable().optional()
 }).and(zod.object({
   "id": zod.string(),
   "campus": zod.string(),
@@ -541,7 +547,9 @@ export const GetAssessmentSummaryResponse = zod.object({
   "completionPct": zod.number().nullable(),
   "avgScoreAttempted": zod.number().nullable(),
   "overallScore": zod.number().nullable(),
-  "conductedPct": zod.number().nullable()
+  "conductedPct": zod.number().nullable(),
+  "unitSubjects": zod.number().nullable().optional(),
+  "uncoveredSubjects": zod.number().nullable().optional()
 }).and(zod.object({
   "id": zod.string(),
   "campus": zod.string(),

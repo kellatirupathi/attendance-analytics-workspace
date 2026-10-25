@@ -22,4 +22,6 @@ export interface AssessmentSummaryMetrics {
   avgScoreAttempted: number | null;
   overallScore: number | null;
   conductedPct: number | null;
+  unitSubjects?: number | null;
+  uncoveredSubjects?: number | null;
 }
