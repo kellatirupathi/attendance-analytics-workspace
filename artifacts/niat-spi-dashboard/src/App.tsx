@@ -103,8 +103,7 @@ function Protected({
 }
 
 /**
- * Student report: opens for a signed-in staff user or a test student (UUID + password).
- * With neither, the report itself sends the visitor to /student-login. Instructors still go to /instructor.
+ * Student report: public, by student UID. Signed-in instructors still go to /instructor.
  */
 function ReportRoute() {
   const { user, isLoading } = useAuth();
@@ -121,8 +120,10 @@ function Router() {
         <Route path="/" component={Landing} />
         <Route path="/staff-login" component={StaffLogin} />
         <Route path="/student-login" component={StudentLogin} />
-        {/* Student report: login required (staff, or a test student's UUID + password); the login page brings the user back here. */}
+        {/* Student report: public, opens by the student UID alone (the quiz comes first without a staff login). */}
         <Route path="/spi/:studentId" component={ReportRoute} />
+        {/* Public report link used by the Learning Portal: opens without a login. */}
+        <Route path="/spi-reportlink/:studentId" component={SpiReport} />
 
         {/* Authenticated dashboard */}
         <Route path="/dashboard">

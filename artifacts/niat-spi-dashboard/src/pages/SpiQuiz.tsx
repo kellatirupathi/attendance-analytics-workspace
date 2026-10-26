@@ -40,7 +40,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export default function SpiQuiz({ onDone }: { onDone: () => void }) {
+/** The quiz for the student in the report link (`studentId`); finishing it unlocks the report. */
+export default function SpiQuiz({ studentId, onDone }: { studentId: string; onDone: () => void }) {
+  const student = encodeURIComponent(studentId);
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [started, setStarted] = useState(false);
@@ -53,7 +55,7 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
   const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
-    api<{ done: boolean; questions: Question[] }>("/spi")
+    api<{ done: boolean; questions: Question[] }>(`/spi?student=${student}`)
       .then((d) => (d.done || d.questions.length === 0 ? onDone() : setQuestions(d.questions)))
       .catch(() => setLoadError(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,7 +72,7 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
     try {
       const result = await api<Feedback>("/spi/answer", {
         method: "POST",
-        body: JSON.stringify({ questionId: question.id, option: key, position: index + 1 }),
+        body: JSON.stringify({ student: studentId, questionId: question.id, option: key, position: index + 1 }),
       });
       setFeedback(result);
       if (result.correct) setCorrectCount((n) => n + 1);
@@ -91,7 +93,7 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
     }
     setFinishing(true);
     try {
-      await api("/spi/complete", { method: "POST", body: "{}" });
+      await api("/spi/complete", { method: "POST", body: JSON.stringify({ student: studentId }) });
       setFinished(true);
     } catch {
       setLoadError(true);
@@ -140,7 +142,7 @@ export default function SpiQuiz({ onDone }: { onDone: () => void }) {
           onClick={() => {
             setStarted(true);
             // Saved for the quiz analytics; the quiz goes on even if this call fails.
-            void api("/spi/start", { method: "POST", body: "{}" }).catch(() => {});
+            void api("/spi/start", { method: "POST", body: JSON.stringify({ student: studentId }) }).catch(() => {});
           }}
           className="min-h-11 rounded-xl bg-[#2563EB] px-6 text-sm font-semibold text-white hover:bg-[#1D4ED8]"
         >

@@ -9,26 +9,30 @@ import {
   quizDoneFor,
   signQuizDone,
 } from "../lib/spiQuiz.js";
-import { STUDENT_COOKIE_NAME, studentCookieOptions, studentIdFromToken } from "../lib/testStudents.js";
+import { validateStudentId } from "../lib/bigquery.js";
+import { studentCookieOptions, studentKey } from "../lib/testStudents.js";
 import { quizFinished, recordAnswer, recordFinished, recordOpened, recordStarted } from "../lib/quizTracking.js";
 
 const router = Router();
 
 const quizLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
 
-/** A student login (test student today, Learning Portal SSO later) or a staff session may use the quiz. */
+/**
+ * Report links are public (/spi-reportlink/{student_uid}), so the quiz belongs to the student in the
+ * link: `student` in the query (GET) or body (POST). A staff session previews the quiz and saves nothing.
+ */
 async function whoIsAsking(req: Parameters<typeof getSessionFromRequest>[0]): Promise<{ student: string | null; staff: boolean }> {
-  return {
-    student: await studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined),
-    staff: Boolean(getSessionFromRequest(req)),
-  };
+  const raw = (req.query?.["student"] ?? (req.body as { student?: unknown } | undefined)?.student) as unknown;
+  const staff = Boolean(getSessionFromRequest(req));
+  const valid = typeof raw === "string" && validateStudentId.test(raw.trim());
+  return { student: !staff && valid ? studentKey(raw as string) : null, staff };
 }
 
 router.get("/spi", quizLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
   const who = await whoIsAsking(req);
   if (!who.student && !who.staff) {
-    res.status(401).json({ error: "Login required" });
+    res.status(400).json({ error: "Student required" });
     return;
   }
   // A student reaching the gate counts as "opened" (saved once). Done = finished in the database
@@ -45,7 +49,7 @@ router.post("/spi/answer", quizLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
   const who = await whoIsAsking(req);
   if (!who.student && !who.staff) {
-    res.status(401).json({ error: "Login required" });
+    res.status(400).json({ error: "Student required" });
     return;
   }
   const { questionId, option, position } = req.body as { questionId?: string; option?: string; position?: number };
@@ -65,7 +69,7 @@ router.post("/spi/start", quizLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
   const who = await whoIsAsking(req);
   if (!who.student && !who.staff) {
-    res.status(401).json({ error: "Login required" });
+    res.status(400).json({ error: "Student required" });
     return;
   }
   if (who.student) await recordStarted(who.student);
@@ -76,7 +80,7 @@ router.post("/spi/complete", quizLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
   const who = await whoIsAsking(req);
   if (!who.student && !who.staff) {
-    res.status(401).json({ error: "Login required" });
+    res.status(400).json({ error: "Student required" });
     return;
   }
   // Staff may preview the quiz; only a student login is marked as done.

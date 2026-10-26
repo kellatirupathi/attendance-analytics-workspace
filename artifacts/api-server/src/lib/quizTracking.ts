@@ -36,6 +36,8 @@ export async function recordOpened(studentId: string): Promise<void> {
       getStudentPlacement(studentId).catch(() => ({ batch: null, semester: null })),
       isTestStudent(key),
     ]);
+    // Links are public: a UID that is not a current student is not saved.
+    if (!overview) return;
     await db
       .insert(spiQuizAttemptsTable)
       .values({
@@ -63,7 +65,7 @@ export async function recordStarted(studentId: string): Promise<void> {
   }
 }
 
-/** Saves the first answer to a question; time = seconds since the previous answer (or the start). */
+/** Saves the first answer to a question while the attempt is open; time = seconds since the previous answer (or the start). */
 export async function recordAnswer(
   studentId: string,
   answer: { questionId: string; option: string; correct: boolean; position: number | null },
@@ -77,7 +79,7 @@ export async function recordAnswer(
           (SELECT MAX(answered_at) FROM spi_quiz_answers WHERE student_id = ${key}),
           (SELECT started_at FROM spi_quiz_attempts WHERE student_id = ${key}),
           now()))))::int
-      WHERE NOT EXISTS (SELECT 1 FROM spi_quiz_attempts WHERE student_id = ${key} AND finished_at IS NOT NULL)
+      WHERE EXISTS (SELECT 1 FROM spi_quiz_attempts WHERE student_id = ${key} AND finished_at IS NULL)
       ON CONFLICT (student_id, question_id) DO NOTHING`);
   } catch (err) {
     log("recordAnswer", err);

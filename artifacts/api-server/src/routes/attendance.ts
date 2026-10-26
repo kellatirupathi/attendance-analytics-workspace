@@ -19,7 +19,7 @@ import {
 import { validateStudentId } from "../lib/bigquery.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { assertStudentAccess } from "../lib/studentAccess.js";
-import { STUDENT_COOKIE_NAME, studentIdFromToken, studentKey } from "../lib/testStudents.js";
+import { studentKey } from "../lib/testStudents.js";
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
 import { quizFinished } from "../lib/quizTracking.js";
 import { getStudentScorecard } from "../lib/spiScorecard.js";
@@ -377,9 +377,9 @@ router.get(
 );
 
 // The student SPI scorecard: everything the report shows, worked out on the server.
-// Login required (2026-10-18): no session → 401 and the page sends the user to login.
-// Report links carry no token, and a token alone no longer opens it. Campus-scoped
-// staff only see students of their campuses (assertStudentAccess).
+// Public (2026-10-26): the Learning Portal links to /spi-reportlink/{student_uid}, which opens
+// without a login. Without a staff session the report data is sent only after this student has
+// finished the SPI quick quiz (spiQuiz.ts); an unknown UID gets 404 before any quiz. Staff are not gated.
 router.get(
   "/students/:studentId/scorecard",
   spiLimiter,
@@ -389,40 +389,25 @@ router.get(
       res.status(400).json({ error: "Invalid student ID" });
       return;
     }
-    // A test student (UUID + password, testStudents.ts) may open only their own report.
-    // Staff go through the usual access check.
-    const ownStudent = await studentIdFromToken(req.cookies?.[STUDENT_COOKIE_NAME] as string | undefined);
-    if (!getSessionFromRequest(req)) {
-      if (!ownStudent) {
-        res.status(401).json({ error: "Login required" });
-        return;
-      }
-      if (ownStudent !== studentKey(studentId)) {
-        res.status(403).json({ error: "Forbidden" });
-        return;
-      }
-      // A student sees the report only after the SPI quick quiz (spiQuiz.ts); staff are not gated.
-      if (!quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, ownStudent) && !(await quizFinished(ownStudent))) {
-        res.status(403).json({ error: "quiz_required" });
-        return;
-      }
-    } else if (!(await assertStudentAccess(req, studentId))) {
-      res.status(403).json({ error: "Forbidden" });
-      return;
-    }
+    res.set("X-Robots-Tag", "noindex, nofollow");
     const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${(await getCourseCredits()).version}:${(await getRemovedCourses()).version}:${(await getSkillAssessmentMap()).version}:${studentId}`;
-    const cached = cacheGet<object>(cacheKey);
-    if (cached) {
-      res.json(cached);
-      return;
-    }
     try {
-      const data = await getStudentScorecard(studentId);
+      let data = cacheGet<object>(cacheKey);
       if (!data) {
-        res.status(404).json({ error: "Student not found" });
-        return;
+        data = await getStudentScorecard(studentId);
+        if (!data) {
+          res.status(404).json({ error: "Student not found" });
+          return;
+        }
+        cacheSet(cacheKey, data, 5 * 60 * 1000);
       }
-      cacheSet(cacheKey, data, 5 * 60 * 1000);
+      if (!getSessionFromRequest(req)) {
+        const student = studentKey(studentId);
+        if (!quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, student) && !(await quizFinished(student))) {
+          res.status(403).json({ error: "quiz_required" });
+          return;
+        }
+      }
       res.json(data);
     } catch (err) {
       req.log.error({ err }, "Error building student scorecard");

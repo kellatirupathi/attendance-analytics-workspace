@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useLocation, useParams } from "wouter";
+import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,16 +41,18 @@ export default function SpiReport() {
     retry: (count, err) => !(err instanceof ScorecardError && [400, 401, 403, 404].includes(err.status)) && count < 2,
   });
 
-  // Not signed in (no staff session, no student login): go to the student login, which comes back here.
-  const [, setLocation] = useLocation();
-  const needsLogin = error instanceof ScorecardError && error.status === 401;
+  // Report links are public: keep them out of search engines.
   useEffect(() => {
-    if (needsLogin) setLocation(`/student-login?next=${encodeURIComponent(`/spi/${studentId}`)}`);
-  }, [needsLogin, studentId, setLocation]);
+    const meta = document.createElement("meta");
+    meta.name = "robots";
+    meta.content = "noindex, nofollow";
+    document.head.appendChild(meta);
+    return () => meta.remove();
+  }, []);
 
-  // A student login opens the report only after the SPI quick quiz; finishing it unlocks the report.
+  // Without a staff login the report opens only after the student in the link finishes the SPI quick quiz.
   if (error instanceof ScorecardError && error.status === 403 && error.code === "quiz_required") {
-    return <SpiQuiz onDone={() => void refetch()} />;
+    return <SpiQuiz studentId={studentId} onDone={() => void refetch()} />;
   }
 
   if (isLoading) {
