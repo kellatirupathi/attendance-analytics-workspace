@@ -29,8 +29,13 @@ router.post("/spi-report-sync", async (req, res): Promise<void> => {
     return;
   }
   const started = Date.now();
-  const result = await runReportSync("schedule");
-  res.status(result.status === "failed" ? 500 : 200).json({ ...result, seconds: Math.round((Date.now() - started) / 1000) });
+  try {
+    const result = await runReportSync("schedule");
+    res.status(result.status === "failed" ? 500 : 200).json({ ...result, seconds: Math.round((Date.now() - started) / 1000) });
+  } catch (err) {
+    req.log.error({ err }, "SPI report sync request failed");
+    res.status(500).json({ status: "failed", error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 export default router;

@@ -28,7 +28,7 @@ const INSERT_BATCH = 500;
 const MEMORY_TTL_MS = 5 * 60_000;
 const memoryKey = (studentKey: string) => `spiReport:${studentKey}`;
 
-const DDL = [
+const CREATE_TABLES = [
   `CREATE TABLE IF NOT EXISTS spi_report_cache (
     student_id text PRIMARY KEY,
     college text,
@@ -52,16 +52,28 @@ const DDL = [
     finished_at timestamptz,
     duration_ms integer
   )`,
-  // Added 2026-10-27; the table may exist without it.
-  `ALTER TABLE spi_report_cache ADD COLUMN IF NOT EXISTS batch text`,
 ];
 
 let tablesReady: Promise<void> | null = null;
 
-/** Creates the two tables if missing (same columns as lib/db/src/schema/reportCache.ts). */
+/**
+ * Creates the two tables, or the batch column (added 2026-10-27), only when missing
+ * (same columns as lib/db/src/schema/reportCache.ts). The published app's database user may
+ * not own the tables, and Postgres refuses ALTER/CREATE to a non-owner even when nothing
+ * would change, so existing tables are checked first and never touched.
+ */
 function ensureTables(): Promise<void> {
   tablesReady ??= (async () => {
-    for (const ddl of DDL) await pool.query(ddl);
+    const { rows } = await pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name IN ('spi_report_cache', 'spi_report_sync_runs')`,
+    );
+    const tables = new Set(rows.map((r) => r.table_name));
+    if (!tables.has("spi_report_cache") || !tables.has("spi_report_sync_runs")) {
+      for (const ddl of CREATE_TABLES) await pool.query(ddl);
+    } else if (!rows.some((r) => r.table_name === "spi_report_cache" && r.column_name === "batch")) {
+      await pool.query("ALTER TABLE spi_report_cache ADD COLUMN IF NOT EXISTS batch text");
+    }
   })().catch((err) => {
     tablesReady = null;
     throw err;
