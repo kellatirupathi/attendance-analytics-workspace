@@ -377,7 +377,7 @@ router.get(
 );
 
 // The student SPI scorecard: everything the report shows, worked out on the server.
-// Public (2026-10-26): the Learning Portal links to /spi-reportlink/{student_uid}, which opens
+// Public (2026-10-26): the Learning Portal links to /spi/{student_uid}, which opens
 // without a login. Without a staff session the report data is sent only after this student has
 // finished the SPI quick quiz (spiQuiz.ts); an unknown UID gets 404 before any quiz. Staff are not gated.
 router.get(

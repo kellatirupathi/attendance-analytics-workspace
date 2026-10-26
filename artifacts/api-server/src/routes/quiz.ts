@@ -18,7 +18,7 @@ const router = Router();
 const quizLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
 
 /**
- * Report links are public (/spi-reportlink/{student_uid}), so the quiz belongs to the student in the
+ * Report links are public (/spi/{student_uid}), so the quiz belongs to the student in the
  * link: `student` in the query (GET) or body (POST). A staff session previews the quiz and saves nothing.
  */
 async function whoIsAsking(req: Parameters<typeof getSessionFromRequest>[0]): Promise<{ student: string | null; staff: boolean }> {

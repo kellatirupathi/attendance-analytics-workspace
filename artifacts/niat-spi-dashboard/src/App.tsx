@@ -122,8 +122,6 @@ function Router() {
         <Route path="/student-login" component={StudentLogin} />
         {/* Student report: public, opens by the student UID alone (the quiz comes first without a staff login). */}
         <Route path="/spi/:studentId" component={ReportRoute} />
-        {/* Public report link used by the Learning Portal: opens without a login. */}
-        <Route path="/spi-reportlink/:studentId" component={SpiReport} />
 
         {/* Authenticated dashboard */}
         <Route path="/dashboard">
