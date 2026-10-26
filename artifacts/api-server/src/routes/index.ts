@@ -8,6 +8,7 @@ import bigqueryRouter from "./bigquery.js";
 import profileRouter from "./profile.js";
 import notificationsRouter from "./notifications.js";
 import quizRouter from "./quiz.js";
+import internalRouter from "./internal.js";
 // Recovery is switched off for now; uncomment both lines to bring it back.
 // import recoveryRouter from "./recovery.js";
 
@@ -22,6 +23,7 @@ router.use("/bigquery", bigqueryRouter);
 router.use("/profile", profileRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/quiz", quizRouter);
+router.use("/internal", internalRouter);
 // router.use("/recovery", recoveryRouter);
 
 export default router;
