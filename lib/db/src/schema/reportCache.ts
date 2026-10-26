@@ -11,6 +11,7 @@ export const spiReportCacheTable = pgTable("spi_report_cache", {
   college: text("college"),
   semester: text("semester"),
   section: text("section"),
+  batch: text("batch"),
   attendancePct: real("attendance_pct"),
   /** Out of 10; null until it can be calculated. */
   spi: real("spi"),

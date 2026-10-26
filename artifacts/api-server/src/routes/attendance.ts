@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { rateLimit } from "express-rate-limit";
+import { allLimits, perNetworkLimit, perStudentLimit } from "../lib/rateLimits.js";
 import { db } from "@workspace/db";
 import {
   attendanceRequestsTable,
@@ -44,12 +44,10 @@ import { scopeForSession } from "../lib/rbac.js";
 
 const router = Router();
 
-const spiLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Student report endpoints: 60 a minute per student per network, 3,000 per network (campus Wi-Fi).
+const spiPerStudent = perStudentLimit(60, (req) => req.params["studentId"]);
+const spiPerNetwork = perNetworkLimit(3000);
+const spiLimiter = allLimits(spiPerNetwork, spiPerStudent);
 
 function hasSpiTokenAccess(
   req: Parameters<typeof getSessionFromRequest>[0],

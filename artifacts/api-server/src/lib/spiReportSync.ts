@@ -34,6 +34,7 @@ const DDL = [
     college text,
     semester text,
     section text,
+    batch text,
     attendance_pct real,
     spi real,
     needs_attention integer,
@@ -51,6 +52,8 @@ const DDL = [
     finished_at timestamptz,
     duration_ms integer
   )`,
+  // Added 2026-10-27; the table may exist without it.
+  `ALTER TABLE spi_report_cache ADD COLUMN IF NOT EXISTS batch text`,
 ];
 
 let tablesReady: Promise<void> | null = null;
@@ -76,6 +79,7 @@ function rowValues(r: BuiltReport): unknown[] {
     r.identity.instituteName,
     r.identity.semester,
     r.identity.sectionName,
+    r.identity.batch,
     r.scorecard.attendance.overallPct,
     r.scorecard.spi,
     r.scorecard.skillDebt.length,
@@ -83,13 +87,13 @@ function rowValues(r: BuiltReport): unknown[] {
   ];
 }
 
-const COLUMNS = "(student_id, college, semester, section, attendance_pct, spi, needs_attention, report)";
+const COLUMNS = "(student_id, college, semester, section, batch, attendance_pct, spi, needs_attention, report)";
 
-/** ($1, …, $8::jsonb), (…) for `count` rows of rowValues(). */
+/** ($1, …, $9::jsonb), (…) for `count` rows of rowValues(). */
 function valuesSql(count: number): string {
   return Array.from({ length: count }, (_, row) => {
-    const p = Array.from({ length: 8 }, (_, i) => `$${row * 8 + i + 1}`);
-    p[7] = `${p[7]}::jsonb`;
+    const p = Array.from({ length: 9 }, (_, i) => `${row * 9 + i + 1}`);
+    p[8] = `${p[8]}::jsonb`;
     return `(${p.join(", ")})`;
   }).join(", ");
 }
@@ -110,6 +114,23 @@ export async function getCachedReport(studentKey: string): Promise<object | null
   }
 }
 
+/** College, semester, section and batch of a synced student (for the quiz tracking); null when not synced. */
+export async function getCachedPlacement(
+  studentKey: string,
+): Promise<{ college: string | null; semester: string | null; section: string | null; batch: string | null } | null> {
+  try {
+    await ensureTables();
+    const { rows } = await pool.query<{ college: string | null; semester: string | null; section: string | null; batch: string | null }>(
+      "SELECT college, semester, section, batch FROM spi_report_cache WHERE student_id = $1",
+      [studentKey],
+    );
+    return rows[0] ?? null;
+  } catch (err) {
+    logger.error({ err }, "Reading spi_report_cache placement failed");
+    return null;
+  }
+}
+
 /** Saves one report built live (a student the last sync did not have). */
 export async function saveReport(report: BuiltReport): Promise<void> {
   try {
@@ -117,7 +138,7 @@ export async function saveReport(report: BuiltReport): Promise<void> {
     await pool.query(
       `INSERT INTO spi_report_cache ${COLUMNS} VALUES ${valuesSql(1)}
        ON CONFLICT (student_id) DO UPDATE SET college = EXCLUDED.college, semester = EXCLUDED.semester,
-         section = EXCLUDED.section, attendance_pct = EXCLUDED.attendance_pct, spi = EXCLUDED.spi,
+         section = EXCLUDED.section, batch = EXCLUDED.batch, attendance_pct = EXCLUDED.attendance_pct, spi = EXCLUDED.spi,
          needs_attention = EXCLUDED.needs_attention, report = EXCLUDED.report, built_at = now()`,
       rowValues(report),
     );

@@ -549,6 +549,7 @@ export interface ReportIdentity {
   studentName: string;
   instituteName: string | null;
   sectionName: string | null;
+  batch: string | null;
   semester: string | null;
 }
 
@@ -561,6 +562,7 @@ export async function getReportIdentities(who: ReportStudents): Promise<ReportId
     student_name: string;
     institute_name: string | null;
     batch_section_name: string | null;
+    batch: string | null;
     semester: string | null;
   }>(
     `SELECT
@@ -569,6 +571,7 @@ export async function getReportIdentities(who: ReportStudents): Promise<ReportId
       MAX(student_name) AS student_name,
       MAX(institute_name) AS institute_name,
       MAX(batch_section_name) AS batch_section_name,
+      MAX(TRIM(batch_name)) AS batch,
       MAX(TRIM(CAST(semester_title AS STRING))) AS semester
     FROM ${attendanceSource()}
     WHERE ${reportStudentMatch("student_user_id", who, params)}
@@ -584,6 +587,7 @@ export async function getReportIdentities(who: ReportStudents): Promise<ReportId
     studentName: r.student_name,
     instituteName: r.institute_name ?? null,
     sectionName: r.batch_section_name ?? null,
+    batch: r.batch ?? null,
     semester: r.semester ?? null,
   }));
 }

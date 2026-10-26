@@ -1,6 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, spiQuizAttemptsTable } from "@workspace/db";
-import { getReportIdentities, getStudentPlacement } from "./queries.js";
+import { getReportIdentities } from "./queries.js";
+import { getCachedPlacement } from "./spiReportSync.js";
 import { isTestStudent, studentKey } from "./testStudents.js";
 
 /**
@@ -31,23 +32,23 @@ export async function recordOpened(studentId: string): Promise<void> {
   try {
     const [existing] = await db.select({ id: spiQuizAttemptsTable.id }).from(spiQuizAttemptsTable).where(eq(spiQuizAttemptsTable.studentId, key));
     if (existing) return;
-    const [identity, placement, isTest] = await Promise.all([
-      getReportIdentities({ studentId }).then((rows) => rows[0] ?? null).catch(() => null),
-      getStudentPlacement(studentId).catch(() => ({ batch: null, semester: null })),
+    // From the synced report (Postgres); BigQuery only for a student the last sync did not have.
+    const [placement, isTest] = await Promise.all([
+      getCachedPlacement(key).then(
+        (cached) =>
+          cached ??
+          getReportIdentities({ studentId })
+            .then((rows) => rows[0])
+            .then((r) => (r ? { college: r.instituteName, section: r.sectionName, batch: r.batch, semester: r.semester } : null))
+            .catch(() => null),
+      ),
       isTestStudent(key),
     ]);
     // Links are public: a UID that is not a current student is not saved.
-    if (!identity) return;
+    if (!placement) return;
     await db
       .insert(spiQuizAttemptsTable)
-      .values({
-        studentId: key,
-        isTest,
-        college: identity.instituteName,
-        section: identity.sectionName,
-        batch: placement.batch,
-        semester: placement.semester,
-      })
+      .values({ studentId: key, isTest, ...placement })
       .onConflictDoNothing();
   } catch (err) {
     log("recordOpened", err);

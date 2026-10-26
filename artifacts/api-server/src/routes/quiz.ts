@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { rateLimit } from "express-rate-limit";
+import { allLimits, perNetworkLimit, perStudentLimit } from "../lib/rateLimits.js";
 import { getSessionFromRequest } from "../lib/auth.js";
 import {
   QUIZ_COOKIE_NAME,
@@ -15,7 +15,10 @@ import { quizFinished, recordAnswer, recordFinished, recordOpened, recordStarted
 
 const router = Router();
 
-const quizLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false });
+// About 12 calls per quiz: 120 a minute per student per network, 6,000 per network (campus Wi-Fi).
+const quizPerStudent = perStudentLimit(120, (req) => req.query?.["student"] ?? (req.body as { student?: unknown } | undefined)?.student);
+const quizPerNetwork = perNetworkLimit(6000);
+const quizLimiter = allLimits(quizPerNetwork, quizPerStudent);
 
 /**
  * Report links are public (/spi/{student_uid}), so the quiz belongs to the student in the
