@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { db, spiQuizAttemptsTable } from "@workspace/db";
-import { getStudentOverview, getStudentPlacement } from "./queries.js";
+import { getReportIdentities, getStudentPlacement } from "./queries.js";
 import { isTestStudent, studentKey } from "./testStudents.js";
 
 /**
@@ -31,20 +31,20 @@ export async function recordOpened(studentId: string): Promise<void> {
   try {
     const [existing] = await db.select({ id: spiQuizAttemptsTable.id }).from(spiQuizAttemptsTable).where(eq(spiQuizAttemptsTable.studentId, key));
     if (existing) return;
-    const [overview, placement, isTest] = await Promise.all([
-      getStudentOverview(studentId).catch(() => null),
+    const [identity, placement, isTest] = await Promise.all([
+      getReportIdentities({ studentId }).then((rows) => rows[0] ?? null).catch(() => null),
       getStudentPlacement(studentId).catch(() => ({ batch: null, semester: null })),
       isTestStudent(key),
     ]);
     // Links are public: a UID that is not a current student is not saved.
-    if (!overview) return;
+    if (!identity) return;
     await db
       .insert(spiQuizAttemptsTable)
       .values({
         studentId: key,
         isTest,
-        college: overview?.instituteName ?? null,
-        section: overview?.sectionName ?? null,
+        college: identity.instituteName,
+        section: identity.sectionName,
         batch: placement.batch,
         semester: placement.semester,
       })

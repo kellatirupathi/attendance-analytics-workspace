@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { requireSession } from "../lib/auth.js";
+import { reportSyncStatus, runReportSync } from "../lib/spiReportSync.js";
 import { invalidateSessionCache } from "../lib/sessionCache.js";
 import { manageableRoles, ROLE_META, SUBJECTS } from "../lib/rbac.js";
 import type { Role } from "../lib/rbac.js";
@@ -57,6 +58,22 @@ router.use(requireSession({ manage: true }));
 router.use((_req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();
+});
+
+// SPI report sync (BigQuery → Postgres): last runs, and a manual run.
+router.get("/spi-report-sync", async (req, res): Promise<void> => {
+  try {
+    res.json(await reportSyncStatus());
+  } catch (err) {
+    req.log.error({ err }, "Error reading SPI report sync status");
+    res.status(500).json({ error: "Failed to read sync status" });
+  }
+});
+
+router.post("/spi-report-sync", (req, res): void => {
+  // Runs in the background (a few minutes); GET shows the result.
+  void runReportSync("manual");
+  res.status(202).json({ started: true });
 });
 
 // Users

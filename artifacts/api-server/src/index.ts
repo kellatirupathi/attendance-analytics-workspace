@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runStartupSeed } from "./lib/seed-data";
 import { startSnapshots } from "./lib/snapshot";
+import { startReportSync } from "./lib/spiReportSync";
 
 const rawPort = process.env["PORT"];
 
@@ -33,6 +34,8 @@ async function start(): Promise<void> {
     logger.info({ port }, "Server listening");
     // Load the shared BigQuery snapshots now so the first users do not wait for them.
     startSnapshots();
+    // Student reports: BigQuery → Postgres every hour, so a report opens without live BigQuery queries.
+    startReportSync();
   });
 }
 

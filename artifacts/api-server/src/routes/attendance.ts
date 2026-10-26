@@ -22,10 +22,8 @@ import { assertStudentAccess } from "../lib/studentAccess.js";
 import { studentKey } from "../lib/testStudents.js";
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
 import { quizFinished } from "../lib/quizTracking.js";
-import { getStudentScorecard } from "../lib/spiScorecard.js";
-import { getCourseCredits } from "../lib/courseCredits.js";
-import { getRemovedCourses } from "../lib/reportRemovedCourses.js";
-import { getSkillAssessmentMap } from "../lib/skillAssessmentMap.js";
+import { buildStudentReport } from "../lib/spiScorecard.js";
+import { getCachedReport, saveReport } from "../lib/spiReportSync.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -390,19 +388,22 @@ router.get(
       return;
     }
     res.set("X-Robots-Tag", "noindex, nofollow");
-    const cacheKey = `scorecard:v7:${courseAttendanceConfigVersion()}:${(await getCourseCredits()).version}:${(await getRemovedCourses()).version}:${(await getSkillAssessmentMap()).version}:${studentId}`;
+    const student = studentKey(studentId);
+    const missingKey = `spiReportMissing:${student}`;
     try {
-      let data = cacheGet<object>(cacheKey);
+      // Synced report (spiReportSync.ts); a student the last sync did not have is built live once and saved.
+      let data = await getCachedReport(student);
       if (!data) {
-        data = await getStudentScorecard(studentId);
-        if (!data) {
+        const built = cacheGet<boolean>(missingKey) ? null : await buildStudentReport(studentId);
+        if (!built) {
+          cacheSet(missingKey, true, 5 * 60 * 1000);
           res.status(404).json({ error: "Student not found" });
           return;
         }
-        cacheSet(cacheKey, data, 5 * 60 * 1000);
+        data = built.scorecard;
+        void saveReport(built);
       }
       if (!getSessionFromRequest(req)) {
-        const student = studentKey(studentId);
         if (!quizDoneFor(req.cookies?.[QUIZ_COOKIE_NAME] as string | undefined, student) && !(await quizFinished(student))) {
           res.status(403).json({ error: "quiz_required" });
           return;

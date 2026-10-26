@@ -95,6 +95,32 @@ function attendanceSource(): string {
 function studentIdMatch(column: string): string {
   return `LOWER(REPLACE(CAST(${column} AS STRING), '-', '')) = @studentId`;
 }
+
+/**
+ * Students a report query reads: one (the live report) or every student (the report sync,
+ * spiReportSync.ts). Both run the same SQL, so the synced report equals the live one.
+ */
+export type ReportStudents = { studentId: string } | "all";
+
+/** A student id column as the report's student key: lower-case, no hyphens. */
+const studentKeySql = (column: string) => `LOWER(REPLACE(CAST(${column} AS STRING), '-', ''))`;
+
+function reportStudentMatch(column: string, who: ReportStudents, params: Record<string, unknown>): string {
+  if (who === "all") return "TRUE";
+  params["studentId"] = normalizeStudentId(who.studentId);
+  return studentIdMatch(column);
+}
+
+function groupByStudent<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const k = key(row);
+    const list = out.get(k);
+    if (list) list.push(row);
+    else out.set(k, [row]);
+  }
+  return out;
+}
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 interface AttendanceRollupRow {
@@ -295,9 +321,11 @@ const NO_MATCH = "\u0000NONE";
  *   other page counts the same rows, so their numbers match this one.
  * - Current semester, dated up to today (IST).
  */
-export function courseAttendanceSql(where: string): string {
+export function courseAttendanceSql(where: string, opts: { byStudent?: boolean } = {}): string {
+  const byStudent = opts.byStudent ? "student_key, " : "";
   return `WITH slots AS (
       SELECT
+        ${studentKeySql("a.student_user_id")} AS student_key,
         TRIM(a.institute_name) AS institute_name,
         TRIM(a.subject_title) AS subject_title,
         a.niat_course_category AS course_category,
@@ -311,7 +339,7 @@ export function courseAttendanceSql(where: string): string {
         AND ${where}
     )
     SELECT
-      institute_name,
+      ${byStudent}institute_name,
       subject_title,
       course_category,
       COUNT(DISTINCT student_user_id) AS students,
@@ -320,8 +348,8 @@ export function courseAttendanceSql(where: string): string {
       COUNTIF(is_present AND is_submitted) AS present_submitted,
       COUNTIF(is_submitted) AS submitted_slots
     FROM slots
-    GROUP BY institute_name, subject_title, course_category
-    ORDER BY institute_name, subject_title`;
+    GROUP BY ${byStudent}institute_name, subject_title, course_category
+    ORDER BY ${byStudent}institute_name, subject_title`;
 }
 
 function exclusionParams(): Record<string, unknown> {
@@ -388,36 +416,53 @@ async function loadCourseAttendance(opts: {
     params["filterSubjects"] = opts.subjects;
     clauses.push("TRIM(a.subject_title) IN UNNEST(@filterSubjects)");
   }
-  const rows = await bqQuery<{
-    institute_name: string;
-    subject_title: string;
-    course_category: string | null;
-    students: string;
-    present: string;
-    slots: string;
-    present_submitted: string;
-    submitted_slots: string;
-  }>(courseAttendanceSql(clauses.join(" AND ")), params, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS);
-  return rows
-    .filter((row) => !isExcludedInstitute(row.institute_name))
-    .map((row) => {
-      const present = Number(row.present) || 0;
-      const slots = Number(row.slots) || 0;
-      const presentSubmitted = Number(row.present_submitted) || 0;
-      const submittedSlots = Number(row.submitted_slots) || 0;
-      return {
-        instituteName: row.institute_name,
-        subjectTitle: row.subject_title,
-        courseCategory: row.course_category ?? null,
-        students: Number(row.students) || 0,
-        present,
-        slots,
-        presentSubmitted,
-        submittedSlots,
-        pct: pct(present, slots),
-        pctSubmittedOnly: submittedSlots > 0 ? pct(presentSubmitted, submittedSlots) : null,
-      };
-    });
+  const rows = await bqQuery<RawCourseAttendanceRow>(courseAttendanceSql(clauses.join(" AND ")), params, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS);
+  return rows.filter((row) => !isExcludedInstitute(row.institute_name)).map(toCourseAttendanceRow);
+}
+
+interface RawCourseAttendanceRow {
+  institute_name: string;
+  subject_title: string;
+  course_category: string | null;
+  students: string;
+  present: string;
+  slots: string;
+  present_submitted: string;
+  submitted_slots: string;
+}
+
+function toCourseAttendanceRow(row: RawCourseAttendanceRow): CourseAttendanceRow {
+  const present = Number(row.present) || 0;
+  const slots = Number(row.slots) || 0;
+  const presentSubmitted = Number(row.present_submitted) || 0;
+  const submittedSlots = Number(row.submitted_slots) || 0;
+  return {
+    instituteName: row.institute_name,
+    subjectTitle: row.subject_title,
+    courseCategory: row.course_category ?? null,
+    students: Number(row.students) || 0,
+    present,
+    slots,
+    presentSubmitted,
+    submittedSlots,
+    pct: pct(present, slots),
+    pctSubmittedOnly: submittedSlots > 0 ? pct(presentSubmitted, submittedSlots) : null,
+  };
+}
+
+/** Course attendance of every student (the report sync), merged per subject like the live report. */
+async function getCourseAttendanceByStudent(): Promise<Map<string, SubjectAttendance[]>> {
+  const rows = await bqQuery<RawCourseAttendanceRow & { student_key: string }>(
+    courseAttendanceSql(excludeInstituteSql("a.institute_name"), { byStudent: true }),
+    {},
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  const byStudent = groupByStudent(
+    rows.filter((row) => !isExcludedInstitute(row.institute_name)),
+    (row) => row.student_key,
+  );
+  return new Map([...byStudent].map(([key, list]) => [key, mergeBySubject(list.map(toCourseAttendanceRow))]));
 }
 
 /** Folds rows that share a subject (another campus or category) into one per subject. */
@@ -497,6 +542,52 @@ export async function getStudentOverview(
   };
 }
 
+/** Who the report is for: one row per current-semester student. */
+export interface ReportIdentity {
+  studentKey: string;
+  studentId: string;
+  studentName: string;
+  instituteName: string | null;
+  sectionName: string | null;
+  semester: string | null;
+}
+
+export async function getReportIdentities(who: ReportStudents): Promise<ReportIdentity[]> {
+  if (who !== "all" && !validateStudentId.test(who.studentId)) return [];
+  const params: Record<string, unknown> = {};
+  const rows = await bqQuery<{
+    student_key: string;
+    student_user_id: string;
+    student_name: string;
+    institute_name: string | null;
+    batch_section_name: string | null;
+    semester: string | null;
+  }>(
+    `SELECT
+      ${studentKeySql("student_user_id")} AS student_key,
+      ANY_VALUE(CAST(student_user_id AS STRING)) AS student_user_id,
+      MAX(student_name) AS student_name,
+      MAX(institute_name) AS institute_name,
+      MAX(batch_section_name) AS batch_section_name,
+      MAX(TRIM(CAST(semester_title AS STRING))) AS semester
+    FROM ${attendanceSource()}
+    WHERE ${reportStudentMatch("student_user_id", who, params)}
+      AND is_current_semester = 1
+    GROUP BY student_key`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  return rows.map((r) => ({
+    studentKey: r.student_key,
+    studentId: r.student_user_id,
+    studentName: r.student_name,
+    instituteName: r.institute_name ?? null,
+    sectionName: r.batch_section_name ?? null,
+    semester: r.semester ?? null,
+  }));
+}
+
 export interface SubjectAttendance {
   subjectTitle: string;
   courseCategory: string | null;
@@ -532,8 +623,10 @@ interface ScheduledSubject {
  * University courses aren't on the prod sequence, and the excluded categories
  * and subjects are dropped the same way as courseAttendanceSql.
  */
-async function getStudentScheduledSubjects(studentId: string): Promise<ScheduledSubject[]> {
+async function getScheduledSubjects(who: ReportStudents): Promise<Map<string, ScheduledSubject[]>> {
+  const params: Record<string, unknown> = { ...exclusionParams() };
   const rows = await bqQuery<{
+    student_key: string;
     subject_title: string;
     course_category: string | null;
     sessions_held: string;
@@ -543,26 +636,33 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
     `WITH student_rows AS (
       -- The raw table: the shared source relabels a mover's old rows with their current campus.
       SELECT DISTINCT
+        ${studentKeySql("student_user_id")} AS student_key,
         TRIM(institute_name) AS campus,
         REPLACE(CAST(section_id AS STRING), '-', '') AS section_key
       FROM ${RAW_ATTENDANCE_TABLE}
-      WHERE ${studentIdMatch("student_user_id")}
+      WHERE ${reportStudentMatch("student_user_id", who, params)}
         AND is_current_semester = 1
         AND section_id IS NOT NULL
     ),
     master_campus AS (
-      SELECT DISTINCT TRIM(institute_name) AS campus
+      SELECT DISTINCT ${studentKeySql("user_id")} AS student_key, TRIM(institute_name) AS campus
       FROM ${STUDENT_MASTER_TABLE}
-      WHERE ${studentIdMatch("user_id")}
+      WHERE ${reportStudentMatch("user_id", who, params)}
         AND institute_name IS NOT NULL
     ),
+    matched AS (
+      SELECT DISTINCT r.student_key FROM student_rows r JOIN master_campus m USING (student_key, campus)
+    ),
+    -- Sections at the student's master-view campus; all their sections when none is there.
     student_sections AS (
-      SELECT DISTINCT section_key
-      FROM student_rows
-      WHERE campus IN (SELECT campus FROM master_campus)
-         OR NOT EXISTS (SELECT 1 FROM student_rows r JOIN master_campus USING (campus))
+      SELECT DISTINCT r.student_key, r.section_key
+      FROM student_rows r
+      LEFT JOIN master_campus m USING (student_key, campus)
+      WHERE m.student_key IS NOT NULL
+         OR NOT EXISTS (SELECT 1 FROM matched x WHERE x.student_key = r.student_key)
     )
     SELECT
+      ss.student_key,
       TRIM(s.course_title) AS subject_title,
       NULLIF(TRIM(CAST(s.course_category AS STRING)), '') AS course_category,
       COUNT(DISTINCT IF(DATE(s.session_start_datetime) <= CURRENT_DATE('Asia/Kolkata'), s.session_id, NULL)) AS sessions_held,
@@ -577,19 +677,25 @@ async function getStudentScheduledSubjects(studentId: string): Promise<Scheduled
       AND ${excludeInstituteSql("s.institute_name")}
       AND UPPER(IFNULL(TRIM(CAST(s.course_category AS STRING)), '')) NOT IN UNNEST(@excludedCategories)
       AND UPPER(TRIM(s.course_title)) NOT IN UNNEST(@excludedSubjects)
-    GROUP BY subject_title, course_category`,
-    { ...exclusionParams(), studentId: normalizeStudentId(studentId) },
+    GROUP BY ss.student_key, subject_title, course_category`,
+    params,
     BQ_LOCATION,
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
-  return rows.map((row) => ({
-    subjectTitle: row.subject_title,
-    courseCategory: row.course_category ?? null,
-    sessionsHeld: Number(row.sessions_held) || 0,
-    courseIds: (row.course_ids ?? "").split(",").filter(Boolean),
-    // BigQuery's REST API returns BOOL as the string "true" / "false".
-    hasInstructor: String(row.has_instructor).toLowerCase() === "true",
-  }));
+  const byStudent = groupByStudent(rows, (row) => row.student_key);
+  return new Map(
+    [...byStudent].map(([key, list]) => [
+      key,
+      list.map((row) => ({
+        subjectTitle: row.subject_title,
+        courseCategory: row.course_category ?? null,
+        sessionsHeld: Number(row.sessions_held) || 0,
+        courseIds: (row.course_ids ?? "").split(",").filter(Boolean),
+        // BigQuery's REST API returns BOOL as the string "true" / "false".
+        hasInstructor: String(row.has_instructor).toLowerCase() === "true",
+      })),
+    ]),
+  );
 }
 
 /**
@@ -604,8 +710,22 @@ export async function getStudentSubjects(
   if (!validateStudentId.test(studentId)) return [];
   const [attended, scheduled] = await Promise.all([
     getCourseAttendance({ studentId }).then(mergeBySubject),
-    getStudentScheduledSubjects(studentId),
+    getScheduledSubjects({ studentId }).then((byStudent) => [...byStudent.values()].flat()),
   ]);
+  return combineSubjects(attended, scheduled);
+}
+
+/** Every student's course list (the report sync), built like getStudentSubjects. */
+export async function getSubjectsByStudent(): Promise<Map<string, SubjectAttendance[]>> {
+  const [attended, scheduled] = await Promise.all([getCourseAttendanceByStudent(), getScheduledSubjects("all")]);
+  const out = new Map<string, SubjectAttendance[]>();
+  for (const key of new Set([...attended.keys(), ...scheduled.keys()])) {
+    out.set(key, combineSubjects(attended.get(key) ?? [], scheduled.get(key) ?? []));
+  }
+  return out;
+}
+
+function combineSubjects(attended: SubjectAttendance[], scheduled: ScheduledSubject[]): SubjectAttendance[] {
   const scheduledByTitle = new Map<string, ScheduledSubject>();
   for (const subject of scheduled) {
     const key = subject.subjectTitle.toLowerCase();
@@ -4903,10 +5023,17 @@ export async function getSubjectList(): Promise<string[]> {
 /** One student's quiz summary rows for the SPI scorecard (one row per course × quiz type). */
 export async function getStudentQuizCourseRows(studentId: string): Promise<StudentQuizCourseRow[]> {
   if (!validateStudentId.test(studentId)) return [];
+  return [...(await getQuizCourseRows({ studentId })).values()].flat();
+}
+
+/** Quiz summary rows of one student or every student (the report sync), by student key. */
+export async function getQuizCourseRows(who: ReportStudents): Promise<Map<string, StudentQuizCourseRow[]>> {
+  const params: Record<string, unknown> = {};
   // The unit type comes back as text: BigQuery returns every value (BOOL too) as a string,
   // so a BOOL "false" would read as truthy and file classroom quizzes under module.
-  const rows = await bqQuery<RawQuizCourseRow>(
+  const rows = await bqQuery<RawQuizCourseRow & { student_key: string }>(
     `SELECT
+      ${studentKeySql("user_id")} AS student_key,
       NULLIF(TRIM(CAST(semester_course_title AS STRING)), '') AS semester_course_title,
       NULLIF(TRIM(CAST(course_title AS STRING)), '') AS course_title,
       UPPER(TRIM(IFNULL(derived_unit_type, ''))) AS unit_type,
@@ -4914,10 +5041,13 @@ export async function getStudentQuizCourseRows(studentId: string): Promise<Stude
       LEAST(IFNULL(SAFE_CAST(total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0)) AS attempted,
       SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64) AS avg_attempted
     FROM ${QUIZ_TABLE}
-    WHERE ${studentIdMatch("user_id")}`,
-    { studentId: normalizeStudentId(studentId) },
+    WHERE ${reportStudentMatch("user_id", who, params)}`,
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
-  return rows.map(toStudentQuizCourseRow);
+  const byStudent = groupByStudent(rows, (row) => row.student_key);
+  return new Map([...byStudent].map(([key, list]) => [key, list.map(toStudentQuizCourseRow)]));
 }
 
 /** The student's current batch and semester (current-semester attendance rows); nulls when none. */
@@ -4952,7 +5082,14 @@ export interface StudentSkillAssessment {
  */
 export async function getStudentSkillAssessments(studentId: string): Promise<StudentSkillAssessment[]> {
   if (!validateStudentId.test(studentId)) return [];
+  return [...(await getSkillAssessmentRows({ studentId })).values()].flat();
+}
+
+/** Skill Assessments of one student or every student (the report sync), by student key. */
+export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<string, StudentSkillAssessment[]>> {
+  const params: Record<string, unknown> = {};
   const rows = await bqQuery<{
+    student_key: string;
     college: string | null;
     batch: string | null;
     sa_course: string | null;
@@ -4961,6 +5098,7 @@ export async function getStudentSkillAssessments(studentId: string): Promise<Stu
     score_pct: string | null;
   }>(
     `SELECT
+      ${studentKeySql("student_user_id")} AS student_key,
       TRIM(institute_name) AS college,
       TRIM(batch_name) AS batch,
       TRIM(semester_course_name) AS sa_course,
@@ -4971,20 +5109,28 @@ export async function getStudentSkillAssessments(studentId: string): Promise<Stu
       AS STRING) AS held,
       IF(UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED', score_percentage, NULL) AS score_pct
     FROM ${SKILL_ASSESSMENT_TABLE}
-    WHERE ${studentIdMatch("student_user_id")}
+    WHERE ${reportStudentMatch("student_user_id", who, params)}
       AND UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
       AND semester_course_name IS NOT NULL`,
-    { studentId: normalizeStudentId(studentId) },
+    params,
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
   // BigQuery's REST API returns BOOL as the string "true" / "false".
-  return rows.map((r) => ({
-    college: r.college ?? "",
-    batch: r.batch ?? "",
-    saCourse: r.sa_course ?? "",
-    held: r.held === "true",
-    attempted: r.attempted === "true",
-    scorePct: r.score_pct == null ? null : Number(r.score_pct),
-  }));
+  const byStudent = groupByStudent(rows, (row) => row.student_key);
+  return new Map(
+    [...byStudent].map(([key, list]) => [
+      key,
+      list.map((r) => ({
+        college: r.college ?? "",
+        batch: r.batch ?? "",
+        saCourse: r.sa_course ?? "",
+        held: r.held === "true",
+        attempted: r.attempted === "true",
+        scorePct: r.score_pct == null ? null : Number(r.score_pct),
+      })),
+    ]),
+  );
 }
 
 export interface QuizItem {
