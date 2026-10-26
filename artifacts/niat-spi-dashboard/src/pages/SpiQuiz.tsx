@@ -17,6 +17,14 @@ interface Feedback {
   correct: boolean;
   correctOption: string;
   explanation: string[];
+  /** The saved answer: the first one counts, so a repeat comes back with the first pick. */
+  option?: string;
+}
+interface QuizState {
+  done: boolean;
+  questions: Question[];
+  /** Saved so far for an unfinished quiz: it continues at the first unanswered question. */
+  progress?: { started: boolean; answered: { questionId: string; correct: boolean }[] };
 }
 
 const shuffled = <T,>(items: T[]): T[] => {
@@ -53,10 +61,22 @@ export default function SpiQuiz({ studentId, onDone }: { studentId: string; onDo
   const [correctCount, setCorrectCount] = useState(0);
   const [finished, setFinished] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  /** Questions already answered before this page load (reload, lost connection, another device). */
+  const [resumedCount, setResumedCount] = useState(0);
+  const [savedScore, setSavedScore] = useState<{ score: number | null; total: number | null } | null>(null);
 
   useEffect(() => {
-    api<{ done: boolean; questions: Question[] }>(`/spi?student=${student}`)
-      .then((d) => (d.done || d.questions.length === 0 ? onDone() : setQuestions(d.questions)))
+    api<QuizState>(`/spi?student=${student}`)
+      .then((d) => {
+        if (d.done || d.questions.length === 0) return onDone();
+        const answered = d.progress?.answered ?? [];
+        const done = new Set(answered.map((a) => a.questionId));
+        const firstOpen = d.questions.findIndex((q) => !done.has(q.id));
+        setIndex(firstOpen === -1 ? d.questions.length : firstOpen);
+        setCorrectCount(answered.filter((a) => a.correct).length);
+        setResumedCount(d.questions.filter((q) => done.has(q.id)).length);
+        setQuestions(d.questions);
+      })
       .catch(() => setLoadError(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -74,12 +94,29 @@ export default function SpiQuiz({ studentId, onDone }: { studentId: string; onDo
         method: "POST",
         body: JSON.stringify({ student: studentId, questionId: question.id, option: key, position: index + 1 }),
       });
+      if (result.option && result.option !== key) setPicked(result.option);
       setFeedback(result);
       if (result.correct) setCorrectCount((n) => n + 1);
     } catch {
       setPicked(null);
     } finally {
       setChecking(false);
+    }
+  };
+
+  const finish = async () => {
+    setFinishing(true);
+    try {
+      const saved = await api<{ score: number | null; total: number | null }>("/spi/complete", {
+        method: "POST",
+        body: JSON.stringify({ student: studentId }),
+      });
+      setSavedScore(saved);
+      setFinished(true);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setFinishing(false);
     }
   };
 
@@ -91,15 +128,7 @@ export default function SpiQuiz({ studentId, onDone }: { studentId: string; onDo
       setFeedback(null);
       return;
     }
-    setFinishing(true);
-    try {
-      await api("/spi/complete", { method: "POST", body: JSON.stringify({ student: studentId }) });
-      setFinished(true);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setFinishing(false);
-    }
+    await finish();
   };
 
   const shell = (children: React.ReactNode) => (
@@ -130,23 +159,30 @@ export default function SpiQuiz({ studentId, onDone }: { studentId: string; onDo
     );
   }
 
-  if (!started) {
+  const allAnswered = resumedCount > 0 && index >= questions.length;
+  if (!started && !finished) {
     return shell(
       <div className="text-center">
         <h1 className="mb-2 text-xl font-bold text-[#0B1F4D]">Please complete this quiz to unlock your SPI Score Card</h1>
         <p className="mb-6 text-sm leading-relaxed text-[#6B7280]">
-          It has {questions.length} short questions about how SPI works. When you finish, your report opens.
+          {resumedCount > 0
+            ? allAnswered
+              ? `You have answered all ${questions.length} questions.`
+              : `You have answered ${resumedCount} of ${questions.length}. Continue from question ${index + 1}.`
+            : `It has ${questions.length} short questions about how SPI works. When you finish, your report opens.`}
         </p>
         <button
           type="button"
+          disabled={finishing}
           onClick={() => {
+            if (allAnswered) return void finish();
             setStarted(true);
             // Saved for the quiz analytics; the quiz goes on even if this call fails.
             void api("/spi/start", { method: "POST", body: JSON.stringify({ student: studentId }) }).catch(() => {});
           }}
           className="min-h-11 rounded-xl bg-[#2563EB] px-6 text-sm font-semibold text-white hover:bg-[#1D4ED8]"
         >
-          Start quiz
+          {allAnswered ? (finishing ? "Saving..." : "Finish quiz") : resumedCount > 0 ? "Continue quiz" : "Start quiz"}
         </button>
       </div>,
     );
@@ -158,7 +194,7 @@ export default function SpiQuiz({ studentId, onDone }: { studentId: string; onDo
         <PartyPopper className="mx-auto mb-3 h-10 w-10 text-[#2563EB]" />
         <h1 className="mb-2 text-xl font-bold text-[#0B1F4D]">Thank you!</h1>
         <p className="mb-1 text-sm text-[#334155]">
-          You answered {correctCount} of {questions.length} correctly.
+          You answered {savedScore?.score ?? correctCount} of {savedScore?.total ?? questions.length} correctly.
         </p>
         <p className="mb-6 text-sm leading-relaxed text-[#6B7280]">
           Congratulations! We hope you now understand how SPI works. Your report is ready.

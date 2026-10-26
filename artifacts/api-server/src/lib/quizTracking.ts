@@ -1,5 +1,5 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { db, spiQuizAttemptsTable } from "@workspace/db";
+import { db, spiQuizAnswersTable, spiQuizAttemptsTable } from "@workspace/db";
 import { getReportIdentities } from "./queries.js";
 import { getCachedPlacement } from "./spiReportSync.js";
 import { isTestStudent, studentKey } from "./testStudents.js";
@@ -104,3 +104,39 @@ export async function recordFinished(studentId: string, totalQuestions: number):
   }
 }
 
+/**
+ * Where a student stands in an unfinished quiz, so a reload or a lost connection continues at the
+ * next question: whether they started, and the answer saved for each question (the first one counts).
+ */
+export async function quizProgress(
+  studentId: string,
+): Promise<{ started: boolean; answers: { questionId: string; option: string; correct: boolean }[] }> {
+  const key = studentKey(studentId);
+  try {
+    const [[attempt], answers] = await Promise.all([
+      db.select({ startedAt: spiQuizAttemptsTable.startedAt }).from(spiQuizAttemptsTable).where(eq(spiQuizAttemptsTable.studentId, key)),
+      db
+        .select({ questionId: spiQuizAnswersTable.questionId, option: spiQuizAnswersTable.option, correct: spiQuizAnswersTable.correct })
+        .from(spiQuizAnswersTable)
+        .where(eq(spiQuizAnswersTable.studentId, key)),
+    ]);
+    return { started: Boolean(attempt?.startedAt) || answers.length > 0, answers };
+  } catch (err) {
+    log("quizProgress", err);
+    return { started: false, answers: [] };
+  }
+}
+
+/** The score saved when the student finished; null when not finished (or not saved). */
+export async function finishedScore(studentId: string): Promise<{ score: number; total: number | null } | null> {
+  try {
+    const [row] = await db
+      .select({ score: spiQuizAttemptsTable.score, total: spiQuizAttemptsTable.totalQuestions, finishedAt: spiQuizAttemptsTable.finishedAt })
+      .from(spiQuizAttemptsTable)
+      .where(eq(spiQuizAttemptsTable.studentId, studentKey(studentId)));
+    return row?.finishedAt && row.score != null ? { score: row.score, total: row.total } : null;
+  } catch (err) {
+    log("finishedScore", err);
+    return null;
+  }
+}
