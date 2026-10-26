@@ -104,7 +104,7 @@ const COLUMNS = "(student_id, college, semester, section, batch, attendance_pct,
 /** ($1, …, $9::jsonb), (…) for `count` rows of rowValues(). */
 function valuesSql(count: number): string {
   return Array.from({ length: count }, (_, row) => {
-    const p = Array.from({ length: 9 }, (_, i) => `${row * 9 + i + 1}`);
+    const p = Array.from({ length: 9 }, (_, i) => `$${row * 9 + i + 1}`);
     p[8] = `${p[8]}::jsonb`;
     return `(${p.join(", ")})`;
   }).join(", ");
