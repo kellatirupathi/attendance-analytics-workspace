@@ -6,6 +6,7 @@ import {
   filterRows,
   quizFilterOptions,
   quizKpis,
+  restrictToReportCourses,
   scopePlanToStudentColleges,
   sortBy,
   studentRows,
@@ -122,4 +123,19 @@ test("filter options list the colleges, sections, categories and subjects in sco
 test("planned quizzes of colleges with no student rows are not counted", () => {
   const withOthers = [...model.plan, plan("Intensive Offline", "sx", "q1", "2026-10-01"), plan("No Rows College", "sy", "q1", "2026-10-01")];
   assert.deepEqual(scopePlanToStudentColleges(model.rows, withOthers).map((p) => p.campus).sort(), model.plan.map((p) => p.campus).sort());
+});
+
+test("only the courses on the student report stay", () => {
+  const report = {
+    // u1 sees Maths only (Python was removed or is planned-only); u3 sees Maths; u2 has no saved report yet
+    byStudent: new Map([["u1", new Set(["maths"])], ["u3", new Set(["maths"])]]),
+    campusCourses: new Set(["Alpha	maths", "Beta	maths"]),
+  };
+  const out = restrictToReportCourses(model, report);
+  assert.deepEqual(out.rows.map((r) => `${r.studentId}:${r.subject}`).sort(), ["u1:Maths", "u2:Maths", "u3:Maths"]);
+  assert.equal(out.plan.length, model.plan.filter((p) => p.subject === "Maths").length);
+  // a course nobody in the college sees on the report is not counted as planned
+  const none = restrictToReportCourses(model, { byStudent: new Map(), campusCourses: new Set(["Alpha	python"]) });
+  assert.equal(none.plan.length, 0);
+  assert.equal(none.rows.length, model.rows.length);
 });

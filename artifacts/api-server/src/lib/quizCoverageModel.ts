@@ -67,6 +67,32 @@ function matcher(f: QuizFilter) {
     (!subject || r.subject === subject);
 }
 
+/** The courses each student's report shows (lib/reportCourses.ts), by plain lower-case name. */
+export interface ReportCourses {
+  /** Student id without hyphens, lower-cased → plain course names on that student's report. */
+  byStudent: Map<string, Set<string>>;
+  /** `college + tab + plain course name` for every course some student of that college sees on the report. */
+  campusCourses: Set<string>;
+}
+
+const plainName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+const studentKeyOf = (id: string) => id.toLowerCase().replace(/-/g, "");
+
+/**
+ * Keeps only the courses the student report shows: a quiz row stays when its subject is on that student's
+ * report, and a planned quiz stays when some student of its college sees that course on the report.
+ * A student with no saved report (not synced yet) keeps their rows, so a late sync never hides students.
+ */
+export function restrictToReportCourses(model: QuizCoverageModel, report: ReportCourses): QuizCoverageModel {
+  return {
+    rows: model.rows.filter((r) => {
+      const courses = report.byStudent.get(studentKeyOf(r.studentId));
+      return !courses || courses.has(plainName(r.subject));
+    }),
+    plan: model.plan.filter((p) => report.campusCourses.has(`${p.campus}\t${plainName(p.subject)}`)),
+  };
+}
+
 /**
  * Planned quizzes of the colleges that have student rows only: the same college scope as the student rows.
  * The prod sequence also holds colleges that are not NIAT campuses (the Intensive Offline ones, Training

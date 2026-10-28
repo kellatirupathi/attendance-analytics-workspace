@@ -3,7 +3,8 @@ import { excludeInstituteSql } from "./excludedInstitutes.js";
 import { attendanceSource } from "./queries.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
-import { scopePlanToStudentColleges, type QuizCoverageModel } from "./quizCoverageModel.js";
+import { restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel } from "./quizCoverageModel.js";
+import { loadReportCourses } from "./reportCourses.js";
 
 /**
  * Shared copy of the Assessments quiz-tab data, one per quiz type, refreshed in the background
@@ -61,7 +62,10 @@ async function load(type: QuizType): Promise<QuizCoverageModel> {
     resourceId: String(r["resource_id"]),
     firstDate: String(r["first_date"] ?? ""),
   }));
-  return { rows: studentRows, plan: scopePlanToStudentColleges(studentRows, planRows) };
+  // The courses the student report shows (the report decides them; this only reads the result).
+  const report = await loadReportCourses();
+  const model = report ? restrictToReportCourses({ rows: studentRows, plan: planRows }, report) : { rows: studentRows, plan: planRows };
+  return { rows: model.rows, plan: scopePlanToStudentColleges(model.rows, model.plan) };
 }
 
 const snapshots = new Map<QuizType, Snapshot<QuizCoverageModel>>();
