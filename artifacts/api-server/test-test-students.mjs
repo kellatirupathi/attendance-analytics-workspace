@@ -9,7 +9,7 @@ const artifactDir = dirname(fileURLToPath(import.meta.url));
 const tempDir = await mkdtemp(join(tmpdir(), "niat-test-students-run-"));
 try {
     await build({
-    entryPoints: [join(artifactDir, "src/lib/testStudents.test.ts"), join(artifactDir, "src/lib/spiQuiz.test.ts")],
+    entryPoints: [join(artifactDir, "src/lib/testStudents.test.ts"), join(artifactDir, "src/lib/spiQuiz.test.ts"), join(artifactDir, "src/lib/quizCoverageModel.test.ts")],
     outdir: tempDir,
     outExtension: { ".js": ".mjs" },
     bundle: true,
@@ -19,7 +19,7 @@ try {
     logLevel: "warning",
     banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
   });
-  const result = spawnSync(process.execPath, ["--test", join(tempDir, "testStudents.test.mjs"), join(tempDir, "spiQuiz.test.mjs")], {
+  const result = spawnSync(process.execPath, ["--test", join(tempDir, "testStudents.test.mjs"), join(tempDir, "spiQuiz.test.mjs"), join(tempDir, "quizCoverageModel.test.mjs")], {
     stdio: "inherit",
     // The quiz tests read the question file; the app reads the spi_quiz_questions table.
     env: { ...process.env, SPI_QUIZ_PATH: join(artifactDir, "config", "spi-quiz.json") },

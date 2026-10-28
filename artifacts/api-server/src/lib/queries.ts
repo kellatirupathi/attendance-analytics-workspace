@@ -79,7 +79,7 @@ import {
 const ELIGIBLE_ATTENDANCE = eligibleAttendanceSource(RAW_ATTENDANCE_TABLE);
 let attendanceSourceCache: { version: string; sql: string } | null = null;
 
-function attendanceSource(): string {
+export function attendanceSource(): string {
   const exclusions = getAttendanceExclusions();
   if (attendanceSourceCache?.version !== exclusions.version) {
     attendanceSourceCache = { version: exclusions.version, sql: niatSessionSource(ELIGIBLE_ATTENDANCE, PROD_SEQUENCE_TABLE, exclusions) };

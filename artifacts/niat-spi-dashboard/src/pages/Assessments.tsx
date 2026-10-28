@@ -26,6 +26,7 @@ import { AssessmentKpiStrip } from "@/components/assessments/AssessmentKpiStrip"
 import { AssessmentFilters, CURRENT_SEMESTERS, GROUP_OPTIONS, type FilterState } from "@/components/assessments/AssessmentFilters";
 import { AssessmentTable, DEFAULT_SORT, columnsFor, rollupRow, type Sort } from "@/components/assessments/AssessmentTable";
 import { CalcExplainer } from "@/components/assessments/CalcExplainer";
+import { QuizCoverageTab } from "@/components/assessments/quiz/QuizCoverageTab";
 
 const BASE = "/dashboard/assessments";
 const COLUMNS_KEY = "assessments-hidden-columns";
@@ -66,7 +67,22 @@ export default function Assessments() {
   return legacy ? null : <AssessmentsPage />;
 }
 
+/** Classroom Quiz is the new quiz-coverage view; Module Quiz and Skill Assessment keep the grouped view below. */
 function AssessmentsPage() {
+  const query = useQueryParams();
+  const [, setLocation] = useLocation();
+  const rawType = query.get("type");
+  const type: SummaryType = TYPES.includes(rawType as SummaryType) ? (rawType as SummaryType) : "cq";
+  if (type !== "cq") return <GroupedAssessmentsPage />;
+  return (
+    <QuizCoverageTab
+      quizType="CLASSROOM_QUIZ"
+      tabs={<AssessmentTypeTabs value="cq" onChange={(next) => setLocation(next === "cq" ? BASE : `${BASE}?type=${next}`)} />}
+    />
+  );
+}
+
+function GroupedAssessmentsPage() {
   const { user } = useAuth();
   const query = useQueryParams();
   const [, setLocation] = useLocation();

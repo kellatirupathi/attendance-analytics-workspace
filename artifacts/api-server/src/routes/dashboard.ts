@@ -92,6 +92,7 @@ import type { Role } from "../lib/rbac.js";
 import { getQuizAnalytics } from "../lib/quizAnalytics.js";
 import { getQuizRosterOptions } from "../lib/queries.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
+import quizCoverageRouter from "./quizCoverage.js";
 
 const router = Router();
 
@@ -122,6 +123,9 @@ router.use((req, res, next) => {
   }
   next();
 });
+
+// Assessments → Classroom Quiz tab (cards, campus and student tables, student panel, downloads).
+router.use("/assessments/quiz", quizCoverageRouter);
 
 router.get("/summary", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
