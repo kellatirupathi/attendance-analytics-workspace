@@ -96,7 +96,11 @@ export function buildQuizCoverageRowsSql(
   LEFT JOIN cat c ON c.campus = z.campus AND c.subject_key = LOWER(z.subject)`;
 }
 
-/** Planned quizzes of the current semester, one row per section × quiz, with the date of its first session. */
+/**
+ * Planned quizzes of the current semester, one row per section × quiz, with the date of its first session.
+ * The prod sequence also holds colleges that are not NIAT campuses (the Intensive Offline ones, Training
+ * Institute); quizCoverage.ts keeps only the colleges that have student rows (scopePlanToStudentColleges).
+ */
 export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, planWhere: string): string {
   const moduleOnly = type === "MODULE_QUIZ" ? "AND rt.unit_type IN ('ASSESSMENT', 'EXAM')" : "";
   return `WITH quiz AS (

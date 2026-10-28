@@ -3,7 +3,7 @@ import { excludeInstituteSql } from "./excludedInstitutes.js";
 import { attendanceSource } from "./queries.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
-import type { QuizCoverageModel } from "./quizCoverageModel.js";
+import { scopePlanToStudentColleges, type QuizCoverageModel } from "./quizCoverageModel.js";
 
 /**
  * Shared copy of the Assessments quiz-tab data, one per quiz type, refreshed in the background
@@ -41,28 +41,27 @@ async function load(type: QuizType): Promise<QuizCoverageModel> {
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
   ]);
-  return {
-    rows: rows.map((r) => ({
-      campus: String(r["campus"]),
-      section: String(r["section"] ?? ""),
-      studentId: String(r["student_id"]),
-      studentName: text(r["student_name"])?.trim() || null,
-      subject: String(r["subject"]),
-      category: text(r["category"]),
-      scheduled: num(r["scheduled"]),
-      completed: num(r["completed"]),
-      avgScore: r["avg_score"] == null ? null : Number(r["avg_score"]),
-    })),
-    plan: plan.map((r) => ({
-      campus: String(r["campus"]),
-      section: String(r["section"] ?? ""),
-      sectionId: String(r["section_id"] ?? ""),
-      subject: String(r["subject"]),
-      category: text(r["category"]),
-      resourceId: String(r["resource_id"]),
-      firstDate: String(r["first_date"] ?? ""),
-    })),
-  };
+  const studentRows = rows.map((r) => ({
+    campus: String(r["campus"]),
+    section: String(r["section"] ?? ""),
+    studentId: String(r["student_id"]),
+    studentName: text(r["student_name"])?.trim() || null,
+    subject: String(r["subject"]),
+    category: text(r["category"]),
+    scheduled: num(r["scheduled"]),
+    completed: num(r["completed"]),
+    avgScore: r["avg_score"] == null ? null : Number(r["avg_score"]),
+  }));
+  const planRows = plan.map((r) => ({
+    campus: String(r["campus"]),
+    section: String(r["section"] ?? ""),
+    sectionId: String(r["section_id"] ?? ""),
+    subject: String(r["subject"]),
+    category: text(r["category"]),
+    resourceId: String(r["resource_id"]),
+    firstDate: String(r["first_date"] ?? ""),
+  }));
+  return { rows: studentRows, plan: scopePlanToStudentColleges(studentRows, planRows) };
 }
 
 const snapshots = new Map<QuizType, Snapshot<QuizCoverageModel>>();

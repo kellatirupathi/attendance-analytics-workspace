@@ -6,6 +6,7 @@ import {
   filterRows,
   quizFilterOptions,
   quizKpis,
+  scopePlanToStudentColleges,
   sortBy,
   studentRows,
   studentSubjectRows,
@@ -116,4 +117,9 @@ test("filter options list the colleges, sections, categories and subjects in sco
   assert.deepEqual(o.colleges, ["Alpha"]);
   assert.deepEqual(o.sections.map((s) => s.section), ["S-01", "S-02"]);
   assert.deepEqual(o.categories, ["MATH", "TECH"]);
+});
+
+test("planned quizzes of colleges with no student rows are not counted", () => {
+  const withOthers = [...model.plan, plan("Intensive Offline", "sx", "q1", "2026-10-01"), plan("No Rows College", "sy", "q1", "2026-10-01")];
+  assert.deepEqual(scopePlanToStudentColleges(model.rows, withOthers).map((p) => p.campus).sort(), model.plan.map((p) => p.campus).sort());
 });

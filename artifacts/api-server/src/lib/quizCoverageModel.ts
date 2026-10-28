@@ -67,6 +67,16 @@ function matcher(f: QuizFilter) {
     (!subject || r.subject === subject);
 }
 
+/**
+ * Planned quizzes of the colleges that have student rows only: the same college scope as the student rows.
+ * The prod sequence also holds colleges that are not NIAT campuses (the Intensive Offline ones, Training
+ * Institute) and campuses with no quiz-table rows; counting their quizzes would not match the student numbers.
+ */
+export function scopePlanToStudentColleges(rows: QuizRow[], plan: PlanRow[]): PlanRow[] {
+  const colleges = new Set(rows.map((r) => r.campus));
+  return plan.filter((p) => colleges.has(p.campus));
+}
+
 export const filterRows = (model: QuizCoverageModel, f: QuizFilter): QuizRow[] => model.rows.filter(matcher(f));
 export const filterPlan = (model: QuizCoverageModel, f: QuizFilter): PlanRow[] => model.plan.filter(matcher(f));
 
