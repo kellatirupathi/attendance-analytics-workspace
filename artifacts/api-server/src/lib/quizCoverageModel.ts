@@ -3,7 +3,8 @@
  * Pure functions over the two result sets of quizCoverageSql.ts; no imports, so it can be tested on its own.
  *
  *   Completion rate  Σ completed ÷ Σ scheduled (the quiz table counts quizzes with status COMPLETED)
- *   Avg score        average of each student's best-attempt score per subject (blank scores are left out)
+ *   Avg score        over ALL scheduled quizzes: Σ (best-attempt score × quizzes completed) ÷ Σ scheduled, so a quiz
+ *                    the student did not complete counts as 0 (the Hex "absent as zero" figure)
  *   Participation    students with at least one completed quiz ÷ students
  *   Available        quizzes planned in the prod sequence, counted once per section
  *   Scheduled so far the same, for quizzes whose first session is on or before today (IST)
@@ -109,7 +110,10 @@ export const filterPlan = (model: QuizCoverageModel, f: QuizFilter): PlanRow[] =
 const r1 = (n: number) => Math.round(n * 10) / 10;
 /** Percent with one decimal, or null when the base is 0. */
 const pct = (part: number, whole: number): number | null => (whole > 0 ? r1((100 * part) / whole) : null);
-const mean = (values: number[]): number | null => (values.length ? r1(values.reduce((a, b) => a + b, 0) / values.length) : null);
+/** Score points earned in a row: the best-attempt average × completed quizzes (never more than scheduled). */
+const scorePoints = (r: { scheduled: number; completed: number; avgScore: number | null }) => (r.avgScore ?? 0) * Math.min(r.completed, r.scheduled);
+/** Average score over all scheduled quizzes (missed quizzes count as 0); null when nothing is scheduled. */
+const overall = (points: number, scheduled: number): number | null => (scheduled > 0 ? r1(points / scheduled) : null);
 
 /** Today's date in India, YYYY-MM-DD. */
 export function todayIst(now = new Date()): string {
@@ -146,13 +150,13 @@ export function quizKpis(model: QuizCoverageModel, f: QuizFilter, today = todayI
   const { available, scheduled } = planCounts(filterPlan(model, f), today);
   let sch = 0;
   let comp = 0;
-  const scores: number[] = [];
+  let points = 0;
   const perStudent = new Map<string, number>();
   const campuses = new Set<string>();
   for (const r of rows) {
     sch += r.scheduled;
     comp += r.completed;
-    if (r.avgScore != null) scores.push(r.avgScore);
+    points += scorePoints(r);
     perStudent.set(r.studentId, (perStudent.get(r.studentId) ?? 0) + r.completed);
     campuses.add(r.campus);
   }
@@ -162,7 +166,7 @@ export function quizKpis(model: QuizCoverageModel, f: QuizFilter, today = todayI
     available,
     scheduledSoFar: scheduled,
     completionRate: pct(comp, sch),
-    avgScore: mean(scores),
+    avgScore: overall(points, sch),
     participants,
     students,
     participation: pct(participants, students),
@@ -187,15 +191,15 @@ export function campusRows(model: QuizCoverageModel, f: QuizFilter, today = toda
     if (list) list.push(p);
     else planByCampus.set(p.campus, [p]);
   }
-  interface Acc { sections: Set<string>; sch: number; comp: number; scores: number[]; students: Map<string, number> }
+  interface Acc { sections: Set<string>; sch: number; comp: number; points: number; students: Map<string, number> }
   const by = new Map<string, Acc>();
   for (const r of filterRows(model, f)) {
     let a = by.get(r.campus);
-    if (!a) by.set(r.campus, (a = { sections: new Set(), sch: 0, comp: 0, scores: [], students: new Map() }));
+    if (!a) by.set(r.campus, (a = { sections: new Set(), sch: 0, comp: 0, points: 0, students: new Map() }));
     a.sections.add(r.section);
     a.sch += r.scheduled;
     a.comp += r.completed;
-    if (r.avgScore != null) a.scores.push(r.avgScore);
+    a.points += scorePoints(r);
     a.students.set(r.studentId, (a.students.get(r.studentId) ?? 0) + r.completed);
   }
   return [...by.entries()].map(([college, a]) => {
@@ -206,7 +210,7 @@ export function campusRows(model: QuizCoverageModel, f: QuizFilter, today = toda
       students: a.students.size,
       scheduled: planCounts(planByCampus.get(college) ?? [], today).scheduled,
       completionPct: pct(a.comp, a.sch),
-      avgScore: mean(a.scores),
+      avgScore: overall(a.points, a.sch),
       participationPct: pct(participants, a.students.size),
     };
   });
@@ -225,21 +229,21 @@ export interface StudentRow {
 
 /** Students of the filtered rows; `search` matches the name or the start of the UID. */
 export function studentRows(model: QuizCoverageModel, f: QuizFilter, search = ""): StudentRow[] {
-  interface Acc { name: string | null; college: string; section: string; sch: number; comp: number; scores: number[] }
+  interface Acc { name: string | null; college: string; section: string; sch: number; comp: number; points: number }
   const by = new Map<string, Acc>();
   for (const r of filterRows(model, f)) {
     let a = by.get(r.studentId);
-    if (!a) by.set(r.studentId, (a = { name: r.studentName, college: r.campus, section: r.section, sch: 0, comp: 0, scores: [] }));
+    if (!a) by.set(r.studentId, (a = { name: r.studentName, college: r.campus, section: r.section, sch: 0, comp: 0, points: 0 }));
     a.sch += r.scheduled;
     a.comp += r.completed;
-    if (r.avgScore != null) a.scores.push(r.avgScore);
+    a.points += scorePoints(r);
   }
   const needle = search.trim().toLowerCase();
   const needleId = needle.replace(/-/g, "");
   const out: StudentRow[] = [];
   for (const [uid, a] of by) {
     if (needle && !((a.name ?? "").toLowerCase().includes(needle) || uid.toLowerCase().replace(/-/g, "").startsWith(needleId))) continue;
-    out.push({ uid, name: a.name, college: a.college, section: a.section, scheduled: a.sch, completed: a.comp, completionPct: pct(a.comp, a.sch), avgScore: mean(a.scores) });
+    out.push({ uid, name: a.name, college: a.college, section: a.section, scheduled: a.sch, completed: a.comp, completionPct: pct(a.comp, a.sch), avgScore: overall(a.points, a.sch) });
   }
   return out;
 }
@@ -272,7 +276,7 @@ export function studentSubjectRows(model: QuizCoverageModel, f: QuizFilter, uid?
       scheduled: r.scheduled,
       completed: r.completed,
       completionPct: pct(r.completed, r.scheduled),
-      avgScore: r.avgScore == null ? null : r1(r.avgScore),
+      avgScore: overall(scorePoints(r), r.scheduled),
     }));
 }
 

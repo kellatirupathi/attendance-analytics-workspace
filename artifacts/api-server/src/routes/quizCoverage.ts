@@ -164,14 +164,14 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
   if (view === "campus") {
     return {
       view: "CampusSummary",
-      headers: ["College", "Sections", "Students", "Scheduled", "Completion rate %", "Avg score %", "Participation %"],
+      headers: ["College", "Sections", "Students", "Scheduled", "Completion rate %", "Avg score % (missed = 0)", "Participation %"],
       rows: sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college).map((r) => [r.college, r.sections, r.students, r.scheduled, r.completionPct, r.avgScore, r.participationPct]),
     };
   }
   if (view === "student") {
     return {
       view: "StudentSummary",
-      headers: ["Student", "UID", "College", "Section", "Scheduled", "Completed", "Completion rate %", "Avg score %"],
+      headers: ["Student", "UID", "College", "Section", "Scheduled", "Completed", "Completion rate %", "Avg score % (missed = 0)"],
       rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.section, r.scheduled, r.completed, r.completionPct, r.avgScore]),
     };
   }
@@ -183,7 +183,7 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
     );
     return {
       view: uid ? "StudentReport" : "StudentBySubject",
-      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", "Scheduled", "Completed", "Completion rate %", "Avg score %"],
+      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", "Scheduled", "Completed", "Completion rate %", "Avg score % (missed = 0)"],
       rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, r.scheduled, r.completed, r.completionPct, r.avgScore]),
     };
   }

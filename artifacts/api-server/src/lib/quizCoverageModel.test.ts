@@ -64,7 +64,7 @@ test("completion, score and participation", () => {
   const k = quizKpis(model, {}, TODAY);
   // completed 5 + 0 + 0 + 4 = 9, scheduled 10 + 10 + 10 + 4 = 34
   assert.equal(k.completionRate, 26.5);
-  assert.equal(k.avgScore, 70); // (80 + 60) / 2: blank scores are left out
+  assert.equal(k.avgScore, 18.8); // (80 × 5 + 60 × 4) ÷ 34 scheduled: a quiz not completed counts as 0
   assert.equal(k.students, 3);
   assert.equal(k.participants, 2);
   assert.equal(k.participation, 66.7);
@@ -89,6 +89,7 @@ test("campus rows: Scheduled comes from the plan; a campus with no quiz rows is 
   assert.equal(alpha.students, 2);
   assert.equal(alpha.completionPct, 16.7);
   assert.equal(alpha.participationPct, 50);
+  assert.equal(alpha.avgScore, 13.3); // 80 × 5 ÷ 30 scheduled
 });
 
 test("students: totals, search by name or UID prefix, and the subject rows", () => {
@@ -98,10 +99,13 @@ test("students: totals, search by name or UID prefix, and the subject rows", () 
   assert.equal(asha.scheduled, 20);
   assert.equal(asha.completed, 5);
   assert.equal(asha.completionPct, 25);
-  assert.equal(asha.avgScore, 80);
+  assert.equal(asha.avgScore, 20); // 80 × 5 completed ÷ 20 scheduled
   assert.deepEqual(studentRows(model, {}, "chi").map((s) => s.uid), ["u3"]);
   assert.deepEqual(studentRows(model, {}, "U2").map((s) => s.uid), ["u2"]);
-  assert.equal(studentSubjectRows(model, {}, "u1").length, 2);
+  const subjects = studentSubjectRows(model, {}, "u1");
+  assert.equal(subjects.length, 2);
+  assert.equal(subjects.find((s) => s.subject === "Maths")?.avgScore, 40); // 80 × 5 ÷ 10
+  assert.equal(subjects.find((s) => s.subject === "Python")?.avgScore, 0); // scheduled but none completed
 });
 
 test("sorting puts blanks last in both directions", () => {

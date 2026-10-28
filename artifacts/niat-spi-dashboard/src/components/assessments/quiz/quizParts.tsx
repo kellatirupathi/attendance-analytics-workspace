@@ -89,7 +89,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
         </div>
         <Bar pct={k?.completionRate ?? null} />
       </Card>
-      <Card label="Avg score" tip="Average of each student's best-attempt score per subject" value={pctText(k?.avgScore ?? null)} loading={loading || !k} />
+      <Card label="Avg score" tip="Average score over all scheduled quizzes. A quiz a student did not complete counts as 0" value={pctText(k?.avgScore ?? null)} loading={loading || !k} />
       <Card label="Student participation" tip={`Students who completed at least one ${kind}`} value={pctText(k?.participation ?? null)} loading={loading || !k}>
         <p className="text-xs tabular-nums text-slate-500">
           {fmtInt(k?.participants ?? 0)} / {fmtInt(k?.students ?? 0)} students
