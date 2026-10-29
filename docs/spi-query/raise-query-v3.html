@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raise a Query</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy: #0B1F4D; --text: #334155; --muted: #6B7280; --line: #E6ECF5; --bg: #F4F7FD; --blue: #2563EB; --blue-soft: #EAF1FF; --green: #16A34A; --green-soft: #E6F7EC; --red: #E11D48; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #E9EEF7; color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; padding: 28px; }
+  .board { display: grid; grid-template-columns: 520px 440px 300px; gap: 28px; align-items: start; width: max-content; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; display: flex; gap: 8px; align-items: center; }
+  .label span { background: var(--navy); color: #fff; border-radius: 999px; width: 20px; height: 20px; display: grid; place-items: center; font-size: 11px; }
+  .screen { background: #fff; border: 1px solid #D5DEEC; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(11,31,77,.08); }
+  svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 0 16px; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 600; border: 1px solid transparent; }
+  .btn.primary { background: var(--blue); color: #fff; }
+  .btn.outline { background: #fff; color: var(--blue); border-color: #BFD0F7; }
+  .btn.ghost { background: transparent; color: var(--muted); }
+
+  .head { display: flex; align-items: center; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+  .head h1 { font-size: 18px; font-weight: 700; color: var(--navy); }
+  .head .who { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .head .btn { margin-left: auto; box-shadow: 0 0 0 4px var(--blue-soft); }
+  .ghostbody { background: var(--bg); padding: 18px 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .ghostbody div { background: #fff; border: 1px solid var(--line); border-radius: 14px; height: 92px; }
+  .ghostbody div.w { grid-column: span 3; height: 120px; }
+
+  .modal-head { display: flex; align-items: center; padding: 18px 20px 6px; }
+  .modal-head h2 { font-size: 16px; font-weight: 700; color: var(--navy); }
+  .x { margin-left: auto; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+  form { padding: 10px 20px 20px; display: grid; gap: 16px; }
+  .field { display: grid; gap: 7px; }
+  .field label { font-size: 12px; font-weight: 600; color: var(--navy); }
+  .req { color: var(--red); }
+  .select, textarea { width: 100%; border: 1px solid #CBD5E1; border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 13px; color: var(--navy); background: #fff; }
+  .select { display: flex; align-items: center; justify-content: space-between; min-height: 44px; font-weight: 500; }
+  .menu { border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 20px rgba(11,31,77,.10); padding: 4px; margin-top: -4px; }
+  .menu div { padding: 9px 10px; border-radius: 7px; font-size: 13px; color: var(--navy); display: flex; justify-content: space-between; }
+  .menu div.on { background: var(--blue-soft); font-weight: 600; }
+  textarea { min-height: 160px; resize: vertical; line-height: 1.55; }
+  .help { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .foot { display: flex; gap: 10px; justify-content: flex-end; }
+
+  .done { padding: 28px 22px; text-align: center; }
+  .ok { width: 46px; height: 46px; border-radius: 50%; background: var(--green-soft); color: var(--green); display: grid; place-items: center; margin: 0 auto 12px; }
+  .ok svg { width: 22px; height: 22px; stroke-width: 2.5; }
+  .done h3 { font-size: 16px; color: var(--navy); }
+  .done .btn { margin-top: 18px; width: 100%; }
+</style>
+</head>
+<body>
+<div class="board">
+  <div>
+    <div class="label"><span>1</span> Button on the report</div>
+    <div class="screen">
+      <div class="head">
+        <div><h1>SPI Progress Report</h1><div class="who">Semester 3 · Section S-002</div></div>
+        <span class="btn outline"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Raise a query</span>
+      </div>
+      <div class="ghostbody"><div></div><div></div><div></div><div class="w"></div></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="label"><span>2</span> Form</div>
+    <div class="screen">
+      <div class="modal-head"><h2>Raise a query</h2><span class="x"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span></div>
+      <form>
+        <div class="field">
+          <label>Category <span class="req">*</span></label>
+          <div class="select">Attendance<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+        </div>
+        <div class="field">
+          <label>Subject <span class="req">*</span></label>
+          <div class="select">Back End Development<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+          <div class="menu">
+            <div class="on">Back End Development <svg viewBox="0 0 24 24" style="color:var(--blue)"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div>Probability &amp; Statistics</div>
+            <div>Communication Skills</div>
+            <div>Logical Reasoning</div>
+            <div>Operating Systems</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Issue details <span class="req">*</span></label>
+          <textarea>I attended the Back End Development session on 21 Oct (2nd period), but my attendance shows absent for that day. Please check and update.</textarea>
+          <div class="help"><span></span><span>139 / 2000</span></div>
+        </div>
+        <div class="foot">
+          <span class="btn ghost">Cancel</span>
+          <span class="btn primary">Submit</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="label"><span>3</span> After submit</div>
+    <div class="screen">
+      <div class="done">
+        <div class="ok"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <h3>Query submitted</h3>
+        <span class="btn outline">Back to report</span>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -99,5 +99,5 @@ export default function SpiReport() {
     );
   }
 
-  return <StudentReportView data={data} />;
+  return <StudentReportView data={data} studentId={studentId} />;
 }

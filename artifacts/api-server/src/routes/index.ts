@@ -9,6 +9,7 @@ import profileRouter from "./profile.js";
 import notificationsRouter from "./notifications.js";
 import quizRouter from "./quiz.js";
 import internalRouter from "./internal.js";
+import studentQueriesRouter from "./studentQueries.js";
 // Recovery is switched off for now; uncomment both lines to bring it back.
 // import recoveryRouter from "./recovery.js";
 
@@ -24,6 +25,7 @@ router.use("/profile", profileRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/quiz", quizRouter);
 router.use("/internal", internalRouter);
+router.use("/spi-queries", studentQueriesRouter);
 // router.use("/recovery", recoveryRouter);
 
 export default router;

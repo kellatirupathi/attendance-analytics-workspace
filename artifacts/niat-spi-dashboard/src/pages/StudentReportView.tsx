@@ -138,6 +138,7 @@ const ICONS = {
   info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 11v5M12 8h.01",
   doc: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5",
   gauge: "M3 18a9 9 0 0 1 18 0M12 18l4-6",
+  chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
 };
 
 function Card({ className = "", children, onClick }: { className?: string; children: ReactNode; onClick?: () => void }) {
@@ -736,11 +737,202 @@ function SpiGuide({ data, onClose }: { data: StudentScorecard; onClose: () => vo
 }
 
 /* ------------------------------------------------------------------ */
+/*  Raise a query: category, one of the report's subjects, the issue  */
+/* ------------------------------------------------------------------ */
+const QUERY_CATEGORIES = [
+  { value: "attendance", label: "Attendance" },
+  { value: "classroom_quiz", label: "Classroom Quiz" },
+  { value: "module_quiz", label: "Module Quiz" },
+  { value: "skill_assessment", label: "Skill Assessment" },
+  { value: "final_skill_assessment", label: "Final Skill Assessment" },
+];
+const MAX_QUERY_CHARS = 2000;
+const FIELD = "w-full rounded-[10px] border border-[#CBD5E1] bg-white px-3 text-[13px] text-[#0B1F4D] focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20";
+
+/** Subject picker with a search box: a report can list up to ~20 subjects. */
+function SubjectPicker({ subjects, value, onChange }: { subjects: string[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const shown = subjects.filter((s) => s.toLowerCase().includes(search.trim().toLowerCase()));
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        id="rq-subject"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-labelledby="rq-subject-label rq-subject"
+        onClick={() => setOpen((o) => !o)}
+        className={`${FIELD} flex min-h-11 items-center justify-between text-left font-medium`}
+      >
+        <span className={value ? "" : "text-[#94A3B8]"}>{value || "Choose a subject"}</span>
+        <span aria-hidden className="text-[#6B7280]">▾</span>
+      </button>
+      {open && (
+        <div className="absolute inset-x-0 top-[calc(100%+4px)] z-10 rounded-[10px] border border-[#E6ECF5] bg-white p-1.5 shadow-[0_8px_20px_rgba(11,31,77,0.12)]">
+          {subjects.length > 6 && (
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search subject"
+              aria-label="Search subject"
+              className={`${FIELD} mb-1 min-h-9`}
+            />
+          )}
+          <ul role="listbox" aria-labelledby="rq-subject-label" className="max-h-56 overflow-y-auto">
+            {shown.map((s) => (
+              <li key={s}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={s === value}
+                  onClick={() => {
+                    onChange(s);
+                    setOpen(false);
+                    setSearch("");
+                  }}
+                  className={`flex w-full items-center justify-between rounded-[7px] px-2.5 py-2 text-left text-[13px] text-[#0B1F4D] hover:bg-[#F6F9FF] ${s === value ? "bg-[#EAF1FF] font-semibold" : ""}`}
+                >
+                  {s}
+                  {s === value && <span aria-hidden className="text-[#2563EB]">✓</span>}
+                </button>
+              </li>
+            ))}
+            {shown.length === 0 && <li className="px-2.5 py-2 text-[12px] text-[#6B7280]">No subject matches</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string; subjects: string[]; onClose: () => void }) {
+  const [category, setCategory] = useState("");
+  const [subject, setSubject] = useState("");
+  const [details, setDetails] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  const ready = Boolean(category && subject && details.trim());
+
+  const submit = async () => {
+    if (!ready || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/spi-queries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ student: studentId, category, subject, details: details.trim() }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        throw new Error(res.status === 429 ? "Too many tries. Please wait a minute and submit again." : (body?.error ?? "Could not submit your query. Please try again."));
+      }
+      setSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not submit your query. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Overlay onClose={onClose} className="place-items-center p-4">
+      <div className="max-h-[92vh] w-full max-w-[460px] overflow-y-auto rounded-[18px] bg-white shadow-[0_24px_60px_rgba(11,31,77,0.25)]">
+        {sent ? (
+          <div className="px-6 py-8 text-center">
+            <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#E6F7EC] text-xl font-bold text-[#16A34A]" aria-hidden>
+              ✓
+            </span>
+            <h2 className="text-base font-bold text-[#0B1F4D]">Query submitted</h2>
+            <button type="button" onClick={onClose} className="mt-5 min-h-11 w-full rounded-[10px] border border-[#BFD0F7] bg-white text-[13px] font-semibold text-[#2563EB]">
+              Back to report
+            </button>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+            className="grid gap-4 px-5 pb-5 pt-[18px]"
+          >
+            <div className="flex items-center">
+              <h2 className="text-base font-bold text-[#0B1F4D]">Raise a query</h2>
+              <CloseButton onClose={onClose} />
+            </div>
+            <div className="grid gap-1.5">
+              <label htmlFor="rq-category" className="text-xs font-semibold text-[#0B1F4D]">
+                Category <span className="text-[#E11D48]">*</span>
+              </label>
+              <select id="rq-category" value={category} onChange={(e) => setCategory(e.target.value)} className={`${FIELD} min-h-11 font-medium`}>
+                <option value="" disabled>
+                  Choose a category
+                </option>
+                {QUERY_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <span id="rq-subject-label" className="text-xs font-semibold text-[#0B1F4D]">
+                Subject <span className="text-[#E11D48]">*</span>
+              </span>
+              <SubjectPicker subjects={subjects} value={subject} onChange={setSubject} />
+            </div>
+            <div className="grid gap-1.5">
+              <label htmlFor="rq-details" className="text-xs font-semibold text-[#0B1F4D]">
+                Issue details <span className="text-[#E11D48]">*</span>
+              </label>
+              <textarea
+                id="rq-details"
+                value={details}
+                maxLength={MAX_QUERY_CHARS}
+                onChange={(e) => setDetails(e.target.value)}
+                rows={7}
+                className={`${FIELD} min-h-40 resize-y py-2.5 leading-relaxed`}
+              />
+              <p className="text-right text-[11px] tabular-nums text-[#6B7280]">
+                {details.length} / {MAX_QUERY_CHARS}
+              </p>
+            </div>
+            {error && (
+              <p role="alert" className="rounded-[10px] bg-[#FDECEF] px-3 py-2 text-[12px] text-[#9F1239]">
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2.5">
+              <button type="button" onClick={onClose} className="min-h-10 rounded-[10px] px-4 text-[13px] font-semibold text-[#6B7280]">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!ready || sending}
+                className="min-h-10 rounded-[10px] bg-[#2563EB] px-5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sending ? "Submitting…" : "Submit"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </Overlay>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Page                                                              */
 /* ------------------------------------------------------------------ */
-export default function StudentReportView({ data }: { data: StudentScorecard }) {
+/** `studentId` is set on the student's own report link; it shows "Raise a query". */
+export default function StudentReportView({ data, studentId }: { data: StudentScorecard; studentId?: string }) {
   const [attentionOpen, setAttentionOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [queryOpen, setQueryOpen] = useState(false);
   const midSemester = !spiReady(data);
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
@@ -752,6 +944,16 @@ export default function StudentReportView({ data }: { data: StudentScorecard }) 
             <p className="mt-0.5 text-[13px]">Skill Performance Index{midSemester ? " · Semester in progress" : ""}</p>
           </div>
           <p className="ml-auto text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
+          {studentId && data.courses.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setQueryOpen(true)}
+              className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-[#BFD0F7] bg-white px-4 text-[13px] font-semibold text-[#2563EB] hover:bg-[#F6F9FF]"
+            >
+              <Icon d={ICONS.chat} className="!h-4 !w-4" />
+              Raise a query
+            </button>
+          )}
         </header>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.15fr_1fr_1fr]">
@@ -767,6 +969,9 @@ export default function StudentReportView({ data }: { data: StudentScorecard }) 
 
       {attentionOpen && <NeedsAttentionDialog data={data} onClose={() => setAttentionOpen(false)} />}
       {guideOpen && <SpiGuide data={data} onClose={() => setGuideOpen(false)} />}
+      {queryOpen && studentId && (
+        <RaiseQueryDialog studentId={studentId} subjects={data.courses.map((c) => c.name)} onClose={() => setQueryOpen(false)} />
+      )}
     </div>
   );
 }
