@@ -1001,9 +1001,10 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
   const [guideOpen, setGuideOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
   const midSemester = !spiReady(data);
+  const canQuery = Boolean(studentId) && data.courses.length > 0;
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
-      <main className="mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8">
+      <main className={`mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8 ${canQuery ? "pb-24" : ""}`}>
         <header className="flex flex-wrap items-center gap-3.5">
           <span className="text-[#2563EB]"><Icon d={ICONS.chart} className="!h-8 !w-8" /></span>
           <div>
@@ -1011,16 +1012,6 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
             <p className="mt-0.5 text-[13px]">Skill Performance Index{midSemester ? " · Semester in progress" : ""}</p>
           </div>
           <p className="ml-auto text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
-          {studentId && data.courses.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setQueryOpen(true)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-[10px] border border-[#BFD0F7] bg-white px-4 text-[13px] font-semibold text-[#2563EB] hover:bg-[#F6F9FF]"
-            >
-              <Icon d={ICONS.chat} className="!h-4 !w-4" />
-              Raise a query
-            </button>
-          )}
         </header>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.15fr_1fr_1fr]">
@@ -1033,6 +1024,18 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
 
         <CourseTable data={data} onOpenGuide={() => setGuideOpen(true)} />
       </main>
+
+      {/* Floating, so it is visible without scrolling; the bottom padding keeps it off the last table row. */}
+      {canQuery && (
+        <button
+          type="button"
+          onClick={() => setQueryOpen(true)}
+          className="fixed bottom-5 right-5 z-40 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#2563EB] px-5 text-[13px] font-semibold text-white shadow-[0_8px_20px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] sm:bottom-6 sm:right-6"
+        >
+          <Icon d={ICONS.chat} className="!h-4 !w-4" />
+          Raise a query
+        </button>
+      )}
 
       {attentionOpen && <NeedsAttentionDialog data={data} onClose={() => setAttentionOpen(false)} />}
       {guideOpen && <SpiGuide data={data} onClose={() => setGuideOpen(false)} />}

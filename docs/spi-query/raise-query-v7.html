@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Raise a Query placement v7</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; }
+  .board { display:grid; grid-template-columns:repeat(3,560px); gap:28px; width:max-content; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; display:flex; gap:8px; align-items:center; }
+  .label span { background:var(--navy); color:#fff; border-radius:999px; width:20px; height:20px; display:grid; place-items:center; font-size:11px; }
+  .note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .page { position:relative; background:#F5F8FD; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:640px; padding:18px; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .head { display:flex; align-items:center; gap:10px; }
+  .head h1 { font-size:17px; color:var(--navy); font-weight:800; }
+  .head p { font-size:11px; color:var(--muted); }
+  .head .name { margin-left:auto; font-weight:700; color:var(--navy); font-size:14px; }
+  .cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; height:110px; }
+  .card b { display:block; font-size:11px; color:var(--navy); }
+  .card .big { font-size:20px; font-weight:800; color:var(--navy); margin-top:10px; }
+  .card.warn { background:#FFF8EC; }
+  .card.warn .big { color:var(--amber); }
+  .block { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:12px; }
+  .block h3 { font-size:12px; color:var(--navy); margin-bottom:10px; }
+  .row { display:flex; align-items:center; gap:10px; padding:9px 4px; border-top:1px solid var(--line); font-size:12px; color:var(--navy); }
+  .row:first-of-type { border-top:0; }
+  .row .bar { flex:1; height:6px; background:#EEF2F8; border-radius:9px; }
+  .row .bar i { display:block; height:100%; width:40%; background:var(--blue); border-radius:9px; }
+  .pill { font-size:11px; color:var(--red); font-weight:600; width:44px; text-align:right; }
+  .ghost { height:60px; background:#fff; border:1px solid var(--line); border-radius:12px; margin-top:12px; }
+
+  /* A: floating button */
+  .fab { position:absolute; right:18px; bottom:18px; display:flex; align-items:center; gap:8px; background:var(--blue); color:#fff; font-weight:600; font-size:13px; padding:0 16px; height:44px; border-radius:999px; box-shadow:0 8px 20px rgba(37,99,235,.35); }
+
+  /* B: help strip at the end */
+  .help { display:flex; align-items:center; gap:12px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; margin-top:12px; }
+  .help .ic { width:36px; height:36px; border-radius:10px; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; }
+  .help b { color:var(--navy); font-size:13px; }
+  .help .btn { margin-left:auto; background:var(--blue); color:#fff; font-weight:600; height:38px; padding:0 14px; border-radius:10px; display:flex; align-items:center; }
+
+  /* C: per-course icon */
+  .flag { width:30px; height:30px; border-radius:8px; border:1px solid var(--line); display:grid; place-items:center; color:var(--muted); }
+  .flag.hover { color:var(--blue); border-color:var(--blue); background:var(--blue-soft); }
+  .tip { position:absolute; background:var(--navy); color:#fff; font-size:11px; padding:5px 8px; border-radius:6px; }
+</style>
+</head>
+<body>
+<div class="board">
+
+  <!-- A -->
+  <div>
+    <div class="label"><span>A</span> Floating button (bottom-right)</div>
+    <div class="page">
+      <div class="head"><div><h1>NIAT - SPI Progress Report</h1><p>Semester in progress</p></div><div class="name">A Gunasekhar Reddy A</div></div>
+      <div class="cards">
+        <div class="card"><b>Your SPI Score</b><div class="big">In Progress</div></div>
+        <div class="card"><b>Attendance</b><div class="big">45.6%</div></div>
+        <div class="card warn"><b>Needs Attention</b><div class="big">6 of 6</div></div>
+      </div>
+      <div class="ghost"></div>
+      <div class="block"><h3>Course-wise Progress</h3>
+        <div class="row">Back End Development<div class="bar"><i></i></div><span class="pill">40.2%</span></div>
+        <div class="row">Advanced Communication Skills<div class="bar"><i style="width:55%"></i></div><span class="pill">52.0%</span></div>
+        <div class="row">Data Structures<div class="bar"><i style="width:30%"></i></div><span class="pill">31.4%</span></div>
+      </div>
+      <div class="fab"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Raise a query</div>
+    </div>
+    <p class="note">Always visible while scrolling. Header stays clean.</p>
+  </div>
+
+  <!-- B -->
+  <div>
+    <div class="label"><span>B</span> Help card at the end of the report</div>
+    <div class="page">
+      <div class="head"><div><h1>NIAT - SPI Progress Report</h1><p>Semester in progress</p></div><div class="name">A Gunasekhar Reddy A</div></div>
+      <div class="cards">
+        <div class="card"><b>Your SPI Score</b><div class="big">In Progress</div></div>
+        <div class="card"><b>Attendance</b><div class="big">45.6%</div></div>
+        <div class="card warn"><b>Needs Attention</b><div class="big">6 of 6</div></div>
+      </div>
+      <div class="block"><h3>Course-wise Progress</h3>
+        <div class="row">Back End Development<div class="bar"><i></i></div><span class="pill">40.2%</span></div>
+        <div class="row">Advanced Communication Skills<div class="bar"><i style="width:55%"></i></div><span class="pill">52.0%</span></div>
+        <div class="row">Data Structures<div class="bar"><i style="width:30%"></i></div><span class="pill">31.4%</span></div>
+      </div>
+      <div class="help">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+        <b>Something wrong in your report?</b>
+        <span class="btn">Raise a query</span>
+      </div>
+    </div>
+    <p class="note">Student sees it after reading the report. Not visible at the top.</p>
+  </div>
+
+  <!-- C -->
+  <div>
+    <div class="label"><span>C</span> Per-course icon (subject pre-filled)</div>
+    <div class="page">
+      <div class="head"><div><h1>NIAT - SPI Progress Report</h1><p>Semester in progress</p></div><div class="name">A Gunasekhar Reddy A</div></div>
+      <div class="cards">
+        <div class="card"><b>Your SPI Score</b><div class="big">In Progress</div></div>
+        <div class="card"><b>Attendance</b><div class="big">45.6%</div></div>
+        <div class="card warn"><b>Needs Attention</b><div class="big">6 of 6</div></div>
+      </div>
+      <div class="block" style="position:relative"><h3>Course-wise Progress</h3>
+        <div class="row">Back End Development<div class="bar"><i></i></div><span class="pill">40.2%</span><span class="flag hover"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span></div>
+        <div class="row">Advanced Communication Skills<div class="bar"><i style="width:55%"></i></div><span class="pill">52.0%</span><span class="flag"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span></div>
+        <div class="row">Data Structures<div class="bar"><i style="width:30%"></i></div><span class="pill">31.4%</span><span class="flag"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span></div>
+        <div class="tip" style="right:8px; top:6px;">Raise a query</div>
+      </div>
+    </div>
+    <p class="note">Click the icon on a course row: form opens with that subject already chosen.</p>
+  </div>
+
+</div>
+</body>
+</html>
