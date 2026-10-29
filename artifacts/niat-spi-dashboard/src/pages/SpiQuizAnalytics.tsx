@@ -3,17 +3,19 @@
 /*  quick quiz, scores and times. All counts come from                 */
 /*  GET /api/dashboard/spi-quiz; this page only displays them.         */
 /* ------------------------------------------------------------------ */
-import { useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, SearchX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/PageHeader";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { TablePagination } from "@/components/DataTable";
 import { ErrorState } from "@/components/PageStates";
-import { Section, StatTile, TileGrid } from "@/components/dashboard/overview";
+import { Section, StatTile } from "@/components/dashboard/overview";
+import { FOCUS_RING } from "@/components/assessments/parts";
 import { useAuth } from "@/contexts/AuthContext";
 import { exportCsv } from "@/lib/csv";
 import type { DateRange } from "@/lib/dateRange";
@@ -60,6 +62,8 @@ interface Option {
   section: string;
 }
 
+type SortKey = "name" | "students" | "opened" | "completion" | "avgScore";
+
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: "include" });
   if (!res.ok) throw new Error(String(res.status));
@@ -79,30 +83,58 @@ const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–";
 
 const STATUS: Record<StudentRow["status"], { label: string; className: string }> = {
-  completed: { label: "Completed", className: "bg-emerald-50 text-emerald-700" },
-  started: { label: "Started", className: "bg-amber-50 text-amber-700" },
-  opened: { label: "Opened", className: "bg-slate-100 text-slate-600" },
+  completed: { label: "Completed", className: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
+  started: { label: "Started", className: "bg-amber-50 text-amber-800 ring-amber-200" },
+  opened: { label: "Opened", className: "bg-slate-100 text-slate-700 ring-slate-200" },
 };
 
 /** A thin horizontal bar; `pct` is 0–100. */
 function Bar({ pct: value, tone = "bg-brand-600" }: { pct: number; tone?: string }) {
   return (
-    <span className="relative block h-2.5 w-full rounded bg-slate-100">
-      <span className={cn("absolute inset-y-0 left-0 rounded-r", tone)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+    <span className="relative block h-2 w-full rounded-full bg-slate-100" aria-hidden="true">
+      <span className={cn("absolute inset-y-0 left-0 rounded-full", tone)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
     </span>
   );
+}
+
+/** A visible label above a filter control. */
+function Field({ label, htmlFor, hint, children, className }: { label: string; htmlFor?: string; hint?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
+      <label htmlFor={htmlFor} className="text-xs font-medium text-slate-600">
+        {label}
+      </label>
+      {children}
+      {hint}
+    </div>
+  );
+}
+
+/** Waits until typing stops before the value is used in a query. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return settled;
 }
 
 export default function SpiQuizAnalytics() {
   const { user } = useAuth();
   const allowed = ROLES.includes(user?.role ?? "");
+  const scoreId = useId();
   const [college, setCollege] = useState(ALL);
   const [semester, setSemester] = useState(ALL);
   const [section, setSection] = useState(ALL);
   const [range, setRange] = useState<DateRange>({ dateFrom: "", dateTo: "" });
+  const [scoreText, setScoreText] = useState("");
   const [includeTest, setIncludeTest] = useState(false);
   const [pageSize, setPageSize] = useState(50);
   const [exporting, setExporting] = useState(false);
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "completion", desc: true });
+
+  const score = useDebounced(scoreText.trim(), 400);
 
   const params = useMemo(() => {
     const p = new URLSearchParams();
@@ -111,9 +143,10 @@ export default function SpiQuizAnalytics() {
     if (college !== ALL && section !== ALL) p.set("section", section);
     if (range.dateFrom) p.set("from", range.dateFrom);
     if (range.dateTo) p.set("to", range.dateTo);
+    if (score) p.set("score", score);
     if (includeTest) p.set("test", "1");
     return p;
-  }, [college, semester, section, range, includeTest]);
+  }, [college, semester, section, range, score, includeTest]);
   const viewKey = `${params.toString()}|${pageSize}`;
   const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
   const page = pageState.key === viewKey ? pageState.page : 1;
@@ -148,8 +181,29 @@ export default function SpiQuizAnalytics() {
   }
 
   const data = analytics.data ?? null;
-  const updating = analytics.isPlaceholderData;
+  const updating = analytics.isPlaceholderData || (scoreText.trim() !== score);
   const t = data?.totals;
+  const maxScore = t?.questionCount ?? 10;
+  const scoreBad = scoreText.trim() !== "" && !/^\d{1,3}$/.test(scoreText.trim());
+  const scoreTooHigh = !scoreBad && scoreText.trim() !== "" && Number(scoreText) > maxScore;
+
+  const chips = [
+    college !== ALL && { label: college, clear: () => (setCollege(ALL), setSection(ALL)) },
+    semester !== ALL && { label: semester, clear: () => (setSemester(ALL), setSection(ALL)) },
+    college !== ALL && section !== ALL && { label: `Section ${section}`, clear: () => setSection(ALL) },
+    (range.dateFrom || range.dateTo) && { label: `Opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) },
+    score && { label: `Score = ${score}`, clear: () => setScoreText("") },
+    includeTest && { label: "Test logins included", clear: () => setIncludeTest(false) },
+  ].filter(Boolean) as { label: string; clear: () => void }[];
+  const clearAll = () => {
+    setCollege(ALL);
+    setSemester(ALL);
+    setSection(ALL);
+    setRange({ dateFrom: "", dateTo: "" });
+    setScoreText("");
+    setIncludeTest(false);
+  };
+
   const funnel = t
     ? [
         { label: "All students", n: t.students },
@@ -158,8 +212,24 @@ export default function SpiQuizAnalytics() {
         { label: "Completed", n: t.completed },
       ]
     : [];
-  const spreadMax = Math.max(1, ...(data?.scoreSpread.map((s) => s.students) ?? [1]));
-  const spread = t ? Array.from({ length: t.questionCount + 1 }, (_, score) => ({ score, students: data!.scoreSpread.find((s) => s.score === score)?.students ?? 0 })) : [];
+  const spread = t
+    ? Array.from({ length: t.questionCount + 1 }, (_, s) => ({ score: s, students: data!.scoreSpread.find((x) => x.score === s)?.students ?? 0 }))
+    : [];
+  const spreadMax = Math.max(1, ...spread.map((s) => s.students));
+
+  const sortValue = (g: GroupRow): number | string =>
+    sort.key === "name" ? g.name.toLowerCase()
+    : sort.key === "students" ? g.students
+    : sort.key === "opened" ? g.opened
+    : sort.key === "avgScore" ? (g.avgScore ?? -1)
+    : g.students ? g.completed / g.students : -1;
+  const groups = [...(data?.groups ?? [])].sort((a, b) => {
+    const va = sortValue(a);
+    const vb = sortValue(b);
+    const cmp = typeof va === "string" ? va.localeCompare(vb as string) : va - (vb as number);
+    return (sort.desc ? -cmp : cmp) || a.name.localeCompare(b.name);
+  });
+  const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }));
 
   const onExport = async () => {
     setExporting(true);
@@ -187,104 +257,207 @@ export default function SpiQuizAnalytics() {
     }
   };
 
+  const noMatch = data != null && data.students.total === 0;
+  const emptyMessage = scoreTooHigh
+    ? `No data. Scores go from 0 to ${maxScore}, so no student has ${scoreText.trim()}.`
+    : score
+      ? `No data. No student finished the quiz with a score of ${score} for these filters.`
+      : chips.length
+        ? "No data for these filters."
+        : "No student has opened the report yet.";
+
   return (
     <div className="space-y-5 px-4 pb-10 md:px-8">
       <PageHeader title="SPI Quiz Analytics" subtitle="SPI quick quiz before the student report" />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchableSelect
-          className="w-56"
-          value={college}
-          onValueChange={(v) => {
-            setCollege(v);
-            setSection(ALL);
-          }}
-          options={[{ value: ALL, label: "All colleges" }, ...colleges.map((c) => ({ value: c, label: c }))]}
-        />
-        <SearchableSelect
-          className="w-44"
-          value={semester}
-          onValueChange={(v) => {
-            setSemester(v);
-            setSection(ALL);
-          }}
-          options={[{ value: ALL, label: "All semesters" }, ...semesters.map((s) => ({ value: s, label: s }))]}
-        />
-        <SearchableSelect
-          className="w-44"
-          value={section}
-          onValueChange={setSection}
-          disabled={college === ALL}
-          options={[{ value: ALL, label: "All sections" }, ...sections.map((s) => ({ value: s, label: s }))]}
-        />
-        <DateRangeFilter value={range} onChange={setRange} allDatesLabel="All dates" />
-        <label className="ml-auto flex items-center gap-2 text-sm text-slate-600">
-          <Switch checked={includeTest} onCheckedChange={setIncludeTest} />
-          Show test logins
-        </label>
-        <Button onClick={() => void onExport()} disabled={exporting || !data}>
-          <Download className="mr-1.5 h-4 w-4" />
-          {exporting ? "Exporting…" : "Export CSV"}
-        </Button>
+      {/* Filters: labelled controls, active filters as removable chips. */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto_140px]">
+          <Field label="College">
+            <SearchableSelect
+              value={college}
+              onValueChange={(v) => {
+                setCollege(v);
+                setSection(ALL);
+              }}
+              options={[{ value: ALL, label: "All colleges" }, ...colleges.map((c) => ({ value: c, label: c }))]}
+            />
+          </Field>
+          <Field label="Semester">
+            <SearchableSelect
+              value={semester}
+              onValueChange={(v) => {
+                setSemester(v);
+                setSection(ALL);
+              }}
+              options={[{ value: ALL, label: "All semesters" }, ...semesters.map((s) => ({ value: s, label: s }))]}
+            />
+          </Field>
+          <Field label="Section" hint={college === ALL ? <span className="text-[11px] text-slate-500">Choose a college first</span> : undefined}>
+            <SearchableSelect
+              value={section}
+              onValueChange={setSection}
+              disabled={college === ALL}
+              options={[{ value: ALL, label: "All sections" }, ...sections.map((s) => ({ value: s, label: s }))]}
+            />
+          </Field>
+          <Field label="Report opened">
+            <DateRangeFilter value={range} onChange={setRange} allDatesLabel="All dates" />
+          </Field>
+          <Field
+            label="Quiz score"
+            htmlFor={scoreId}
+            hint={
+              <span
+                id={`${scoreId}-hint`}
+                className={cn("text-[11px]", scoreBad || scoreTooHigh ? "text-amber-700" : "text-slate-500")}
+                aria-live="polite"
+              >
+                {scoreBad ? "Enter a whole number" : scoreTooHigh ? `Scores go up to ${maxScore}` : `Exact score, 0–${maxScore}`}
+              </span>
+            }
+          >
+            <div className="relative">
+              <Input
+                id={scoreId}
+                inputMode="numeric"
+                placeholder="Any"
+                value={scoreText}
+                onChange={(e) => setScoreText(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+                aria-describedby={`${scoreId}-hint`}
+                aria-invalid={scoreBad || scoreTooHigh}
+                className="h-10 pr-8 tabular-nums"
+              />
+              {scoreText && (
+                <button
+                  type="button"
+                  onClick={() => setScoreText("")}
+                  aria-label="Clear quiz score"
+                  className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </Field>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+          {chips.length === 0 ? (
+            <span className="text-xs text-slate-500">No filters · all colleges, all dates</span>
+          ) : (
+            <>
+              {chips.map((c) => (
+                <span key={c.label} className="inline-flex items-center gap-1 rounded-full bg-brand-50 py-1 pl-3 pr-1 text-xs font-medium text-brand-900 ring-1 ring-brand-100">
+                  {c.label}
+                  <button type="button" onClick={c.clear} aria-label={`Remove filter ${c.label}`} className={cn("rounded-full p-0.5 hover:bg-brand-100", FOCUS_RING)}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <button type="button" onClick={clearAll} className={cn("text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
+                Clear all
+              </button>
+            </>
+          )}
+          <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+            <Switch checked={includeTest} onCheckedChange={setIncludeTest} />
+            Show test logins
+          </label>
+          <Button onClick={() => void onExport()} disabled={exporting || !data || noMatch}>
+            <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+        </div>
       </div>
 
       {analytics.isError && !data ? (
         <ErrorState onRetry={() => void analytics.refetch()} />
       ) : (
         <>
-          <TileGrid>
-            <StatTile label="All students" value={t ? fmtInt(t.students) : null} hint="current semester" updating={updating} />
-            <StatTile label="Opened report" value={t ? fmtInt(t.opened) : null} hint={t && `${fmtPct(t.opened, t.students)} of all`} updating={updating} />
-            <StatTile label="Started quiz" value={t ? fmtInt(t.started) : null} hint={t && `${fmtPct(t.started, t.opened)} of opened`} updating={updating} />
+          {/* Headline numbers; the stage counts live in the funnel below. */}
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 md:grid-cols-4">
             <StatTile
               label="Completed"
               value={t ? fmtInt(t.completed) : null}
-              hint={t && `${fmtPct(t.completed, t.opened)} of opened · ${fmtPct(t.completed, t.students)} of all`}
+              hint={t && `${fmtPct(t.completed, t.students)} of all students`}
               updating={updating}
             />
-            <StatTile label="Average score" value={t ? `${fmtScore(t.avgScore)} / ${t.questionCount}` : null} updating={updating} />
+            <StatTile label="Average score" value={t ? `${fmtScore(t.avgScore)} / ${t.questionCount}` : null} hint="completed students" updating={updating} />
             <StatTile label="Average time" value={t ? fmtTime(t.avgSeconds) : null} hint="start to finish" updating={updating} />
             <StatTile label="Dropped midway" value={t ? fmtInt(t.started - t.completed) : null} hint="started, not finished" updating={updating} />
-          </TileGrid>
+          </div>
 
           <div className="grid gap-5 xl:grid-cols-2">
-            <Section title="Funnel" subtitle="out of all students" updating={updating}>
-              <div className="space-y-3 p-5">
-                {funnel.map((f, i) => (
-                  <div key={f.label} className="grid grid-cols-[120px_1fr_150px] items-center gap-3 text-sm" title={`${f.label}: ${fmtInt(f.n)}`}>
-                    <span className="text-brand-900">{f.label}</span>
-                    <span className="relative block h-6 rounded bg-brand-50">
-                      <span className="absolute inset-y-0 left-0 rounded-r bg-brand-600" style={{ width: `${pct(f.n, t!.students)}%` }} />
-                    </span>
-                    <span className="tabular-nums">
-                      <b className="text-brand-900">{fmtInt(f.n)}</b>{" "}
-                      <span className="text-xs text-slate-500">
-                        {fmtPct(f.n, t!.students)}
-                        {i > 0 && ` · −${fmtInt(funnel[i - 1]!.n - f.n)}`}
+            <Section title="Funnel" subtitle="each step out of all students" updating={updating} className="rounded-xl border">
+              <ol className="space-y-4 p-5">
+                {funnel.map((f, i) => {
+                  const prev = i > 0 ? funnel[i - 1]!.n : null;
+                  return (
+                    <li key={f.label} className="grid grid-cols-[110px_1fr_auto] items-center gap-3 text-sm sm:grid-cols-[130px_1fr_170px]">
+                      <span className="font-medium text-slate-800">{f.label}</span>
+                      <span className="relative block h-7 rounded-md bg-brand-50" aria-hidden="true">
+                        <span
+                          className={cn("absolute inset-y-0 left-0 rounded-md", i === funnel.length - 1 ? "bg-brand-900" : "bg-brand-600")}
+                          style={{ width: `${pct(f.n, t!.students)}%` }}
+                        />
                       </span>
-                    </span>
-                  </div>
-                ))}
-              </div>
+                      <span className="text-right tabular-nums">
+                        <b className="text-slate-900">{fmtInt(f.n)}</b>{" "}
+                        <span className="text-xs text-slate-500">
+                          {fmtPct(f.n, t!.students)}
+                          {prev != null && <span className="hidden sm:inline"> · {fmtPct(f.n, prev)} of previous</span>}
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
             </Section>
 
-            <Section title="Score spread" subtitle="completed students" updating={updating}>
+            <Section
+              title="Score spread"
+              subtitle="completed students · click a bar to filter by that score"
+              updating={updating}
+              className="rounded-xl border"
+            >
               <div className="p-5">
-                <div className="flex h-40 items-end gap-1.5 border-b border-slate-200">
-                  {spread.map((s) => (
-                    <div key={s.score} className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={`Score ${s.score}: ${fmtInt(s.students)} students`}>
-                      <span className="text-[10.5px] tabular-nums text-slate-500">{s.students ? fmtInt(s.students) : ""}</span>
-                      <span className="w-full rounded-t bg-brand-600" style={{ height: `${(s.students / spreadMax) * 100}%` }} />
-                    </div>
-                  ))}
+                <div className="flex h-44 items-end gap-1.5 border-b border-slate-200" role="group" aria-label="Students per quiz score">
+                  {spread.map((s) => {
+                    const selected = score !== "" && Number(score) === s.score;
+                    const dim = score !== "" && !selected;
+                    return (
+                      <button
+                        key={s.score}
+                        type="button"
+                        aria-pressed={selected}
+                        aria-label={`Score ${s.score}: ${fmtInt(s.students)} students${selected ? ", selected" : ""}`}
+                        title={`Score ${s.score}: ${fmtInt(s.students)} students`}
+                        onClick={() => setScoreText(selected ? "" : String(s.score))}
+                        className={cn("group flex h-full flex-1 flex-col items-center justify-end gap-1", FOCUS_RING)}
+                      >
+                        <span className={cn("text-[11px] tabular-nums", selected ? "font-semibold text-brand-900" : "text-slate-500")}>
+                          {s.students ? fmtInt(s.students) : ""}
+                        </span>
+                        <span
+                          className={cn(
+                            "w-full rounded-t transition-colors duration-150",
+                            selected ? "bg-brand-900" : dim ? "bg-brand-200 group-hover:bg-brand-400" : "bg-brand-600 group-hover:bg-brand-800",
+                          )}
+                          style={{ height: `${(s.students / spreadMax) * 100}%`, minHeight: s.students ? 2 : 0 }}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="mt-1.5 flex gap-1.5">
+                <div className="mt-1.5 flex gap-1.5" aria-hidden="true">
                   {spread.map((s) => (
                     <span key={s.score} className="flex-1 text-center text-[11px] tabular-nums text-slate-500">
                       {s.score}
                     </span>
                   ))}
                 </div>
+                <p className="mt-1 text-center text-[11px] text-slate-500">Score out of {maxScore}</p>
               </div>
             </Section>
           </div>
@@ -294,59 +467,113 @@ export default function SpiQuizAnalytics() {
               title={data?.groupBy === "section" ? "Section-wise" : "College-wise"}
               subtitle={data?.groupBy === "college" ? "click a college to see its sections" : undefined}
               updating={updating}
+              className="rounded-xl border"
             >
-              <div className="max-h-[420px] overflow-y-auto p-5">
-                <div className="grid grid-cols-[minmax(0,190px)_1fr_52px_100px_52px] gap-x-3 gap-y-2.5 text-sm">
-                  <span className="text-[11px] text-slate-500">{data?.groupBy === "section" ? "Section" : "College"}</span>
-                  <span className="col-span-2 text-[11px] text-slate-500">Completion · % of all</span>
-                  <span className="col-span-2 text-[11px] text-slate-500">Avg score</span>
-                  {data?.groups.map((g) => {
-                    const clickable = data.groupBy === "college";
-                    return (
-                      <div
-                        key={g.name}
-                        className={cn("col-span-5 grid grid-cols-subgrid items-center", clickable && "cursor-pointer rounded hover:bg-slate-50")}
-                        title={`${g.name}: ${fmtInt(g.completed)} of ${fmtInt(g.students)} completed · opened ${fmtInt(g.opened)} · avg ${fmtScore(g.avgScore)}`}
-                        onClick={clickable ? () => (setCollege(g.name), setSection(ALL)) : undefined}
-                      >
-                        <span className="truncate text-brand-900">{g.name}</span>
-                        <Bar pct={pct(g.completed, g.students)} />
-                        <span className="text-right font-semibold tabular-nums text-brand-900">{fmtPct(g.completed, g.students)}</span>
-                        <Bar pct={g.avgScore == null ? 0 : (g.avgScore / (t?.questionCount || 10)) * 100} tone="bg-brand-900" />
-                        <span className="text-right font-semibold tabular-nums text-brand-900">{fmtScore(g.avgScore)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="max-h-[440px] overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs text-slate-600">
+                    <tr>
+                      {(
+                        [
+                          ["name", data?.groupBy === "section" ? "Section" : "College", ""],
+                          ["students", "Students", "text-right"],
+                          ["opened", "Opened", "text-right"],
+                          ["completion", "Completed", ""],
+                          ["avgScore", "Avg score", "text-right"],
+                        ] as [SortKey, string, string][]
+                      ).map(([key, label, align]) => {
+                        const active = sort.key === key;
+                        const Icon = !active ? ChevronsUpDown : sort.desc ? ArrowDown : ArrowUp;
+                        return (
+                          <th key={key} scope="col" aria-sort={active ? (sort.desc ? "descending" : "ascending") : "none"} className={cn("px-4 py-2.5 font-semibold", align)}>
+                            <button type="button" onClick={() => toggleSort(key)} className={cn("inline-flex items-center gap-1 hover:text-slate-900", FOCUS_RING)}>
+                              {label}
+                              <Icon className={cn("h-3 w-3", active ? "text-brand-700" : "text-slate-400")} aria-hidden="true" />
+                            </button>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody className="tabular-nums">
+                    {groups.map((g) => {
+                      const clickable = data?.groupBy === "college";
+                      return (
+                        <tr key={g.name} className={cn("border-t border-slate-100", clickable && "hover:bg-slate-50")}>
+                          <td className="max-w-[220px] px-4 py-2.5">
+                            {clickable ? (
+                              <button
+                                type="button"
+                                onClick={() => (setCollege(g.name), setSection(ALL))}
+                                className={cn("block max-w-full truncate text-left font-medium text-brand-800 hover:underline", FOCUS_RING)}
+                                title={g.name}
+                              >
+                                {g.name}
+                              </button>
+                            ) : (
+                              <span className="block truncate font-medium text-slate-800" title={g.name}>
+                                {g.name}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-slate-700">{fmtInt(g.students)}</td>
+                          <td className="px-4 py-2.5 text-right text-slate-700">{fmtInt(g.opened)}</td>
+                          <td className="min-w-[150px] px-4 py-2.5" title={`${fmtInt(g.completed)} of ${fmtInt(g.students)} completed`}>
+                            <span className="flex items-center gap-2">
+                              <Bar pct={pct(g.completed, g.students)} />
+                              <span className="w-12 shrink-0 text-right font-semibold text-slate-900">{fmtPct(g.completed, g.students)}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-slate-900">{fmtScore(g.avgScore)}</td>
+                        </tr>
+                      );
+                    })}
+                    {data && groups.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                          No data
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </Section>
 
-            <Section title="Question-wise · % correct" subtitle="hardest first · avg time" updating={updating}>
-              <div className="space-y-2.5 p-5">
+            <Section title="Question-wise" subtitle="% answered correctly · hardest first" updating={updating} className="rounded-xl border">
+              <ol className="divide-y divide-slate-100">
                 {data?.questions.map((q) => (
-                  <div key={q.id} className="grid grid-cols-[minmax(0,220px)_1fr_90px] items-center gap-3 text-sm" title={`${q.question}\n${q.answered} answered`}>
-                    <span className="truncate text-brand-900">
-                      <span className="mr-1.5 text-[11px] text-slate-500">Q{q.position}</span>
-                      {q.topic || q.question}
+                  <li key={q.id} className="grid grid-cols-[minmax(0,1fr)_minmax(80px,140px)_92px] items-center gap-3 px-5 py-2.5 text-sm" title={`${q.question}\n${fmtInt(q.answered)} answered`}>
+                    <span className="min-w-0">
+                      <span className="block truncate text-slate-800">
+                        <span className="mr-1.5 text-[11px] font-semibold text-slate-500">Q{q.position}</span>
+                        {q.topic || q.question}
+                      </span>
+                      <span className="text-[11px] text-slate-500">{fmtInt(q.answered)} answered · {fmtTime(q.avgSeconds)} avg</span>
                     </span>
-                    <Bar pct={q.correctPct ?? 0} />
+                    <Bar pct={q.correctPct ?? 0} tone={q.correctPct != null && q.correctPct < 50 ? "bg-amber-500" : "bg-brand-600"} />
                     <span className="text-right tabular-nums">
-                      <b className="text-brand-900">{q.correctPct == null ? "–" : `${Math.round(q.correctPct)}%`}</b>{" "}
-                      <span className="text-[11px] text-slate-500">{fmtTime(q.avgSeconds)}</span>
+                      <b className="text-slate-900">{q.correctPct == null ? "–" : `${Math.round(q.correctPct)}%`}</b>
+                      {q.correctPct != null && q.correctPct < 50 && <span className="ml-1.5 rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">Hard</span>}
                     </span>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
             </Section>
           </div>
 
-          <Section title="Students" updating={updating}>
+          <Section
+            title="Students"
+            subtitle={data ? `${fmtInt(data.students.total)} students${score ? ` with score ${score}` : ""}` : undefined}
+            updating={updating}
+            className="rounded-xl border"
+          >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-brand-50 text-left text-xs text-brand-900">
+                <thead className="bg-slate-50 text-left text-xs text-slate-600">
                   <tr>
                     {["Student", "College", "Semester", "Section", "Status", "Score", "Time", "Finished"].map((h) => (
-                      <th key={h} className={cn("px-4 py-2.5 font-semibold", (h === "Score" || h === "Time") && "text-right")}>
+                      <th key={h} scope="col" className={cn("px-4 py-2.5 font-semibold", (h === "Score" || h === "Time") && "text-right")}>
                         {h}
                       </th>
                     ))}
@@ -354,30 +581,41 @@ export default function SpiQuizAnalytics() {
                 </thead>
                 <tbody className="tabular-nums">
                   {data?.students.rows.map((r) => (
-                    <tr key={r.studentId} className="border-t border-slate-100">
-                      <td className="px-4 py-2.5 font-medium text-brand-600">{r.name ?? r.studentId}</td>
-                      <td className="px-4 py-2.5">{r.college ?? "–"}</td>
-                      <td className="px-4 py-2.5">{r.semester ?? "–"}</td>
-                      <td className="px-4 py-2.5">{r.section ?? "–"}</td>
+                    <tr key={r.studentId} className="border-t border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-2.5">
-                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", STATUS[r.status].className)}>{STATUS[r.status].label}</span>
+                        <span className="block font-medium text-slate-900">{r.name ?? "–"}</span>
+                        <span className="block font-mono text-[11px] text-slate-500">{r.studentId}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-right">{r.score == null ? "–" : `${r.score} / ${r.totalQuestions ?? t?.questionCount}`}</td>
-                      <td className="px-4 py-2.5 text-right">{fmtTime(r.seconds)}</td>
-                      <td className="px-4 py-2.5">{fmtDate(r.finishedAt)}</td>
+                      <td className="px-4 py-2.5 text-slate-700">{r.college ?? "–"}</td>
+                      <td className="px-4 py-2.5 text-slate-700">{r.semester ?? "–"}</td>
+                      <td className="px-4 py-2.5 text-slate-700">{r.section ?? "–"}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", STATUS[r.status].className)}>{STATUS[r.status].label}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-semibold text-slate-900">{r.score == null ? "–" : `${r.score} / ${r.totalQuestions ?? t?.questionCount}`}</td>
+                      <td className="px-4 py-2.5 text-right text-slate-700">{fmtTime(r.seconds)}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-700">{fmtDate(r.finishedAt)}</td>
                     </tr>
                   ))}
-                  {data && data.students.rows.length === 0 && (
+                  {noMatch && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
-                        No students yet
+                      <td colSpan={8} className="px-4 py-12">
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <SearchX className="h-6 w-6 text-slate-400" aria-hidden="true" />
+                          <p className="text-sm font-medium text-slate-800">{emptyMessage}</p>
+                          {chips.length > 0 && (
+                            <Button type="button" variant="outline" size="sm" onClick={clearAll}>
+                              Clear filters
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-            {data && (
+            {data && !noMatch && (
               <TablePagination
                 page={data.students.page}
                 totalPages={data.students.totalPages}

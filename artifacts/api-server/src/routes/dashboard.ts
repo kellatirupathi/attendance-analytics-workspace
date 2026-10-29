@@ -89,8 +89,7 @@ import {
   type SortKey,
 } from "../lib/studentDirectory.js";
 import type { Role } from "../lib/rbac.js";
-import { getQuizAnalytics } from "../lib/quizAnalytics.js";
-import { getQuizRosterOptions } from "../lib/queries.js";
+import { getQuizAnalytics, getQuizFilterOptions } from "../lib/quizAnalytics.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 import quizCoverageRouter from "./quizCoverage.js";
 
@@ -573,7 +572,7 @@ router.get("/spi-quiz/options", async (req, res): Promise<void> => {
   }
   const scope = scopeForSession({ role: session.role as Role, campuses: session.campuses, subjects: session.subjects });
   try {
-    res.json({ options: await getQuizRosterOptions(scope) });
+    res.json({ options: await getQuizFilterOptions(scope) });
   } catch (err) {
     req.log.error({ err }, "Error fetching SPI quiz options");
     res.status(500).json({ error: "Failed to load filters" });
@@ -599,6 +598,7 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
   }
   const from = firstQuery(q, "from");
   const to = firstQuery(q, "to");
+  const score = firstQuery(q, "score");
   try {
     const data = await getQuizAnalytics(
       scope,
@@ -608,6 +608,7 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
         section: (college && firstQuery(q, "section")) || undefined,
         from: ISO_DAY.test(from) ? from : undefined,
         to: ISO_DAY.test(to) ? to : undefined,
+        score: /^\d{1,3}$/.test(score) ? Number(score) : undefined,
         includeTest: firstQuery(q, "test") === "1",
       },
       readPageRequest(q),

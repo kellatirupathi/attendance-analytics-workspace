@@ -1,20 +1,34 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { excludedInstituteNames } from "./excludedInstitutes.js";
-import { getQuizRosterCounts, getStudentNames, type QuizRosterFilters } from "./queries.js";
 import { getQuizQuestions } from "./spiQuiz.js";
 import type { SessionScope } from "./rbac.js";
 import { pageOf, type Page, type PageRequest } from "./pagination.js";
 
 /**
- * SPI quiz analytics for staff: counts, scores and times from spi_quiz_attempts / spi_quiz_answers
- * (Postgres, aggregated in SQL), out of the current-semester students counted in BigQuery.
+ * SPI quiz analytics for staff: counts, scores and times from spi_quiz_attempts / spi_quiz_answers,
+ * out of the students in spi_report_cache (the synced reports: names, college, semester, section).
+ * All Postgres, aggregated in SQL; no BigQuery on this page.
  * The date range applies to when a student first opened the report (India time).
+ * `score` keeps only students who completed the quiz with exactly that score.
  */
+export interface QuizRosterFilters {
+  college?: string;
+  semester?: string;
+  section?: string;
+}
+
 export interface QuizAnalyticsFilters extends QuizRosterFilters {
   from?: string;
   to?: string;
+  score?: number;
   includeTest: boolean;
+}
+
+export interface QuizRosterOption {
+  college: string;
+  semester: string;
+  section: string;
 }
 
 export interface QuizGroupRow {
@@ -63,19 +77,58 @@ const num = (v: unknown): number => Number(v ?? 0);
 const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v));
 const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
 
-function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL {
+/** College / semester / section filters and the user's campuses; shared by the quiz tables and spi_report_cache. */
+function placementParts(scope: SessionScope, f: QuizRosterFilters, alias = ""): SQL[] {
   const col = (name: string) => sql.raw(alias ? `${alias}.${name}` : name);
   const parts: SQL[] = [sql`TRUE`];
-  if (!f.includeTest) parts.push(sql`NOT ${col("is_test")}`);
   const excluded = excludedInstituteNames();
   if (excluded.length) parts.push(sql`LOWER(TRIM(COALESCE(${col("college")}, ''))) NOT IN (${list(excluded)})`);
   if (scope.campuses?.length) parts.push(sql`${col("college")} IN (${list(scope.campuses)})`);
   if (f.college) parts.push(sql`${col("college")} = ${f.college}`);
   if (f.semester) parts.push(sql`${col("semester")} = ${f.semester}`);
   if (f.section) parts.push(sql`${col("section")} = ${f.section}`);
+  return parts;
+}
+
+function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL {
+  const col = (name: string) => sql.raw(alias ? `${alias}.${name}` : name);
+  const parts = placementParts(scope, f, alias);
+  if (!f.includeTest) parts.push(sql`NOT ${col("is_test")}`);
   if (f.from) parts.push(sql`(${col("opened_at")} AT TIME ZONE 'Asia/Kolkata')::date >= ${f.from}::date`);
   if (f.to) parts.push(sql`(${col("opened_at")} AT TIME ZONE 'Asia/Kolkata')::date <= ${f.to}::date`);
+  if (f.score != null) parts.push(sql`${col("finished_at")} IS NOT NULL AND ${col("score")} = ${f.score}`);
   return sql.join(parts, sql` AND `);
+}
+
+/** College × semester × section choices for the filters, from the synced reports. */
+export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRosterOption[]> {
+  const { rows } = await db.execute(sql`SELECT DISTINCT college, semester, section FROM spi_report_cache
+    WHERE ${sql.join(placementParts(scope, {}), sql` AND `)}
+      AND college IS NOT NULL AND semester IS NOT NULL AND section IS NOT NULL
+    ORDER BY college, semester, section`);
+  return rows as unknown as QuizRosterOption[];
+}
+
+/** Students in the synced reports: the total and one count per college (or per section once a college is chosen). */
+async function getRosterCounts(
+  scope: SessionScope,
+  f: QuizRosterFilters,
+  groupBy: "college" | "section",
+): Promise<{ total: number; groups: { name: string; students: number }[] }> {
+  const { rows } = await db.execute(sql`SELECT ${sql.raw(groupBy)} AS name, COUNT(*) AS students FROM spi_report_cache
+    WHERE ${sql.join(placementParts(scope, f), sql` AND `)} GROUP BY 1`);
+  const groups = (rows as Row[])
+    .filter((r) => r["name"] != null)
+    .map((r) => ({ name: r["name"] as string, students: num(r["students"]) }));
+  return { total: (rows as Row[]).reduce((n, r) => n + num(r["students"]), 0), groups };
+}
+
+/** Student names from the synced reports, for one page of students. */
+async function getNames(studentIds: string[]): Promise<Map<string, string>> {
+  if (studentIds.length === 0) return new Map();
+  const { rows } = await db.execute(sql`SELECT student_id, report->>'studentName' AS name FROM spi_report_cache
+    WHERE student_id IN (${list(studentIds)})`);
+  return new Map((rows as Row[]).filter((r) => r["name"]).map((r) => [r["student_id"] as string, r["name"] as string]));
 }
 
 const COUNTS = sql`COUNT(*) AS opened, COUNT(started_at) AS started, COUNT(finished_at) AS completed,
@@ -90,7 +143,7 @@ export async function getQuizAnalytics(
   const groupBy = f.college ? "section" : "college";
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
   const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions] = await Promise.all([
-    getQuizRosterCounts(scope, { college: f.college, semester: f.semester, section: f.section }),
+    getRosterCounts(scope, { college: f.college, semester: f.semester, section: f.section }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
     rows(sql`SELECT ${sql.raw(groupBy)} AS name, ${COUNTS} FROM spi_quiz_attempts WHERE ${where} GROUP BY 1`),
@@ -155,9 +208,7 @@ export async function getQuizAnalytics(
     .sort((a, b) => (a.correctPct ?? 101) - (b.correctPct ?? 101) || a.position - b.position);
 
   const page = pageOf(studentRows, pageRequest);
-  const names = await getStudentNames(page.rows.map((r) => r["student_id"] as string)).catch(
-    () => new Map<string, string>(),
-  );
+  const names = await getNames(page.rows.map((r) => r["student_id"] as string));
   const iso = (v: unknown) => (v == null ? null : new Date(v as string).toISOString());
   const students: Page<QuizStudentRow> = {
     ...page,
