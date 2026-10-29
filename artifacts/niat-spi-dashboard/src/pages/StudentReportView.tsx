@@ -929,7 +929,10 @@ function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string;
                 id="rq-problem"
                 value={problem}
                 disabled={!category}
-                onChange={(e) => setProblem(e.target.value)}
+                onChange={(e) => {
+                  setProblem(e.target.value);
+                  if (e.target.value === "something_else") document.getElementById("rq-details")?.focus();
+                }}
                 className={`${FIELD} min-h-11 font-medium disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]`}
               >
                 <option value="" disabled>
@@ -950,7 +953,7 @@ function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string;
             </div>
             <div className="grid gap-1.5">
               <label htmlFor="rq-details" className="text-xs font-semibold text-[#0B1F4D]">
-                Issue details <span className="text-[#E11D48]">*</span>
+                {problem === "something_else" ? "Write your problem" : "Issue details"} <span className="text-[#E11D48]">*</span>
               </label>
               <textarea
                 id="rq-details"
