@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raise a Query v6</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy: #0B1F4D; --text: #334155; --muted: #6B7280; --line: #E6ECF5; --blue: #2563EB; --blue-soft: #EAF1FF; --red: #E11D48;
+    --green: #16A34A; --green-soft: #E6F7EC; --amber: #B45309; --amber-soft: #FFF4DE; --violet: #7C3AED; --violet-soft: #F5F3FF; --rose-soft: #FDECEF; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #E9EEF7; color: var(--text); font-family: "Inter", "Segoe UI", system-ui, sans-serif; font-size: 13px; -webkit-font-smoothing: antialiased; padding: 28px; }
+  .board { display: grid; grid-template-columns: 460px 880px; gap: 28px; align-items: start; width: max-content; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; display: flex; gap: 8px; align-items: center; }
+  .label span { background: var(--navy); color: #fff; border-radius: 999px; width: 20px; height: 20px; display: grid; place-items: center; font-size: 11px; }
+  .screen { background: #fff; border: 1px solid #D5DEEC; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 30px rgba(11,31,77,.08); }
+  svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .modal-head { display: flex; align-items: center; padding: 18px 20px 6px; }
+  .modal-head h2 { font-size: 16px; font-weight: 700; color: var(--navy); }
+  .x { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); display: grid; place-items: center; color: var(--navy); }
+  form { padding: 10px 20px 20px; display: grid; gap: 14px; }
+  .field { display: grid; gap: 7px; }
+  .field label { font-size: 12px; font-weight: 600; color: var(--navy); }
+  .req { color: var(--red); }
+  .select, textarea { width: 100%; border: 1px solid #CBD5E1; border-radius: 10px; padding: 11px 12px; font: inherit; font-size: 13px; color: var(--navy); background: #fff; }
+  .select { display: flex; align-items: center; justify-content: space-between; min-height: 44px; font-weight: 500; }
+  .select.focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+  .new { font-size: 10px; font-weight: 700; color: var(--blue); background: var(--blue-soft); border-radius: 999px; padding: 1px 7px; margin-left: 6px; letter-spacing: .02em; }
+  .menu { border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 20px rgba(11,31,77,.12); padding: 4px; margin-top: -3px; }
+  .menu div { padding: 9px 10px; border-radius: 7px; font-size: 13px; color: var(--navy); display: flex; justify-content: space-between; }
+  .menu div.on { background: var(--blue-soft); font-weight: 600; }
+  .menu div.other { color: var(--muted); border-top: 1px solid var(--line); border-radius: 0 0 7px 7px; }
+  textarea { min-height: 96px; resize: none; line-height: 1.55; }
+  .help { text-align: right; font-size: 11px; color: var(--muted); }
+  .foot { display: flex; gap: 10px; justify-content: flex-end; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 16px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+  .btn.primary { background: var(--blue); color: #fff; }
+  .btn.ghost { color: var(--muted); }
+
+  .ref { padding: 18px 20px 20px; }
+  .ref h3 { font-size: 15px; color: var(--navy); }
+  .ref p.sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .cat { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .cat.wide { grid-column: span 2; }
+  .cat h4 { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--navy); margin-bottom: 8px; }
+  .cat h4 .ic { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; }
+  .cat h4 .ic svg { width: 14px; height: 14px; }
+  .cat ol { padding-left: 18px; display: grid; gap: 5px; font-size: 12.5px; color: var(--text); }
+  .cat ol li.other { color: var(--muted); }
+  .cat.wide ol { grid-auto-flow: column; grid-template-rows: repeat(3, auto); grid-template-columns: 1fr 1fr; column-gap: 24px; }
+</style>
+</head>
+<body>
+<div class="board">
+  <div>
+    <div class="label"><span>1</span> Form with Sub-category</div>
+    <div class="screen">
+      <div class="modal-head"><h2>Raise a query</h2><span class="x">✕</span></div>
+      <form>
+        <div class="field">
+          <label>Category <span class="req">*</span></label>
+          <div class="select">Attendance<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+        </div>
+        <div class="field">
+          <label>What is the problem? <span class="req">*</span><span class="new">NEW</span></label>
+          <div class="select focus">I attended the class, but it shows absent<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+          <div class="menu">
+            <div class="on">I attended the class, but it shows absent <svg viewBox="0 0 24 24" style="color:var(--blue)"><path d="M20 6 9 17l-5-5"/></svg></div>
+            <div>A class I attended is missing</div>
+            <div>My attendance % is wrong</div>
+            <div>My attendance is not updated for recent classes</div>
+            <div class="other">Something else</div>
+          </div>
+        </div>
+        <div class="field">
+          <label>Subject <span class="req">*</span></label>
+          <div class="select">Back End Development<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+        </div>
+        <div class="field">
+          <label>Issue details <span class="req">*</span></label>
+          <textarea>I attended the class on 21 Oct (2nd period), but it shows absent.</textarea>
+          <div class="help">68 / 2000</div>
+        </div>
+        <div class="foot"><span class="btn ghost">Cancel</span><span class="btn primary">Submit</span></div>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="label"><span>2</span> Sub-categories (student words)</div>
+    <div class="screen ref">
+      <h3>Sub-category list</h3>
+      <p class="sub">Written the way a student would say it</p>
+      <div class="grid">
+        <div class="cat">
+          <h4><span class="ic" style="background:var(--blue-soft);color:var(--blue)"><svg viewBox="0 0 24 24"><path d="M3 5h18v16H3zM8 3v4M16 3v4M3 10h18"/></svg></span>Attendance</h4>
+          <ol>
+            <li>I attended the class, but it shows absent</li>
+            <li>A class I attended is missing</li>
+            <li>My attendance % is wrong</li>
+            <li>My attendance is not updated for recent classes</li>
+            <li class="other">Something else</li>
+          </ol>
+        </div>
+        <div class="cat">
+          <h4><span class="ic" style="background:var(--green-soft);color:var(--green)"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>Classroom Quiz</h4>
+          <ol>
+            <li>I attempted the quiz, but it shows not attempted</li>
+            <li>My completed count is wrong</li>
+            <li>My score is wrong</li>
+            <li>I could not find / open the quiz</li>
+            <li>The quiz stopped / had a technical problem</li>
+            <li class="other">Something else</li>
+          </ol>
+        </div>
+        <div class="cat">
+          <h4><span class="ic" style="background:var(--amber-soft);color:var(--amber)"><svg viewBox="0 0 24 24"><path d="M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2zM22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z"/></svg></span>Module Quiz</h4>
+          <ol>
+            <li>I attempted the quiz, but it shows not attempted</li>
+            <li>My completed count is wrong</li>
+            <li>My score is wrong</li>
+            <li>I could not find / open the quiz</li>
+            <li>The quiz stopped / had a technical problem</li>
+            <li class="other">Something else</li>
+          </ol>
+        </div>
+        <div class="cat">
+          <h4><span class="ic" style="background:var(--violet-soft);color:var(--violet)"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>Skill Assessment</h4>
+          <ol>
+            <li>I took the assessment, but my score is not showing</li>
+            <li>My completed count is wrong</li>
+            <li>My score is wrong</li>
+            <li>My score is shown under the wrong subject</li>
+            <li>I could not take it (technical problem)</li>
+            <li class="other">Something else</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

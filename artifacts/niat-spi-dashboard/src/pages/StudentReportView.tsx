@@ -739,12 +739,44 @@ function SpiGuide({ data, onClose }: { data: StudentScorecard; onClose: () => vo
 /* ------------------------------------------------------------------ */
 /*  Raise a query: category, one of the report's subjects, the issue  */
 /* ------------------------------------------------------------------ */
+/**
+ * Categories and "What is the problem?" options, in the student's words. Keys must match
+ * QUERY_CATEGORIES in api-server lib/studentQueries.ts. Final Skill Assessment comes later.
+ */
+const QUIZ_PROBLEMS = [
+  { value: "shows_not_attempted", label: "I attempted the quiz, but it shows not attempted" },
+  { value: "completed_count_wrong", label: "My completed count is wrong" },
+  { value: "score_wrong", label: "My score is wrong" },
+  { value: "cannot_open", label: "I could not find / open the quiz" },
+  { value: "technical_problem", label: "The quiz stopped / had a technical problem" },
+  { value: "something_else", label: "Something else" },
+];
 const QUERY_CATEGORIES = [
-  { value: "attendance", label: "Attendance" },
-  { value: "classroom_quiz", label: "Classroom Quiz" },
-  { value: "module_quiz", label: "Module Quiz" },
-  { value: "skill_assessment", label: "Skill Assessment" },
-  { value: "final_skill_assessment", label: "Final Skill Assessment" },
+  {
+    value: "attendance",
+    label: "Attendance",
+    problems: [
+      { value: "shows_absent", label: "I attended the class, but it shows absent" },
+      { value: "class_missing", label: "A class I attended is missing" },
+      { value: "percentage_wrong", label: "My attendance % is wrong" },
+      { value: "not_updated", label: "My attendance is not updated for recent classes" },
+      { value: "something_else", label: "Something else" },
+    ],
+  },
+  { value: "classroom_quiz", label: "Classroom Quiz", problems: QUIZ_PROBLEMS },
+  { value: "module_quiz", label: "Module Quiz", problems: QUIZ_PROBLEMS },
+  {
+    value: "skill_assessment",
+    label: "Skill Assessment",
+    problems: [
+      { value: "score_not_showing", label: "I took the assessment, but my score is not showing" },
+      { value: "completed_count_wrong", label: "My completed count is wrong" },
+      { value: "score_wrong", label: "My score is wrong" },
+      { value: "wrong_subject", label: "My score is shown under the wrong subject" },
+      { value: "could_not_take", label: "I could not take it (technical problem)" },
+      { value: "something_else", label: "Something else" },
+    ],
+  },
 ];
 const MAX_QUERY_CHARS = 2000;
 const FIELD = "w-full rounded-[10px] border border-[#CBD5E1] bg-white px-3 text-[13px] text-[#0B1F4D] focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20";
@@ -809,12 +841,14 @@ function SubjectPicker({ subjects, value, onChange }: { subjects: string[]; valu
 
 function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string; subjects: string[]; onClose: () => void }) {
   const [category, setCategory] = useState("");
+  const [problem, setProblem] = useState("");
   const [subject, setSubject] = useState("");
+  const problems = QUERY_CATEGORIES.find((c) => c.value === category)?.problems ?? [];
   const [details, setDetails] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
-  const ready = Boolean(category && subject && details.trim());
+  const ready = Boolean(category && problem && subject && details.trim());
 
   const submit = async () => {
     if (!ready || sending) return;
@@ -825,7 +859,7 @@ function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ student: studentId, category, subject, details: details.trim() }),
+        body: JSON.stringify({ student: studentId, category, subCategory: problem, subject, details: details.trim() }),
       });
       const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) {
@@ -868,13 +902,42 @@ function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string;
               <label htmlFor="rq-category" className="text-xs font-semibold text-[#0B1F4D]">
                 Category <span className="text-[#E11D48]">*</span>
               </label>
-              <select id="rq-category" value={category} onChange={(e) => setCategory(e.target.value)} className={`${FIELD} min-h-11 font-medium`}>
+              <select
+                id="rq-category"
+                value={category}
+                onChange={(e) => {
+                  setCategory(e.target.value);
+                  setProblem("");
+                }}
+                className={`${FIELD} min-h-11 font-medium`}
+              >
                 <option value="" disabled>
                   Choose a category
                 </option>
                 {QUERY_CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value}>
                     {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-1.5">
+              <label htmlFor="rq-problem" className="text-xs font-semibold text-[#0B1F4D]">
+                What is the problem? <span className="text-[#E11D48]">*</span>
+              </label>
+              <select
+                id="rq-problem"
+                value={problem}
+                disabled={!category}
+                onChange={(e) => setProblem(e.target.value)}
+                className={`${FIELD} min-h-11 font-medium disabled:cursor-not-allowed disabled:bg-[#F8FAFC] disabled:text-[#94A3B8]`}
+              >
+                <option value="" disabled>
+                  {category ? "Choose the problem" : "Choose a category first"}
+                </option>
+                {problems.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
                   </option>
                 ))}
               </select>
@@ -894,6 +957,7 @@ function RaiseQueryDialog({ studentId, subjects, onClose }: { studentId: string;
                 value={details}
                 maxLength={MAX_QUERY_CHARS}
                 onChange={(e) => setDetails(e.target.value)}
+                placeholder={problem === "something_else" ? "Tell us your problem in your own words" : "Add details like the date, class or quiz name"}
                 rows={7}
                 className={`${FIELD} min-h-40 resize-y py-2.5 leading-relaxed`}
               />

@@ -1,7 +1,7 @@
 import { pgTable, text, timestamp, serial, boolean, index } from "drizzle-orm/pg-core";
 
 /**
- * Queries students raise from their SPI report ("Raise a query"): a category, one of the
+ * Queries students raise from their SPI report ("Raise a query"): a category and sub-category, one of the
  * subjects their report shows, and the issue in their own words. One row per submission;
  * college, semester and section are copied from the synced report when it is saved.
  */
@@ -15,8 +15,10 @@ export const spiStudentQueriesTable = pgTable(
     college: text("college"),
     semester: text("semester"),
     section: text("section"),
-    /** attendance | classroom_quiz | module_quiz | skill_assessment | final_skill_assessment */
+    /** attendance | classroom_quiz | module_quiz | skill_assessment (final_skill_assessment later) */
     category: text("category").notNull(),
+    /** "What is the problem?" key, e.g. shows_absent, score_wrong, something_else (api-server lib/studentQueries.ts). */
+    subCategory: text("sub_category"),
     subject: text("subject").notNull(),
     details: text("details").notNull(),
     /** open | closed */

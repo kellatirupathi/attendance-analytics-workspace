@@ -13,7 +13,7 @@ const queryLimiter = allLimits(
 );
 
 /**
- * POST /api/spi-queries { student, category, subject, details }: "Raise a query" on the public
+ * POST /api/spi-queries { student, category, subCategory, subject, details }: "Raise a query" on the public
  * report (/spi/{student_uid}). A staff session previews the report and saves nothing.
  */
 router.post("/", queryLimiter, async (req, res): Promise<void> => {
@@ -33,6 +33,7 @@ router.post("/", queryLimiter, async (req, res): Promise<void> => {
     const result = await saveStudentQuery({
       studentId: student,
       category: str(body["category"]),
+      subCategory: str(body["subCategory"]),
       subject: str(body["subject"]),
       details: str(body["details"]),
     });
