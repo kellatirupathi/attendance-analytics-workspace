@@ -17,14 +17,17 @@ interface Column<T> {
   render: (row: T) => React.ReactNode;
 }
 
-function Head({ columns, sort, onSort, extra }: { columns: { key: string; label: string; align?: "right" }[]; sort: Sort; onSort: (key: string) => void; extra?: boolean }) {
+/** Table header; without `sort` and `onSort` the labels are plain text. */
+export function Head({ columns, sort, onSort, extra, sticky }: { columns: { key: string; label: string; align?: "right" }[]; sort?: Sort; onSort?: (key: string) => void; extra?: boolean; sticky?: boolean }) {
   return (
-    <thead className="bg-slate-50 text-xs font-semibold text-slate-600">
+    <thead className={cn("bg-slate-50 text-xs font-semibold text-slate-600", sticky && "sticky top-0 z-10")}>
       <tr>
         {columns.map((c) => {
-          const active = sort.key === c.key;
+          const active = !!sort && sort.key === c.key;
+          const align = c.align === "right" ? "text-right" : "text-left";
+          if (!sort || !onSort) return <th key={c.key} scope="col" className={cn("whitespace-nowrap px-4 py-3", align)}>{c.label}</th>;
           return (
-            <th key={c.key} scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={cn("whitespace-nowrap px-4 py-3", c.align === "right" ? "text-right" : "text-left")}>
+            <th key={c.key} scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={cn("whitespace-nowrap px-4 py-3", align)}>
               <button type="button" onClick={() => onSort(c.key)} className="inline-flex items-center gap-1 rounded hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">
                 {c.label}
                 <span aria-hidden="true" className={cn("text-[10px]", active ? "text-brand-600" : "text-transparent")}>
@@ -40,10 +43,10 @@ function Head({ columns, sort, onSort, extra }: { columns: { key: string; label:
   );
 }
 
-const cell = "whitespace-nowrap px-4 py-3 text-sm text-slate-700";
-const num = `${cell} text-right tabular-nums`;
+export const cell = "whitespace-nowrap px-4 py-3 text-sm text-slate-700";
+export const num = `${cell} text-right tabular-nums`;
 
-function Body({ loading, empty, colSpan, rowsCount, children }: { loading: boolean; empty: string; colSpan: number; rowsCount: number; children: React.ReactNode }) {
+export function Body({ loading, empty, colSpan, rowsCount, children }: { loading: boolean; empty: string; colSpan: number; rowsCount: number; children: React.ReactNode }) {
   if (loading && rowsCount === 0) {
     return (
       <tbody>

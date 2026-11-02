@@ -5,14 +5,15 @@
 /* ------------------------------------------------------------------ */
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Download, SearchX, X } from "lucide-react";
+import { Download, SearchX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/PageHeader";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
-import { TablePagination } from "@/components/DataTable";
+import { Body, cell, Head, num, Pager } from "@/components/assessments/quiz/QuizTables";
+import { Pill } from "@/components/assessments/quiz/quizParts";
 import { ErrorState } from "@/components/PageStates";
 import { Section, StatTile } from "@/components/dashboard/overview";
 import { FOCUS_RING } from "@/components/assessments/parts";
@@ -462,7 +463,7 @@ export default function SpiQuizAnalytics() {
             </Section>
           </div>
 
-          <div className="grid gap-5 xl:grid-cols-2">
+          <div className="grid gap-5 xl:grid-cols-[3fr_2fr]">
             <Section
               title={data?.groupBy === "section" ? "Section-wise" : "College-wise"}
               subtitle={data?.groupBy === "college" ? "click a college to see its sections" : undefined}
@@ -470,42 +471,30 @@ export default function SpiQuizAnalytics() {
               className="rounded-xl border"
             >
               <div className="max-h-[440px] overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs text-slate-600">
-                    <tr>
-                      {(
-                        [
-                          ["name", data?.groupBy === "section" ? "Section" : "College", ""],
-                          ["students", "Students", "text-right"],
-                          ["opened", "Opened", "text-right"],
-                          ["completion", "Completed", ""],
-                          ["avgScore", "Avg score", "text-right"],
-                        ] as [SortKey, string, string][]
-                      ).map(([key, label, align]) => {
-                        const active = sort.key === key;
-                        const Icon = !active ? ChevronsUpDown : sort.desc ? ArrowDown : ArrowUp;
-                        return (
-                          <th key={key} scope="col" aria-sort={active ? (sort.desc ? "descending" : "ascending") : "none"} className={cn("px-4 py-2.5 font-semibold", align)}>
-                            <button type="button" onClick={() => toggleSort(key)} className={cn("inline-flex items-center gap-1 hover:text-slate-900", FOCUS_RING)}>
-                              {label}
-                              <Icon className={cn("h-3 w-3", active ? "text-brand-700" : "text-slate-400")} aria-hidden="true" />
-                            </button>
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody className="tabular-nums">
+                <table className="w-full text-left">
+                  <Head
+                    sticky
+                    columns={[
+                      { key: "name", label: data?.groupBy === "section" ? "Section" : "College" },
+                      { key: "students", label: "Students", align: "right" },
+                      { key: "opened", label: "Opened", align: "right" },
+                      { key: "completion", label: "Completed", align: "right" },
+                      { key: "avgScore", label: "Avg score", align: "right" },
+                    ]}
+                    sort={{ key: sort.key, dir: sort.desc ? "desc" : "asc" }}
+                    onSort={(key) => toggleSort(key as SortKey)}
+                  />
+                  <Body loading={!data} empty="No data" colSpan={5} rowsCount={groups.length}>
                     {groups.map((g) => {
                       const clickable = data?.groupBy === "college";
                       return (
-                        <tr key={g.name} className={cn("border-t border-slate-100", clickable && "hover:bg-slate-50")}>
-                          <td className="max-w-[220px] px-4 py-2.5">
+                        <tr key={g.name} className="hover:bg-slate-50">
+                          <td className={cn(cell, "max-w-[200px]")}>
                             {clickable ? (
                               <button
                                 type="button"
                                 onClick={() => (setCollege(g.name), setSection(ALL))}
-                                className={cn("block max-w-full truncate text-left font-medium text-brand-800 hover:underline", FOCUS_RING)}
+                                className={cn("block max-w-full truncate text-left font-medium text-brand-700 hover:underline", FOCUS_RING)}
                                 title={g.name}
                               >
                                 {g.name}
@@ -516,26 +505,16 @@ export default function SpiQuizAnalytics() {
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-2.5 text-right text-slate-700">{fmtInt(g.students)}</td>
-                          <td className="px-4 py-2.5 text-right text-slate-700">{fmtInt(g.opened)}</td>
-                          <td className="min-w-[150px] px-4 py-2.5" title={`${fmtInt(g.completed)} of ${fmtInt(g.students)} completed`}>
-                            <span className="flex items-center gap-2">
-                              <Bar pct={pct(g.completed, g.students)} />
-                              <span className="w-12 shrink-0 text-right font-semibold text-slate-900">{fmtPct(g.completed, g.students)}</span>
-                            </span>
+                          <td className={num}>{fmtInt(g.students)}</td>
+                          <td className={num}>{fmtInt(g.opened)}</td>
+                          <td className={num} title={`${fmtInt(g.completed)} of ${fmtInt(g.students)} completed`}>
+                            <Pill metric="completion" value={g.students ? Math.round(pct(g.completed, g.students) * 10) / 10 : null} />
                           </td>
-                          <td className="px-4 py-2.5 text-right font-semibold text-slate-900">{fmtScore(g.avgScore)}</td>
+                          <td className={cn(num, "font-semibold text-slate-900")}>{fmtScore(g.avgScore)}</td>
                         </tr>
                       );
                     })}
-                    {data && groups.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                          No data
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
+                  </Body>
                 </table>
               </div>
             </Section>
@@ -569,34 +548,41 @@ export default function SpiQuizAnalytics() {
             className="rounded-xl border"
           >
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs text-slate-600">
-                  <tr>
-                    {["Student", "College", "Semester", "Section", "Status", "Score", "Time", "Finished"].map((h) => (
-                      <th key={h} scope="col" className={cn("px-4 py-2.5 font-semibold", (h === "Score" || h === "Time") && "text-right")}>
-                        {h}
-                      </th>
+              <table className="w-full min-w-[46rem] text-left">
+                <Head
+                  columns={[
+                    { key: "student", label: "Student" },
+                    { key: "college", label: "College" },
+                    { key: "semester", label: "Semester" },
+                    { key: "section", label: "Section" },
+                    { key: "status", label: "Status" },
+                    { key: "score", label: "Score", align: "right" },
+                    { key: "time", label: "Time", align: "right" },
+                    { key: "finished", label: "Finished" },
+                  ]}
+                />
+                {!noMatch && (
+                  <Body loading={!data} empty="" colSpan={8} rowsCount={data?.students.rows.length ?? 0}>
+                    {data?.students.rows.map((r) => (
+                      <tr key={r.studentId} className="hover:bg-slate-50">
+                        <td className={cell}>
+                          <span className="block font-medium text-slate-900">{r.name ?? "–"}</span>
+                          <span className="block font-mono text-[11px] text-slate-500">{r.studentId}</span>
+                        </td>
+                        <td className={cell}>{r.college ?? "–"}</td>
+                        <td className={cell}>{r.semester ?? "–"}</td>
+                        <td className={cell}>{r.section ?? "–"}</td>
+                        <td className={cell}>
+                          <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", STATUS[r.status].className)}>{STATUS[r.status].label}</span>
+                        </td>
+                        <td className={cn(num, "font-semibold text-slate-900")}>{r.score == null ? "–" : `${r.score} / ${r.totalQuestions ?? t?.questionCount}`}</td>
+                        <td className={num}>{fmtTime(r.seconds)}</td>
+                        <td className={cell}>{fmtDate(r.finishedAt)}</td>
+                      </tr>
                     ))}
-                  </tr>
-                </thead>
-                <tbody className="tabular-nums">
-                  {data?.students.rows.map((r) => (
-                    <tr key={r.studentId} className="border-t border-slate-100 hover:bg-slate-50">
-                      <td className="px-4 py-2.5">
-                        <span className="block font-medium text-slate-900">{r.name ?? "–"}</span>
-                        <span className="block font-mono text-[11px] text-slate-500">{r.studentId}</span>
-                      </td>
-                      <td className="px-4 py-2.5 text-slate-700">{r.college ?? "–"}</td>
-                      <td className="px-4 py-2.5 text-slate-700">{r.semester ?? "–"}</td>
-                      <td className="px-4 py-2.5 text-slate-700">{r.section ?? "–"}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", STATUS[r.status].className)}>{STATUS[r.status].label}</span>
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-slate-900">{r.score == null ? "–" : `${r.score} / ${r.totalQuestions ?? t?.questionCount}`}</td>
-                      <td className="px-4 py-2.5 text-right text-slate-700">{fmtTime(r.seconds)}</td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-700">{fmtDate(r.finishedAt)}</td>
-                    </tr>
-                  ))}
+                  </Body>
+                )}
+                <tbody>
                   {noMatch && (
                     <tr>
                       <td colSpan={8} className="px-4 py-12">
@@ -616,15 +602,7 @@ export default function SpiQuizAnalytics() {
               </table>
             </div>
             {data && !noMatch && (
-              <TablePagination
-                page={data.students.page}
-                totalPages={data.students.totalPages}
-                totalItems={data.students.total}
-                pageSize={pageSize}
-                onPageChange={(p) => setPageState({ key: viewKey, page: p })}
-                onPageSizeChange={setPageSize}
-                itemLabel="students"
-              />
+              <Pager page={data.students} unit="students" pageSize={pageSize} onPage={(p) => setPageState({ key: viewKey, page: p })} onPageSize={setPageSize} />
             )}
           </Section>
         </>
