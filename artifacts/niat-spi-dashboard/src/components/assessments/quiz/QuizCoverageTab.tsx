@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
-import { formatAsOf, NO_FILTERS, quizApi, type QuizFilters, type QuizType } from "@/lib/quizCoverage";
+import { formatAsOf, isSkill, NO_FILTERS, quizApi, type QuizFilters, type QuizType } from "@/lib/quizCoverage";
 import { QuizKpiCards } from "./quizParts";
 import { CampusTable, Pager, StudentTable, type Sort } from "./QuizTables";
 import { QuizStudentPanel } from "./QuizStudentPanel";
@@ -175,6 +175,17 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
 
       <div className="mt-5 space-y-5">
         <QuizKpiCards kpis={kpis.data} loading={kpis.isLoading} failed={kpis.isError} onRetry={() => void kpis.refetch()} quizType={quizType} />
+        {isSkill(quizType) && o?.missingColleges?.length ? (
+          <div role="note" className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+            <p>
+              <span className="font-semibold">{o.missingColleges.length} {o.missingColleges.length === 1 ? "college has" : "colleges have"} no Skill Assessment results on the student report</span>, so the numbers above do not include {o.missingColleges.length === 1 ? "it" : "them"}. Their assessment data is not linked to report courses yet.
+            </p>
+            <details className="mt-1">
+              <summary className="cursor-pointer text-xs font-medium underline">Show {o.missingColleges.length === 1 ? "college" : "colleges"}</summary>
+              <p className="mt-1 text-xs">{o.missingColleges.join(" · ")}</p>
+            </details>
+          </div>
+        ) : null}
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Results">
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-4">
@@ -208,9 +219,9 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
               </button>
             </div>
           ) : view === "campus" ? (
-            <CampusTable page={campus.data} loading={campus.isLoading} sort={sort} onSort={onSort} />
+            <CampusTable page={campus.data} loading={campus.isLoading} sort={sort} onSort={onSort} skill={isSkill(quizType)} />
           ) : (
-            <StudentTable page={students.data} loading={students.isLoading} sort={sort} onSort={onSort} onOpen={setOpenUid} />
+            <StudentTable page={students.data} loading={students.isLoading} sort={sort} onSort={onSort} onOpen={setOpenUid} skill={isSkill(quizType)} />
           )}
 
           <Pager

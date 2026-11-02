@@ -1,16 +1,19 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION, PROD_SEQUENCE_TABLE } from "./bigquery.js";
-import { excludeInstituteSql } from "./excludedInstitutes.js";
+import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
 import { attendanceSource } from "./queries.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
-import { restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel } from "./quizCoverageModel.js";
-import { loadReportCourses } from "./reportCourses.js";
+import { restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
+import { loadReportCourses, loadSavedReports } from "./reportCourses.js";
+import { plainCourseName } from "./reportRemovedCourses.js";
 
 /**
- * Shared copy of the Assessments quiz-tab data, one per quiz type, refreshed in the background
- * (snapshot.ts). The tab's cards, tables, student panel and downloads all read this copy and filter
- * it in memory, so changing a filter never waits for BigQuery.
+ * Shared copy of the Assessments tab data, one per tab (Classroom Quiz, Module Quiz, Skill Assessment),
+ * refreshed in the background (snapshot.ts). The tab's cards, tables, student panel and downloads all read
+ * this copy and filter it in memory, so changing a filter never waits for BigQuery.
  */
+export type CoverageType = QuizType | "SKILL_ASSESSMENT";
+
 const WORKSPACE = "kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace";
 const QUIZ_TABLE = `\`${WORKSPACE}.z_niat_students_classroom_and_module_quiz_details\``;
 const RESOURCE_TYPES = `\`${WORKSPACE}.niat_session_wise_resource_details\``;
@@ -25,7 +28,7 @@ const tables = (): QuizCoverageTables => ({
 const num = (v: unknown) => Number(v) || 0;
 const text = (v: unknown) => (v == null ? null : String(v));
 
-async function load(type: QuizType): Promise<QuizCoverageModel> {
+async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
   const t = tables();
   const attWhere = `${excludeInstituteSql()} AND is_current_semester = 1`;
   const [rows, plan] = await Promise.all([
@@ -68,17 +71,74 @@ async function load(type: QuizType): Promise<QuizCoverageModel> {
   return { rows: model.rows, plan: scopePlanToStudentColleges(model.rows, model.plan) };
 }
 
-const snapshots = new Map<QuizType, Snapshot<QuizCoverageModel>>();
+/** "Takshasila University Batch 1-S-003" → "S-003", so the section filter reads the same on every tab. */
+const shortSection = (batchSection: string | null): string => {
+  const s = (batchSection ?? "").trim();
+  const m = s.match(/(S-\d+)$/i);
+  return m ? m[1]!.toUpperCase() : s.includes("-") ? s.slice(s.lastIndexOf("-") + 1) : s;
+};
 
-/** The shared copy for one quiz type; created on first use (the Classroom Quiz copy is warmed at start-up). */
-export function quizCoverageSnapshot(type: QuizType): Snapshot<QuizCoverageModel> {
+/**
+ * Skill Assessment rows, one per student × course, taken from the saved reports: the assessments held and attempted
+ * and the course's best score are exactly what the student's report shows. Colleges whose assessment data is not linked
+ * to report courses have no rows (the tab says so).
+ */
+async function loadSkill(): Promise<QuizCoverageModel> {
+  const [reports, categories, classroom] = await Promise.all([
+    loadSavedReports(),
+    bqQuery<{ campus: string; subject: string; category: string | null }>(
+      `SELECT TRIM(institute_name) AS campus, TRIM(course_title) AS subject, ANY_VALUE(UPPER(TRIM(CAST(category AS STRING)))) AS category
+       FROM ${PROD_SEQUENCE_TABLE} WHERE is_current_semester = 1 AND course_title IS NOT NULL GROUP BY campus, subject`,
+      {},
+      BQ_LOCATION,
+      BQ_HEAVY_QUERY_TIMEOUT_MS,
+    ),
+    quizCoverageSnapshot("CLASSROOM_QUIZ").get(),
+  ]);
+  if (!reports) throw new Error("The saved student reports could not be loaded for the Skill Assessment tab");
+  const categoryOf = new Map(categories.map((c) => [`${c.campus}\t${plainCourseName(c.subject)}`, c.category]));
+  const sectionOf = new Map<string, { section: string; name: string | null }>();
+  for (const r of classroom.rows) if (!sectionOf.has(r.studentId)) sectionOf.set(r.studentId, { section: r.section, name: r.studentName });
+  const rows: QuizRow[] = [];
+  for (const report of reports) {
+    const campus = (report.campus ?? "").trim();
+    if (!campus || isExcludedInstitute(campus)) continue;
+    const known = sectionOf.get(report.studentKey);
+    for (const course of report.courses) {
+      const skill = course.skill;
+      if (!skill || skill.total <= 0) continue;
+      rows.push({
+        campus,
+        section: known?.section || shortSection(report.section),
+        studentId: report.studentKey,
+        studentName: known?.name || report.name?.trim() || null,
+        subject: course.name.trim(),
+        category: categoryOf.get(`${campus}\t${plainCourseName(course.name)}`) ?? null,
+        scheduled: skill.total,
+        completed: Math.min(skill.attempted, skill.total),
+        avgScore: skill.avgPct,
+        // The report's Skill Assessment score of a course is its best score (0 when none was attempted): one point per row.
+        points: skill.avgPct,
+        weight: 1,
+      });
+    }
+  }
+  return { rows, plan: [], mode: "skill" };
+}
+
+const snapshots = new Map<CoverageType, Snapshot<QuizCoverageModel>>();
+
+/** The shared copy for one tab; created on first use (all three are warmed at start-up). */
+export function quizCoverageSnapshot(type: CoverageType): Snapshot<QuizCoverageModel> {
   let s = snapshots.get(type);
   if (!s) {
-    s = createSnapshot<QuizCoverageModel>(`quiz-coverage-${type.toLowerCase()}`, () => load(type));
+    s = createSnapshot<QuizCoverageModel>(`assessments-${type.toLowerCase()}`, () => (type === "SKILL_ASSESSMENT" ? loadSkill() : loadQuiz(type)));
     snapshots.set(type, s);
   }
   return s;
 }
 
-// Warm the Classroom Quiz copy with the other snapshots (startSnapshots runs every registered one).
+// Warm every tab's copy with the other snapshots (startSnapshots runs every registered one).
 quizCoverageSnapshot("CLASSROOM_QUIZ");
+quizCoverageSnapshot("MODULE_QUIZ");
+quizCoverageSnapshot("SKILL_ASSESSMENT");

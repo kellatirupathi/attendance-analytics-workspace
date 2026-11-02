@@ -3,11 +3,15 @@
  * The numbers come from /api/dashboard/assessments/quiz/*; the browser only displays them.
  */
 
-export type QuizType = "CLASSROOM_QUIZ" | "MODULE_QUIZ";
+export type QuizType = "CLASSROOM_QUIZ" | "MODULE_QUIZ" | "SKILL_ASSESSMENT";
+
+/** Skill Assessment: the same tab, but the counts are assessments held and attempted, from the student reports. */
+export const isSkill = (type: QuizType) => type === "SKILL_ASSESSMENT";
 
 export const QUIZ_LABEL: Record<QuizType, { name: string; short: string }> = {
   CLASSROOM_QUIZ: { name: "Classroom Quiz", short: "classroom quiz" },
   MODULE_QUIZ: { name: "Module Quiz", short: "module quiz" },
+  SKILL_ASSESSMENT: { name: "Skill Assessment", short: "skill assessment" },
 };
 
 const API = "/api/dashboard/assessments/quiz";
@@ -53,6 +57,8 @@ export interface QuizOptions {
   sections: { college: string; section: string }[];
   categories: string[];
   subjects: { college: string; subject: string; category: string | null }[];
+  /** Skill Assessment only: colleges in the user's scope that have no Skill Assessment data. */
+  missingColleges?: string[];
 }
 
 export interface CampusRow {

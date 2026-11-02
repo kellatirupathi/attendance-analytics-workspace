@@ -3,8 +3,8 @@ import ExcelJS from "exceljs";
 import { requireSession } from "../lib/auth.js";
 import { scopeForSession, type Role } from "../lib/rbac.js";
 import { pageOf, readPageRequest } from "../lib/pagination.js";
-import { QUIZ_TYPES, type QuizType } from "../lib/quizCoverageSql.js";
-import { quizCoverageSnapshot } from "../lib/quizCoverage.js";
+import { QUIZ_TYPES } from "../lib/quizCoverageSql.js";
+import { quizCoverageSnapshot, type CoverageType } from "../lib/quizCoverage.js";
 import {
   CAMPUS_SORT,
   STUDENT_SORT,
@@ -20,7 +20,7 @@ import {
 } from "../lib/quizCoverageModel.js";
 
 /**
- * Assessments → Classroom Quiz tab (Module Quiz reuses it with quizType=MODULE_QUIZ).
+ * Assessments tabs: Classroom Quiz (quizType=CLASSROOM_QUIZ), Module Quiz (MODULE_QUIZ) and Skill Assessment (SKILL_ASSESSMENT).
  * All endpoints read the shared snapshot (lib/quizCoverage.ts) and filter it in memory.
  * Filters: college, section, category, subject (each blank = all), always limited to the
  * user's own campuses and subjects.
@@ -28,10 +28,11 @@ import {
 const router = Router();
 router.use(requireSession());
 
-const LABEL: Record<QuizType, string> = { CLASSROOM_QUIZ: "ClassroomQuiz", MODULE_QUIZ: "ModuleQuiz" };
+const TYPES: CoverageType[] = [...QUIZ_TYPES, "SKILL_ASSESSMENT"];
+const LABEL: Record<CoverageType, string> = { CLASSROOM_QUIZ: "ClassroomQuiz", MODULE_QUIZ: "ModuleQuiz", SKILL_ASSESSMENT: "SkillAssessment" };
 
 interface QuizRequest {
-  type: QuizType;
+  type: CoverageType;
   filter: QuizFilter;
 }
 
@@ -39,8 +40,8 @@ interface QuizRequest {
 function readRequest(req: Request, res: Response): QuizRequest | null {
   const session = req.session!;
   const q = req.query as Record<string, string | undefined>;
-  const type = (q["quizType"] ?? "CLASSROOM_QUIZ") as QuizType;
-  if (!QUIZ_TYPES.includes(type)) {
+  const type = (q["quizType"] ?? "CLASSROOM_QUIZ") as CoverageType;
+  if (!TYPES.includes(type)) {
     res.status(400).json({ error: "Invalid quizType" });
     return null;
   }
@@ -70,7 +71,15 @@ router.get("/options", async (req, res): Promise<void> => {
   if (!r) return;
   try {
     const model = await quizCoverageSnapshot(r.type).get();
-    res.json(quizFilterOptions(model, r.filter));
+    const options = quizFilterOptions(model, r.filter);
+    // Skill Assessment data does not cover every college: say which colleges (within the user scope) have none.
+    let missingColleges: string[] = [];
+    if (r.type === "SKILL_ASSESSMENT") {
+      const quizColleges = quizFilterOptions(await quizCoverageSnapshot("CLASSROOM_QUIZ").get(), r.filter).colleges;
+      const have = new Set(options.colleges);
+      missingColleges = quizColleges.filter((c) => !have.has(c));
+    }
+    res.json({ ...options, missingColleges });
   } catch (err) {
     fail(req, res, err, "quiz filter options");
   }
@@ -161,17 +170,20 @@ interface Sheet {
 }
 
 function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, uid: string): Sheet | null {
+  const skill = model.mode === "skill";
+  const held = skill ? "Held" : "Scheduled";
+  const done = skill ? "Attempted" : "Completed";
   if (view === "campus") {
     return {
       view: "CampusSummary",
-      headers: ["College", "Sections", "Students", "Scheduled", "Completion rate %", "Avg score % (missed = 0)", "Participation %"],
+      headers: ["College", "Sections", "Students", held, "Completion rate %", "Avg score % (missed = 0)", "Participation %"],
       rows: sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college).map((r) => [r.college, r.sections, r.students, r.scheduled, r.completionPct, r.avgScore, r.participationPct]),
     };
   }
   if (view === "student") {
     return {
       view: "StudentSummary",
-      headers: ["Student", "UID", "College", "Section", "Scheduled", "Completed", "Completion rate %", "Avg score % (missed = 0)"],
+      headers: ["Student", "UID", "College", "Section", held, done, "Completion rate %", "Avg score % (missed = 0)"],
       rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.section, r.scheduled, r.completed, r.completionPct, r.avgScore]),
     };
   }
@@ -183,7 +195,7 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
     );
     return {
       view: uid ? "StudentReport" : "StudentBySubject",
-      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", "Scheduled", "Completed", "Completion rate %", "Avg score % (missed = 0)"],
+      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", held, done, "Completion rate %", "Avg score % (missed = 0)"],
       rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, r.scheduled, r.completed, r.completionPct, r.avgScore]),
     };
   }

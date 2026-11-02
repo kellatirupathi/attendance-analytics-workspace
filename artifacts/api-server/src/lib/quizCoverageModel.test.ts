@@ -143,3 +143,23 @@ test("only the courses on the student report stay", () => {
   assert.equal(none.plan.length, 0);
   assert.equal(none.rows.length, model.rows.length);
 });
+
+test("skill assessment rows: held once per section and course, score is the course's best score per row", () => {
+  const skillRow = (uid: string, subject: string, held: number, attempted: number, best: number): QuizRow => ({
+    campus: "Alpha", section: "S-01", studentId: uid, studentName: uid, subject, category: "TECH", scheduled: held, completed: attempted, avgScore: best, points: best, weight: 1,
+  });
+  const skill: QuizCoverageModel = {
+    mode: "skill",
+    plan: [],
+    rows: [skillRow("u1", "Python", 3, 2, 80), skillRow("u1", "Maths", 3, 0, 0), skillRow("u2", "Python", 3, 3, 60)],
+  };
+  const k = quizKpis(skill, {}, TODAY);
+  assert.equal(k.available, 6); // Python 3 + Maths 3 held, counted once for the section
+  assert.equal(k.scheduledSoFar, 9); // student slots
+  assert.equal(k.completionRate, 55.6); // 5 attempted of 9
+  assert.equal(k.avgScore, 46.7); // (80 + 0 + 60) / 3 rows
+  assert.equal(k.participants, 2);
+  assert.equal(campusRows(skill, {}, TODAY)[0]!.scheduled, 6);
+  assert.equal(studentRows(skill, {}).find((s) => s.uid === "u1")!.avgScore, 40); // (80 + 0) / 2 courses
+  assert.equal(studentSubjectRows(skill, {}, "u1").find((s) => s.subject === "Python")!.avgScore, 80);
+});

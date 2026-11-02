@@ -3,7 +3,7 @@ import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { bandOf, QUIZ_LABEL, type BandMetric, type QuizKpis, type QuizType } from "@/lib/quizCoverage";
+import { bandOf, isSkill, QUIZ_LABEL, type BandMetric, type QuizKpis, type QuizType } from "@/lib/quizCoverage";
 import { fmtInt } from "@/lib/assessmentMetrics";
 
 const BAND_CLASS = {
@@ -62,6 +62,7 @@ const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
 /** The four cards: Available, Scheduled so far (with completion rate), Avg score, Student participation. */
 export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpis: QuizKpis | undefined; loading: boolean; quizType: QuizType; onRetry: () => void; failed: boolean }) {
   const kind = QUIZ_LABEL[quizType].short;
+  const skill = isSkill(quizType);
   const Quizzes = `${QUIZ_LABEL[quizType].name.split(" ")[0]} quizzes`;
   if (failed && !kpis) {
     return (
@@ -76,10 +77,15 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
   const k = kpis;
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Card label="Available (prod sequence)" tip={`${Quizzes} planned in the prod sequence for the current semester, counted per section`} value={fmtInt(k?.available ?? 0)} loading={loading || !k} />
       <Card
-        label="Scheduled so far"
-        tip={`${Quizzes} whose session is scheduled on or before today, counted per section. Completion rate = quizzes marked Completed on the learning portal ÷ quizzes scheduled for each student`}
+        label={skill ? "Held so far" : "Available (prod sequence)"}
+        tip={skill ? "Skill Assessments held so far, counted once for each section and course. An assessment counts as held for a section once a student there has attempted it" : `${Quizzes} planned in the prod sequence for the current semester, counted per section`}
+        value={fmtInt(k?.available ?? 0)}
+        loading={loading || !k}
+      />
+      <Card
+        label={skill ? "Student slots" : "Scheduled so far"}
+        tip={skill ? "Held assessments for each student of the section. Completion rate = assessments attempted ÷ student slots" : `${Quizzes} whose session is scheduled on or before today, counted per section. Completion rate = quizzes marked Completed on the learning portal ÷ quizzes scheduled for each student`}
         value={fmtInt(k?.scheduledSoFar ?? 0)}
         loading={loading || !k}
       >
@@ -89,7 +95,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
         </div>
         <Bar pct={k?.completionRate ?? null} />
       </Card>
-      <Card label="Avg score" tip="Average score over all scheduled quizzes. A quiz a student did not complete counts as 0" value={pctText(k?.avgScore ?? null)} loading={loading || !k} />
+      <Card label="Avg score" tip={skill ? "Average of each student's best Skill Assessment score per course. A course with no attempt counts as 0" : "Average score over all scheduled quizzes. A quiz a student did not complete counts as 0"} value={pctText(k?.avgScore ?? null)} loading={loading || !k} />
       <Card label="Student participation" tip={`Students who completed at least one ${kind}`} value={pctText(k?.participation ?? null)} loading={loading || !k}>
         <p className="text-xs tabular-nums text-slate-500">
           {fmtInt(k?.participants ?? 0)} / {fmtInt(k?.students ?? 0)} students

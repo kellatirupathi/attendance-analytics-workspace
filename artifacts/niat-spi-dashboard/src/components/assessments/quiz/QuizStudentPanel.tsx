@@ -3,7 +3,7 @@ import { Download } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fmtInt } from "@/lib/assessmentMetrics";
-import { NO_FILTERS, quizApi, type QuizType } from "@/lib/quizCoverage";
+import { isSkill, NO_FILTERS, quizApi, type QuizType } from "@/lib/quizCoverage";
 import { Pill } from "./quizParts";
 
 const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
@@ -17,6 +17,7 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
     staleTime: 5 * 60_000,
   });
   const d = q.data;
+  const skill = isSkill(quizType);
   return (
     <Sheet open={Boolean(uid)} onOpenChange={(open) => !open && onClose()}>
       <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
@@ -39,7 +40,7 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
             <>
               <dl className="grid grid-cols-3 gap-2">
                 {[
-                  ["Completed", `${fmtInt(d.completed)} / ${fmtInt(d.scheduled)}`],
+                  [skill ? "Attempted" : "Completed", `${fmtInt(d.completed)} / ${fmtInt(d.scheduled)}`],
                   ["Completion rate", pctText(d.completionPct)],
                   ["Avg score", pctText(d.avgScore)],
                 ].map(([label, value]) => (
@@ -54,9 +55,9 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
                   <thead className="bg-slate-50 text-[11px] font-semibold text-slate-600">
                     <tr>
                       <th scope="col" className="px-3 py-2">Subject</th>
-                      <th scope="col" className="px-3 py-2 text-right">Completed</th>
+                      <th scope="col" className="px-3 py-2 text-right">{skill ? "Attempted" : "Completed"}</th>
                       <th scope="col" className="px-3 py-2 text-right">Completion %</th>
-                      <th scope="col" className="px-3 py-2 text-right">Avg score</th>
+                      <th scope="col" className="px-3 py-2 text-right">{skill ? "Best score" : "Avg score"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">

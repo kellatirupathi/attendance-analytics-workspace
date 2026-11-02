@@ -65,12 +65,12 @@ function Body({ loading, empty, colSpan, rowsCount, children }: { loading: boole
   return <tbody className="divide-y divide-slate-100">{children}</tbody>;
 }
 
-export function CampusTable({ page, loading, sort, onSort }: { page: Page<CampusRow> | undefined; loading: boolean; sort: Sort; onSort: (key: string) => void }) {
+export function CampusTable({ page, loading, sort, onSort, skill = false }: { page: Page<CampusRow> | undefined; loading: boolean; sort: Sort; onSort: (key: string) => void; skill?: boolean }) {
   const columns: Column<CampusRow>[] = [
     { key: "college", label: "College", render: (r) => r.college },
     { key: "sections", label: "Sections", align: "right", render: (r) => fmtInt(r.sections) },
     { key: "students", label: "Students", align: "right", render: (r) => fmtInt(r.students) },
-    { key: "scheduled", label: "Scheduled", align: "right", render: (r) => fmtInt(r.scheduled) },
+    { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right", render: (r) => fmtInt(r.scheduled) },
     { key: "completion", label: "Completion %", align: "right", render: (r) => <Pill metric="completion" value={r.completionPct} /> },
     { key: "avg", label: "Avg score", align: "right", render: (r) => <Pill metric="avg" value={r.avgScore} /> },
     { key: "participation", label: "Participation", align: "right", render: (r) => <Pill metric="participation" value={r.participationPct} /> },
@@ -94,13 +94,13 @@ export function CampusTable({ page, loading, sort, onSort }: { page: Page<Campus
   );
 }
 
-export function StudentTable({ page, loading, sort, onSort, onOpen }: { page: Page<StudentRow> | undefined; loading: boolean; sort: Sort; onSort: (key: string) => void; onOpen: (uid: string) => void }) {
+export function StudentTable({ page, loading, sort, onSort, onOpen, skill = false }: { page: Page<StudentRow> | undefined; loading: boolean; sort: Sort; onSort: (key: string) => void; onOpen: (uid: string) => void; skill?: boolean }) {
   const columns = [
     { key: "student", label: "Student" },
     { key: "uid", label: "UID" },
     { key: "section", label: "Section" },
-    { key: "scheduled", label: "Scheduled", align: "right" as const },
-    { key: "completed", label: "Completed", align: "right" as const },
+    { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right" as const },
+    { key: "completed", label: skill ? "Attempted" : "Completed", align: "right" as const },
     { key: "completion", label: "Completion %", align: "right" as const },
     { key: "avg", label: "Avg score", align: "right" as const },
   ];
