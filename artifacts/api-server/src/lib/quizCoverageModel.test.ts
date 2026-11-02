@@ -60,14 +60,14 @@ test("cards: planned quizzes count once per section; rates are sums first, divid
   assert.equal(k.scheduledSoFar, 3);
 });
 
-test("completion, score and participation", () => {
+test("completion, overall score and average best score", () => {
   const k = quizKpis(model, {}, TODAY);
   // completed 5 + 0 + 0 + 4 = 9, scheduled 10 + 10 + 10 + 4 = 34
   assert.equal(k.completionRate, 26.5);
   assert.equal(k.avgScore, 18.8); // (80 × 5 + 60 × 4) ÷ 34 scheduled: a quiz not completed counts as 0
-  assert.equal(k.students, 3);
-  assert.equal(k.participants, 2);
-  assert.equal(k.participation, 66.7);
+  assert.equal(k.quizzesCompleted, 9);
+  assert.equal(k.quizzesScheduled, 34);
+  assert.equal(k.avgBestScore, 70); // (80 + 60) ÷ 2 rows with a completed quiz
   assert.deepEqual(k.counts, { campus: 2, student: 3, studentSubject: 4 });
 });
 
@@ -88,7 +88,6 @@ test("campus rows: Scheduled comes from the plan; a campus with no quiz rows is 
   assert.equal(alpha.sections, 2);
   assert.equal(alpha.students, 2);
   assert.equal(alpha.completionPct, 16.7);
-  assert.equal(alpha.participationPct, 50);
   assert.equal(alpha.avgScore, 13.3); // 80 × 5 ÷ 30 scheduled
 });
 
@@ -110,7 +109,7 @@ test("students: totals, search by name or UID prefix, and the subject rows", () 
 
 test("sorting puts blanks last in both directions", () => {
   const rows = campusRows(model, {}, TODAY);
-  const withBlank = [...rows, { college: "Zeta", sections: 1, students: 1, scheduled: 0, completionPct: null, avgScore: null, participationPct: null }];
+  const withBlank = [...rows, { college: "Zeta", sections: 1, students: 1, scheduled: 0, completionPct: null, avgScore: null }];
   for (const dir of [1, -1] as const) {
     const sorted = sortBy(withBlank, CAMPUS_SORT["completion"]!, dir, (r) => r.college);
     assert.equal(sorted[sorted.length - 1]!.college, "Zeta");
@@ -158,7 +157,7 @@ test("skill assessment rows: held once per section and course, score is the cour
   assert.equal(k.scheduledSoFar, 9); // student slots
   assert.equal(k.completionRate, 55.6); // 5 attempted of 9
   assert.equal(k.avgScore, 46.7); // (80 + 0 + 60) / 3 rows
-  assert.equal(k.participants, 2);
+  assert.equal(k.avgBestScore, 70); // (80 + 60) / 2 rows attempted
   assert.equal(campusRows(skill, {}, TODAY)[0]!.scheduled, 6);
   assert.equal(studentRows(skill, {}).find((s) => s.uid === "u1")!.avgScore, 40); // (80 + 0) / 2 courses
   assert.equal(studentSubjectRows(skill, {}, "u1").find((s) => s.subject === "Python")!.avgScore, 80);

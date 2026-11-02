@@ -20,7 +20,6 @@ const API = "/api/dashboard/assessments/quiz";
 export const BANDS = {
   completion: { green: 40, amber: 25 },
   avg: { green: 80, amber: 60 },
-  participation: { green: 90, amber: 75 },
 } as const;
 
 export type BandMetric = keyof typeof BANDS;
@@ -45,9 +44,9 @@ export interface QuizKpis {
   scheduledSoFar: number;
   completionRate: number | null;
   avgScore: number | null;
-  participants: number;
-  students: number;
-  participation: number | null;
+  avgBestScore: number | null;
+  quizzesCompleted: number;
+  quizzesScheduled: number;
   counts: { campus: number; student: number; studentSubject: number };
   asOf: string;
 }
@@ -68,7 +67,6 @@ export interface CampusRow {
   scheduled: number;
   completionPct: number | null;
   avgScore: number | null;
-  participationPct: number | null;
 }
 
 export interface StudentRow {

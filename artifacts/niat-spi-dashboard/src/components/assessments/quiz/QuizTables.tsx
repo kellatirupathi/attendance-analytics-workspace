@@ -72,13 +72,12 @@ export function CampusTable({ page, loading, sort, onSort, skill = false }: { pa
     { key: "students", label: "Students", align: "right", render: (r) => fmtInt(r.students) },
     { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right", render: (r) => fmtInt(r.scheduled) },
     { key: "completion", label: "Completion %", align: "right", render: (r) => <Pill metric="completion" value={r.completionPct} /> },
-    { key: "avg", label: "Avg score", align: "right", render: (r) => <Pill metric="avg" value={r.avgScore} /> },
-    { key: "participation", label: "Participation", align: "right", render: (r) => <Pill metric="participation" value={r.participationPct} /> },
+    { key: "avg", label: "Overall score", align: "right", render: (r) => <Pill metric="avg" value={r.avgScore} /> },
   ];
   const rows = page?.rows ?? [];
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[40rem] text-left">
+      <table className="w-full min-w-[36rem] text-left">
         <Head columns={columns} sort={sort} onSort={onSort} />
         <Body loading={loading} empty="No colleges match these filters" colSpan={columns.length} rowsCount={rows.length}>
           {rows.map((r) => (
@@ -102,7 +101,7 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
     { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right" as const },
     { key: "completed", label: skill ? "Attempted" : "Completed", align: "right" as const },
     { key: "completion", label: "Completion %", align: "right" as const },
-    { key: "avg", label: "Avg score", align: "right" as const },
+    { key: "avg", label: "Overall score", align: "right" as const },
   ];
   const rows = page?.rows ?? [];
   return (

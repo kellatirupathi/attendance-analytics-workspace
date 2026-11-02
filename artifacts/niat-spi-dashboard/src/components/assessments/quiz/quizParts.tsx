@@ -59,9 +59,8 @@ function Card({ label, tip, value, children, loading }: { label: string; tip: Re
 
 const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
 
-/** The four cards: Available, Scheduled so far (with completion rate), Avg score, Student participation. */
+/** The four cards: Available, Scheduled so far, Overall score (with the average best score), Student participation (completed ÷ scheduled). */
 export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpis: QuizKpis | undefined; loading: boolean; quizType: QuizType; onRetry: () => void; failed: boolean }) {
-  const kind = QUIZ_LABEL[quizType].short;
   const skill = isSkill(quizType);
   const Quizzes = `${QUIZ_LABEL[quizType].name.split(" ")[0]} quizzes`;
   if (failed && !kpis) {
@@ -85,22 +84,30 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
       />
       <Card
         label={skill ? "Student slots" : "Scheduled so far"}
-        tip={skill ? "Held assessments for each student of the section. Completion rate = assessments attempted ÷ student slots" : `${Quizzes} whose session is scheduled on or before today, counted per section. Completion rate = quizzes marked Completed on the learning portal ÷ quizzes scheduled for each student`}
+        tip={skill ? "Held assessments for each student of the section." : `${Quizzes} whose session is scheduled on or before today, counted per section`}
         value={fmtInt(k?.scheduledSoFar ?? 0)}
         loading={loading || !k}
+      />
+      <Card
+        label="Overall score"
+        tip={skill ? "Best score of attempted assessments, divided by assessments held. Assessments not attempted count as 0" : "Best score of completed quizzes, divided by quizzes scheduled. Quizzes not completed count as 0."}
+        value={pctText(k?.avgScore ?? null)}
+        loading={loading || !k}
       >
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>Completion rate</span>
-          <span className="font-semibold tabular-nums text-slate-700">{pctText(k?.completionRate ?? null)}</span>
-        </div>
-        <Bar pct={k?.completionRate ?? null} />
-      </Card>
-      <Card label="Avg score" tip={skill ? "Average of each student's best Skill Assessment score per course. A course with no attempt counts as 0" : "Average score over all scheduled quizzes. A quiz a student did not complete counts as 0"} value={pctText(k?.avgScore ?? null)} loading={loading || !k} />
-      <Card label="Student participation" tip={`Students who completed at least one ${kind}`} value={pctText(k?.participation ?? null)} loading={loading || !k}>
-        <p className="text-xs tabular-nums text-slate-500">
-          {fmtInt(k?.participants ?? 0)} / {fmtInt(k?.students ?? 0)} students
+        <p className="text-xs text-slate-500">
+          {skill ? "Avg best score of attempted assessments" : "Avg best score of attempted quizzes"}: <span className="font-semibold tabular-nums text-slate-700">{pctText(k?.avgBestScore ?? null)}</span>
         </p>
-        <Bar pct={k?.participation ?? null} />
+      </Card>
+      <Card
+        label="Student participation"
+        tip={skill ? "Assessments attempted by all students / assessments held for all students" : "Quizzes completed by all students / quizzes scheduled for all students. Completed = crossed the cutoff on the Learning Portal."}
+        value={pctText(k?.completionRate ?? null)}
+        loading={loading || !k}
+      >
+        <p className="text-xs tabular-nums text-slate-500">
+          {fmtInt(k?.quizzesCompleted ?? 0)} of {fmtInt(k?.quizzesScheduled ?? 0)} {skill ? "assessments attempted" : "quizzes completed"}
+        </p>
+        <Bar pct={k?.completionRate ?? null} />
       </Card>
     </div>
   );

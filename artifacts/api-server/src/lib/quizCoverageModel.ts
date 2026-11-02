@@ -160,10 +160,13 @@ export interface QuizKpis {
   available: number;
   scheduledSoFar: number;
   completionRate: number | null;
+  /** Overall score: best scores of completed quizzes ÷ quizzes scheduled (missed = 0). */
   avgScore: number | null;
-  participants: number;
-  students: number;
-  participation: number | null;
+  /** Average best score of the student × course rows with at least one completed quiz. */
+  avgBestScore: number | null;
+  /** Quizzes completed and scheduled over all student × quiz rows (completionRate = completed ÷ scheduled). */
+  quizzesCompleted: number;
+  quizzesScheduled: number;
   /** Row counts of the three downloads for these filters. */
   counts: { campus: number; student: number; studentSubject: number };
 }
@@ -175,31 +178,35 @@ export function quizKpis(model: QuizCoverageModel, f: QuizFilter, today = todayI
   let comp = 0;
   let wsum = 0;
   let points = 0;
-  const perStudent = new Map<string, number>();
+  let bestSum = 0;
+  let bestN = 0;
+  const students = new Set<string>();
   const campuses = new Set<string>();
   for (const r of rows) {
     sch += r.scheduled;
     comp += r.completed;
     wsum += rowWeight(r);
     points += rowPoints(r);
-    perStudent.set(r.studentId, (perStudent.get(r.studentId) ?? 0) + r.completed);
+    if (r.completed > 0 && r.avgScore != null) {
+      bestSum += r.avgScore;
+      bestN++;
+    }
+    students.add(r.studentId);
     campuses.add(r.campus);
   }
   if (model.mode === "skill") {
     available = skillHeld(rows); // assessments held (once per section and course)
     scheduled = sch; // student slots held
   }
-  const students = perStudent.size;
-  const participants = [...perStudent.values()].filter((v) => v > 0).length;
   return {
     available,
     scheduledSoFar: scheduled,
     completionRate: pct(comp, sch),
     avgScore: overall(points, wsum),
-    participants,
-    students,
-    participation: pct(participants, students),
-    counts: { campus: campuses.size, student: students, studentSubject: rows.length },
+    avgBestScore: bestN > 0 ? r1(bestSum / bestN) : null,
+    quizzesCompleted: comp,
+    quizzesScheduled: sch,
+    counts: { campus: campuses.size, student: students.size, studentSubject: rows.length },
   };
 }
 
@@ -210,7 +217,6 @@ export interface CampusRow {
   scheduled: number;
   completionPct: number | null;
   avgScore: number | null;
-  participationPct: number | null;
 }
 
 export function campusRows(model: QuizCoverageModel, f: QuizFilter, today = todayIst()): CampusRow[] {
@@ -220,31 +226,27 @@ export function campusRows(model: QuizCoverageModel, f: QuizFilter, today = toda
     if (list) list.push(p);
     else planByCampus.set(p.campus, [p]);
   }
-  interface Acc { sections: Set<string>; sch: number; comp: number; w: number; points: number; students: Map<string, number>; rows: QuizRow[] }
+  interface Acc { sections: Set<string>; sch: number; comp: number; w: number; points: number; students: Set<string>; rows: QuizRow[] }
   const by = new Map<string, Acc>();
   for (const r of filterRows(model, f)) {
     let a = by.get(r.campus);
-    if (!a) by.set(r.campus, (a = { sections: new Set(), sch: 0, comp: 0, w: 0, points: 0, students: new Map(), rows: [] }));
+    if (!a) by.set(r.campus, (a = { sections: new Set(), sch: 0, comp: 0, w: 0, points: 0, students: new Set(), rows: [] }));
     a.sections.add(r.section);
     a.sch += r.scheduled;
     a.comp += r.completed;
     a.w += rowWeight(r);
     a.points += rowPoints(r);
     if (model.mode === "skill") a.rows.push(r);
-    a.students.set(r.studentId, (a.students.get(r.studentId) ?? 0) + r.completed);
+    a.students.add(r.studentId);
   }
-  return [...by.entries()].map(([college, a]) => {
-    const participants = [...a.students.values()].filter((v) => v > 0).length;
-    return {
-      college,
-      sections: a.sections.size,
-      students: a.students.size,
-      scheduled: model.mode === "skill" ? skillHeld(a.rows) : planCounts(planByCampus.get(college) ?? [], today).scheduled,
-      completionPct: pct(a.comp, a.sch),
-      avgScore: overall(a.points, a.w),
-      participationPct: pct(participants, a.students.size),
-    };
-  });
+  return [...by.entries()].map(([college, a]) => ({
+    college,
+    sections: a.sections.size,
+    students: a.students.size,
+    scheduled: model.mode === "skill" ? skillHeld(a.rows) : planCounts(planByCampus.get(college) ?? [], today).scheduled,
+    completionPct: pct(a.comp, a.sch),
+    avgScore: overall(a.points, a.w),
+  }));
 }
 
 export interface StudentRow {
@@ -368,7 +370,6 @@ export const CAMPUS_SORT: Record<string, (r: CampusRow) => SortValue> = {
   scheduled: (r) => r.scheduled,
   completion: (r) => r.completionPct,
   avg: (r) => r.avgScore,
-  participation: (r) => r.participationPct,
 };
 
 export const STUDENT_SORT: Record<string, (r: StudentRow) => SortValue> = {

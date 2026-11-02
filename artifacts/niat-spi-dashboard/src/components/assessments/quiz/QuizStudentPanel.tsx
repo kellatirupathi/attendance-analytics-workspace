@@ -42,7 +42,7 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
                 {[
                   [skill ? "Attempted" : "Completed", `${fmtInt(d.completed)} / ${fmtInt(d.scheduled)}`],
                   ["Completion rate", pctText(d.completionPct)],
-                  ["Avg score", pctText(d.avgScore)],
+                  ["Overall score", pctText(d.avgScore)],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-lg bg-slate-50 p-3">
                     <dt className="text-[11px] font-medium text-slate-500">{label}</dt>
@@ -57,7 +57,7 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
                       <th scope="col" className="px-3 py-2">Subject</th>
                       <th scope="col" className="px-3 py-2 text-right">{skill ? "Attempted" : "Completed"}</th>
                       <th scope="col" className="px-3 py-2 text-right">Completion %</th>
-                      <th scope="col" className="px-3 py-2 text-right">{skill ? "Best score" : "Avg score"}</th>
+                      <th scope="col" className="px-3 py-2 text-right">{skill ? "Best score" : "Overall score"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
