@@ -15,6 +15,8 @@ import { buildAllScorecards, reportConfigVersion, type BuiltReport } from "./spi
  *   all written. A run with far fewer students than the table holds is refused (likely bad data).
  * - One run at a time across servers (Postgres advisory lock). A failed run keeps the old reports.
  * - A student not in the table yet is built live once and saved (spi report route).
+ * - Each run also copies the reports into spi_report_history (one row per student per semester), so
+ *   a semester's report survives the college's move to the next semester. Locked rows are left alone.
  * - SPI_REPORT_SYNC=off turns the schedule off; the admin "run now" still works.
  */
 const SYNC_EVERY_MS = Math.max(15, Number(process.env["SPI_REPORT_SYNC_MINUTES"]) || 60) * 60_000;
@@ -54,6 +56,35 @@ const CREATE_TABLES = [
   )`,
 ];
 
+const CREATE_HISTORY = `CREATE TABLE IF NOT EXISTS spi_report_history (
+    student_id text NOT NULL,
+    college text NOT NULL,
+    semester text NOT NULL,
+    section text,
+    batch text,
+    attendance_pct real,
+    spi real,
+    needs_attention integer,
+    report jsonb NOT NULL,
+    first_built_at timestamptz NOT NULL DEFAULT now(),
+    built_at timestamptz NOT NULL DEFAULT now(),
+    locked_at timestamptz,
+    CONSTRAINT spi_report_history_pkey PRIMARY KEY (student_id, college, semester)
+  )`;
+
+/**
+ * Copies the just-written spi_report_cache into spi_report_history (same transaction). Only rows
+ * whose report changed are rewritten, and locked semesters are never touched.
+ */
+const COPY_TO_HISTORY = `
+  INSERT INTO spi_report_history (student_id, college, semester, section, batch, attendance_pct, spi, needs_attention, report)
+  SELECT student_id, COALESCE(college, ''), COALESCE(semester, ''), section, batch, attendance_pct, spi, needs_attention, report
+  FROM spi_report_cache
+  ON CONFLICT (student_id, college, semester) DO UPDATE SET section = EXCLUDED.section, batch = EXCLUDED.batch,
+    attendance_pct = EXCLUDED.attendance_pct, spi = EXCLUDED.spi, needs_attention = EXCLUDED.needs_attention,
+    report = EXCLUDED.report, built_at = now()
+  WHERE spi_report_history.locked_at IS NULL AND spi_report_history.report IS DISTINCT FROM EXCLUDED.report`;
+
 let tablesReady: Promise<void> | null = null;
 
 /**
@@ -66,13 +97,16 @@ function ensureTables(): Promise<void> {
   tablesReady ??= (async () => {
     const { rows } = await pool.query<{ table_name: string; column_name: string }>(
       `SELECT table_name, column_name FROM information_schema.columns
-       WHERE table_schema = current_schema() AND table_name IN ('spi_report_cache', 'spi_report_sync_runs')`,
+       WHERE table_schema = current_schema() AND table_name IN ('spi_report_cache', 'spi_report_sync_runs', 'spi_report_history')`,
     );
     const tables = new Set(rows.map((r) => r.table_name));
     if (!tables.has("spi_report_cache") || !tables.has("spi_report_sync_runs")) {
       for (const ddl of CREATE_TABLES) await pool.query(ddl);
     } else if (!rows.some((r) => r.table_name === "spi_report_cache" && r.column_name === "batch")) {
       await pool.query("ALTER TABLE spi_report_cache ADD COLUMN IF NOT EXISTS batch text");
+    }
+    if (!tables.has("spi_report_history")) {
+      await pool.query(CREATE_HISTORY);
     }
   })().catch((err) => {
     tablesReady = null;
@@ -197,6 +231,7 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
         const batch = reports.slice(i, i + INSERT_BATCH);
         await client.query(`INSERT INTO spi_report_cache ${COLUMNS} VALUES ${valuesSql(batch.length)}`, batch.flatMap(rowValues));
       }
+      await client.query(COPY_TO_HISTORY);
       await client.query("COMMIT");
       cacheDeletePrefix("spiReport:");
       await finish("success", reports.length, null);
