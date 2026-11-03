@@ -43,7 +43,8 @@ export function buildQuizCoverageRowsSql(
       TRIM(a.institute_name) AS campus,
       ${KEY("a.student_user_id")} AS student_key,
       ${KEY("a.section_id")} AS section_key,
-      ANY_VALUE(a.student_name) AS student_name
+      ANY_VALUE(a.student_name) AS student_name,
+      ANY_VALUE(TRIM(a.semester_title)) AS semester
     FROM ${t.attendance} a
     WHERE ${attWhere}
       AND a.institute_name IS NOT NULL AND TRIM(a.institute_name) != ''
@@ -61,7 +62,7 @@ export function buildQuizCoverageRowsSql(
     FROM stu s JOIN courses c ON c.section_key = s.section_key
   ),
   student_names AS (
-    SELECT campus, student_key, ANY_VALUE(student_name) AS student_name FROM stu GROUP BY campus, student_key
+    SELECT campus, student_key, ANY_VALUE(student_name) AS student_name, ANY_VALUE(semester) AS semester FROM stu GROUP BY campus, student_key
   ),
   cat AS (
     SELECT TRIM(institute_name) AS campus, LOWER(TRIM(course_title)) AS subject_key,
@@ -87,7 +88,7 @@ export function buildQuizCoverageRowsSql(
       AND q.semester_course_title IS NOT NULL AND TRIM(q.semester_course_title) != ''
     GROUP BY campus, section, student_key, subject
   )
-  SELECT z.campus, z.section, z.student_id, z.subject, c.category, n.student_name,
+  SELECT z.campus, z.section, z.student_id, z.subject, c.category, n.student_name, n.semester,
          z.scheduled, z.completed, z.avg_score
   FROM z
   ${restrictToSemester ? "JOIN" : "LEFT JOIN"} enrol e
@@ -111,6 +112,7 @@ export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, 
   SELECT
     TRIM(p.institute_name) AS campus,
     TRIM(p.section_name) AS section,
+    ANY_VALUE(TRIM(p.semester_title)) AS semester,
     ${KEY("p.section_id")} AS section_id,
     TRIM(p.course_title) AS subject,
     UPPER(TRIM(CAST(p.category AS STRING))) AS category,

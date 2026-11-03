@@ -33,11 +33,12 @@ export function bandOf(metric: BandMetric, value: number | null): Band {
 
 export interface QuizFilters {
   college: string;
+  semester: string;
   section: string;
   category: string;
   subject: string;
 }
-export const NO_FILTERS: QuizFilters = { college: "", section: "", category: "", subject: "" };
+export const NO_FILTERS: QuizFilters = { college: "", semester: "", section: "", category: "", subject: "" };
 
 export interface QuizKpis {
   available: number;
@@ -53,7 +54,8 @@ export interface QuizKpis {
 
 export interface QuizOptions {
   colleges: string[];
-  sections: { college: string; section: string }[];
+  semesters: string[];
+  sections: { college: string; semester?: string; section: string }[];
   categories: string[];
   subjects: { college: string; subject: string; category: string | null }[];
   /** Skill Assessment only: colleges in the user's scope that have no Skill Assessment data. */

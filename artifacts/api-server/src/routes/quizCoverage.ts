@@ -50,6 +50,7 @@ function readRequest(req: Request, res: Response): QuizRequest | null {
     scopeCampuses: scope.campuses,
     scopeSubjects: scope.subjects,
     college: q["college"],
+    semester: q["semester"],
     section: q["section"],
     category: q["category"],
     subject: q["subject"],

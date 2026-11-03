@@ -17,6 +17,8 @@
 export interface QuizRow {
   campus: string;
   section: string;
+  /** The section's current semester, e.g. "Semester 3". */
+  semester?: string | null;
   studentId: string;
   studentName: string | null;
   subject: string;
@@ -32,6 +34,7 @@ export interface QuizRow {
 export interface PlanRow {
   campus: string;
   section: string;
+  semester?: string | null;
   sectionId: string;
   subject: string;
   category: string | null;
@@ -53,6 +56,7 @@ export interface QuizFilter {
   /** Subjects the user may see (empty or missing: all). */
   scopeSubjects?: string[];
   college?: string;
+  semester?: string;
   section?: string;
   category?: string;
   subject?: string;
@@ -65,13 +69,15 @@ function matcher(f: QuizFilter) {
   const scopeCampuses = new Set((f.scopeCampuses ?? []).map((c) => c.trim()));
   const scopeSubjects = new Set((f.scopeSubjects ?? []).map((c) => c.trim()));
   const college = clean(f.college);
+  const semester = clean(f.semester);
   const section = clean(f.section);
   const category = clean(f.category).toUpperCase();
   const subject = clean(f.subject);
-  return (r: { campus: string; section: string; subject: string; category: string | null }) =>
+  return (r: { campus: string; section: string; semester?: string | null; subject: string; category: string | null }) =>
     (scopeCampuses.size === 0 || scopeCampuses.has(r.campus)) &&
     (scopeSubjects.size === 0 || scopeSubjects.has(r.subject)) &&
     (!college || r.campus === college) &&
+    (!semester || (r.semester ?? "") === semester) &&
     (!section || r.section === section) &&
     (!category || (r.category ?? "") === category) &&
     (!subject || r.subject === subject);
@@ -316,7 +322,8 @@ export function studentSubjectRows(model: QuizCoverageModel, f: QuizFilter, uid?
 
 export interface QuizFilterOptions {
   colleges: string[];
-  sections: { college: string; section: string }[];
+  semesters: string[];
+  sections: { college: string; semester?: string; section: string }[];
   categories: string[];
   subjects: { college: string; subject: string; category: string | null }[];
 }
@@ -324,18 +331,21 @@ export interface QuizFilterOptions {
 export function quizFilterOptions(model: QuizCoverageModel, f: Pick<QuizFilter, "scopeCampuses" | "scopeSubjects">): QuizFilterOptions {
   const rows = filterRows(model, f);
   const colleges = new Set<string>();
-  const sections = new Map<string, { college: string; section: string }>();
+  const semesters = new Set<string>();
+  const sections = new Map<string, { college: string; semester?: string; section: string }>();
   const categories = new Set<string>();
   const subjects = new Map<string, { college: string; subject: string; category: string | null }>();
   for (const r of rows) {
     colleges.add(r.campus);
-    sections.set(`${r.campus}\t${r.section}`, { college: r.campus, section: r.section });
+    if (r.semester) semesters.add(r.semester);
+    sections.set(`${r.campus}\t${r.section}`, { college: r.campus, ...(r.semester ? { semester: r.semester } : {}), section: r.section });
     if (r.category) categories.add(r.category);
     subjects.set(`${r.campus}\t${r.subject}`, { college: r.campus, subject: r.subject, category: r.category });
   }
   const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
   return {
     colleges: [...colleges].sort(byText),
+    semesters: [...semesters].sort(byText),
     sections: [...sections.values()].sort((a, b) => byText(a.college, b.college) || byText(a.section, b.section)),
     categories: [...categories].sort(byText),
     subjects: [...subjects.values()].sort((a, b) => byText(a.subject, b.subject) || byText(a.college, b.college)),

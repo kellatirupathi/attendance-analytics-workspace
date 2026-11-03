@@ -48,6 +48,7 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
   const studentRows = rows.map((r) => ({
     campus: String(r["campus"]),
     section: String(r["section"] ?? ""),
+    semester: text(r["semester"])?.trim() || null,
     studentId: String(r["student_id"]),
     studentName: text(r["student_name"])?.trim() || null,
     subject: String(r["subject"]),
@@ -59,6 +60,7 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
   const planRows = plan.map((r) => ({
     campus: String(r["campus"]),
     section: String(r["section"] ?? ""),
+    semester: text(r["semester"])?.trim() || null,
     sectionId: String(r["section_id"] ?? ""),
     subject: String(r["subject"]),
     category: text(r["category"]),
@@ -97,8 +99,8 @@ async function loadSkill(): Promise<QuizCoverageModel> {
   ]);
   if (!reports) throw new Error("The saved student reports could not be loaded for the Skill Assessment tab");
   const categoryOf = new Map(categories.map((c) => [`${c.campus}\t${plainCourseName(c.subject)}`, c.category]));
-  const sectionOf = new Map<string, { section: string; name: string | null }>();
-  for (const r of classroom.rows) if (!sectionOf.has(r.studentId)) sectionOf.set(r.studentId, { section: r.section, name: r.studentName });
+  const sectionOf = new Map<string, { section: string; name: string | null; semester: string | null }>();
+  for (const r of classroom.rows) if (!sectionOf.has(r.studentId)) sectionOf.set(r.studentId, { section: r.section, name: r.studentName, semester: r.semester ?? null });
   const rows: QuizRow[] = [];
   for (const report of reports) {
     const campus = (report.campus ?? "").trim();
@@ -110,6 +112,7 @@ async function loadSkill(): Promise<QuizCoverageModel> {
       rows.push({
         campus,
         section: known?.section || shortSection(report.section),
+        semester: known?.semester ?? null,
         studentId: report.studentKey,
         studentName: known?.name || report.name?.trim() || null,
         subject: course.name.trim(),

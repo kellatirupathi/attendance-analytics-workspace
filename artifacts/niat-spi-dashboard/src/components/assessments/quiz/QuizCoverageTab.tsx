@@ -75,8 +75,8 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
   /* ---- filter choices that depend on each other ---- */
   const o = options.data;
   const sectionNames = useMemo(
-    () => [...new Set((o?.sections ?? []).filter((s) => !draft.college || s.college === draft.college).map((s) => s.section))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
-    [o, draft.college],
+    () => [...new Set((o?.sections ?? []).filter((s) => (!draft.college || s.college === draft.college) && (!draft.semester || s.semester === draft.semester)).map((s) => s.section))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [o, draft.college, draft.semester],
   );
   const subjectNames = useMemo(
     () => [...new Set((o?.subjects ?? []).filter((s) => (!draft.college || s.college === draft.college) && (!draft.category || s.category === draft.category)).map((s) => s.subject))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
@@ -85,8 +85,8 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
   const change = (patch: Partial<QuizFilters>) =>
     setDraft((d) => {
       const next = { ...d, ...patch };
-      if (patch.college !== undefined || patch.category !== undefined) {
-        const sections = (o?.sections ?? []).filter((s) => !next.college || s.college === next.college).map((s) => s.section);
+      if (patch.college !== undefined || patch.category !== undefined || patch.semester !== undefined) {
+        const sections = (o?.sections ?? []).filter((s) => (!next.college || s.college === next.college) && (!next.semester || s.semester === next.semester)).map((s) => s.section);
         if (next.section && !sections.includes(next.section)) next.section = "";
         const subjects = (o?.subjects ?? []).filter((s) => (!next.college || s.college === next.college) && (!next.category || s.category === next.category)).map((s) => s.subject);
         if (next.subject && !subjects.includes(next.subject)) next.subject = "";
@@ -133,8 +133,11 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
           </select>
         </Field>
         <Field label="Semester">
-          <select className={selectClass} value="current" disabled onChange={() => undefined}>
-            <option value="current">Current semester</option>
+          <select className={selectClass} value={draft.semester} onChange={(e) => change({ semester: e.target.value })}>
+            <option value="">All current semesters</option>
+            {(o?.semesters ?? []).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
           </select>
         </Field>
         <Field label="Section">
