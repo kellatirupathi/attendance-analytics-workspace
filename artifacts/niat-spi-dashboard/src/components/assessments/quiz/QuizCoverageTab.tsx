@@ -74,6 +74,10 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
 
   /* ---- filter choices that depend on each other ---- */
   const o = options.data;
+  const semesterNames = useMemo(
+    () => [...new Set((o?.sections ?? []).filter((s) => !draft.college || s.college === draft.college).map((s) => s.semester).filter((s): s is string => !!s))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [o, draft.college],
+  );
   const sectionNames = useMemo(
     () => [...new Set((o?.sections ?? []).filter((s) => (!draft.college || s.college === draft.college) && (!draft.semester || s.semester === draft.semester)).map((s) => s.section))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     [o, draft.college, draft.semester],
@@ -85,6 +89,7 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
   const change = (patch: Partial<QuizFilters>) =>
     setDraft((d) => {
       const next = { ...d, ...patch };
+      if (patch.college !== undefined && next.semester && !(o?.sections ?? []).some((s) => (!next.college || s.college === next.college) && s.semester === next.semester)) next.semester = "";
       if (patch.college !== undefined || patch.category !== undefined || patch.semester !== undefined) {
         const sections = (o?.sections ?? []).filter((s) => (!next.college || s.college === next.college) && (!next.semester || s.semester === next.semester)).map((s) => s.section);
         if (next.section && !sections.includes(next.section)) next.section = "";
@@ -135,7 +140,7 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
         <Field label="Semester">
           <select className={selectClass} value={draft.semester} onChange={(e) => change({ semester: e.target.value })}>
             <option value="">All current semesters</option>
-            {(o?.semesters ?? []).map((s) => (
+            {semesterNames.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
