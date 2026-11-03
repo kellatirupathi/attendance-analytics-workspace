@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query chat compact v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; --green:#16A34A; --green-soft:#E8F7EE; --amber-soft:#FFF4DD; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; }
+  .board { display:grid; grid-template-columns:900px 400px; gap:28px; width:max-content; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; display:flex; gap:8px; align-items:center; }
+  .label span { background:var(--navy); color:#fff; border-radius:999px; width:20px; height:20px; display:grid; place-items:center; font-size:11px; }
+  .note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .frame { background:#fff; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:640px; display:flex; flex-direction:column; }
+
+  /* ops */
+  .bar { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--line); }
+  .bar h2 { font-size:15px; color:var(--navy); font-weight:800; }
+  .bar .sp { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .sel { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; color:var(--navy); display:flex; gap:6px; align-items:center; }
+  .srch { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-size:12px; color:#9AA6B8; width:170px; }
+  .bell { position:relative; width:32px; height:32px; border:1px solid var(--line); border-radius:8px; display:grid; place-items:center; color:var(--navy); }
+  .bell i { position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-style:normal; font-size:10px; font-weight:700; border-radius:999px; padding:0 5px; border:2px solid #fff; }
+  .body { flex:1; display:grid; grid-template-columns:270px 1fr; min-height:0; }
+  .list { border-right:1px solid var(--line); overflow:hidden; }
+  .it { display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  .it.sel2 { background:#F3F7FF; box-shadow:inset 3px 0 0 var(--blue); }
+  .av { width:28px; height:28px; border-radius:50%; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; font-weight:700; font-size:10.5px; flex:none; }
+  .it b { display:block; color:var(--navy); font-size:12.5px; }
+  .it small { color:var(--muted); font-size:11px; }
+  .badge { margin-left:auto; background:var(--red); color:#fff; border-radius:999px; font-size:10.5px; font-weight:700; padding:1px 7px; }
+  .badge.g { background:#DCE4F1; color:#475569; }
+  .conv { display:flex; flex-direction:column; min-width:0; }
+  .ch { display:flex; align-items:center; gap:8px; padding:9px 16px; border-bottom:1px solid var(--line); }
+  .ch b { color:var(--navy); font-size:13.5px; }
+  .ch small { color:var(--muted); font-size:11px; }
+  .ch .btn { margin-left:auto; border:1px solid #D5DEEC; border-radius:8px; padding:5px 9px; font-size:11.5px; font-weight:600; color:var(--navy); }
+  .tl { flex:1; padding:12px 16px; display:flex; flex-direction:column; gap:8px; background:#FAFCFF; overflow:hidden; }
+  .qc { border:1px solid #D5DEEC; background:#fff; border-radius:10px; padding:8px 10px; display:flex; align-items:center; gap:8px; font-size:12px; }
+  .qc b { color:var(--navy); }
+  .qc .st { margin-left:auto; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  .st.work { background:var(--amber-soft); color:var(--amber); } .st.new { background:#FDE8EE; color:var(--red); } .st.done { background:var(--green-soft); color:var(--green); }
+  .dotc { width:8px; height:8px; border-radius:50%; flex:none; }
+  .msg { max-width:68%; padding:8px 11px; border-radius:12px; font-size:12.5px; line-height:1.4; }
+  .msg small { display:block; font-size:10.5px; margin-top:4px; opacity:.7; }
+  .stu { align-self:flex-start; background:#fff; border:1px solid var(--line); color:var(--navy); border-bottom-left-radius:3px; }
+  .ops { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:3px; }
+  .tg { font-size:10px; font-weight:700; border-radius:999px; padding:1px 7px; margin-right:6px; background:#EEF2F8; color:#475569; }
+  .ops .tg { background:rgba(255,255,255,.2); color:#fff; }
+  .comp { border-top:1px solid var(--line); padding:10px 16px; background:#fff; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .re { border:1px solid #BBD0FF; background:var(--blue-soft); color:var(--blue); border-radius:8px; padding:6px 10px; font-size:12px; font-weight:700; display:flex; gap:6px; align-items:center; white-space:nowrap; }
+  .in { flex:1; border:1px solid #D5DEEC; border-radius:8px; padding:8px 12px; color:#9AA6B8; font-size:12.5px; }
+  .ic { width:34px; height:34px; border:1px solid #D5DEEC; border-radius:8px; display:grid; place-items:center; color:var(--muted); }
+  .send { background:var(--blue); color:#fff; border-radius:8px; padding:8px 14px; font-weight:700; display:flex; gap:6px; align-items:center; }
+  .menu { margin-top:6px; width:260px; border:1px solid #D5DEEC; border-radius:10px; box-shadow:0 10px 24px rgba(11,31,77,.15); overflow:hidden; background:#fff; position:absolute; transform:translateY(-142px); }
+  .mi { padding:8px 12px; font-size:12px; color:var(--navy); display:flex; gap:8px; align-items:center; border-bottom:1px solid var(--line); }
+  .mi.on { background:var(--blue-soft); font-weight:700; }
+
+  /* student */
+  .phone { background:#fff; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:640px; display:flex; flex-direction:column; }
+  .sh { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .sh h3 { font-size:14px; color:var(--navy); font-weight:800; } .sh small { color:var(--muted); font-size:11px; display:block; }
+  .sh .newb { margin-left:auto; background:var(--blue); color:#fff; font-size:12px; font-weight:700; border-radius:8px; padding:6px 10px; }
+  .stl { flex:1; padding:12px 14px; display:flex; flex-direction:column; gap:8px; background:#FAFCFF; overflow:hidden; }
+  .sys { align-self:center; font-size:10.5px; color:var(--muted); background:#EEF2F8; border-radius:999px; padding:3px 10px; }
+  .team { align-self:flex-start; background:#F1F5FB; color:var(--navy); border-radius:12px; border-bottom-left-radius:3px; padding:8px 11px; max-width:80%; font-size:12.5px; line-height:1.4; }
+  .team b { display:block; font-size:10.5px; color:var(--blue); margin-bottom:2px; }
+  .team small { display:block; font-size:10.5px; color:var(--muted); margin-top:4px; }
+  .me { align-self:flex-end; background:var(--blue); color:#fff; border-radius:12px; border-bottom-right-radius:3px; padding:8px 11px; max-width:80%; font-size:12.5px; line-height:1.4; }
+  .me small { display:block; font-size:10.5px; opacity:.75; margin-top:4px; }
+  .scomp { border-top:1px solid var(--line); padding:10px 12px; }
+  .chips { display:flex; gap:6px; margin-bottom:8px; }
+  .cp { font-size:11px; font-weight:700; border-radius:999px; padding:4px 9px; border:1px solid #D5DEEC; color:var(--muted); background:#fff; }
+  .cp.on { background:var(--blue-soft); border-color:#BBD0FF; color:var(--blue); }
+</style>
+</head>
+<body>
+<div class="board">
+
+  <div>
+    <div class="label"><span>A</span> Admin / Super Admin: one conversation per student, no tabs</div>
+    <div class="frame">
+      <div class="bar"><h2>Student queries</h2>
+        <div class="sp"><div class="sel">Needs reply <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div><div class="srch">Search student</div>
+          <div class="bell"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><i>9</i></div></div></div>
+      <div class="body">
+        <div class="list">
+          <div class="it sel2"><div class="av">GR</div><div><b>A Gunasekhar Reddy A</b><small>Hyderabad · 3 queries</small></div><span class="badge">2</span></div>
+          <div class="it"><div class="av">PS</div><div><b>P Sravani</b><small>Pune · 1 query</small></div><span class="badge">1</span></div>
+          <div class="it"><div class="av">KM</div><div><b>K Manoj</b><small>Chennai · 2 queries</small></div><span class="badge">2</span></div>
+          <div class="it"><div class="av">SN</div><div><b>S Nikhil</b><small>Pune · 1 query</small></div><span class="badge g">waiting</span></div>
+          <div class="it"><div class="av">AV</div><div><b>A Varshini</b><small>Hyderabad · 1 query</small></div><span class="badge g">done</span></div>
+        </div>
+        <div class="conv">
+          <div class="ch"><b>A Gunasekhar Reddy A</b><small>NIAT Hyderabad · Sem 3 · Sec B</small><span class="btn">Open report</span></div>
+          <div class="tl">
+            <div class="qc"><span class="dotc" style="background:#2563EB"></span><b>#1042 Attendance</b> · Data Structures · Shows absent <span class="st work">In progress</span></div>
+            <div class="msg stu">I attended the 4 Oct class but it shows absent.<small>10:42 AM</small></div>
+            <div class="msg ops"><span class="tg">Attendance</span>We are checking the session log. Which device did you join from?<small>Syam · 11:20 AM</small></div>
+            <div class="msg stu"><span class="tg">Attendance</span>I joined from my laptop, name shown as Gunasekhar.<small>11:34 AM</small></div>
+            <div class="qc"><span class="dotc" style="background:#E11D48"></span><b>#1043 Module Quiz</b> · Back End Dev · Score is wrong <span class="st new">New</span></div>
+            <div class="msg stu">My score shows 6 but the review page shows 9.<small>11:50 AM · 1 screenshot</small></div>
+          </div>
+          <div class="comp">
+            <div class="row"><div class="re"><span class="dotc" style="background:#E11D48"></span>Replying to: #1043 Module Quiz <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div>
+              <div class="in">Write a reply…</div><div class="ic"><svg viewBox="0 0 24 24"><path d="m21 12-9 9a5 5 0 0 1-7-7l9-9a3 3 0 0 1 4 4l-9 9a1 1 0 0 1-2-2l8-8"/></svg></div>
+              <div class="send"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Send</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note">One timeline holds all of the student's queries. Each query is a small header line, and every message under it carries a category tag. The reply box targets the newest unanswered query by default; the "Replying to" dropdown switches it (or picks "All open queries (3)"). Status and "Mark resolved" live in the same dropdown, so there is no tab row, KPI strip or filter bar.</p>
+  </div>
+
+  <div>
+    <div class="label"><span>B</span> Student: one chat</div>
+    <div class="phone">
+      <div class="sh"><div><h3>My queries</h3><small>Chat with the SPI team</small></div><span class="newb">+ New</span></div>
+      <div class="stl">
+        <div class="qc" style="font-size:11.5px"><span class="dotc" style="background:#2563EB"></span><b>Attendance</b> · Data Structures <span class="st work">In progress</span></div>
+        <div class="me">I attended the 4 Oct class but it shows absent.<small>10:42 AM</small></div>
+        <div class="team"><b>SPI team · Attendance</b>We are checking the session log. Which device did you join from?<small>11:20 AM</small></div>
+        <div class="me">I joined from my laptop.<small>11:34 AM</small></div>
+        <div class="qc" style="font-size:11.5px"><span class="dotc" style="background:#E11D48"></span><b>Module Quiz</b> · Back End Dev <span class="st new">Received</span></div>
+        <div class="me">My score shows 6 but the review page shows 9.<small>11:50 AM</small></div>
+        <div class="sys">Received. The SPI team will reply here.</div>
+      </div>
+      <div class="scomp">
+        <div class="chips"><span class="cp">Attendance</span><span class="cp on">Module Quiz</span></div>
+        <div class="row"><div class="in">Reply about Module Quiz…</div><div class="send">Send</div></div>
+      </div>
+    </div>
+    <p class="note">No list screen: "My queries" opens straight into the chat. The two small chips pick which query a reply is about (latest is pre-selected).</p>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query notifications v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; --green:#16A34A; --green-soft:#E8F7EE; --amber-soft:#FFF4DD; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; }
+  .board { display:grid; grid-template-columns:520px 520px 480px; gap:28px; width:max-content; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; display:flex; gap:8px; align-items:center; }
+  .label span { background:var(--navy); color:#fff; border-radius:999px; width:20px; height:20px; display:grid; place-items:center; font-size:11px; }
+  .note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .frame { position:relative; background:#F5F8FD; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:640px; padding:18px; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .bar { display:flex; align-items:center; gap:10px; }
+  .bar h1 { font-size:16px; color:var(--navy); font-weight:800; }
+  .bell { margin-left:auto; position:relative; width:36px; height:36px; border:1px solid var(--line); background:#fff; border-radius:10px; display:grid; place-items:center; color:var(--navy); }
+  .bell i { position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-style:normal; font-size:10px; font-weight:700; border-radius:999px; padding:1px 6px; border:2px solid #fff; }
+  .ghost { height:70px; background:#fff; border:1px solid var(--line); border-radius:12px; margin-top:12px; }
+  .drop { position:absolute; right:18px; top:62px; width:400px; background:#fff; border:1px solid #D5DEEC; border-radius:14px; box-shadow:0 16px 36px rgba(11,31,77,.18); overflow:hidden; }
+  .dh { padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; }
+  .dh b { color:var(--navy); font-size:13px; } .dh span { margin-left:auto; color:var(--blue); font-size:11.5px; font-weight:600; }
+  .nt { padding:11px 14px; border-bottom:1px solid var(--line); display:flex; gap:10px; }
+  .nt.un { background:#F6F9FF; }
+  .nt .ic { width:32px; height:32px; border-radius:50%; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; flex:none; }
+  .nt .ic.r { background:#FDE8EE; color:var(--red); }
+  .nt b { display:block; color:var(--navy); font-size:12.5px; } .nt p { font-size:11.5px; margin-top:2px; } .nt small { font-size:10.5px; color:var(--muted); display:block; margin-top:3px; }
+  .dot { width:8px; height:8px; background:var(--blue); border-radius:50%; margin-left:auto; margin-top:4px; flex:none; }
+  .df { padding:10px 14px; text-align:center; color:var(--blue); font-weight:600; font-size:12px; }
+
+  .fab { position:absolute; right:18px; bottom:18px; display:flex; align-items:center; gap:8px; background:var(--blue); color:#fff; font-weight:600; font-size:13px; padding:0 16px; height:44px; border-radius:999px; box-shadow:0 8px 20px rgba(37,99,235,.35); }
+  .fab .dotb { background:var(--red); color:#fff; border-radius:999px; min-width:20px; height:20px; display:grid; place-items:center; font-size:11px; font-weight:700; border:2px solid #fff; margin-right:-6px; }
+  .toast { position:absolute; right:18px; bottom:76px; width:330px; background:var(--navy); color:#fff; border-radius:12px; padding:12px 14px; display:flex; gap:10px; box-shadow:0 12px 28px rgba(11,31,77,.35); }
+  .toast .ic { width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.14); display:grid; place-items:center; flex:none; }
+  .toast b { font-size:12.5px; display:block; } .toast p { font-size:11.5px; color:#C9D5F2; margin-top:2px; line-height:1.4; } .toast u { color:#9DB6F2; font-weight:600; text-decoration:none; display:block; margin-top:6px; font-size:11.5px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; height:90px; margin-top:12px; }
+  .card b { font-size:11px; color:var(--navy); } .card .big { font-size:18px; font-weight:800; color:var(--navy); margin-top:8px; }
+
+  .mail { background:#fff; border:1px solid #D5DEEC; border-radius:14px; overflow:hidden; }
+  .mh { padding:14px 16px; border-bottom:1px solid var(--line); font-size:12px; line-height:1.7; }
+  .mh b { color:var(--navy); }
+  .mb { padding:16px; line-height:1.6; font-size:12.5px; color:var(--navy); }
+  .mb .q { margin:12px 0; padding:10px 12px; border-left:3px solid var(--blue); background:#F3F7FF; border-radius:0 8px 8px 0; font-size:12px; }
+  .mb .btn { display:inline-block; background:var(--blue); color:#fff; font-weight:700; padding:10px 16px; border-radius:10px; margin-top:6px; }
+  .mf { padding:12px 16px; font-size:11px; color:var(--muted); border-top:1px solid var(--line); }
+  .rules { margin-top:12px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 14px; font-size:12px; line-height:1.7; color:var(--navy); }
+  .rules b { color:var(--blue); }
+</style>
+</head>
+<body>
+<div class="board">
+
+  <div>
+    <div class="label"><span>A</span> Admin / Super Admin: bell in the dashboard</div>
+    <div class="frame">
+      <div class="bar"><h1>Student queries</h1><div class="bell"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><i>4</i></div></div>
+      <div class="ghost"></div><div class="ghost" style="height:130px"></div><div class="ghost"></div>
+      <div class="drop">
+        <div class="dh"><b>Notifications</b><span>Mark all read</span></div>
+        <div class="nt un"><div class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><div><b>A Gunasekhar Reddy A replied</b><p>#1042 Attendance: "I joined from my laptop…"</p><small>2 min ago</small></div><span class="dot"></span></div>
+        <div class="nt un"><div class="ic r"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div><div><b>New query · P Sravani</b><p>#1044 Module Quiz: Score is wrong · NIAT Pune</p><small>18 min ago</small></div><span class="dot"></span></div>
+        <div class="nt un"><div class="ic r"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div><div><b>New query · K Manoj</b><p>#1045 Skill Assessment: Score not showing</p><small>1 h ago</small></div><span class="dot"></span></div>
+        <div class="nt un"><div class="ic r"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><div><b>Reply overdue</b><p>#1036 Classroom Quiz waiting over 24 h</p><small>3 h ago</small></div><span class="dot"></span></div>
+        <div class="nt"><div class="ic"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div><div><b>Resolved · A Varshini</b><p>#1031 Module Quiz</p><small>Yesterday</small></div></div>
+        <div class="df">Open Queries page</div>
+      </div>
+    </div>
+    <p class="note">Bell badge, plus a count on the "Queries" menu. A notification opens that student's thread directly.</p>
+  </div>
+
+  <div>
+    <div class="label"><span>B</span> Student: reply shows up in the report</div>
+    <div class="frame">
+      <div class="bar"><h1>NIAT - SPI Progress Report</h1></div>
+      <div class="card"><b>Attendance</b><div class="big">45.6%</div></div>
+      <div class="ghost" style="height:160px"></div><div class="ghost" style="height:120px"></div>
+      <div class="toast"><div class="ic"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><div><b>SPI team replied to your query</b><p>"Thanks. We are checking the session log for 4 Oct. Please tell us which device you joined from."</p><u>View reply</u></div></div>
+      <div class="fab"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>My queries<span class="dotb">2</span></div>
+    </div>
+    <p class="note">When the student opens the report: a short toast, and a red count on "My queries". The reply sits in that query's chat box.</p>
+  </div>
+
+  <div>
+    <div class="label"><span>C</span> Reaching a student who is not in the report</div>
+    <div class="mail">
+      <div class="mh"><b>From:</b> NIAT SPI Team<br><b>To:</b> student email<br><b>Subject:</b> The SPI team replied to your query</div>
+      <div class="mb">Hi Gunasekhar,<br>The SPI team replied to your Attendance query (Data Structures):
+        <div class="q">"Thanks. We are checking the session log for 4 Oct. Please tell us which device you joined from."</div>
+        <span class="btn">Open my report and reply</span></div>
+      <div class="mf">Sent only when the SPI team replies or resolves. No marks or scores in the email.</div>
+    </div>
+    <div class="rules"><b>Who gets what</b><br>
+      Student: in-report badge and toast · email (optional, needs an email or LP channel)<br>
+      Admin / Super Admin: bell and menu count · optional daily email digest of unanswered queries<br>
+      Events: new query, student reply, team reply, resolved, reply overdue</div>
+  </div>
+
+</div>
+</body>
+</html>

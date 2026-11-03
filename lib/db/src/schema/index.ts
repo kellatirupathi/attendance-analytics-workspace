@@ -5,3 +5,4 @@ export * from "./reportConfig.js";
 export * from "./quizTracking.js";
 export * from "./reportCache.js";
 export * from "./studentQueries.js";
+export * from "./queryChat.js";

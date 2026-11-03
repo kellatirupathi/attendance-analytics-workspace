@@ -35,7 +35,7 @@ let tableReady: Promise<void> | null = null;
  * Creates the table, or the sub_category column (added 2026-10-29), only when missing: the
  * published app's database user may not own the table, and Postgres refuses ALTER to a non-owner.
  */
-function ensureTable(): Promise<void> {
+export function ensureTable(): Promise<void> {
   tableReady ??= (async () => {
     const { rows } = await pool.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'spi_student_queries'",

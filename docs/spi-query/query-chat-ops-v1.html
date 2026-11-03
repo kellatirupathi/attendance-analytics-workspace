@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query inbox - SPI ops side v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; --green:#16A34A; --green-soft:#E8F7EE; --amber-soft:#FFF4DD; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; width:1480px; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .app { background:#fff; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:840px; display:grid; grid-template-columns:200px 1fr; }
+  .side { background:var(--navy); color:#C9D5F2; padding:18px 12px; }
+  .side h4 { color:#fff; font-size:13px; padding:0 8px 14px; }
+  .nav { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; font-weight:600; font-size:12.5px; }
+  .nav.on { background:rgba(255,255,255,.14); color:#fff; }
+  .nav .n { margin-left:auto; background:var(--red); color:#fff; border-radius:999px; font-size:10.5px; padding:1px 7px; }
+  .main { display:flex; flex-direction:column; min-width:0; }
+  .top { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; }
+  .top h2 { font-size:17px; color:var(--navy); font-weight:800; }
+  .kpis { display:flex; gap:10px; margin-left:auto; }
+  .kpi { border:1px solid var(--line); border-radius:10px; padding:6px 12px; min-width:92px; }
+  .kpi b { display:block; font-size:17px; color:var(--navy); } .kpi span { font-size:10.5px; color:var(--muted); }
+  .kpi.red b { color:var(--red); }
+  .filters { display:flex; gap:8px; padding:12px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .f { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; color:var(--navy); display:flex; gap:6px; align-items:center; }
+  .f.on { background:var(--blue-soft); border-color:#BBD0FF; color:var(--blue); }
+  .body { flex:1; display:grid; grid-template-columns:470px 1fr; min-height:0; }
+  .inbox { border-right:1px solid var(--line); overflow:hidden; }
+  .item { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; }
+  .item.sel { background:#F3F7FF; box-shadow:inset 3px 0 0 var(--blue); }
+  .av { width:34px; height:34px; border-radius:50%; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; font-weight:700; font-size:12px; flex:none; }
+  .item .t { color:var(--navy); font-weight:700; font-size:12.5px; display:flex; gap:6px; align-items:center; }
+  .item .m { font-size:11px; color:var(--muted); margin-top:2px; }
+  .item .p { font-size:12px; margin-top:4px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:330px; }
+  .item .r { margin-left:auto; text-align:right; font-size:10.5px; color:var(--muted); display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .tag { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:999px; }
+  .tag.new { background:#FDE8EE; color:var(--red); } .tag.wait { background:var(--blue-soft); color:var(--blue); }
+  .tag.work { background:var(--amber-soft); color:var(--amber); } .tag.done { background:var(--green-soft); color:var(--green); }
+  .tag.cat { background:#EEF2F8; color:#475569; }
+  .sla { color:var(--red); font-weight:700; }
+  .thread { display:flex; flex-direction:column; min-width:0; }
+  .th-head { padding:14px 20px; border-bottom:1px solid var(--line); }
+  .th-head h3 { font-size:15px; color:var(--navy); font-weight:800; display:flex; gap:10px; align-items:center; }
+  .th-meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; font-size:11px; }
+  .chip { background:#EEF2F8; color:#475569; padding:3px 8px; border-radius:999px; font-weight:600; }
+  .actions { display:flex; gap:8px; margin-top:12px; }
+  .btn { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; color:var(--navy); display:flex; gap:6px; align-items:center; }
+  .btn.pri { background:var(--green); border-color:var(--green); color:#fff; }
+  .convo { flex:1; padding:14px 20px; display:flex; flex-direction:column; gap:12px; overflow:hidden; background:#FAFCFF; }
+  .msg { max-width:70%; padding:10px 12px; border-radius:14px; font-size:12.5px; line-height:1.45; }
+  .msg small { display:block; font-size:10.5px; margin-top:6px; opacity:.7; }
+  .stu { align-self:flex-start; background:#fff; border:1px solid var(--line); color:var(--navy); border-bottom-left-radius:4px; }
+  .ops { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+  .note { align-self:center; width:78%; background:#FFF8E1; border:1px dashed #F0C96B; color:#7A5B00; font-size:12px; border-radius:10px; padding:8px 12px; }
+  .sys { align-self:center; font-size:11px; color:var(--muted); background:#EEF2F8; border-radius:999px; padding:4px 10px; }
+  .ev { border:1px solid var(--line); background:#fff; border-radius:10px; padding:8px 12px; font-size:11.5px; color:var(--muted); }
+  .ev b { color:var(--navy); }
+  .composer { border-top:1px solid var(--line); padding:12px 20px; background:#fff; }
+  .tabs { display:flex; gap:14px; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:8px; }
+  .tabs .on { color:var(--blue); border-bottom:2px solid var(--blue); padding-bottom:4px; }
+  .box { border:1px solid #D5DEEC; border-radius:10px; padding:10px 12px; color:#9AA6B8; min-height:54px; }
+  .canned { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .canned .chip { background:var(--blue-soft); color:var(--blue); }
+  .row2 { display:flex; align-items:center; margin-top:10px; gap:8px; }
+  .row2 .grow { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .send { background:var(--blue); color:#fff; border-radius:8px; padding:8px 14px; font-weight:700; font-size:12.5px; display:flex; gap:6px; align-items:center; }
+  .foot { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="label">SPI ops dashboard · Queries inbox (new page)</div>
+<div class="app">
+  <div class="side">
+    <h4>NIAT SPI Ops</h4>
+    <div class="nav">Overview</div>
+    <div class="nav">Campuses</div>
+    <div class="nav">Assessments</div>
+    <div class="nav">SPI Record</div>
+    <div class="nav on">Queries <span class="n">7</span></div>
+    <div class="nav">Reports</div>
+  </div>
+  <div class="main">
+    <div class="top"><h2>Student queries</h2>
+      <div class="kpis">
+        <div class="kpi red"><b>7</b><span>Need a reply</span></div>
+        <div class="kpi"><b>12</b><span>In progress</span></div>
+        <div class="kpi"><b>2h 10m</b><span>Median first reply</span></div>
+        <div class="kpi"><b>86</b><span>Resolved this week</span></div>
+      </div>
+    </div>
+    <div class="filters">
+      <div class="f on">Status: Needs reply</div>
+      <div class="f">Category: All</div>
+      <div class="f">College: All</div>
+      <div class="f">Section: All</div>
+      <div class="f">Assigned: Anyone</div>
+      <div class="f">Search student ID or name</div>
+    </div>
+    <div class="body">
+      <div class="inbox">
+        <div class="item sel"><div class="av">GR</div>
+          <div><div class="t">A Gunasekhar Reddy A <span class="tag cat">Attendance</span></div><div class="m">Data Structures · Shows absent · NIAT Hyderabad · Sec B</div><div class="p">I joined from my laptop, name shown as Gunasekhar.</div></div>
+          <div class="r"><span class="tag new">Student replied</span><span>11:34 AM</span></div></div>
+        <div class="item"><div class="av">PS</div>
+          <div><div class="t">P Sravani <span class="tag cat">Module Quiz</span></div><div class="m">Back End Dev · Score is wrong · NIAT Pune · Sec A</div><div class="p">My score is 6 but I got 9 in the quiz review page…</div></div>
+          <div class="r"><span class="tag new">New</span><span class="sla">SLA in 1h</span></div></div>
+        <div class="item"><div class="av">KM</div>
+          <div><div class="t">K Manoj <span class="tag cat">Skill Assessment</span></div><div class="m">Data Structures · Score not showing · NIAT Chennai</div><div class="p">I took the assessment on 28 Oct but nothing shows.</div></div>
+          <div class="r"><span class="tag new">New</span><span>9:05 AM</span></div></div>
+        <div class="item"><div class="av">RT</div>
+          <div><div class="t">R Teja <span class="tag cat">Classroom Quiz</span></div><div class="m">Adv. Communication · Shows not attempted</div><div class="p">I attempted all questions on Monday.</div></div>
+          <div class="r"><span class="tag work">In progress</span><span>Yesterday</span></div></div>
+        <div class="item"><div class="av">SN</div>
+          <div><div class="t">S Nikhil <span class="tag cat">Attendance</span></div><div class="m">Back End Dev · Percentage wrong</div><div class="p">Thanks, checking from my side too.</div></div>
+          <div class="r"><span class="tag wait">Waiting on student</span><span>Yesterday</span></div></div>
+        <div class="item"><div class="av">AV</div>
+          <div><div class="t">A Varshini <span class="tag cat">Module Quiz</span></div><div class="m">Data Structures · Cannot open</div><div class="p">Resolved: link re-enabled.</div></div>
+          <div class="r"><span class="tag done">Resolved</span><span>1 Nov</span></div></div>
+      </div>
+      <div class="thread">
+        <div class="th-head">
+          <h3>Attendance · Shows absent <span class="tag work">In progress</span></h3>
+          <div class="th-meta"><span class="chip">Query #1042</span><span class="chip">A Gunasekhar Reddy A</span><span class="chip">NIAT Hyderabad · Sem 3 · Sec B</span><span class="chip">Data Structures</span><span class="chip">Attendance now 45.6%</span><span class="chip">Assigned: Syam</span></div>
+          <div class="actions"><div class="btn">Open student report</div><div class="btn">Reassign</div><div class="btn">Change category</div><div class="btn pri">Mark resolved</div></div>
+        </div>
+        <div class="convo">
+          <div class="msg stu">I attended the 4 Oct Data Structures class but it shows absent.<small>Student · 10:42 AM</small></div>
+          <div class="msg ops">Thanks. We are checking the session log for 4 Oct. Please tell us which device you joined from.<small>Syam · 11:20 AM</small></div>
+          <div class="note">Internal note (student cannot see): join log shows "Gunasekhar G", not matching roster. Fix mapping, then re-run attendance sync.</div>
+          <div class="msg stu">I joined from my laptop, name shown as Gunasekhar.<small>Student · 11:34 AM</small></div>
+          <div class="sys">Status changed to In progress by Syam</div>
+        </div>
+        <div class="composer">
+          <div class="tabs"><span class="on">Reply to student</span><span>Internal note</span></div>
+          <div class="box">Write a reply the student will see in their report…</div>
+          <div class="canned"><span class="chip">Received, checking</span><span class="chip">Need more details</span><span class="chip">Fixed, will reflect in 24h</span><span class="chip">Not an error, here is why</span></div>
+          <div class="row2"><span class="foot" style="margin:0">Next status after sending:</span><div class="f on">Waiting on student</div>
+            <div class="grow"><div class="send"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Send reply</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

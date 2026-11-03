@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query inbox - multiple queries v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; --green:#16A34A; --green-soft:#E8F7EE; --amber-soft:#FFF4DD; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; width:1500px; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .app { background:#fff; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:860px; display:grid; grid-template-columns:200px 1fr; }
+  .side { background:var(--navy); color:#C9D5F2; padding:18px 12px; }
+  .side h4 { color:#fff; font-size:13px; padding:0 8px 14px; }
+  .nav { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; font-weight:600; font-size:12.5px; }
+  .nav.on { background:rgba(255,255,255,.14); color:#fff; }
+  .nav .n { margin-left:auto; background:var(--red); color:#fff; border-radius:999px; font-size:10.5px; padding:1px 7px; }
+  .lock { margin:14px 8px 0; font-size:10.5px; color:#9FB2E0; display:flex; gap:6px; align-items:flex-start; line-height:1.4; }
+  .main { display:flex; flex-direction:column; min-width:0; }
+  .top { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; }
+  .top h2 { font-size:17px; color:var(--navy); font-weight:800; }
+  .role { font-size:11px; font-weight:700; background:var(--blue-soft); color:var(--blue); border-radius:999px; padding:3px 9px; }
+  .bell { margin-left:auto; position:relative; width:36px; height:36px; border:1px solid var(--line); border-radius:10px; display:grid; place-items:center; color:var(--navy); }
+  .bell i { position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-style:normal; font-size:10px; font-weight:700; border-radius:999px; padding:1px 6px; border:2px solid #fff; }
+  .filters { display:flex; gap:8px; padding:10px 20px; border-bottom:1px solid var(--line); }
+  .f { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; color:var(--navy); }
+  .f.on { background:var(--blue-soft); border-color:#BBD0FF; color:var(--blue); }
+  .body { flex:1; display:grid; grid-template-columns:400px 1fr; min-height:0; }
+  .inbox { border-right:1px solid var(--line); overflow:hidden; }
+  .grp { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:10px; }
+  .grp.sel { background:#F3F7FF; box-shadow:inset 3px 0 0 var(--blue); }
+  .av { width:34px; height:34px; border-radius:50%; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; font-weight:700; font-size:12px; flex:none; }
+  .grp .t { color:var(--navy); font-weight:700; font-size:12.5px; }
+  .grp .m { font-size:11px; color:var(--muted); margin-top:2px; }
+  .mini { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
+  .pill { font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:999px; }
+  .pill.new { background:#FDE8EE; color:var(--red); } .pill.work { background:var(--amber-soft); color:var(--amber); }
+  .pill.wait { background:var(--blue-soft); color:var(--blue); } .pill.done { background:var(--green-soft); color:var(--green); }
+  .grp .r { margin-left:auto; text-align:right; font-size:10.5px; color:var(--muted); display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .count { background:var(--navy); color:#fff; border-radius:999px; font-size:10.5px; font-weight:700; padding:2px 8px; }
+  .thread { display:flex; flex-direction:column; min-width:0; }
+  .th-head { padding:14px 20px 0; border-bottom:1px solid var(--line); }
+  .who { display:flex; align-items:center; gap:10px; }
+  .who h3 { font-size:15px; color:var(--navy); font-weight:800; }
+  .chip { background:#EEF2F8; color:#475569; padding:3px 8px; border-radius:999px; font-weight:600; font-size:11px; }
+  .meta { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .tabs { display:flex; gap:6px; margin-top:12px; }
+  .qt { padding:9px 12px; border:1px solid var(--line); border-bottom:0; border-radius:10px 10px 0 0; font-size:12px; font-weight:700; color:var(--muted); background:#F6F8FC; display:flex; gap:6px; align-items:center; }
+  .qt.on { background:#fff; color:var(--navy); border-color:#D5DEEC; box-shadow:0 2px 0 #fff; position:relative; top:1px; }
+  .qt .d { width:8px; height:8px; border-radius:50%; }
+  .qt .u { background:var(--red); color:#fff; border-radius:999px; font-size:10px; padding:0 6px; }
+  .qhead { padding:10px 20px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--line); }
+  .qhead b { color:var(--navy); font-size:13px; }
+  .btn { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-size:12px; font-weight:600; color:var(--navy); }
+  .btn.pri { background:var(--green); border-color:var(--green); color:#fff; }
+  .convo { flex:1; padding:14px 20px; display:flex; flex-direction:column; gap:12px; background:#FAFCFF; overflow:hidden; }
+  .msg { max-width:70%; padding:10px 12px; border-radius:14px; font-size:12.5px; line-height:1.45; }
+  .msg small { display:block; font-size:10.5px; margin-top:6px; opacity:.7; }
+  .stu { align-self:flex-start; background:#fff; border:1px solid var(--line); color:var(--navy); border-bottom-left-radius:4px; }
+  .ops { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+  .sys { align-self:center; font-size:11px; color:var(--muted); background:#EEF2F8; border-radius:999px; padding:4px 10px; }
+  .composer { border-top:1px solid var(--line); padding:12px 20px; background:#fff; }
+  .ctabs { display:flex; gap:14px; font-size:12px; font-weight:700; color:var(--muted); margin-bottom:8px; }
+  .ctabs .on { color:var(--blue); border-bottom:2px solid var(--blue); padding-bottom:4px; }
+  .box { border:1px solid #D5DEEC; border-radius:10px; padding:10px 12px; color:#9AA6B8; min-height:50px; }
+  .also { margin-top:10px; border:1px solid #BBD0FF; background:#F3F7FF; border-radius:10px; padding:10px 12px; }
+  .also b { font-size:12px; color:var(--blue); display:block; margin-bottom:6px; }
+  .ck { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--navy); padding:3px 0; }
+  .cb { width:15px; height:15px; border-radius:4px; border:1.5px solid #9DB6F2; background:#fff; display:grid; place-items:center; color:#fff; }
+  .cb.on { background:var(--blue); border-color:var(--blue); } .cb svg { width:10px; height:10px; stroke-width:3.5; }
+  .cb.lock { background:#DCE4F1; border-color:#C2CDE0; }
+  .row2 { display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .row2 .grow { margin-left:auto; }
+  .send { background:var(--blue); color:#fff; border-radius:8px; padding:8px 14px; font-weight:700; font-size:12.5px; display:flex; gap:6px; align-items:center; }
+  .canned { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .canned .chip { background:var(--blue-soft); color:var(--blue); }
+</style>
+</head>
+<body>
+<div class="label">Admin / Super Admin only · Queries page · one student, several queries</div>
+<div class="app">
+  <div class="side">
+    <h4>NIAT SPI Ops</h4>
+    <div class="nav">Overview</div><div class="nav">Campuses</div><div class="nav">Assessments</div><div class="nav">SPI Record</div>
+    <div class="nav on">Queries <span class="n">9</span></div><div class="nav">Reports</div>
+    <div class="lock"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Visible to Admin and Super Admin only. Other roles do not see this menu or the data.</div>
+  </div>
+  <div class="main">
+    <div class="top"><h2>Student queries</h2><span class="role">Signed in: Super Admin</span>
+      <div class="bell"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><i>9</i></div></div>
+    <div class="filters"><div class="f on">Needs reply</div><div class="f">All students</div><div class="f">Category: All</div><div class="f">College: All</div><div class="f">Assigned: Anyone</div><div class="f">Search student ID or name</div></div>
+    <div class="body">
+      <div class="inbox">
+        <div class="grp sel"><div class="av">GR</div>
+          <div><div class="t">A Gunasekhar Reddy A</div><div class="m">NIAT Hyderabad · Sec B</div>
+            <div class="mini"><span class="pill new">Attendance · replied</span><span class="pill new">Module Quiz · new</span><span class="pill work">Skill Assess. · in progress</span></div></div>
+          <div class="r"><span class="count">3 queries</span><span>11:34 AM</span></div></div>
+        <div class="grp"><div class="av">PS</div>
+          <div><div class="t">P Sravani</div><div class="m">NIAT Pune · Sec A</div>
+            <div class="mini"><span class="pill new">Module Quiz · new</span></div></div>
+          <div class="r"><span class="count">1 query</span><span>SLA 1h</span></div></div>
+        <div class="grp"><div class="av">KM</div>
+          <div><div class="t">K Manoj</div><div class="m">NIAT Chennai · Sec C</div>
+            <div class="mini"><span class="pill new">Skill Assess. · new</span><span class="pill new">Classroom Quiz · new</span></div></div>
+          <div class="r"><span class="count">2 queries</span><span>9:05 AM</span></div></div>
+        <div class="grp"><div class="av">SN</div>
+          <div><div class="t">S Nikhil</div><div class="m">NIAT Pune · Sec B</div>
+            <div class="mini"><span class="pill wait">Attendance · waiting on student</span></div></div>
+          <div class="r"><span class="count">1 query</span><span>Yesterday</span></div></div>
+        <div class="grp"><div class="av">AV</div>
+          <div><div class="t">A Varshini</div><div class="m">NIAT Hyderabad · Sec A</div>
+            <div class="mini"><span class="pill done">Module Quiz · resolved</span></div></div>
+          <div class="r"><span class="count">1 query</span><span>1 Nov</span></div></div>
+      </div>
+      <div class="thread">
+        <div class="th-head">
+          <div class="who"><h3>A Gunasekhar Reddy A</h3><span class="chip">3 queries from this student</span></div>
+          <div class="meta"><span class="chip">NIAT Hyderabad · Sem 3 · Sec B</span><span class="chip">Open student report</span></div>
+          <div class="tabs">
+            <div class="qt on"><span class="d" style="background:var(--red)"></span>#1042 Attendance <span class="u">1</span></div>
+            <div class="qt"><span class="d" style="background:var(--red)"></span>#1043 Module Quiz</div>
+            <div class="qt"><span class="d" style="background:var(--amber)"></span>#1038 Skill Assessment</div>
+          </div>
+        </div>
+        <div class="qhead"><b>#1042 · Attendance · Data Structures · Shows absent</b><span class="pill work">In progress</span>
+          <span style="margin-left:auto" class="btn">Reassign</span><span class="btn pri">Mark resolved</span></div>
+        <div class="convo">
+          <div class="msg stu">I attended the 4 Oct Data Structures class but it shows absent.<small>Student · 10:42 AM</small></div>
+          <div class="msg ops">Thanks. We are checking the session log for 4 Oct. Please tell us which device you joined from.<small>Syam · 11:20 AM</small></div>
+          <div class="msg stu">I joined from my laptop, name shown as Gunasekhar.<small>Student · 11:34 AM</small></div>
+          <div class="sys">Student replied · query moved back to "Needs reply"</div>
+        </div>
+        <div class="composer">
+          <div class="ctabs"><span class="on">Reply to student</span><span>Internal note</span></div>
+          <div class="box">Write a reply for #1042. It appears in the student's chat for this query…</div>
+          <div class="also"><b>Send this same message to other open queries of this student?</b>
+            <div class="ck"><span class="cb lock on"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>#1042 Attendance (this thread)</div>
+            <div class="ck"><span class="cb"></span>#1043 Module Quiz</div>
+            <div class="ck"><span class="cb"></span>#1038 Skill Assessment</div>
+          </div>
+          <div class="canned"><span class="chip">Received, checking</span><span class="chip">Need more details</span><span class="chip">Fixed, will reflect in 24h</span><span class="chip">Not an error, here is why</span></div>
+          <div class="row2"><span style="font-size:12px;color:var(--muted)">Status after sending:</span><span class="f on">Waiting on student</span>
+            <span class="grow send"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>Send reply</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

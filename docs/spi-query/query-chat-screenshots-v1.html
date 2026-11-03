@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query screenshots v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; --green:#16A34A; --green-soft:#E8F7EE; --amber-soft:#FFF4DD; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; }
+  .board { display:grid; grid-template-columns:480px 760px; gap:28px; width:max-content; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; display:flex; gap:8px; align-items:center; }
+  .label span { background:var(--navy); color:#fff; border-radius:999px; width:20px; height:20px; display:grid; place-items:center; font-size:11px; }
+  .note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .frame { background:#fff; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:760px; display:flex; flex-direction:column; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .sh-head { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .sh-head h2 { font-size:15px; color:var(--navy); font-weight:800; }
+  .sub { font-size:11px; color:var(--muted); }
+  .x { margin-left:auto; color:var(--muted); }
+  .form { padding:14px 16px; display:flex; flex-direction:column; gap:12px; flex:1; }
+  .fl b { display:block; font-size:11.5px; color:var(--navy); margin-bottom:5px; }
+  .sel { border:1px solid #D5DEEC; border-radius:10px; height:40px; padding:0 12px; display:flex; align-items:center; color:var(--navy); font-weight:600; justify-content:space-between; }
+  .ta { border:1px solid #D5DEEC; border-radius:10px; padding:10px 12px; height:84px; color:var(--navy); line-height:1.45; }
+  .drop { border:1.5px dashed #9DB6F2; background:#F6F9FF; border-radius:12px; padding:14px; display:flex; align-items:center; gap:12px; color:var(--blue); font-weight:600; }
+  .drop .ic { width:38px; height:38px; border-radius:10px; background:var(--blue-soft); display:grid; place-items:center; }
+  .drop small { display:block; color:var(--muted); font-weight:500; margin-top:2px; font-size:11px; }
+  .thumbs { display:flex; gap:10px; margin-top:10px; }
+  .th { width:104px; }
+  .img { position:relative; width:104px; height:78px; border-radius:10px; border:1px solid var(--line); background:#fff; overflow:hidden; padding:6px; }
+  .img .l1 { height:7px; background:#DCE4F1; border-radius:4px; margin-bottom:5px; }
+  .img .l2 { height:7px; background:#FADADD; border-radius:4px; margin-bottom:5px; width:70%; }
+  .img .l3 { height:22px; background:#EEF2F8; border-radius:4px; }
+  .img .rm { position:absolute; top:4px; right:4px; width:18px; height:18px; border-radius:50%; background:rgba(11,31,77,.85); color:#fff; display:grid; place-items:center; }
+  .img .rm svg { width:10px; height:10px; stroke-width:3; }
+  .th .nm { font-size:10.5px; color:var(--muted); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .th.up .img { opacity:.55; } .prog { height:4px; background:#DCE4F1; border-radius:4px; margin-top:6px; } .prog i { display:block; height:100%; width:60%; background:var(--blue); border-radius:4px; }
+  .hint { font-size:11px; color:var(--muted); line-height:1.5; }
+  .submit { margin:0 16px 16px; height:44px; border-radius:10px; background:var(--blue); color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
+
+  /* ops */
+  .app { display:flex; flex-direction:column; flex:1; min-width:0; }
+  .th-head { padding:14px 20px; border-bottom:1px solid var(--line); }
+  .th-head h3 { font-size:15px; color:var(--navy); font-weight:800; display:flex; gap:10px; align-items:center; }
+  .chip { background:#EEF2F8; color:#475569; padding:3px 8px; border-radius:999px; font-weight:600; font-size:11px; }
+  .meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .tag { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:999px; background:var(--amber-soft); color:var(--amber); }
+  .convo { padding:14px 20px; display:flex; flex-direction:column; gap:12px; flex:1; background:#FAFCFF; overflow:hidden; }
+  .msg { max-width:78%; padding:10px 12px; border-radius:14px; font-size:12.5px; line-height:1.45; }
+  .msg small { display:block; font-size:10.5px; margin-top:6px; opacity:.7; }
+  .stu { align-self:flex-start; background:#fff; border:1px solid var(--line); color:var(--navy); border-bottom-left-radius:4px; }
+  .ops { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+  .atts { display:flex; gap:8px; margin-top:8px; }
+  .att { width:150px; }
+  .att .shot { height:96px; border-radius:8px; border:1px solid var(--line); background:#fff; padding:8px; position:relative; }
+  .att .shot .bar { height:8px; border-radius:4px; background:#DCE4F1; margin-bottom:6px; }
+  .att .shot .bad { height:14px; border-radius:4px; background:#FADADD; border:1.5px solid var(--red); margin-bottom:6px; width:75%; }
+  .att .shot .blk { height:26px; border-radius:4px; background:#EEF2F8; }
+  .att .zoom { position:absolute; right:6px; bottom:6px; width:22px; height:22px; border-radius:6px; background:rgba(11,31,77,.85); color:#fff; display:grid; place-items:center; }
+  .att .zoom svg { width:12px; height:12px; }
+  .att .cap { font-size:10.5px; color:var(--muted); margin-top:4px; }
+  .snap { border:1px solid #BBD0FF; background:#F3F7FF; border-radius:12px; padding:10px 12px; }
+  .snap h5 { font-size:11.5px; color:var(--blue); display:flex; gap:6px; align-items:center; margin-bottom:6px; }
+  .snap table { width:100%; border-collapse:collapse; font-size:12px; }
+  .snap td { padding:4px 0; border-top:1px solid #DCE6FA; color:var(--navy); }
+  .snap td:last-child { text-align:right; font-weight:700; }
+  .snap .diff { color:var(--amber); }
+  .snap .f { font-size:10.5px; color:var(--muted); margin-top:6px; }
+  .lb { position:absolute; }
+</style>
+</head>
+<body>
+<div class="board">
+
+  <div>
+    <div class="label"><span>A</span> Student: raise a query, with screenshots</div>
+    <div class="frame">
+      <div class="sh-head"><div><h2>Raise a query</h2><p class="sub">Tell the SPI team what looks wrong</p></div><svg class="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
+      <div class="form">
+        <div class="fl"><b>Category</b><div class="sel">Attendance <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div></div>
+        <div class="fl"><b>What is the problem?</b><div class="sel">Shows absent but I attended <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div></div>
+        <div class="fl"><b>Subject</b><div class="sel">Data Structures <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></div></div>
+        <div class="fl"><b>Details</b><div class="ta">I attended the 4 Oct Data Structures class but it shows absent in my report.</div></div>
+        <div class="fl"><b>Screenshots <span style="font-weight:500;color:var(--muted)">(optional, up to 3)</span></b>
+          <div class="drop"><div class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></div>
+            <div>Add screenshots<small>Tap to choose, drag here, or paste with Ctrl+V · PNG, JPG, WebP</small></div></div>
+          <div class="thumbs">
+            <div class="th"><div class="img"><div class="l1"></div><div class="l2"></div><div class="l3"></div><div class="rm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></div></div><div class="nm">attendance-4oct.png</div></div>
+            <div class="th"><div class="img"><div class="l1"></div><div class="l2"></div><div class="l3"></div><div class="rm"><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></div></div><div class="nm">class-joined.jpg</div></div>
+            <div class="th up"><div class="img"><div class="l1"></div><div class="l3"></div></div><div class="prog"><i></i></div></div>
+          </div>
+        </div>
+        <p class="hint">Do not include passwords or other people's details. Screenshots are only seen by the SPI team.</p>
+      </div>
+      <div class="submit">Submit query</div>
+    </div>
+    <p class="note">Optional, so a missing screenshot never blocks a query. Images are shrunk in the browser before upload so mobile photos stay small.</p>
+  </div>
+
+  <div>
+    <div class="label"><span>B</span> Ops: the thread shows the screenshots and what the student saw</div>
+    <div class="frame">
+      <div class="app">
+        <div class="th-head">
+          <h3>Attendance · Shows absent <span class="tag">In progress</span></h3>
+          <div class="meta"><span class="chip">Query #1042</span><span class="chip">A Gunasekhar Reddy A</span><span class="chip">NIAT Hyderabad · Sem 3 · Sec B</span><span class="chip">Data Structures</span></div>
+        </div>
+        <div class="convo">
+          <div class="msg stu">I attended the 4 Oct Data Structures class but it shows absent in my report.
+            <div class="atts">
+              <div class="att"><div class="shot"><div class="bar"></div><div class="bad"></div><div class="blk"></div><div class="zoom"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></div></div><div class="cap">attendance-4oct.png · 182 KB</div></div>
+              <div class="att"><div class="shot"><div class="bar"></div><div class="blk" style="height:44px"></div><div class="zoom"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></div></div><div class="cap">class-joined.jpg · 240 KB</div></div>
+            </div>
+            <small>Student · 10:42 AM</small></div>
+          <div class="snap">
+            <h5><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>What the report showed when the query was raised</h5>
+            <table>
+              <tr><td>Data Structures attendance</td><td>45.6% (11 of 24 sessions)</td></tr>
+              <tr><td>4 Oct session</td><td>Absent</td></tr>
+              <tr><td>Today</td><td class="diff">Absent (no change)</td></tr>
+            </table>
+            <div class="f">Saved automatically with the query, so ops can compare it with the student's screenshot.</div>
+          </div>
+          <div class="msg ops">Thanks. We are checking the session log for 4 Oct. Please tell us which device you joined from.<small>Syam · 11:20 AM</small></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Click a thumbnail to open it full size. The snapshot is captured on the server, not from the student's screenshot, so it can be trusted.</p>
+  </div>
+
+</div>
+</body>
+</html>

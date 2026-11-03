@@ -44,6 +44,7 @@ const SubjectSessions = lazy(() => import("@/pages/SubjectSessions"));
 // const InstructorRecovery = lazy(() => import("@/pages/InstructorRecovery"));
 // const IncentiveTracker = lazy(() => import("@/pages/IncentiveTracker"));
 const Reports = lazy(() => import("@/pages/Reports"));
+const Queries = lazy(() => import("@/pages/Queries"));
 
 const queryClient = new QueryClient();
 
@@ -190,6 +191,11 @@ function Router() {
         </Route>
         <Route path="/campus-analytics">
           <CampusAnalyticsRedirect />
+        </Route>
+        <Route path="/dashboard/queries">
+          <Protected adminOnly>
+            <Queries />
+          </Protected>
         </Route>
         <Route path="/dashboard/reports/skill-debt">
           <Protected>

@@ -21,12 +21,14 @@ import {
   ClipboardCheck,
   BookOpenCheck,
   FileBarChart2,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
+import { useQueryInboxSummary } from "@/hooks/useQueryInboxSummary";
 import { FEATURES } from "@/lib/featureFlags";
 
 const REQUEST_ROLES = ["superadmin", "admin", "boa", "hod"];
@@ -225,6 +227,8 @@ function SidebarInner({
   const canManage = user?.role === "superadmin" || user?.role === "admin";
   const canRequests = REQUEST_ROLES.includes(user?.role ?? "");
   const unread = useUnreadNotificationCount(canRequests);
+  // Admin and Super Admin only: the count of student queries waiting for a reply.
+  const { data: queryInbox } = useQueryInboxSummary(canManage);
   const visibleMainNav = mainNav.filter(
     (item) =>
       (item.href !== "/dashboard/campuses" ||
@@ -300,6 +304,13 @@ function SidebarInner({
         {canManage && (
           <>
             <SectionLabel collapsed={collapsed}>Administration</SectionLabel>
+            <NavItemLink
+              item={{ label: "Student Queries", href: "/dashboard/queries", icon: MessageSquare }}
+              active={location === "/dashboard/queries"}
+              onNavigate={onNavigate}
+              badge={queryInbox?.needsReply}
+              collapsed={collapsed}
+            />
             {adminNav.map((item) => (
               <NavItemLink
                 key={item.href}

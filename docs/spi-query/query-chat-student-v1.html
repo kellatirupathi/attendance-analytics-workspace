@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query chat - student side v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --amber:#D97706; --green:#16A34A; --green-soft:#E8F7EE; --amber-soft:#FFF4DD; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:13px; padding:28px; }
+  .board { display:grid; grid-template-columns:repeat(3,520px); gap:28px; width:max-content; }
+  .label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:10px; display:flex; gap:8px; align-items:center; }
+  .label span { background:var(--navy); color:#fff; border-radius:999px; width:20px; height:20px; display:grid; place-items:center; font-size:11px; }
+  .note { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.5; }
+  .page { position:relative; background:#F5F8FD; border:1px solid #D5DEEC; border-radius:16px; overflow:hidden; height:660px; padding:18px; }
+  svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  .head { display:flex; align-items:center; gap:10px; }
+  .head h1 { font-size:17px; color:var(--navy); font-weight:800; }
+  .head p { font-size:11px; color:var(--muted); }
+  .head .name { margin-left:auto; font-weight:700; color:var(--navy); font-size:14px; }
+  .cards { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-top:14px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; height:90px; }
+  .card b { display:block; font-size:11px; color:var(--navy); }
+  .card .big { font-size:18px; font-weight:800; color:var(--navy); margin-top:8px; }
+  .card.warn { background:#FFF8EC; } .card.warn .big { color:var(--amber); }
+  .ghost { height:150px; background:#fff; border:1px solid var(--line); border-radius:12px; margin-top:12px; }
+
+  .fab { position:absolute; right:18px; bottom:18px; display:flex; align-items:center; gap:8px; background:var(--blue); color:#fff; font-weight:600; font-size:13px; padding:0 16px; height:44px; border-radius:999px; box-shadow:0 8px 20px rgba(37,99,235,.35); }
+  .fab .dot { background:var(--red); color:#fff; border-radius:999px; min-width:20px; height:20px; display:grid; place-items:center; font-size:11px; font-weight:700; border:2px solid #fff; margin-right:-6px; }
+
+  /* sheet */
+  .sheet { position:absolute; inset:0; background:#fff; display:flex; flex-direction:column; }
+  .sh-head { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .sh-head h2 { font-size:15px; color:var(--navy); font-weight:800; }
+  .sh-head .x { margin-left:auto; color:var(--muted); }
+  .sh-head .back { color:var(--navy); }
+  .sub { font-size:11px; color:var(--muted); }
+  .newq { margin:14px 16px 6px; display:flex; align-items:center; justify-content:center; gap:8px; height:42px; border-radius:10px; background:var(--blue); color:#fff; font-weight:600; }
+  .list { padding:6px 16px; overflow:hidden; }
+  .q { border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:10px; display:flex; gap:10px; background:#fff; }
+  .q.unread { border-color:#BBD0FF; background:#F6F9FF; }
+  .q .ic { width:34px; height:34px; border-radius:10px; background:var(--blue-soft); color:var(--blue); display:grid; place-items:center; }
+  .q .t { color:var(--navy); font-weight:700; font-size:13px; }
+  .q .m { font-size:11px; color:var(--muted); margin-top:2px; }
+  .q .p { font-size:12px; margin-top:6px; color:var(--text); }
+  .q .r { margin-left:auto; text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  .tag { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:999px; }
+  .tag.recv { background:#EEF2F8; color:#475569; }
+  .tag.work { background:var(--amber-soft); color:var(--amber); }
+  .tag.reply { background:var(--blue-soft); color:var(--blue); }
+  .tag.done { background:var(--green-soft); color:var(--green); }
+  .unreadDot { width:8px; height:8px; border-radius:50%; background:var(--blue); }
+
+  /* thread */
+  .steps { display:flex; align-items:center; padding:12px 16px; gap:6px; border-bottom:1px solid var(--line); background:#FAFCFF; }
+  .step { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:600; color:var(--muted); }
+  .step i { width:18px; height:18px; border-radius:50%; background:#DCE4F1; display:grid; place-items:center; color:#fff; font-style:normal; font-size:10px; }
+  .step.on { color:var(--navy); } .step.on i { background:var(--green); }
+  .step.now i { background:var(--amber); }
+  .bar { flex:1; height:2px; background:#DCE4F1; } .bar.on { background:var(--green); }
+  .ctx { margin:12px 16px 0; font-size:11px; color:var(--muted); display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { background:#EEF2F8; color:#475569; padding:3px 8px; border-radius:999px; font-weight:600; }
+  .chat { flex:1; padding:12px 16px; display:flex; flex-direction:column; gap:12px; overflow:hidden; }
+  .msg { max-width:80%; padding:10px 12px; border-radius:14px; font-size:12.5px; line-height:1.45; }
+  .msg small { display:block; font-size:10.5px; margin-top:6px; opacity:.7; }
+  .me { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
+  .team { align-self:flex-start; background:#F1F5FB; color:var(--navy); border-bottom-left-radius:4px; }
+  .team b { display:block; font-size:11px; color:var(--blue); margin-bottom:3px; }
+  .sys { align-self:center; font-size:11px; color:var(--muted); background:#F1F5FB; border-radius:999px; padding:4px 10px; }
+  .composer { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
+  .composer .in { flex:1; height:42px; border:1px solid #D5DEEC; border-radius:10px; padding:0 12px; display:flex; align-items:center; color:#9AA6B8; }
+  .composer .send { width:42px; height:42px; border-radius:10px; background:var(--blue); color:#fff; display:grid; place-items:center; }
+  .closed { padding:12px 16px; border-top:1px solid var(--line); background:var(--green-soft); color:var(--green); font-weight:600; font-size:12px; display:flex; gap:8px; align-items:center; }
+</style>
+</head>
+<body>
+<div class="board">
+
+  <!-- A -->
+  <div>
+    <div class="label"><span>A</span> Entry point: button shows replies</div>
+    <div class="page">
+      <div class="head"><div><h1>NIAT - SPI Progress Report</h1><p>Semester in progress</p></div><div class="name">A Gunasekhar Reddy A</div></div>
+      <div class="cards">
+        <div class="card"><b>Your SPI Score</b><div class="big">In Progress</div></div>
+        <div class="card"><b>Attendance</b><div class="big">45.6%</div></div>
+        <div class="card warn"><b>Needs Attention</b><div class="big">6 of 6</div></div>
+      </div>
+      <div class="ghost"></div>
+      <div class="ghost" style="height:170px"></div>
+      <div class="fab"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>My queries<span class="dot">1</span></div>
+    </div>
+    <p class="note">Same floating button as today, now named "My queries". Red badge = the SPI team replied.</p>
+  </div>
+
+  <!-- B -->
+  <div>
+    <div class="label"><span>B</span> My queries list</div>
+    <div class="page" style="padding:0">
+      <div class="sheet">
+        <div class="sh-head"><div><h2>My queries</h2><p class="sub">Your questions and the SPI team's replies</p></div><svg class="x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
+        <div class="newq"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Raise a new query</div>
+        <div class="list">
+          <div class="q unread"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></div>
+            <div><div class="t">Attendance · Data Structures</div><div class="m">Shows absent but I attended · 2 Nov</div><div class="p">SPI team: "We checked the session log..."</div></div>
+            <div class="r"><span class="tag reply">New reply</span><span class="unreadDot"></span></div></div>
+          <div class="q"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+            <div><div class="t">Module Quiz · Back End Development</div><div class="m">Score is wrong · 1 Nov</div><div class="p">The SPI team is checking your report.</div></div>
+            <div class="r"><span class="tag work">In progress</span></div></div>
+          <div class="q"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/></svg></div>
+            <div><div class="t">Classroom Quiz · Adv. Communication</div><div class="m">Shows not attempted · 29 Oct</div><div class="p">Fixed: your attempt is now counted.</div></div>
+            <div class="r"><span class="tag done">Resolved</span></div></div>
+          <div class="q"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg></div>
+            <div><div class="t">Skill Assessment · Data Structures</div><div class="m">Score not showing · just now</div><div class="p">Received. We will update you here.</div></div>
+            <div class="r"><span class="tag recv">Received</span></div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">One status per query. Tabs inside the report are not needed; it is one list.</p>
+  </div>
+
+  <!-- C -->
+  <div>
+    <div class="label"><span>C</span> One query as a chat</div>
+    <div class="page" style="padding:0">
+      <div class="sheet">
+        <div class="sh-head"><svg class="back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg><div><h2>Attendance query</h2><p class="sub">Query #1042 · 2 Nov, 10:42 AM</p></div><span class="tag work" style="margin-left:auto">In progress</span></div>
+        <div class="steps">
+          <div class="step on"><i>✓</i>Received</div><div class="bar on"></div>
+          <div class="step now"><i>●</i>SPI team working</div><div class="bar"></div>
+          <div class="step"><i>3</i>Resolved</div>
+        </div>
+        <div class="ctx"><span class="chip">Attendance</span><span class="chip">Data Structures</span><span class="chip">Shows absent</span></div>
+        <div class="chat">
+          <div class="msg me">I attended the 4 Oct Data Structures class but it shows absent.<small>You · 10:42 AM</small></div>
+          <div class="sys">Your query was received. The SPI team will reply here.</div>
+          <div class="msg team"><b>SPI team</b>Thanks. We are checking the session log for 4 Oct. Please tell us which device you joined from.<small>11:20 AM</small></div>
+          <div class="msg me">I joined from my laptop, name shown as Gunasekhar.<small>You · 11:34 AM</small></div>
+          <div class="msg team"><b>SPI team</b>Found it. Your join was recorded under a different name. Updating your attendance now.<small>12:05 PM</small></div>
+        </div>
+        <div class="composer"><div class="in">Write a reply…</div><div class="send"><svg viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg></div></div>
+      </div>
+    </div>
+    <p class="note">The student sees the process step, replies to ops, and the reply lands in the ops inbox. A resolved query ends with a closing message; the student can reopen it once.</p>
+  </div>
+
+</div>
+</body>
+</html>
