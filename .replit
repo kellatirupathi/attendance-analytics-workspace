@@ -25,7 +25,7 @@ isValidation = true
 [[workflows.workflow]]
 name = "artifacts/niat-spi-dashboard: web"
 author = "agent"
-mode = "sequential"
+mode = "parallel"
 
 [workflows.workflow.metadata]
 outputType = "webview"
