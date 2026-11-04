@@ -10,7 +10,6 @@ import {
   studentImageUrl,
   systemLine,
   timeLabel,
-  type QueryStatus,
   type Thread,
   type ThreadMessage,
   type ThreadQuery,
@@ -136,7 +135,7 @@ function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (
                       <b className="text-[#0B1F4D]">{last.author === "ops" ? "SPI team: " : "You: "}</b>
                       {last.body}
                     </span>
-                    {!turn && !fresh && <span className="shrink-0 text-[12px] font-bold text-[#2563EB]" aria-hidden>Open ›</span>}
+                    {!turn && !fresh && <span className="shrink-0 text-[12px] font-bold text-[#2563EB]" aria-hidden>Open chat ›</span>}
                   </span>
                 )}
                 {(turn || fresh) && (
@@ -152,45 +151,6 @@ function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-type StepState = "done" | "now" | "turn" | "todo";
-
-/** Sent, SPI team, Resolved: where the chat is, with one short line on what happens next. */
-function Steps({ status }: { status: QueryStatus }) {
-  const resolved = status === "resolved";
-  const turn = status === "waiting_on_student";
-  const steps: { label: string; state: StepState }[] = [
-    { label: "Sent", state: "done" },
-    { label: "SPI team", state: resolved ? "done" : turn ? "turn" : "now" },
-    { label: "Resolved", state: resolved ? "done" : "todo" },
-  ];
-  const dot: Record<StepState, string> = {
-    done: "bg-[#15803D] text-white",
-    now: "bg-[#B45309] text-white ring-4 ring-[#FFF4DD]",
-    turn: "bg-[#2563EB] text-white ring-4 ring-[#EAF1FF]",
-    todo: "bg-[#DCE4F1] text-white",
-  };
-  return (
-    <div className="border-b border-[#E6ECF5] px-4 pb-2.5 pt-3">
-      <ol className="flex items-center" aria-label="Progress">
-        {steps.map((s, i) => (
-          <li key={s.label} className="contents">
-            {i > 0 && <span className={`mx-1 mb-4 h-0.5 flex-1 ${steps[i - 1]!.state === "done" && s.state !== "todo" ? "bg-[#15803D]" : "bg-[#DCE4F1]"}`} aria-hidden />}
-            <span className="flex w-16 flex-col items-center gap-1" aria-current={s.state === "now" || s.state === "turn" ? "step" : undefined}>
-              <span className={`grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold ${dot[s.state]}`} aria-hidden>
-                {s.state === "done" ? "✓" : i + 1}
-              </span>
-              <span className={`text-[11.5px] font-semibold ${s.state === "todo" ? "text-[#6B7280]" : "text-[#0B1F4D]"}`}>{s.label}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
-      <p className={`mt-1 text-center text-[12.5px] font-semibold ${turn ? "text-[#1D4ED8]" : resolved ? "text-[#15803D]" : "text-[#0B1F4D]"}`}>
-        {resolved ? "✓ Resolved" : turn ? "Your turn: reply below" : "The SPI team will reply here"}
-      </p>
     </div>
   );
 }
@@ -244,7 +204,6 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
         </div>
         <p className="mt-0.5 pl-12 text-[12px] leading-snug text-[#334155]">{query.subjects.join(", ")}</p>
       </div>
-      <Steps status={query.status} />
 
       <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-[#FAFCFF] px-3.5 py-3" aria-live="polite">
         {mine.map((m) => {
