@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Directory · role mockup (v4)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0F1B3D; --navy-2:#3B4666; --muted:#6B7391; --line:#E6E8F2; --line-2:#EEF0F7;
+  --bg:#FFFFFF; --canvas:#F8F8FC; --primary:#6D5BD0; --primary-600:#5B49C0; --primary-50:#F3F1FD; --primary-100:#E7E3FA;
+  --green:#15803D; --green-bg:#E8F6EE; --amber:#B45309; --amber-bg:#FEF3E2; --red:#B42318; --red-bg:#FDECEA; --blue-bg:#EDF2FF;
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{font-family:Inter,"Segoe UI",system-ui,sans-serif;font-size:13px;color:var(--navy);background:var(--canvas);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* mockup bar: only for previewing, not part of the page */
+.mock{position:sticky;top:0;z-index:30;background:var(--navy);color:#fff;padding:10px 16px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.mock b{font-weight:600}.mock small{color:#B8BFDA}
+.roles{display:flex;gap:4px;flex-wrap:wrap;background:rgba(255,255,255,.08);padding:3px;border-radius:9px}
+.roles button{border:0;background:transparent;color:#DCE0F2;padding:7px 12px;border-radius:7px;font-weight:600;cursor:pointer;font-size:12.5px;transition:background .15s,color .15s}
+.roles button:hover{background:rgba(255,255,255,.12)}
+.roles button[aria-pressed=true]{background:#fff;color:var(--navy)}
+
+.app{display:flex;min-height:calc(100vh - 54px)}
+.side{width:212px;flex:none;background:var(--bg);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column}
+.brand{display:flex;gap:10px;align-items:center;padding:2px 8px 16px}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:700}
+.brand b{font-size:15px}.brand b i{color:var(--primary);font-style:normal}.brand small{display:block;color:var(--muted);font-size:11px}
+.grp{font-size:10.5px;letter-spacing:.06em;color:#9AA1BD;font-weight:600;padding:14px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--navy-2);font-weight:500;text-decoration:none}
+.nav:hover{background:var(--canvas)}.nav.on{background:var(--primary-50);color:var(--primary-600);font-weight:600}
+.nav svg{width:16px;height:16px;flex:none}
+.me{margin-top:auto;display:flex;gap:10px;align-items:center;padding:12px 8px 0;border-top:1px solid var(--line)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--primary-100);color:var(--primary-600);display:grid;place-items:center;font-weight:700}
+.me b{display:block;font-size:12.5px}.me small{color:var(--muted)}
+
+.main{flex:1;min-width:0;padding:18px 20px 28px}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.top h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.scope{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding:4px 10px;border-radius:999px;background:var(--primary-50);color:var(--primary-600);font-size:12px;font-weight:600;vertical-align:middle}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-weight:600;cursor:pointer;color:var(--navy)}
+.btn:hover{background:var(--canvas)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}.btn.primary:hover{background:var(--primary-600)}
+
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius)}
+.filters{padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;margin-bottom:12px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f label{font-size:11.5px;font-weight:600;color:var(--navy-2)}
+.ctl{height:36px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:0 10px;width:100%;transition:border-color .15s,box-shadow .15s}
+.ctl:hover{border-color:#CFD3E6}
+.ctl:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-100);outline:none}
+select.ctl{appearance:none;-webkit-appearance:none;padding-right:28px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B7391' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;cursor:pointer}
+.ctl:disabled{background-color:var(--canvas);color:var(--muted);cursor:not-allowed}
+.range{display:flex;align-items:center;gap:6px}.range .ctl{text-align:center;padding:0 6px}.range span{color:var(--muted)}
+.search{position:relative}.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted)}
+.search .ctl{padding-left:32px}
+.f.wide{grid-column:span 2}
+@media (max-width:640px){.f.wide{grid-column:1/-1}}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.kpi span{font-size:11.5px;color:var(--muted);font-weight:500}
+.kpi b{font-size:21px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi.good b{color:var(--green)}.kpi.bad b{color:var(--red)}.kpi.warn b{color:var(--amber)}.kpi.main b{color:var(--primary-600)}
+
+.tablecard{overflow:hidden}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+.tools .count{color:var(--muted);font-weight:500}.tools .count b{color:var(--navy)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:1020px}
+th{position:sticky;top:0;text-align:left;background:var(--canvas);font-size:11.5px;font-weight:600;color:var(--navy-2);padding:0;white-space:nowrap;border-bottom:1px solid var(--line)}
+th button{display:inline-flex;align-items:center;gap:4px;width:100%;padding:10px 12px;border:0;background:transparent;font-weight:600;font-size:11.5px;color:inherit;cursor:pointer;text-align:left}
+th button:hover{color:var(--primary-600)}
+th.num button{justify-content:flex-end}th.num{text-align:right}
+th .arr{font-size:9px;color:transparent}th[aria-sort] .arr{color:var(--primary)}
+th.hl{background:var(--primary-50);color:var(--primary-600);box-shadow:inset 0 -2px 0 var(--primary)}
+td{padding:9px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+tbody tr{transition:background .12s}tbody tr:hover{background:#FBFAFF}
+td.num{text-align:right}
+td.dim{opacity:.45}
+.nm{font-weight:600}
+.uid{display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--muted)}
+.cp{border:0;background:transparent;color:#9AA1BD;cursor:pointer;padding:4px;border-radius:5px;display:inline-grid;place-items:center}
+.cp:hover{background:var(--primary-50);color:var(--primary-600)}.cp svg{width:13px;height:13px}.cp.ok{color:var(--green)}
+.pill{display:inline-block;min-width:54px;text-align:center;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.pill.g{background:var(--green-bg);color:var(--green)}.pill.a{background:var(--amber-bg);color:var(--amber)}.pill.r{background:var(--red-bg);color:var(--red)}.pill.n{background:var(--line-2);color:var(--muted)}
+.spi{font-weight:700}
+.lnk{display:inline-flex;align-items:center;gap:4px;color:var(--primary-600);font-weight:600;text-decoration:none}
+.lnk:hover{text-decoration:underline}.lnk svg{width:12px;height:12px}
+.empty{padding:40px 12px;text-align:center;color:var(--muted)}
+
+.foot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;color:var(--muted)}
+.pg{display:flex;gap:4px;align-items:center}
+.pg button{min-width:32px;height:32px;border:1px solid var(--line);background:var(--bg);border-radius:7px;cursor:pointer;font-weight:600;color:var(--navy-2)}
+.pg button:hover:not(:disabled){background:var(--canvas)}.pg button:disabled{opacity:.4;cursor:default}
+.pg button[aria-current=page]{background:var(--primary);border-color:var(--primary);color:#fff}
+.rows{display:flex;gap:8px;align-items:center}.rows select{height:32px;width:auto}
+
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:8px 14px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50}
+.toast.on{opacity:1;transform:translateX(-50%)}
+
+@media (max-width:1000px){.side{display:none}.main{padding:14px 12px 24px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="mock">
+  <div><b>Student Directory · role mockup</b> <small>sample data, nothing is live</small></div>
+  <div class="roles" role="group" aria-label="Preview as role" id="roles"></div>
+</div>
+
+<div class="app">
+  <aside class="side" aria-label="Main navigation">
+    <div class="brand"><div class="logo">N</div><div><b>NIAT <i>SPI</i></b><small>Skill Performance Index</small></div></div>
+    <div class="grp">MAIN</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</a>
+    <a class="nav on" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a6 6 0 0 0-12 0"/><circle cx="12" cy="8" r="4"/></svg>Student Directory</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M8 17V9M13 17V5M18 17v-6"/></svg>Student Attendance Stats</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>SPI Record Dashboard</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Assessments</a>
+    <div class="grp">OPERATIONS</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z"/></svg>Request Inbox</a>
+    <div class="me"><div class="av" id="meAv">A</div><div><b id="meName">Admin</b><small id="meRole">Admin</small></div></div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="top">
+      <h1>Student Directory<span class="scope" id="scope"></span></h1>
+      <button class="btn primary" type="button" id="export"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Export CSV</button>
+    </div>
+
+    <section class="panel filters" aria-label="Filters" id="filters"></section>
+    <section class="kpis" aria-label="Summary" id="kpis"></section>
+
+    <section class="panel tablecard" aria-label="Students">
+      <div class="tools"><span class="count" id="count"></span><button type="button" class="btn" id="reset">Reset filters</button></div>
+      <div class="scroll"><table id="tbl"></table></div>
+      <div class="foot" id="foot"></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---------- dummy data (seeded, so every preview looks the same) ---------- */
+const rng = (a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; })(20261104);
+const pick = a => a[Math.floor(rng() * a.length)];
+const COLLEGES = ["Crescent University","Aurora University","S-VYASA","Joy University","AMET","Alard University","A Dy Patil University","Noida International University"];
+const FIRST = ["Aarav","Ananya","Vihaan","Diya","Rohan","Sneha","Karthik","Meera","Arjun","Pooja","Harsha","Lakshmi","Nikhil","Ishita","Sai","Divya","Varun","Kavya","Rahul","Sanjana","Manoj","Priya","Tarun","Neha","Dev","Anjali","Charan","Bhavya","Yash","Swathi"];
+const LAST = ["Reddy","Sharma","Naik","Rao","Patel","Kumar","Iyer","Singh","Das","Gupta","Menon","Joshi","Varma","Khan","Nair","Verma","Chowdary","Pillai"];
+const SUBJECTS = ["Data Structures","Programming Foundations","Web Application Development","Probability and Statistics","Communicative English","Quantitative Aptitude","Backend Development","Digital Electronics"];
+const SEMS = ["Semester 1","Semester 3","Semester 5"];
+const hex = n => Array.from({length:n},()=>Math.floor(rng()*16).toString(16)).join("");
+const STUDENTS = Array.from({length:312},(_,i)=>{
+  const college = COLLEGES[i % COLLEGES.length];
+  const sem = pick(SEMS);
+  const att = Math.round(Math.min(100, Math.max(30, 62 + rng()*40 + (rng()<.18 ? -30 : 0))));
+  const aw = () => rng() < .12 ? null : Math.round(Math.max(0, Math.min(100, att*0.7 + rng()*40 - 14)) * 10) / 10;
+  const cq = aw(), mq = aw(), sa = rng() < .35 ? null : aw();
+  const parts = [cq,mq,sa].filter(v => v != null);
+  const spi = parts.length ? Math.round(parts.reduce((s,v)=>s+v,0) / parts.length / 10 * 100) / 100 : null;
+  const subs = [...SUBJECTS].sort(() => rng() - .5).slice(0, 4 + (rng() < .4 ? 1 : 0));
+  return {
+    college, name: `${pick(FIRST)} ${pick(LAST)}`, uuid: `${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`,
+    sem, section: `S-0${String(1 + (i % 6)).padStart(2,"0")}`.replace("S-00","S-00"), att, cq, mq, sa, spi,
+    debt: att < 70 || (spi != null && spi < 4) ? 1 + Math.floor(rng()*3) : 0, subs,
+  };
+});
+STUDENTS.forEach(s => s.section = "S-00" + (1 + (s.uuid.charCodeAt(1) % 6)));
+
+/* ---------- the five role previews ---------- */
+const ROLES = {
+  admin:   { label:"Admin", user:"Meghana R", scope:"All colleges", colleges: COLLEGES, subjects: SUBJECTS, lockCollege:false },
+  superadmin:{ label:"Super Admin", user:"Akhilendar Reddy", scope:"All colleges · full overview", colleges: COLLEGES, subjects: SUBJECTS, lockCollege:false },
+  hod:     { label:"HOD", user:"Dr. S. Prakash", scope:"Crescent University · CSE (AI & DS)", colleges:["Crescent University"], subjects: SUBJECTS, lockCollege:true },
+  capability_manager:{ label:"Capability Manager", user:"Nandini K", scope:"Data Structures · Programming Foundations · Web App Dev", colleges: COLLEGES, subjects:["Data Structures","Programming Foundations","Web Application Development"], lockCollege:false },
+  boa:     { label:"BOA", user:"Rahul V", scope:"Institution-wide academic overview", colleges: COLLEGES, subjects: SUBJECTS, lockCollege:false },
+};
+
+const NO = { college:"", sem:"", section:"", subject:"", attMin:0, attMax:100, quiz:"", q:"" };
+let role = "admin", F = { ...NO }, sort = { key:"college", dir:1 }, page = 1, size = 10;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function visible() {
+  const r = ROLES[role];
+  return STUDENTS.filter(s => r.colleges.includes(s.college) && (r.subjects.length === SUBJECTS.length || s.subs.some(x => r.subjects.includes(x))));
+}
+function filtered() {
+  const q = F.q.trim().toLowerCase();
+  return visible().filter(s =>
+    (!F.college || s.college === F.college) && (!F.sem || s.sem === F.sem) && (!F.section || s.section === F.section) &&
+    (!F.subject || s.subs.includes(F.subject)) && s.att >= F.attMin && s.att <= F.attMax &&
+    (!q || s.name.toLowerCase().includes(q) || s.uuid.includes(q)));
+}
+const val = (s,k) => ({college:s.college,name:s.name,sem:s.sem,section:s.section,cq:s.cq,mq:s.mq,sa:s.sa,spi:s.spi})[k];
+function sorted(rows) {
+  const { key, dir } = sort;
+  return rows.slice().sort((a,b) => {
+    const x = val(a,key), y = val(b,key);
+    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, {numeric:true})) * dir || a.name.localeCompare(b.name);
+  });
+}
+const band = v => v == null ? "n" : v >= 70 ? "g" : v >= 45 ? "a" : "r";
+const pill = v => `<span class="pill ${band(v)}">${v == null ? "Awaited" : v.toFixed(1) + "%"}</span>`;
+const spiBand = v => v == null ? "n" : v >= 7 ? "g" : v >= 4.5 ? "a" : "r";
+
+/* ---------- render ---------- */
+function opts(list, cur, all) { return `<option value="">${all}</option>` + list.map(v => `<option${v === cur ? " selected" : ""}>${esc(v)}</option>`).join(""); }
+
+function renderRoles() {
+  $("roles").innerHTML = Object.entries(ROLES).map(([k,r]) => `<button type="button" data-role="${k}" aria-pressed="${k === role}">${r.label}</button>`).join("");
+  $("roles").querySelectorAll("button").forEach(b => b.onclick = () => setRole(b.dataset.role));
+}
+function renderFilters() {
+  const r = ROLES[role];
+  const sections = ["S-001","S-002","S-003","S-004","S-005","S-006"];
+  $("filters").innerHTML = `
+    <div class="f"><label for="fCollege">College</label><select class="ctl" id="fCollege"${r.lockCollege ? " disabled" : ""}>${opts(r.colleges, r.lockCollege ? r.colleges[0] : F.college, r.lockCollege ? r.colleges[0] : "All colleges")}</select></div>
+    <div class="f"><label for="fSem">Semester</label><select class="ctl" id="fSem">${opts(SEMS, F.sem, "All semesters")}</select></div>
+    <div class="f"><label for="fSec">Section</label><select class="ctl" id="fSec">${opts(sections, F.section, "All sections")}</select></div>
+    <div class="f"><label for="fSub">Subject</label><select class="ctl" id="fSub">${opts(r.subjects, F.subject, role === "capability_manager" ? "My subjects" : "All subjects")}</select></div>
+    <div class="f"><label for="aMin">Attendance %</label><div class="range"><input class="ctl" id="aMin" type="number" min="0" max="100" value="${F.attMin}" aria-label="Minimum attendance"><span>–</span><input class="ctl" id="aMax" type="number" min="0" max="100" value="${F.attMax}" aria-label="Maximum attendance"></div></div>
+    <div class="f"><label for="fQuiz">Quiz type</label><select class="ctl" id="fQuiz">${[["","All quiz types"],["cq","Classroom Quiz"],["mq","Module Quiz"],["sa","Skill Assessment"]].map(([v,l]) => `<option value="${v}"${v === F.quiz ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+    <div class="f wide"><label for="fQ">Student name / UUID</label><div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input class="ctl" id="fQ" type="search" placeholder="Search name or UUID" value="${esc(F.q)}"></div></div>`;
+  const on = (id, fn, ev = "change") => $(id).addEventListener(ev, e => { fn(e.target); page = 1; renderResults(); });
+  on("fCollege", t => F.college = t.value); on("fSem", t => F.sem = t.value); on("fSec", t => F.section = t.value); on("fSub", t => F.subject = t.value);
+  on("fQuiz", t => F.quiz = t.value);
+  const clamp = v => Math.max(0, Math.min(100, Number(v) || 0));
+  on("aMin", t => F.attMin = Math.min(clamp(t.value), F.attMax), "input"); on("aMax", t => F.attMax = Math.max(clamp(t.value), F.attMin), "input");
+  on("fQ", t => F.q = t.value, "input");
+}
+const COLS = [["college","College"],["name","Student name"],["uuid","UUID",false],["sem","Semester"],["section","Section"],["cq","Classroom Quiz avg",true,"cq"],["mq","Module Quiz avg",true,"mq"],["sa","Skill Assessment avg",true,"sa"],["spi","Expected SPI",true],["rep","Report",false]];
+function renderResults() {
+  const r = ROLES[role], rows = filtered(), v = visible();
+  /* KPI cards */
+  const n = rows.length, avg = a => a.length ? a.reduce((s,x)=>s+x,0)/a.length : null;
+  const elig = rows.filter(s => s.att >= 80).length, spis = rows.map(s => s.spi).filter(x => x != null);
+  const k = [
+    ["Total students", n.toLocaleString("en-IN"), "main"],
+    ["Average attendance", n ? avg(rows.map(s => s.att)).toFixed(1) + "%" : "–", ""],
+    ["Eligible students", elig.toLocaleString("en-IN"), "good"],
+    ["Not eligible", (n - elig).toLocaleString("en-IN"), "bad"],
+    ["Average SPI", spis.length ? avg(spis).toFixed(2) : "–", ""],
+    ["Skill debt", rows.filter(s => s.debt).length.toLocaleString("en-IN"), "warn"],
+  ];
+  $("kpis").innerHTML = k.map(([l,x,c]) => `<div class="kpi ${c}"><span>${l}</span><b>${x}</b></div>`).join("");
+  /* table */
+  const data = sorted(rows), pages = Math.max(1, Math.ceil(data.length / size));
+  page = Math.min(page, pages);
+  const slice = data.slice((page - 1) * size, page * size);
+  const head = COLS.map(([key,label,sortable,qt]) => {
+    const hl = qt && F.quiz === qt ? " hl" : "", num = key === "cq" || key === "mq" || key === "sa" || key === "spi" ? " num" : "";
+    const sortKey = key !== "uuid" && key !== "rep";
+    const aria = sortKey && sort.key === key ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : "";
+    return `<th class="${hl}${num}" scope="col"${aria}>${sortKey ? `<button type="button" data-sort="${key}">${label}<span class="arr">${sort.dir > 0 ? "▲" : "▼"}</span></button>` : `<span style="display:block;padding:10px 12px">${label}</span>`}</th>`;
+  }).join("");
+  const dim = qt => F.quiz && F.quiz !== qt ? " dim" : "";
+  const body = slice.map(s => `<tr>
+    <td>${esc(s.college)}</td><td class="nm">${esc(s.name)}</td>
+    <td><span class="uid" title="${s.uuid}">${s.uuid.slice(0,8)}<button class="cp" type="button" data-copy="${s.uuid}" aria-label="Copy full UUID" title="Copy full UUID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></span></td>
+    <td>${s.sem}</td><td>${s.section}</td>
+    <td class="num${dim("cq")}">${pill(s.cq)}</td><td class="num${dim("mq")}">${pill(s.mq)}</td><td class="num${dim("sa")}">${pill(s.sa)}</td>
+    <td class="num"><span class="pill ${spiBand(s.spi)} spi">${s.spi == null ? "–" : s.spi.toFixed(2)}</span></td>
+    <td><a class="lnk" href="#" onclick="return false">View report<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg></a></td></tr>`).join("");
+  $("tbl").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="10" class="empty">No students match these filters</td></tr>`}</tbody>`;
+  $("tbl").querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { sort = { key:b.dataset.sort, dir: sort.key === b.dataset.sort ? -sort.dir : 1 }; renderResults(); });
+  $("tbl").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => copy(b));
+  $("count").innerHTML = `<b>${n.toLocaleString("en-IN")}</b> of ${v.length.toLocaleString("en-IN")} students`;
+  /* pagination */
+  const from = n ? (page - 1) * size + 1 : 0, to = Math.min(n, page * size);
+  const set = [...new Set([1, pages, page - 1, page, page + 1].filter(p => p >= 1 && p <= pages))].sort((a,b) => a - b);
+  let nums = "", last = 0; for (const p of set) { if (p - last > 1) nums += `<span aria-hidden="true">…</span>`; nums += `<button type="button" data-page="${p}"${p === page ? ' aria-current="page"' : ""}>${p}</button>`; last = p; }
+  $("foot").innerHTML = `<span>${from}–${to} of ${n.toLocaleString("en-IN")}</span>
+    <nav class="pg" aria-label="Pages"><button type="button" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""} aria-label="Previous page">‹</button>${nums}<button type="button" data-page="${page + 1}" ${page >= pages ? "disabled" : ""} aria-label="Next page">›</button></nav>
+    <label class="rows">Rows per page<select class="ctl" id="size">${[10,25,50].map(x => `<option${x === size ? " selected" : ""}>${x}</option>`).join("")}</select></label>`;
+  $("foot").querySelectorAll("[data-page]").forEach(b => b.onclick = () => { page = Number(b.dataset.page); renderResults(); });
+  $("size").onchange = e => { size = Number(e.target.value); page = 1; renderResults(); };
+}
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.id); toast.id = setTimeout(() => el.classList.remove("on"), 1400); }
+function copy(btn) {
+  const done = () => { btn.classList.add("ok"); btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'; toast("UUID copied"); setTimeout(() => renderResults(), 900); };
+  (navigator.clipboard ? navigator.clipboard.writeText(btn.dataset.copy) : Promise.reject()).then(done, done);
+}
+function setRole(k) {
+  role = k; F = { ...NO }; page = 1; sort = { key:"college", dir:1 };
+  const r = ROLES[k];
+  if (r.lockCollege) F.college = r.colleges[0];
+  $("scope").textContent = r.scope; $("meName").textContent = r.user; $("meRole").textContent = r.label; $("meAv").textContent = r.user[0];
+  history.replaceState(null, "", "#" + k);
+  renderRoles(); renderFilters(); renderResults();
+}
+$("reset").onclick = () => { F = { ...NO }; if (ROLES[role].lockCollege) F.college = ROLES[role].colleges[0]; page = 1; renderFilters(); renderResults(); };
+$("export").onclick = () => toast("Mockup only: export is not wired");
+setRole(ROLES[location.hash.slice(1)] ? location.hash.slice(1) : "admin");
+</script>
+</body>
+</html>

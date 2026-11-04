@@ -19,16 +19,18 @@ interface Column<T> {
 }
 
 /** Table header; without `sort` and `onSort` the labels are plain text. */
-export function Head({ columns, sort, onSort, extra, sticky }: { columns: { key: string; label: string; align?: "right" }[]; sort?: Sort; onSort?: (key: string) => void; extra?: boolean; sticky?: boolean }) {
+export function Head({ columns, sort, onSort, extra, sticky, highlight, dense }: { columns: { key: string; label: string; align?: "right"; sortable?: boolean }[]; sort?: Sort; onSort?: (key: string) => void; extra?: boolean; sticky?: boolean; highlight?: string; dense?: boolean }) {
   return (
     <thead className={cn("bg-slate-50 text-xs font-semibold text-slate-600", sticky && "sticky top-0 z-10")}>
       <tr>
         {columns.map((c) => {
           const active = !!sort && sort.key === c.key;
           const align = c.align === "right" ? "text-right" : "text-left";
-          if (!sort || !onSort) return <th key={c.key} scope="col" className={cn("whitespace-nowrap px-4 py-3", align)}>{c.label}</th>;
+          const pad = dense ? "px-2.5 py-2.5" : "px-4 py-3";
+          const tint = highlight === c.key ? "bg-violet-50 text-violet-700 shadow-[inset_0_-2px_0] shadow-violet-600" : "";
+          if (!sort || !onSort || c.sortable === false) return <th key={c.key} scope="col" className={cn(dense ? "" : "whitespace-nowrap", pad, align, tint)}>{c.label}</th>;
           return (
-            <th key={c.key} scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={cn("whitespace-nowrap px-4 py-3", align)}>
+            <th key={c.key} scope="col" aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={cn(dense ? "" : "whitespace-nowrap", pad, align, tint)}>
               <button type="button" onClick={() => onSort(c.key)} className="inline-flex items-center gap-1 rounded hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">
                 {c.label}
                 <span aria-hidden="true" className={cn("text-[10px]", active ? "text-brand-600" : "text-transparent")}>

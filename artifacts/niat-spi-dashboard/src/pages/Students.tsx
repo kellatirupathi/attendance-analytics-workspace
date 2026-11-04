@@ -1,747 +1,275 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Download, ExternalLink, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
-import { ErrorState } from "@/components/PageStates";
-import { TableShell, TablePagination } from "@/components/DataTable";
-import { SearchableSelect } from "@/components/SearchableSelect";
-import { BoundControl, CheckMenu, Field } from "@/components/SpiRecordFilterBar";
-import { StatTile } from "@/components/dashboard/overview";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQueryParams } from "@/hooks/useQueryParams";
-import { useDebounceValue } from "@/hooks/useDebounceValue";
-import { useToast } from "@/hooks/use-toast";
-import { exportCsv } from "@/lib/csv";
-import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
-import { ATTENDANCE_TIERS, tierTextColor, type AttendanceTierId } from "@/lib/attendanceTiers";
-import type {
-  BoundOp,
-  DirectoryFilters,
-  DirectoryRow,
-  DirectorySummary,
-  QuizFilter,
-  SortKey,
-} from "@/lib/studentDirectory";
-import { cn, pctTextColor } from "@/lib/utils";
-import { readSubjects, subjectOptionList } from "@/lib/subjects";
-import { ArrowDown, ArrowUp, Copy, Download, ExternalLink, Loader2, Search } from "lucide-react";
+import { fmtInt } from "@/lib/assessmentMetrics";
+import { directoryApi, NO_DIRECTORY_FILTERS, type DirectoryFilters, type DirectoryRow, type QuizTypeFilter } from "@/lib/directoryReport";
+import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/QuizTables";
+import { Pill } from "@/components/assessments/quiz/quizParts";
+import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 
-type Period = "semester_to_date" | "last_30" | "custom";
-
-/** One page from /student-directory, with the header totals and filter choices for the whole view. */
-interface DirectoryPayload {
-  rows: (DirectoryRow & { spiPath: string })[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-  summary: DirectorySummary;
-  options: {
-    campuses: string[];
-    semesters: string[];
-    sections: { campus: string; section: string }[];
-    maxSpi: number | null;
-  };
-}
-
-const EMPTY_SUMMARY: DirectorySummary = {
-  students: 0,
-  avgAttendance: null,
-  eligible: 0,
-  belowSixty: 0,
-  avgSpi: null,
-  skillDebt: 0,
-};
-
-const PAGE_SIZES = [25, 50, 100, 200];
-const TIER_IDS = ATTENDANCE_TIERS.map((tier) => tier.id);
-const SORT_KEYS: SortKey[] = ["name", "studentId", "campus", "section", "semester", "attendance", "classroom", "module", "spi", "skill"];
-
-const COLUMNS: { key: SortKey; label: string; numeric?: boolean; className?: string }[] = [
-  { key: "name", label: "Name", className: "min-w-[180px]" },
-  { key: "studentId", label: "Student UUID", className: "min-w-[300px]" },
-  { key: "campus", label: "Campus", className: "min-w-[200px]" },
-  { key: "section", label: "Section", className: "min-w-[140px]" },
-  { key: "semester", label: "Semester", className: "min-w-[120px]" },
-  { key: "attendance", label: "Attendance", numeric: true, className: "min-w-[170px]" },
-  { key: "classroom", label: "Classroom quiz", numeric: true, className: "min-w-[110px]" },
-  { key: "module", label: "Module quiz", numeric: true, className: "min-w-[110px]" },
-  { key: "spi", label: "SPI", numeric: true, className: "min-w-[70px]" },
-  { key: "skill", label: "Skill level", numeric: true, className: "min-w-[90px]" },
+/**
+ * Student Directory: every number is the student report's own (eligibility, attendance, quiz averages,
+ * expected SPI, skill debt), read from the saved reports by /api/dashboard/directory. Filters apply as soon
+ * as they change; the server filters, sorts and pages.
+ */
+const STALE = 5 * 60_000;
+const selectClass = "h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 disabled:bg-slate-50 disabled:text-slate-500";
+const QUIZ_TYPES: { value: QuizTypeFilter; label: string }[] = [
+  { value: "", label: "All quiz types" },
+  { value: "classroom", label: "Classroom Quiz" },
+  { value: "module", label: "Module Quiz" },
+  { value: "skill", label: "Skill Assessment" },
 ];
 
-function splitList(value: string | null): string[] {
-  return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
+const COLUMNS: { key: string; label: string; align?: "right"; sortable?: boolean }[] = [
+  { key: "college", label: "College" },
+  { key: "name", label: "Student name" },
+  { key: "uuid", label: "UUID", sortable: false },
+  { key: "semester", label: "Semester" },
+  { key: "section", label: "Section" },
+  { key: "classroom", label: "Classroom Quiz avg", align: "right" },
+  { key: "module", label: "Module Quiz avg", align: "right" },
+  { key: "skill", label: "Skill Assessment avg", align: "right" },
+  { key: "spi", label: "Expected SPI", align: "right" },
+  { key: "report", label: "Report", sortable: false },
+];
+
+function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <label className={cn("flex min-w-0 flex-col gap-1.5 text-xs font-medium text-slate-600", className)}>
+      {label}
+      {children}
+    </label>
+  );
 }
 
-function fmtPct(value: number | null): string {
-  return value == null ? "—" : `${value.toFixed(1)}%`;
+const TONE = { main: "text-violet-700", good: "text-emerald-700", bad: "text-red-700", warn: "text-amber-700", plain: "text-slate-900" } as const;
+
+function Kpi({ label, value, tone = "plain", loading }: { label: string; value: string; tone?: keyof typeof TONE; loading: boolean }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      {loading ? <span className="h-7 w-16 animate-pulse rounded bg-slate-100" /> : <span className={cn("text-xl font-bold tracking-tight tabular-nums", TONE[tone])}>{value}</span>}
+    </div>
+  );
 }
 
-function skillTone(level: string): string {
-  if (level === "A+" || level === "A") return "text-emerald-700";
-  if (level === "B") return "text-lime-700";
-  if (level === "C") return "text-amber-700";
-  if (level === "D") return "text-orange-700";
-  return "text-red-700";
+/** A quiz average as a coloured pill; "Awaited" when no quiz of that type is held yet. */
+function Score({ value }: { value: number | null }) {
+  if (value == null) return <span className="inline-block min-w-[3.5rem] rounded-full bg-slate-100 px-2.5 py-0.5 text-center text-xs font-semibold text-slate-500">Awaited</span>;
+  return <Pill metric="avg" value={value} />;
 }
 
-function skillLabel(level: string): string {
-  if (level === "F") return "Skill debt";
-  if (level === "Ab") return "Skill debt (no quiz)";
-  return level;
+function Spi({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-slate-400">–</span>;
+  const tone = value >= 7 ? "bg-emerald-50 text-emerald-700" : value >= 4.5 ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700";
+  return <span className={cn("inline-block min-w-[3.5rem] rounded-full px-2.5 py-0.5 text-center text-xs font-bold tabular-nums", tone)}>{value.toFixed(2)}</span>;
 }
+
+/** Tighter cells than the Assessments tables: ten columns have to fit next to the sidebar. */
+const cell = "whitespace-nowrap px-2.5 py-2.5 text-sm text-slate-700";
+const num = `${cell} text-right tabular-nums`;
+const shortSemester = (s: string | null) => (s ? s.replace(/^Semester\s+/i, "Sem ") : "—");
+
+const clampPct = (v: string) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
 
 export default function Students() {
   const { user } = useAuth();
-  const { toast } = useToast();
-  const [, setLocation] = useLocation();
-  const query = useQueryParams();
-
-  const lockedCampus = user?.role === "boa" && user?.campuses?.length === 1 ? user.campuses[0]! : null;
-  const campuses = lockedCampus ? [lockedCampus] : splitList(query.get("campuses"));
-  const semesters = splitList(query.get("semesters"));
-  const sections = splitList(query.get("sections")).filter((value) => value.includes("\t"));
-  const subjects = readSubjects(query);
-  const tiers = splitList(query.get("tiers")).filter((id): id is AttendanceTierId => TIER_IDS.includes(id as AttendanceTierId));
-  const spiOp = (["gte", "lte", "between"].includes(query.get("spiOp") ?? "") ? query.get("spiOp") : "") as BoundOp;
-  const spiA = query.get("spiA") ?? "";
-  const spiB = query.get("spiB") ?? "";
-  const attOp = (["gte", "lte", "between"].includes(query.get("attOp") ?? "") ? query.get("attOp") : "") as BoundOp;
-  const attA = query.get("attA") ?? "";
-  const attB = query.get("attB") ?? "";
-  const rawQuiz = query.get("quiz") ?? "";
-  const quiz = (["missing_classroom", "missing_module", "missing_both"].includes(rawQuiz) ? rawQuiz : "") as QuizFilter;
-  const rawPeriod = query.get("attRange");
-  const period: Period = rawPeriod === "last_30" || rawPeriod === "custom" ? rawPeriod : "semester_to_date";
-  const attFrom = query.get("attFrom") ?? "";
-  const attTo = query.get("attTo") ?? "";
-  const sortKey = (SORT_KEYS.includes(query.get("sort") as SortKey) ? query.get("sort") : "name") as SortKey;
-  const sortDir: 1 | -1 = query.get("dir") === "desc" ? -1 : 1;
-
-  const [search, setSearch] = useState(query.get("q") ?? "");
-  const debouncedSearch = useDebounceValue(search, 250);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
-
-  const writeQuery = (patch: Record<string, string | undefined>) => {
-    const next = new URLSearchParams(query);
-    for (const [key, value] of Object.entries(patch)) {
-      if (value) next.set(key, value);
-      else next.delete(key);
-    }
-    setPage(1);
-    const qs = next.toString();
-    setLocation(qs ? `/dashboard/students?${qs}` : "/dashboard/students", { replace: true });
-  };
+  const link = useQueryParams();
+  // Links from Overview may carry a college, semester or search.
+  const [filters, setFilters] = useState<DirectoryFilters>(() => ({
+    ...NO_DIRECTORY_FILTERS,
+    college: link.get("campuses")?.split("||")[0] ?? "",
+    semester: link.get("semesters")?.split("||")[0] ?? "",
+    q: link.get("q") ?? "",
+  }));
+  const [debouncedQ, setDebouncedQ] = useState(filters.q);
+  const [quiz, setQuiz] = useState<QuizTypeFilter>("");
+  const [sort, setSort] = useState<Sort>({ key: "college", dir: "asc" });
+  const [pageSize, setPageSize] = useState(25);
 
   useEffect(() => {
-    if ((query.get("q") ?? "") !== debouncedSearch.trim()) writeQuery({ q: debouncedSearch.trim() || undefined });
-  }, [debouncedSearch]);
+    const id = window.setTimeout(() => setDebouncedQ(filters.q.trim()), 300);
+    return () => window.clearTimeout(id);
+  }, [filters.q]);
 
-  /* ---- data: filtered, sorted and paged on the server ---- */
-
-  const customReady = /^\d{4}-\d{2}-\d{2}$/.test(attFrom) && /^\d{4}-\d{2}-\d{2}$/.test(attTo);
-  const detailParams = new URLSearchParams();
-  if (period === "custom" && customReady) {
-    detailParams.set("attRange", "custom");
-    detailParams.set("attFrom", attFrom <= attTo ? attFrom : attTo);
-    detailParams.set("attTo", attFrom <= attTo ? attTo : attFrom);
-  } else if (period !== "custom") {
-    detailParams.set("attRange", period);
-  }
-  // Attendance in this payload is summed across subjects, so the server narrows it.
-  if (subjects.length) detailParams.set("subjects", subjects.join("||"));
-  const customPending = period === "custom" && !customReady;
-
-  const filters: DirectoryFilters = {
-    search: query.get("q") ?? "",
-    campuses,
-    semesters,
-    sections,
-    tiers,
-    spiOp,
-    spiA,
-    spiB,
-    attOp,
-    attA,
-    attB,
-    quiz,
-  };
-
-  const viewParams = new URLSearchParams(detailParams);
-  const list = (key: string, values: string[]) => {
-    if (values.length) viewParams.set(key, values.join("||"));
-  };
-  list("campuses", campuses);
-  list("semesters", semesters);
-  list("sections", sections);
-  list("tiers", tiers);
-  for (const [key, value] of [
-    ["q", filters.search.trim()],
-    ["spiOp", spiOp],
-    ["spiA", spiA],
-    ["spiB", spiB],
-    ["attOp", attOp],
-    ["attA", attA],
-    ["attB", attB],
-    ["quiz", quiz],
-    ["sort", sortKey === "name" ? "" : sortKey],
-    ["dir", sortDir === -1 ? "desc" : ""],
-  ] as const) {
-    if (value) viewParams.set(key, value);
-  }
-  const viewKey = viewParams.toString();
-
-  const fetchDirectory = async (params: URLSearchParams): Promise<DirectoryPayload> => {
-    const res = await fetch(`/api/dashboard/student-directory?${params.toString()}`, { credentials: "include" });
-    if (!res.ok) throw new Error("Failed to load students");
-    return res.json() as Promise<DirectoryPayload>;
-  };
-
-  const { data, isLoading, isFetching, isError, refetch } = useQuery({
-    queryKey: ["student-directory", viewKey, page, pageSize],
-    enabled: !customPending,
-    queryFn: () => {
-      const params = new URLSearchParams(viewKey);
-      params.set("page", String(page));
-      params.set("pageSize", String(pageSize));
-      return fetchDirectory(params);
-    },
+  const applied = useMemo(() => ({ ...filters, q: debouncedQ }), [filters, debouncedQ]);
+  const options = useQuery({ queryKey: ["directory-options"], queryFn: directoryApi.options, staleTime: STALE });
+  const viewKey = JSON.stringify([applied, sort, pageSize]);
+  const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
+  const page = pageState.key === viewKey ? pageState.page : 1;
+  const data = useQuery({
+    queryKey: ["directory", viewKey, page],
+    queryFn: () => directoryApi.page(applied, { sort: sort.key, dir: sort.dir, page, pageSize }),
+    staleTime: STALE,
     placeholderData: keepPreviousData,
-    staleTime: 15 * 60_000,
   });
 
-  const { data: subjectData } = useQuery({
-    queryKey: ["subject-options"],
-    queryFn: async () => {
-      const res = await fetch("/api/dashboard/subject-options", { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load subjects");
-      return res.json() as Promise<{ options: { campus: string; semester: string; subject: string }[] }>;
-    },
-    staleTime: 15 * 60_000,
-  });
-
-  // Only classroom (10%) and module (15%) quizzes feed SPI today, so the real ceiling is 2.5.
-  const maxSpi = data?.options.maxSpi ?? null;
-
-  /* ---- filter options ---- */
-
-  const campusKey = campuses.join("||");
-  const semesterKey = semesters.join("||");
-  const campusOptions = useMemo(() => {
-    if (lockedCampus) return [lockedCampus];
-    return omitExcludedInstitutes(data?.options.campuses ?? []);
-  }, [data, lockedCampus]);
-  const semesterOptions = data?.options.semesters ?? [];
-  const subjectOptions = useMemo(() => {
-    const campusSet = new Set(campuses);
-    const semesterSet = new Set(semesters);
-    return subjectOptionList(
-      (subjectData?.options ?? [])
-        .filter((item) => (!campusSet.size || campusSet.has(item.campus)) && (!semesterSet.size || semesterSet.has(item.semester)))
-        .map((item) => item.subject),
-    );
-  }, [subjectData, campusKey, semesterKey]);
-  const sectionChoices = data?.options.sections ?? [];
-
-  /* ---- summary and the current page, from the server ---- */
-
-  const summary: DirectorySummary = data?.summary ?? EMPTY_SUMMARY;
-  const totalRows = data?.total ?? 0;
-  const totalPages = data?.totalPages ?? 1;
-  const currentPage = data?.page ?? page;
-  const paged = data?.rows ?? [];
-
-  const activeCount =
-    (lockedCampus ? 0 : campuses.length ? 1 : 0) +
-    (semesters.length ? 1 : 0) +
-    (sections.length ? 1 : 0) +
-    (subjects.length ? 1 : 0) +
-    (tiers.length ? 1 : 0) +
-    (spiOp && spiA ? 1 : 0) +
-    (attOp && attA ? 1 : 0) +
-    (quiz ? 1 : 0) +
-    (filters.search ? 1 : 0);
-
-  const clearAll = () => {
-    setSearch("");
-    const keep = new URLSearchParams();
-    for (const key of ["attRange", "attFrom", "attTo", "sort", "dir"]) {
-      const value = query.get(key);
-      if (value) keep.set(key, value);
-    }
-    setPage(1);
-    const qs = keep.toString();
-    setLocation(qs ? `/dashboard/students?${qs}` : "/dashboard/students", { replace: true });
+  const o = options.data;
+  const semesterNames = useMemo(() => [...new Set((o?.sections ?? []).filter((s) => !filters.college || s.college === filters.college).map((s) => s.semester).filter((s): s is string => !!s))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [o, filters.college]);
+  const sectionNames = useMemo(
+    () => [...new Set((o?.sections ?? []).filter((s) => (!filters.college || s.college === filters.college) && (!filters.semester || s.semester === filters.semester)).map((s) => s.section))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
+    [o, filters.college, filters.semester],
+  );
+  const change = (patch: Partial<DirectoryFilters>) =>
+    setFilters((f) => {
+      const next = { ...f, ...patch };
+      if (patch.college !== undefined && next.semester && !(o?.sections ?? []).some((s) => (!next.college || s.college === next.college) && s.semester === next.semester)) next.semester = "";
+      if (patch.college !== undefined || patch.semester !== undefined) {
+        const ok = (o?.sections ?? []).some((s) => (!next.college || s.college === next.college) && (!next.semester || s.semester === next.semester) && s.section === next.section);
+        if (next.section && !ok) next.section = "";
+      }
+      return next;
+    });
+  const reset = () => {
+    setFilters(NO_DIRECTORY_FILTERS);
+    setQuiz("");
   };
 
-  const toggleSort = (key: SortKey, numeric?: boolean) => {
-    if (key === sortKey) writeQuery({ sort: key, dir: sortDir === 1 ? "desc" : undefined });
-    else writeQuery({ sort: key === "name" ? undefined : key, dir: numeric ? "desc" : undefined });
-  };
-
-  const copyId = async (id: string) => {
-    try {
-      await navigator.clipboard.writeText(id);
-      toast({ title: "Student UUID copied", description: id });
-    } catch {
-      toast({ title: "Could not copy", description: id, variant: "destructive" });
-    }
-  };
-
-  /** CSV needs every matching student, not the page on screen, so it asks the server for the whole view. */
-  const handleExport = async () => {
-    const params = new URLSearchParams(viewKey);
-    params.set("export", "1");
-    const { rows } = await fetchDirectory(params);
-    exportCsv(
-      `students-${new Date().toISOString().slice(0, 10)}.csv`,
-      [
-        "Student UUID",
-        "Name",
-        "Campus",
-        "Section",
-        "Semester",
-        "Present",
-        "Scheduled",
-        "Attendance %",
-        "Attendance tier",
-        "Classroom quiz %",
-        "Module quiz %",
-        "SPI",
-        "Skill level",
-        "Skill debt",
-      ],
-      rows.map((row) => [
-        row.studentId,
-        row.studentName,
-        row.campus,
-        row.sections.join(", "),
-        row.semesters.join(", "),
-        row.present,
-        row.scheduled,
-        row.attendancePct ?? "",
-        row.tier ? ATTENDANCE_TIERS.find((tier) => tier.id === row.tier)?.label ?? "" : "",
-        row.classroom ?? "",
-        row.module ?? "",
-        row.spi.toFixed(1),
-        skillLabel(row.skill),
-        row.skillDebt ? "Yes" : "No",
-      ]),
-    );
-  };
-
-  const periodText =
-    period === "last_30"
-      ? "Last 30 days"
-      : period === "custom"
-        ? customReady
-          ? `${attFrom} to ${attTo}`
-          : "Custom range"
-        : "This semester so far";
-  const scopeText = [
-    campuses.length === 0 ? "All campuses" : campuses.length === 1 ? campuses[0] : `${campuses.length} campuses`,
-    subjects.length === 1 ? subjects[0] : subjects.length > 1 ? `${subjects.length} subjects` : "",
-  ].filter(Boolean).join(" · ");
-  const multiCampus = campuses.length !== 1;
-  const loadingTiles = isLoading || customPending;
-  // On a failed load the summary is built from no rows, so its zeros are not real: show "—" instead.
-  const tileValue = (value: string) => (isError ? "—" : loadingTiles ? null : value);
-  const errorHint = "Couldn't load";
+  const onSort = (key: string) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: ["college", "name", "semester", "section"].includes(key) ? "asc" : "desc" }));
+  const rows = data.data?.rows ?? [];
+  const summary = data.data?.summary;
+  const loading = data.isLoading;
+  const scope = [user?.campuses?.length ? (user.campuses.length <= 2 ? user.campuses.join(" · ") : `${user.campuses.length} colleges`) : "", user?.subjects?.length ? (user.subjects.length <= 3 ? user.subjects.join(" · ") : `${user.subjects.length} subjects`) : ""].filter(Boolean).join(" · ");
+  const highlight = quiz === "classroom" ? "classroom" : quiz === "module" ? "module" : quiz === "skill" ? "skill" : undefined;
+  const dim = (key: string) => (highlight && highlight !== key ? "opacity-40" : "");
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader attendanceNote
+      <PageHeader
         title="Student Directory"
-        subtitle={`Find a student or pull a filtered list · ${scopeText} · attendance for ${periodText}`}
         right={
           <div className="flex items-center gap-2">
-            {isFetching && !isLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
-            <Button variant="outline" className="h-9 gap-2 border-gray-200" onClick={() => void handleExport()} disabled={totalRows === 0}>
-              <Download className="h-4 w-4" /> Export CSV
-            </Button>
+            {scope && <span className="hidden rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 sm:inline">{scope}</span>}
+            <a
+              href={directoryApi.exportUrl(applied, { sort: sort.key, dir: sort.dir })}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-600 px-3.5 text-sm font-semibold text-white hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 focus-visible:ring-offset-2"
+            >
+              <Download className="h-4 w-4" aria-hidden="true" /> Export CSV
+            </a>
           </div>
         }
       />
 
-      {/* ---- filters ---- */}
-      <div className="flex flex-col gap-3 border-y border-slate-200 bg-white px-5 py-3">
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Search">
-            <div className="relative w-[280px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Name or student UUID"
-                className="h-9 pl-9 normal-case tracking-normal"
-              />
-            </div>
-          </Field>
-          {!lockedCampus && (
-            <Field label="Campus">
-              <CheckMenu
-                label={campuses.length ? `${campuses.length} selected` : "All campuses"}
-                options={campusOptions.map((name) => ({ id: name, label: name }))}
-                selected={campuses}
-                onChange={(next) => writeQuery({ campuses: next.join("||") || undefined, sections: undefined })}
-              />
-            </Field>
-          )}
-          <Field label="Semester">
-            <CheckMenu
-              label={semesters.length ? `${semesters.length} selected` : "All semesters"}
-              options={semesterOptions.map((name) => ({ id: name, label: name }))}
-              selected={semesters}
-              onChange={(next) => writeQuery({ semesters: next.join("||") || undefined, sections: undefined })}
-            />
-          </Field>
-          <Field label="Section">
-            <CheckMenu
-              label={sections.length ? `${sections.length} selected` : campuses.length ? "All sections" : "Select a campus"}
-              options={sectionChoices.map((item) => ({
-                id: `${item.campus}\t${item.section}`,
-                label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
-              }))}
-              selected={sections}
-              onChange={(next) => writeQuery({ sections: next.join("||") || undefined })}
-            />
-          </Field>
-          <Field label="Subject">
-            <CheckMenu
-              label={subjects.length ? `${subjects.length} selected` : "All subjects"}
-              options={subjectOptions.map((name) => ({ id: name, label: name }))}
-              selected={subjects}
-              onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
-            />
-          </Field>
-          <Field label="Attendance period">
-            <div className="flex flex-wrap items-center gap-2">
-              <SearchableSelect
-                value={period}
-                onValueChange={(value) => writeQuery({ attRange: value === "semester_to_date" ? undefined : value })}
-                options={[
-                  { value: "semester_to_date", label: "This semester so far" },
-                  { value: "last_30", label: "Last 30 days" },
-                  { value: "custom", label: "Custom range" },
-                ]}
-                className="w-[190px]"
-              />
-              {period === "custom" && (
-                <>
-                  <Input type="date" aria-label="Attendance from" className="h-9 w-[150px]" value={attFrom} onChange={(event) => writeQuery({ attFrom: event.target.value || undefined })} />
-                  <Input type="date" aria-label="Attendance to" className="h-9 w-[150px]" value={attTo} onChange={(event) => writeQuery({ attTo: event.target.value || undefined })} />
-                </>
-              )}
-            </div>
-          </Field>
-        </div>
-
-        <div className="flex flex-wrap items-end gap-3">
-          <GroupField label="Attendance tier">
-            <div className="flex flex-wrap gap-1.5">
-              {ATTENDANCE_TIERS.map((tier) => {
-                const on = tiers.includes(tier.id);
-                return (
-                  <button
-                    key={tier.id}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() =>
-                      writeQuery({
-                        tiers: (on ? tiers.filter((id) => id !== tier.id) : [...tiers, tier.id]).join("||") || undefined,
-                      })
-                    }
-                    className={cn(
-                      "h-9 rounded-md border px-2.5 text-xs font-medium normal-case tracking-normal transition-colors",
-                      on ? "border-transparent" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50",
-                    )}
-                    style={on ? { background: tier.bg, color: tier.color, borderColor: tier.color } : undefined}
-                  >
-                    {tier.label} <span className="opacity-70">{tier.hint}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </GroupField>
-          <Field label="Attendance % (0–100)">
-            <BoundControl
-              name="Attendance %"
-              min={0}
-              max={100}
-              op={attOp}
-              a={attA}
-              b={attB}
-              onChange={(op, a, b) => writeQuery({ attOp: op || undefined, attA: op ? a || undefined : undefined, attB: op === "between" ? b || undefined : undefined })}
-            />
-          </Field>
-          <Field label={`SPI points (0–10 · highest now ${maxSpi == null ? "—" : maxSpi.toFixed(1)})`}>
-            <BoundControl
-              name="SPI points"
-              min={0}
-              max={10}
-              op={spiOp}
-              a={spiA}
-              b={spiB}
-              onChange={(op, a, b) => writeQuery({ spiOp: op || undefined, spiA: op ? a || undefined : undefined, spiB: op === "between" ? b || undefined : undefined })}
-            />
-          </Field>
-          <Field label="Quiz data">
-            <SearchableSelect
-              value={quiz || "any"}
-              onValueChange={(value) => writeQuery({ quiz: value === "any" ? undefined : value })}
-              options={[
-                { value: "any", label: "Any" },
-                { value: "missing_classroom", label: "No classroom quiz" },
-                { value: "missing_module", label: "No module quiz" },
-                { value: "missing_both", label: "No quizzes at all" },
-              ]}
-              className="w-[170px]"
-            />
-          </Field>
-          <div className="flex items-end gap-2">
-            {activeCount > 0 && (
-              <Button type="button" variant="ghost" size="sm" className="h-9 text-red-600 hover:text-red-700" onClick={clearAll}>
-                Clear ({activeCount})
-              </Button>
-            )}
+      <div role="group" aria-label="Filters" className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <Field label="College">
+          <select className={selectClass} value={filters.college} disabled={o?.colleges.length === 1} onChange={(e) => change({ college: e.target.value })}>
+            {o?.colleges.length === 1 ? null : <option value="">All colleges</option>}
+            {(o?.colleges ?? []).map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Semester">
+          <select className={selectClass} value={filters.semester} onChange={(e) => change({ semester: e.target.value })}>
+            <option value="">All semesters</option>
+            {semesterNames.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Section">
+          <select className={selectClass} value={filters.section} onChange={(e) => change({ section: e.target.value })}>
+            <option value="">All sections</option>
+            {sectionNames.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Subject">
+          <select className={selectClass} value={filters.subject} onChange={(e) => change({ subject: e.target.value })}>
+            <option value="">{user?.subjects?.length ? "My subjects" : "All subjects"}</option>
+            {(o?.subjects ?? []).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Attendance %">
+          <div className="flex items-center gap-1.5">
+            <input type="number" inputMode="numeric" min={0} max={100} aria-label="Minimum attendance" value={filters.attMin} onChange={(e) => change({ attMin: Math.min(clampPct(e.target.value), filters.attMax) })} className={cn(selectClass, "px-2 text-center")} />
+            <span className="text-slate-400" aria-hidden="true">–</span>
+            <input type="number" inputMode="numeric" min={0} max={100} aria-label="Maximum attendance" value={filters.attMax} onChange={(e) => change({ attMax: Math.max(clampPct(e.target.value), filters.attMin) })} className={cn(selectClass, "px-2 text-center")} />
           </div>
+        </Field>
+        <Field label="Quiz type">
+          <select className={selectClass} value={quiz} onChange={(e) => setQuiz(e.target.value as QuizTypeFilter)}>
+            {QUIZ_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Student name / UUID" className="sm:col-span-2 lg:col-span-3 xl:col-span-6">
+          <span className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              type="search"
+              value={filters.q}
+              onChange={(e) => change({ q: e.target.value })}
+              placeholder="Search name or UUID"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
+            />
+          </span>
+        </Field>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
+        <Kpi label="Total students" value={fmtInt(summary?.students ?? 0)} tone="main" loading={loading} />
+        <Kpi label="Average attendance" value={summary?.avgAttendance == null ? "–" : `${summary.avgAttendance.toFixed(1)}%`} loading={loading} />
+        <Kpi label="Eligible students" value={fmtInt(summary?.eligible ?? 0)} tone="good" loading={loading} />
+        <Kpi label="Not eligible" value={fmtInt(summary?.notEligible ?? 0)} tone="bad" loading={loading} />
+        <Kpi label="Average SPI" value={summary?.avgSpi == null ? "–" : summary.avgSpi.toFixed(2)} loading={loading} />
+        <Kpi label="Skill debt" value={fmtInt(summary?.skillDebt ?? 0)} tone="warn" loading={loading} />
+      </div>
+
+      <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Students">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2.5">
+          <p className="text-sm text-slate-500 tabular-nums">
+            <span className="font-semibold text-slate-900">{fmtInt(data.data?.total ?? 0)}</span> students
+          </p>
+          <button type="button" onClick={reset} className="h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">
+            Reset filters
+          </button>
         </div>
-      </div>
-
-      {/* ---- summary ---- */}
-      <div className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 md:grid-cols-3 xl:grid-cols-6">
-        <StatTile
-          label="Students"
-          value={tileValue(summary.students.toLocaleString("en-IN"))}
-          hint={
-            isError
-              ? errorHint
-              : totalRows > summary.students
-              ? `${(totalRows - summary.students).toLocaleString("en-IN")} listed under two campuses, so the table has ${totalRows.toLocaleString("en-IN")} rows`
-              : "Match these filters"
-          }
-        />
-        <StatTile
-          label="Attendance"
-          value={tileValue(fmtPct(summary.avgAttendance))}
-          valueColor={!isError && summary.avgAttendance != null ? tierTextColor(summary.avgAttendance) : undefined}
-          hint={isError ? errorHint : "Sessions attended ÷ scheduled"}
-        />
-        <StatTile label="Eligible ≥80%" value={tileValue(summary.eligible.toLocaleString("en-IN"))} hint={isError ? errorHint : "Attendance"} />
-        <ClickTile active={tiers.length === 2 && tiers.includes("at_risk") && tiers.includes("ineligible")} onClick={() => writeQuery({ tiers: "at_risk||ineligible" })}>
-          <StatTile
-            label="Below 60%"
-            value={tileValue(summary.belowSixty.toLocaleString("en-IN"))}
-            valueColor={!isError && summary.belowSixty ? "#b91c1c" : undefined}
-            hint={isError ? errorHint : "Click to list them"}
-          />
-        </ClickTile>
-        <StatTile
-          label="Avg SPI"
-          value={tileValue(summary.avgSpi == null ? "—" : summary.avgSpi.toFixed(1))}
-          hint={isError ? errorHint : "0–10 · classroom 10% + module 15% so far"}
-        />
-        <StatTile
-          label="Skill debt"
-          value={tileValue(summary.skillDebt.toLocaleString("en-IN"))}
-          valueColor={!isError && summary.skillDebt ? "#b91c1c" : undefined}
-          hint={isError ? errorHint : "Skill level F or no quiz"}
-        />
-      </div>
-
-      {/* ---- table ---- */}
-      {isError ? (
-        <ErrorState message="Failed to load students." onRetry={() => refetch()} />
-      ) : customPending ? (
-        <p className="bg-white px-5 py-10 text-center text-sm text-slate-500">Pick both a start and an end date for the custom range.</p>
-      ) : (
-        <TableShell className="mt-4">
+        {data.isError && !data.data ? (
+          <div role="alert" className="flex items-center justify-between gap-3 p-6 text-sm text-red-800">
+            <span>We couldn't load the students.</span>
+            <button type="button" onClick={() => void data.refetch()} className="rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-semibold">
+              Retry
+            </button>
+          </div>
+        ) : (
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-                  {COLUMNS.map((column) => (
-                    <TableHead
-                      key={column.key}
-                      className={cn("h-11 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-600", column.numeric && "text-right", column.className)}
-                      aria-sort={sortKey === column.key ? (sortDir === 1 ? "ascending" : "descending") : undefined}
-                    >
-                      <button
-                        type="button"
-                        className={cn("inline-flex items-center gap-1 uppercase hover:text-gray-900", column.numeric && "flex-row-reverse")}
-                        onClick={() => toggleSort(column.key, column.numeric)}
-                      >
-                        {column.label}
-                        {sortKey === column.key && (sortDir === 1 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)}
-                      </button>
-                    </TableHead>
-                  ))}
-                  <TableHead className="h-11 min-w-[80px] px-3 text-right text-[11px] font-semibold uppercase tracking-wider text-gray-600">Report</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  Array.from({ length: 8 }).map((_, i) => (
-                    <TableRow key={i} className="border-b border-gray-100">
-                      {Array.from({ length: COLUMNS.length + 1 }).map((__, j) => (
-                        <TableCell key={j} className="py-3">
-                          <Skeleton className="h-5 w-full max-w-[160px]" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : paged.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={COLUMNS.length + 1} className="h-24 text-center text-gray-500">
-                      No students match these filters.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paged.map((row) => {
-                    const tier = ATTENDANCE_TIERS.find((item) => item.id === row.tier);
-                    const spiPath = row.spiPath;
-                    return (
-                      <TableRow key={row.key} className="border-b border-gray-200 hover:bg-gray-50">
-                        <TableCell className="py-3">
-                          <div className="max-w-[240px] truncate font-medium text-gray-900" title={row.studentName}>
-                            {row.studentName || "—"}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-xs text-gray-600">{row.studentId}</span>
-                            <button
-                              type="button"
-                              onClick={() => copyId(row.studentId)}
-                              className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                              aria-label={`Copy UUID for ${row.studentName}`}
-                              title="Copy UUID"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-gray-600">
-                          <div className="max-w-[240px] truncate" title={row.campus}>{row.campus}</div>
-                        </TableCell>
-                        <TableCell className="text-gray-600">{row.sections.join(", ") || "—"}</TableCell>
-                        <TableCell className="text-gray-600">{row.semesters.join(", ") || "—"}</TableCell>
-                        <TableCell className="whitespace-nowrap text-right">
-                          <span className="tabular-nums">
-                            <span className="font-bold" style={row.attendancePct != null ? { color: tierTextColor(row.attendancePct) } : undefined}>
-                              {fmtPct(row.attendancePct)}
-                            </span>
-                            {row.scheduled > 0 && (
-                              <span className="ml-1 text-xs text-gray-500">({row.present}/{row.scheduled})</span>
-                            )}
-                          </span>
-                          {tier && (
-                            <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: tier.bg, color: tier.color }}>
-                              {tier.label}
-                            </span>
-                          )}
-                        </TableCell>
-                        <PctCell value={row.classroom} />
-                        <PctCell value={row.module} />
-                        <TableCell className="text-right font-semibold tabular-nums text-gray-900">{row.spi.toFixed(1)}</TableCell>
-                        <TableCell className={cn("whitespace-nowrap text-right text-sm font-semibold", skillTone(row.skill))}>
-                          {skillLabel(row.skill)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {spiPath ? (
-                            <a
-                              href={spiPath}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
-                            >
-                              Open <ExternalLink className="h-3.5 w-3.5" />
-                            </a>
-                          ) : (
-                            <NoData />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+            <table className="w-full min-w-[56rem] text-left">
+              <Head columns={COLUMNS} sort={sort} onSort={onSort} highlight={highlight} dense />
+              <Body loading={loading} empty="No students match these filters" colSpan={COLUMNS.length} rowsCount={rows.length}>
+                {rows.map((r: DirectoryRow) => (
+                  <tr key={r.studentId} className="hover:bg-slate-50">
+                    <td className={cn(cell, "max-w-[11rem] truncate")} title={r.college}>{r.college}</td>
+                    <td className={cn(cell, "max-w-[10rem] truncate font-semibold text-slate-900")} title={r.name ?? undefined}>{r.name || "—"}</td>
+                    <td className={cell}><CopyUid uid={r.studentId} /></td>
+                    <td className={cell} title={r.semester ?? undefined}>{shortSemester(r.semester)}</td>
+                    <td className={cell}>{r.section || "—"}</td>
+                    <td className={cn(num, dim("classroom"))}><Score value={r.classroom} /></td>
+                    <td className={cn(num, dim("module"))}><Score value={r.module} /></td>
+                    <td className={cn(num, dim("skill"))}><Score value={r.skill} /></td>
+                    <td className={num}><Spi value={r.spi} /></td>
+                    <td className={cell}>
+                      <a href={r.reportPath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-violet-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">
+                        View <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </Body>
+            </table>
           </div>
-          {!isLoading && totalRows > 0 && (
-            <TablePagination
-              page={currentPage}
-              totalPages={totalPages}
-              totalItems={totalRows}
-              pageSize={pageSize}
-              pageSizeOptions={PAGE_SIZES}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-              itemLabel={totalRows > summary.students ? "rows" : "students"}
-            />
-          )}
-        </TableShell>
-      )}
+        )}
+        <Pager page={data.data} unit="students" pageSize={pageSize} onPage={(next) => setPageState({ key: viewKey, page: next })} onPageSize={setPageSize} />
+      </section>
     </div>
-  );
-}
-
-function PctCell({ value }: { value: number | null }) {
-  return (
-    <TableCell className="text-right">
-      {value == null ? (
-        <NoData />
-      ) : (
-        <span className="font-semibold tabular-nums" style={{ color: pctTextColor(value) }}>
-          {value.toFixed(1)}%
-        </span>
-      )}
-    </TableCell>
-  );
-}
-
-function GroupField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div role="group" aria-label={label} className="flex shrink-0 flex-col gap-1">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function ClickTile({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn("block h-full w-full text-left", active && "ring-2 ring-inset ring-brand-600")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function NoData() {
-  return (
-    <>
-      <span aria-hidden className="text-gray-500">—</span>
-      <span className="sr-only">No data</span>
-    </>
   );
 }
