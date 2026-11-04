@@ -336,13 +336,16 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
               {problem && <b className="mb-0.5 block">{problem}</b>}
               {m.body}
               <ShotGallery items={images} large />
-              <small className="mt-1 block text-[10.5px] opacity-60">Student · {timeLabel(m.createdAt)}</small>
+              <small className="mt-1 block text-[10.5px] opacity-60">
+                {studentLabel(student.name, student.studentId)} · {timeLabel(m.createdAt)}
+              </small>
             </div>
           ) : (
             <div key={m.id} className="max-w-[72%] self-end whitespace-pre-wrap break-words rounded-[12px] rounded-br-[3px] bg-[#2563EB] px-3 py-2 text-[12.5px] leading-snug text-white">
               {m.body}
-              <small className="mt-1 block text-[10.5px] opacity-75">
-                {m.authorName} · {timeLabel(m.createdAt)}
+              {/* The team writes as "SPI team", like the student sees it; the staff member's name is on hover for the record. */}
+              <small className="mt-1 block text-[10.5px] opacity-75" title={m.authorName ? `Sent by ${m.authorName}` : undefined}>
+                SPI team · {timeLabel(m.createdAt)}
               </small>
             </div>
           );
