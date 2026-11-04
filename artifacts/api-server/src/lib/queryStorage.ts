@@ -53,6 +53,9 @@ function r2Storage(): QueryStorage {
         region: "auto",
         endpoint: process.env["R2_ENDPOINT"],
         credentials: { accessKeyId: process.env["R2_ACCESS_KEY_ID"], secretAccessKey: process.env["R2_SECRET_ACCESS_KEY"] },
+        // Newer AWS SDK versions add checksum headers by default, which R2 does not accept; only send them when required.
+        requestChecksumCalculation: "WHEN_REQUIRED",
+        responseChecksumValidation: "WHEN_REQUIRED",
       });
     }
     return { mod, client: client! };
