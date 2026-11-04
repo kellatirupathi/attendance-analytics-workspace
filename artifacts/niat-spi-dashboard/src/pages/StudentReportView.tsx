@@ -841,6 +841,7 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
           studentId={studentId}
           subjects={data.courses.map((c) => c.name)}
           chats={thread.queries}
+          screenshots={Boolean(thread.screenshots)}
           onSent={() => void refreshThread()}
           onClose={() => setQueryOpen(false)}
           onOpenChat={() => {

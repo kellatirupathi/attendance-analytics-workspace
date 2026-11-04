@@ -17,6 +17,7 @@ export function RaiseQueryForm({
   onClose,
   onSent,
   onOpenChat,
+  screenshots,
 }: {
   studentId: string;
   /** Every subject the student's report shows. */
@@ -27,6 +28,8 @@ export function RaiseQueryForm({
   onSent: () => void;
   /** Opens the student's chat list (shown after a query is sent). */
   onOpenChat: () => void;
+  /** The server has image storage set up; without it the screenshot option is not shown. */
+  screenshots: boolean;
 }) {
   const [category, setCategory] = useState("");
   const [problem, setProblem] = useState("");
@@ -218,7 +221,7 @@ export function RaiseQueryForm({
                 value={details}
                 maxLength={MAX_CHARS}
                 onChange={(e) => setDetails(e.target.value)}
-                onPaste={shots.onPaste}
+                onPaste={screenshots ? shots.onPaste : undefined}
                 placeholder={problem === "something_else" ? "Tell us your problem in your own words" : "Add details like the date, class or quiz name"}
                 rows={5}
                 className={`${FIELD} min-h-28 resize-y py-2.5 leading-relaxed`}
@@ -228,12 +231,14 @@ export function RaiseQueryForm({
               </p>
             </div>
 
-            <div className="grid gap-1.5">
-              <span className="text-xs font-semibold text-[#0B1F4D]">
-                Screenshots <span className="font-normal text-[#6B7280]">(optional, up to {MAX_SHOTS})</span>
-              </span>
-              <ShotPicker state={shots} />
-            </div>
+            {screenshots && (
+              <div className="grid gap-1.5">
+                <span className="text-xs font-semibold text-[#0B1F4D]">
+                  Screenshots <span className="font-normal text-[#6B7280]">(optional, up to {MAX_SHOTS})</span>
+                </span>
+                <ShotPicker state={shots} />
+              </div>
+            )}
 
             {error && (
               <p role="alert" className="rounded-[10px] bg-[#FDECEF] px-3 py-2 text-[12px] text-[#9F1239]">

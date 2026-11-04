@@ -3,7 +3,7 @@ import { allLimits, perNetworkLimit, perStudentLimit } from "../lib/rateLimits.j
 import { getSessionFromRequest } from "../lib/auth.js";
 import { validateStudentId } from "../lib/bigquery.js";
 import { getStudentThread, getStudentUnread, markStudentRead, postStudentMessage, submitQuery } from "../lib/queryChat.js";
-import { MAX_IMAGE_BYTES, findAttachment, saveUpload, sendAttachment } from "../lib/queryAttachments.js";
+import { MAX_IMAGE_BYTES, findAttachment, saveUpload, sendAttachment, storageConfigured } from "../lib/queryAttachments.js";
 import { studentKey } from "../lib/testStudents.js";
 
 const router = Router();
@@ -78,7 +78,8 @@ router.get("/thread", threadLimiter, async (req, res): Promise<void> => {
       res.json({ unread: await getStudentUnread(key) });
       return;
     }
-    res.json(await getStudentThread(key));
+    // `screenshots`: the Add screenshot button is only offered when the image storage is set up on this server.
+    res.json({ ...(await getStudentThread(key)), screenshots: storageConfigured() });
   } catch (err) {
     req.log.error({ err }, "Reading a student's query thread failed");
     res.status(500).json({ error: "Could not load your queries. Please try again." });

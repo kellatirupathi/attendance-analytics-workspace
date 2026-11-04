@@ -24,6 +24,8 @@ import {
 
 interface StudentThread extends Thread {
   unread: number;
+  /** The server has image storage set up, so screenshots can be added. */
+  screenshots?: boolean;
 }
 
 const EMPTY: StudentThread = { queries: [], messages: [], unread: 0 };
@@ -207,7 +209,7 @@ function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (
   );
 }
 
-function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentId: string; query: ThreadQuery; messages: ThreadMessage[]; onBack: () => void; onRefresh: () => Promise<void> }) {
+function QueryChat({ studentId, query, messages, screenshots, onBack, onRefresh }: { studentId: string; query: ThreadQuery; messages: ThreadMessage[]; screenshots: boolean; onBack: () => void; onRefresh: () => Promise<void> }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -304,13 +306,13 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
             void send();
           }}
         >
-          {shots.shots.length === 0 && <ShotPicker state={shots} compact />}
+          {screenshots && shots.shots.length === 0 && <ShotPicker state={shots} compact />}
           <textarea
             value={text}
             maxLength={MAX_CHARS}
             rows={1}
             onChange={(e) => setText(e.target.value)}
-            onPaste={shots.onPaste}
+            onPaste={screenshots ? shots.onPaste : undefined}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -356,7 +358,7 @@ export function QueryChatSheet({
     <div className="fixed inset-0 z-50 grid bg-[#0B1F4D]/35 sm:place-items-end sm:p-6" onClick={(e) => e.target === e.currentTarget && onClose()} role="dialog" aria-modal="true" aria-label="My queries">
       <div className="flex h-full w-full flex-col overflow-hidden bg-white shadow-[0_24px_60px_rgba(11,31,77,0.25)] sm:h-[min(680px,calc(100vh-3rem))] sm:max-w-[400px] sm:rounded-[18px]">
         {open ? (
-          <QueryChat studentId={studentId} query={open} messages={thread.messages} onBack={() => setOpenId(null)} onRefresh={onRefresh} />
+          <QueryChat studentId={studentId} query={open} messages={thread.messages} screenshots={Boolean(thread.screenshots)} onBack={() => setOpenId(null)} onRefresh={onRefresh} />
         ) : (
           <>
             <div className="flex items-center gap-2 border-b border-[#E6ECF5] px-4 py-3">
