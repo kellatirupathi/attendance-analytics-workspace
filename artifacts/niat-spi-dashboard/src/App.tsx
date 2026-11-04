@@ -16,6 +16,7 @@ const Landing = lazy(() => import("@/pages/Landing"));
 const StaffLogin = lazy(() => import("@/pages/StaffLogin"));
 const StudentLogin = lazy(() => import("@/pages/StudentLogin"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
+const Overview = lazy(() => import("@/pages/Overview"));
 const SpiReport = lazy(() => import("@/pages/SpiReport"));
 const Students = lazy(() => import("@/pages/Students"));
 const Campuses = lazy(() => import("@/pages/Campuses"));
@@ -126,6 +127,12 @@ function Router() {
 
         {/* Authenticated dashboard */}
         <Route path="/dashboard">
+          <Protected>
+            <Overview />
+          </Protected>
+        </Route>
+        {/* The previous Overview, kept as it was. */}
+        <Route path="/dashboard/classic">
           <Protected>
             <Dashboard />
           </Protected>

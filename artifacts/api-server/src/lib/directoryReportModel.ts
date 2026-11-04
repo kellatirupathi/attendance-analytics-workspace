@@ -22,9 +22,16 @@ export interface DirectoryCourse {
   classroom: DirectoryPart | null;
   module: DirectoryPart | null;
   skill: DirectoryPart | null;
+  /** The course's own attendance %, its score out of 100, its level points (0–10) and whether it is level F (skill debt). */
+  attendancePct?: number | null;
+  score?: number | null;
+  points?: number | null;
+  levelF?: boolean;
 }
 
 export type AttendanceState = "met" | "not_met" | "not_available";
+/** The report's attendance tier, from the student's weakest course (80 / 60 / 50). */
+export type ReportTier = "eligible" | "recovery_eligible" | "at_risk" | "ineligible";
 
 export interface DirectoryStudent {
   /** UUID with hyphens, as shown and used in the report link. */
@@ -36,6 +43,8 @@ export interface DirectoryStudent {
   section: string;
   attendancePct: number | null;
   attendanceState: AttendanceState;
+  /** null when the student has no sessions yet. */
+  tier?: ReportTier | null;
   /** Out of 10, or null when the report has none yet. */
   spi: number | null;
   skillDebt: boolean;
@@ -50,6 +59,8 @@ export interface DirectoryFilter {
   semester?: string;
   section?: string;
   subject?: string;
+  /** The report's attendance tier. */
+  tier?: ReportTier;
   /** Attendance % bounds, 0–100. */
   attMin?: number;
   attMax?: number;
@@ -81,7 +92,7 @@ export interface DirectorySummary {
   skillDebt: number;
 }
 
-const plain = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+export const plain = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const mean = (values: number[], round: (n: number) => number): number | null => (values.length ? round(values.reduce((s, v) => s + v, 0) / values.length) : null);
@@ -100,20 +111,21 @@ export function hyphenate(id: string): string {
 }
 
 /** The subject names a request is limited to: the filter's subject, else the user's own subjects; null = every course. */
-function subjectSet(f: DirectoryFilter): Set<string> | null {
+export function subjectSet(f: DirectoryFilter): Set<string> | null {
   const scope = (f.scopeSubjects ?? []).map(plain).filter(Boolean);
   const chosen = plain(f.subject ?? "");
   if (chosen) return new Set(scope.length && !scope.includes(chosen) ? [] : [chosen]);
   return scope.length ? new Set(scope) : null;
 }
 
-function matches(s: DirectoryStudent, f: DirectoryFilter, subjects: Set<string> | null): boolean {
+export function matches(s: DirectoryStudent, f: DirectoryFilter, subjects: Set<string> | null): boolean {
   const campuses = f.scopeCampuses ?? [];
   if (campuses.length && !campuses.some((c) => c.trim() === s.college)) return false;
   if (f.college && s.college !== f.college.trim()) return false;
   if (f.semester && (s.semester ?? "") !== f.semester.trim()) return false;
   if (f.section && s.section !== f.section.trim()) return false;
   if (subjects && !s.courses.some((c) => subjects.has(plain(c.name)))) return false;
+  if (f.tier && s.tier !== f.tier) return false;
   const min = f.attMin ?? 0;
   const max = f.attMax ?? 100;
   if (min > 0 || max < 100) {

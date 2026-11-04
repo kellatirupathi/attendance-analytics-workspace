@@ -4,7 +4,8 @@ import { scopeForSession, type Role } from "../lib/rbac.js";
 import { pageOf, readPageRequest } from "../lib/pagination.js";
 import { spiSharePath } from "../lib/spiToken.js";
 import { directorySnapshot } from "../lib/directoryReport.js";
-import { directoryOptions, directoryRows, sortRows, summarize, type DirectoryFilter } from "../lib/directoryReportModel.js";
+import { directoryOptions, directoryRows, sortRows, summarize, type DirectoryFilter, type ReportTier } from "../lib/directoryReportModel.js";
+import { overviewOf } from "../lib/overviewReportModel.js";
 
 /**
  * Student Directory: one row per student from the saved student reports (lib/directoryReport.ts), so the
@@ -31,6 +32,7 @@ function readFilter(req: Request, res: Response): DirectoryFilter | null {
     semester: q["semester"],
     section: q["section"],
     subject: q["subject"],
+    tier: (["eligible", "recovery_eligible", "at_risk", "ineligible"] as const).find((t) => t === q["tier"]) as ReportTier | undefined,
     attMin: bound(q["attMin"], 0),
     attMax: bound(q["attMax"], 100),
     q: String(q["q"] ?? "").slice(0, 100),
@@ -52,6 +54,17 @@ router.get("/options", async (req, res): Promise<void> => {
   if (!filter) return;
   try {
     res.json(directoryOptions(await directorySnapshot.get(), filter));
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+/** Overview: the same report numbers as the directory, rolled up for the cards and charts. */
+router.get("/overview", async (req, res): Promise<void> => {
+  const filter = readFilter(req, res);
+  if (!filter) return;
+  try {
+    res.json(overviewOf(await directorySnapshot.get(), filter));
   } catch (err) {
     fail(req, res, err);
   }

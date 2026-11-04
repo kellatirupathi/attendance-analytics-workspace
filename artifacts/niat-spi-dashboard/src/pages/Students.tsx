@@ -75,6 +75,8 @@ const cell = "whitespace-nowrap px-2.5 py-2.5 text-sm text-slate-700";
 const num = `${cell} text-right tabular-nums`;
 const shortSemester = (s: string | null) => (s ? s.replace(/^Semester\s+/i, "Sem ") : "—");
 
+const TIER_LABEL: Record<string, string> = { eligible: "Eligible", recovery_eligible: "Recovery", at_risk: "At risk", ineligible: "Ineligible" };
+
 const clampPct = (v: string) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
 
 type AttendanceOp = "gte" | "lte" | "between";
@@ -101,6 +103,7 @@ export default function Students() {
     college: link.get("campuses")?.split("||")[0] ?? "",
     semester: link.get("semesters")?.split("||")[0] ?? "",
     q: link.get("q") ?? "",
+    tier: ["eligible", "recovery_eligible", "at_risk", "ineligible"].includes(link.get("tier") ?? "") ? link.get("tier")! : "",
   }));
   const [debouncedQ, setDebouncedQ] = useState(filters.q);
   const [quiz, setQuiz] = useState<QuizTypeFilter>("");
@@ -281,9 +284,21 @@ export default function Students() {
 
       <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Students">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2.5">
-          <p className="text-sm text-slate-500 tabular-nums">
-            <span className="font-semibold text-slate-900">{fmtInt(data.data?.total ?? 0)}</span> students
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm text-slate-500 tabular-nums">
+              <span className="font-semibold text-slate-900">{fmtInt(data.data?.total ?? 0)}</span> students
+            </p>
+            {filters.tier && (
+              <button
+                type="button"
+                onClick={() => change({ tier: "" })}
+                aria-label={`Remove the ${TIER_LABEL[filters.tier]} tier filter`}
+                className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
+              >
+                Tier: {TIER_LABEL[filters.tier]} <span aria-hidden="true">×</span>
+              </button>
+            )}
+          </div>
           <button type="button" onClick={reset} className="h-9 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">
             Reset filters
           </button>

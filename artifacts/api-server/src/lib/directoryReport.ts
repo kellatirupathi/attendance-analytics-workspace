@@ -17,8 +17,9 @@ interface Row {
   spi: string | number | null;
   name: string | null;
   att_state: string | null;
+  att_tier: string | null;
   debt: number | string | null;
-  courses: { n?: string; cq?: unknown; mq?: unknown; sa?: unknown }[] | null;
+  courses: { n?: string; cq?: unknown; mq?: unknown; sa?: unknown; att?: unknown; score?: unknown; pts?: unknown; lvl?: unknown }[] | null;
 }
 
 const num = (v: unknown): number | null => {
@@ -41,8 +42,9 @@ async function load(): Promise<DirectoryStudent[]> {
         r.student_id, r.college, r.semester, r.section, r.attendance_pct, r.spi,
         r.report->>'studentName' AS name,
         r.report->'attendance'->>'state' AS att_state,
+        r.report->'attendance'->>'tier' AS att_tier,
         jsonb_array_length(COALESCE(r.report->'skillDebt', '[]'::jsonb)) AS debt,
-        COALESCE((SELECT jsonb_agg(jsonb_build_object('n', c->>'name', 'cq', c->'classroom', 'mq', c->'module', 'sa', c->'skillAssessment'))
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('n', c->>'name', 'cq', c->'classroom', 'mq', c->'module', 'sa', c->'skillAssessment', 'att', c->'attendancePct', 'score', c->'courseScore', 'pts', c->'points', 'lvl', c->>'level'))
                   FROM jsonb_array_elements(COALESCE(r.report->'courses', '[]'::jsonb)) c), '[]'::jsonb) AS courses
      FROM spi_report_cache r
      ORDER BY r.student_id, r.built_at DESC`,
@@ -52,7 +54,7 @@ async function load(): Promise<DirectoryStudent[]> {
     const college = (r.college ?? "").trim();
     if (!college || isExcludedInstitute(college)) continue;
     const state: AttendanceState = r.att_state === "met" ? "met" : r.att_state === "not_met" ? "not_met" : "not_available";
-    const courses: DirectoryCourse[] = (r.courses ?? []).map((c) => ({ name: String(c.n ?? "").trim(), classroom: part(c.cq), module: part(c.mq), skill: part(c.sa) })).filter((c) => c.name);
+    const courses: DirectoryCourse[] = (r.courses ?? []).map((c) => ({ name: String(c.n ?? "").trim(), classroom: part(c.cq), module: part(c.mq), skill: part(c.sa), attendancePct: num(c.att), score: num(c.score), points: num(c.pts), levelF: c.lvl === "F" })).filter((c) => c.name);
     out.push({
       studentId: hyphenate(r.student_id),
       name: r.name?.trim() || null,
@@ -61,6 +63,7 @@ async function load(): Promise<DirectoryStudent[]> {
       section: shortSection(r.section),
       attendancePct: num(r.attendance_pct),
       attendanceState: state,
+      tier: (["eligible", "recovery_eligible", "at_risk", "ineligible"] as const).find((t) => t === r.att_tier) ?? null,
       spi: num(r.spi),
       skillDebt: (Number(r.debt) || 0) > 0,
       courses,

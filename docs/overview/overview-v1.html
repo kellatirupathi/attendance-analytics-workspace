@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overview · role mockups (v1)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0B1F4D; --ink:#1E2B4F; --muted:#64708F; --line:#E6E9F5; --line-2:#F0F2FA; --grid:#ECEEF7;
+  --canvas:#F6F5FD; --bg:#FFFFFF; --accent:#6D4AE0; --accent-700:#5B3BC9; --accent-50:#F1EEFC; --accent-100:#E4DEFA;
+  --t-eligible:#1E7F4F; --t-eligible-bg:#E7F5EE; --t-recovery:#B45309; --t-recovery-fill:#E3A008; --t-recovery-bg:#FEF3E2; --t-risk:#C2410C; --t-risk-bg:#FFF4EC; --t-inelig:#B91C1C; --t-inelig-bg:#FDECEC;
+  --radius:14px; --shadow:0 1px 2px rgba(11,31,77,.05),0 4px 14px rgba(11,31,77,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,"Segoe UI",system-ui,sans-serif;font-size:13px;color:var(--ink);background:var(--canvas);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+.mock{position:sticky;top:0;z-index:40;background:var(--navy);color:#fff;padding:9px 16px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+.mock b{font-weight:600}.mock small{color:#B8C4E6}
+.roles{display:flex;gap:4px;flex-wrap:wrap;background:rgba(255,255,255,.09);padding:3px;border-radius:9px}
+.roles button{border:0;background:transparent;color:#DCE0F2;padding:7px 12px;border-radius:7px;font-weight:600;cursor:pointer;font-size:12.5px}
+.roles button:hover{background:rgba(255,255,255,.12)}
+.roles button[aria-pressed=true]{background:#fff;color:var(--navy)}
+
+.app{display:flex;min-height:calc(100vh - 50px)}
+.side{width:212px;flex:none;background:var(--bg);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column}
+.brand{display:flex;gap:10px;align-items:center;padding:2px 8px 16px}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:700}
+.brand b{font-size:15px;color:var(--navy)}.brand b i{color:#EA580C;font-style:normal}.brand small{display:block;color:var(--muted);font-size:11px}
+.grp{font-size:10.5px;letter-spacing:.06em;color:#9AA6C4;font-weight:600;padding:14px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink);font-weight:500;text-decoration:none}
+.nav:hover{background:var(--canvas)}.nav.on{background:var(--accent-50);color:var(--accent-700);font-weight:600}
+.nav svg{width:16px;height:16px;flex:none}
+.me{margin-top:auto;display:flex;gap:10px;align-items:center;padding:12px 8px 0;border-top:1px solid var(--line)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--accent-100);color:var(--accent-700);display:grid;place-items:center;font-weight:700}
+.me b{display:block;font-size:12.5px;color:var(--navy)}.me small{color:var(--muted)}
+
+.main{flex:1;min-width:0;padding:18px 22px 32px}
+.top{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.top h1{font-size:22px;font-weight:700;color:var(--navy);letter-spacing:-.01em;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.scope{display:inline-flex;align-items:center;padding:4px 11px;border-radius:999px;background:var(--accent-50);color:var(--accent-700);font-size:12px;font-weight:600}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ctl{height:36px;border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:0 11px;transition:border-color .15s,box-shadow .15s}
+.ctl:hover{border-color:#D0D4EA}.ctl:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-100);outline:none}
+select.ctl{appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364708F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.ctl:disabled{background-color:var(--canvas);color:var(--muted);cursor:not-allowed}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-weight:600;cursor:pointer}
+.btn:hover{background:var(--canvas)}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.primary:hover{background:var(--accent-700)}
+.btn svg{width:14px;height:14px}
+.platform{display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 12px}
+.platform span{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-weight:600;color:var(--navy);font-size:12px}
+.platform i{font-style:normal;color:var(--muted);font-weight:500;margin-left:4px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));gap:10px;margin-bottom:14px}
+.kpi{position:relative;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 14px;box-shadow:var(--shadow);cursor:pointer;display:flex;flex-direction:column;gap:1px;transition:transform .15s,box-shadow .15s,border-color .15s}
+.kpi:hover{transform:translateY(-1px);border-color:var(--accent-100);box-shadow:0 6px 18px rgba(109,74,224,.14)}
+.kpi span{font-size:11.5px;color:var(--muted);font-weight:500}
+.kpi b{font-size:21px;font-weight:700;color:var(--navy);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi svg{position:absolute;top:10px;right:10px;width:13px;height:13px;color:#B7BDD6;opacity:0;transition:opacity .15s}
+.kpi:hover svg{opacity:1}
+.kpi i{position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0}
+
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+.c3{grid-column:span 3}.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media (max-width:1180px){.c3,.c4,.c5,.c7,.c8{grid-column:span 6}}
+@media (max-width:720px){.grid>*{grid-column:span 12!important}}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;display:flex;flex-direction:column;min-width:0}
+.ch{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.ch h2{font-size:14px;font-weight:700;color:var(--navy)}
+.ch .r{display:flex;gap:8px;align-items:center}
+.seg{display:inline-flex;background:var(--canvas);border:1px solid var(--line);border-radius:9px;padding:2px}
+.seg button{border:0;background:transparent;padding:4px 10px;border-radius:7px;font-weight:600;font-size:11.5px;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed=true],.seg button[aria-selected=true]{background:var(--bg);color:var(--accent-700);box-shadow:0 1px 3px rgba(11,31,77,.12)}
+.link{border:0;background:transparent;color:var(--accent-700);font-weight:600;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 4px}
+.link:hover{text-decoration:underline}
+.link{white-space:nowrap}.link svg{width:12px;height:12px}
+svg text{font-family:Inter,sans-serif}
+.axis{fill:var(--muted);font-size:10.5px}
+.hl{stroke:var(--grid);stroke-width:1}
+
+/* donut */
+.donut{display:flex;align-items:center;gap:16px;flex-wrap:wrap;justify-content:center}
+.donut svg{width:150px;height:150px;flex:none}
+.seglist{display:flex;flex-direction:column;gap:6px;min-width:150px;flex:1}
+.segrow{display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:5px 6px;border-radius:8px;cursor:pointer;text-align:left;width:100%}
+.segrow:hover,.segrow.on{background:var(--canvas)}
+.sw{width:10px;height:10px;border-radius:3px;flex:none}
+.segrow .n{margin-left:auto;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
+.segrow .p{color:var(--muted);width:42px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* horizontal bars */
+.hb{display:flex;flex-direction:column;gap:9px}
+.hrow{display:grid;grid-template-columns:minmax(90px,44%) 1fr 48px;align-items:center;gap:10px;border:0;background:transparent;text-align:left;padding:2px 0;cursor:pointer;width:100%}
+.hrow:hover .tr i{filter:brightness(.92)}
+.hrow .lb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500;color:var(--ink)}
+.hrow .tr{height:10px;background:var(--line-2);border-radius:0 5px 5px 0}
+.hrow .tr i{display:block;height:100%;background:var(--accent);border-radius:0 4px 4px 0;min-width:2px}
+.hrow .v{text-align:right;font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums}
+
+/* final skill assessment */
+.fsa{justify-content:center;background:linear-gradient(180deg,#FFFFFF 0%,#FAF9FE 100%)}
+.fsa .lock{width:36px;height:36px;border-radius:10px;background:var(--accent-50);color:var(--accent-700);display:grid;place-items:center}
+.fsa .lock svg{width:18px;height:18px}
+.chip{display:inline-block;border-radius:999px;padding:3px 10px;font-size:11.5px;font-weight:700;background:var(--accent-50);color:var(--accent-700)}
+.fsa h2{font-size:14px;font-weight:700;color:var(--navy);margin:10px 0 8px}
+
+/* attention */
+.tabs{display:inline-flex;background:var(--canvas);border:1px solid var(--line);border-radius:10px;padding:2px}
+.tabs button{border:0;background:transparent;padding:5px 12px;border-radius:8px;font-weight:600;font-size:12px;color:var(--muted);cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.tabs button[aria-selected=true]{background:var(--bg);color:var(--navy);box-shadow:0 1px 3px rgba(11,31,77,.12)}
+.tabs .ct{border-radius:999px;padding:0 7px;font-size:11px}
+.stu{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;border:0;background:transparent;width:100%;text-align:left;padding:8px 8px;border-radius:10px;cursor:pointer;border-bottom:1px solid var(--line-2)}
+.stu:hover{background:var(--canvas)}
+.stu b{display:block;color:var(--navy);font-weight:600}.stu small{color:var(--muted)}
+.pill{display:inline-block;min-width:54px;text-align:center;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.list{display:flex;flex-direction:column}
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+
+#tip{position:fixed;z-index:60;pointer-events:none;background:var(--navy);color:#fff;padding:7px 10px;border-radius:9px;font-size:12px;line-height:1.4;box-shadow:0 8px 24px rgba(11,31,77,.25);opacity:0;transform:translateY(4px);transition:opacity .12s,transform .12s;max-width:240px}
+#tip.on{opacity:1;transform:none}#tip b{font-weight:700}#tip span{color:#C9D0EA}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:9px 16px;border-radius:10px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:70}
+.toast.on{opacity:1;transform:translateX(-50%)}
+@media (max-width:1000px){.side{display:none}.main{padding:14px 12px 24px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="mock">
+  <div><b>Overview · role mockups</b> <small>sample data, nothing is live</small></div>
+  <div class="roles" role="group" aria-label="Preview as role" id="roles"></div>
+</div>
+<div class="app">
+  <aside class="side" aria-label="Main navigation">
+    <div class="brand"><div class="logo">N</div><div><b>NIAT <i>SPI</i></b><small>Skill Performance Index</small></div></div>
+    <div class="grp">MAIN</div>
+    <a class="nav on" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a6 6 0 0 0-12 0"/><circle cx="12" cy="8" r="4"/></svg>Student Directory</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M8 17V9M13 17V5M18 17v-6"/></svg>Student Attendance Stats</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>SPI Record Dashboard</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Assessments</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="m9 12 2 2 4-4"/></svg>SPI Quiz</a>
+    <div class="grp">OPERATIONS</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z"/></svg>Request Inbox</a>
+    <div class="me"><div class="av" id="meAv">A</div><div><b id="meName">Admin</b><small id="meRole">Admin</small></div></div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <h1>Overview<span class="scope" id="scope"></span></h1>
+      <div class="acts" id="acts"></div>
+    </div>
+    <div class="platform" id="platform" hidden></div>
+    <section class="kpis" id="kpis" aria-label="Summary"></section>
+    <section class="grid" id="grid"></section>
+  </main>
+</div>
+<div id="tip" role="tooltip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ============ dummy data (seeded, nothing is live) ============ */
+const rng = (a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; })(20261107);
+const pick = a => a[Math.floor(rng() * a.length)];
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const COLLEGES = ["Crescent University","Aurora University","S-VYASA","Joy University","AMET","Alard University","A Dy Patil University","Noida International University"];
+const COLLEGE_BASE = [74, 58, 66, 52, 62, 76, 70, 61];
+const SUBJECTS = ["Data Structures","Programming Foundations","Web Application Development","Probability and Statistics","Communicative English","Quantitative Aptitude"];
+const FIRST = ["Aarav","Ananya","Vihaan","Diya","Rohan","Sneha","Karthik","Meera","Arjun","Pooja","Harsha","Lakshmi","Nikhil","Ishita","Sai","Divya","Varun","Kavya","Rahul","Sanjana","Manoj","Priya","Tarun","Neha"];
+const LAST = ["Reddy","Sharma","Naik","Rao","Patel","Kumar","Iyer","Singh","Das","Gupta","Menon","Joshi","Varma","Khan","Nair"];
+const SUB_BIAS = [6, -3, 2, -9, 9, -5];
+const STUDENTS = Array.from({ length: 960 }, (_, i) => {
+  const ci = i % COLLEGES.length, base = COLLEGE_BASE[ci];
+  const att = Math.round(clamp(base + (rng() * 44 - 22) - (rng() < .12 ? 20 : 0), 18, 100) * 10) / 10;
+  const spi = Math.round(clamp(att / 12 + (rng() * 4 - 2), 0.2, 9.8) * 100) / 100;
+  const subs = SUBJECTS.map((_, k) => ({ att: Math.round(clamp(att + SUB_BIAS[k] + (rng() * 26 - 13), 5, 100)), score: Math.round(clamp(spi * 10 + 10 + SUB_BIAS[k] * 1.4 + (rng() * 28 - 14), 4, 100)) }));
+  const q = k => Math.round(clamp(spi * 10 + k + (rng() * 22 - 11), 5, 100));
+  return { name: `${pick(FIRST)} ${pick(LAST)}`, college: COLLEGES[ci], section: "S-00" + (1 + Math.floor(rng() * 5)), att, spi, subs, cq: q(-4), mq: q(-10), sa: rng() < .3 ? null : q(-14) };
+});
+const tierOf = a => a >= 80 ? "eligible" : a >= 60 ? "recovery" : a >= 50 ? "risk" : "inelig";
+const TIERS = [["eligible", "Eligible", "≥ 80%", "var(--t-eligible)", "var(--t-eligible-bg)"], ["recovery", "Recovery", "60–79%", "var(--t-recovery-fill)", "var(--t-recovery-bg)"], ["risk", "At risk", "50–59%", "var(--t-risk)", "var(--t-risk-bg)"], ["inelig", "Ineligible", "< 50%", "var(--t-inelig)", "var(--t-inelig-bg)"]];
+
+/* ============ the five roles ============ */
+const HOD_COLLEGE = "Crescent University";
+const CM_COURSES = ["Data Structures", "Programming Foundations", "Web Application Development", "Probability and Statistics", "Quantitative Aptitude"];
+const ROLES = {
+  admin: { label: "Admin", user: "Meghana R", scope: "All colleges", colleges: COLLEGES, kind: "college",
+    layout: [["att", 4], ["trend", 5], ["fsa", 3], ["assess", 4], ["spidist", 4], ["rank", 4], ["subject", 4], ["attention", 8]] },
+  superadmin: { label: "Super Admin", user: "Akhilendar Reddy", scope: "Platform-wide", colleges: COLLEGES, kind: "college", platform: true,
+    layout: [["trend", 5], ["att", 4], ["fsa", 3], ["rank", 6], ["subject", 6], ["assess", 4], ["spidist", 4], ["attention", 4]] },
+  boa: { label: "BOA", user: "Rahul V", scope: "Institution-wide academics", colleges: COLLEGES, kind: "college",
+    layout: [["assess", 5], ["spidist", 4], ["fsa", 3], ["att", 4], ["rank", 8], ["trend", 6], ["subject", 6], ["attention", 12]] },
+  hod: { label: "HOD", user: "Dr. S. Prakash", scope: HOD_COLLEGE + " · CSE (AI & DS)", colleges: [HOD_COLLEGE], kind: "section", lock: true,
+    layout: [["att", 4], ["trend", 5], ["fsa", 3], ["rank", 6], ["subject", 6], ["assess", 4], ["spidist", 4], ["attention", 4]] },
+  capability_manager: { label: "Capability Manager", user: "Nandini K", scope: "5 assigned courses", colleges: COLLEGES, kind: "course", courses: CM_COURSES, debtKpi: true,
+    layout: [["assess", 4], ["rank", 4], ["fsa", 4], ["att", 4], ["trend", 4], ["debt", 4], ["attention", 12]] },
+};
+
+/* ============ state ============ */
+const NO = { range: "semester", from: "2026-10-01", to: "2026-11-07", college: "", section: "", course: "" };
+let role = "admin", F = { ...NO };
+const UI = { attTab: "risk", metric: "attendance", subjMetric: "attendance", order: "top", hoverTier: null };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const avg = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+const fmt = (v, d = 1) => v == null ? "–" : v.toFixed(d);
+const fmtN = n => n.toLocaleString("en-IN");
+const ICON = {
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>',
+  dl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+};
+
+/* the students the role may see, after the filters; the date range shifts attendance a little in the mockup */
+const SHIFT = { semester: 0, last30: 2, last7: 4, custom: 1 };
+function scoped() {
+  const r = ROLES[role];
+  return STUDENTS.filter(s => r.colleges.includes(s.college) && (!F.college || s.college === F.college) && (!F.section || s.section === F.section))
+    .map(s => { const a = clamp(s.att + SHIFT[F.range], 0, 100); return a === s.att ? s : { ...s, att: a, tier: undefined }; });
+}
+function courseRows(students) {
+  const idx = c => SUBJECTS.indexOf(c);
+  const list = ROLES[role].courses || SUBJECTS;
+  return list.filter(c => !F.course || c === F.course).map(c => ({ name: c, att: avg(students.map(s => s.subs[idx(c)].att)), score: avg(students.map(s => s.subs[idx(c)].score)), debt: students.filter(s => s.subs[idx(c)].score < 50).length }));
+}
+function trendFor(students) {
+  const cur = avg(students.map(s => s.spi)) ?? 0;
+  const spec = { semester: ["Jul", "Aug", "Sep", "Oct", "Nov"], last30: ["W1", "W2", "W3", "W4"], last7: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], custom: ["W1", "W2", "W3", "W4", "W5"] }[F.range];
+  const n = spec.length, step = { semester: 0.55, last30: 0.2, last7: 0.07, custom: 0.18 }[F.range];
+  return spec.map((l, i) => ({ l, v: Math.max(0.2, cur - (n - 1 - i) * step + Math.sin(i * 1.7 + students.length) * step * 0.35) }));
+}
+
+/* ============ tooltip ============ */
+const tip = $("tip");
+function tipOn(el, html) {
+  const show = e => { tip.innerHTML = html; tip.classList.add("on"); const r = tip.getBoundingClientRect(); const x = e.clientX ?? el.getBoundingClientRect().left + 20, y = e.clientY ?? el.getBoundingClientRect().top; tip.style.left = Math.min(innerWidth - r.width - 10, x + 14) + "px"; tip.style.top = Math.max(8, y - r.height - 12) + "px"; };
+  el.addEventListener("mousemove", show); el.addEventListener("mouseenter", show); el.addEventListener("focus", show);
+  el.addEventListener("mouseleave", () => tip.classList.remove("on")); el.addEventListener("blur", () => tip.classList.remove("on"));
+}
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.id); toast.id = setTimeout(() => el.classList.remove("on"), 1700); }
+const go = what => toast("Opens " + what);
+
+/* ============ chart builders ============ */
+function donut(counts, total) {
+  const R = 54, C = 2 * Math.PI * R, GAP = 2;
+  let off = 0;
+  const segs = TIERS.map(([k, label, hint, col]) => {
+    const n = counts[k], len = total ? n / total * C : 0;
+    const el = len > 0 ? `<circle class="seg" data-k="${k}" tabindex="0" role="img" aria-label="${label}: ${n}" cx="75" cy="75" r="${R}" fill="none" stroke="${col}" stroke-width="16" stroke-dasharray="${Math.max(0, len - GAP)} ${C - Math.max(0, len - GAP)}" stroke-dashoffset="${-off}" transform="rotate(-90 75 75)" style="cursor:pointer"/>` : "";
+    off += len; return el;
+  }).join("");
+  return `<svg viewBox="0 0 150 150" role="group" aria-label="Attendance distribution"><circle cx="75" cy="75" r="${R}" fill="none" stroke="var(--line-2)" stroke-width="16"/>${segs}<text id="dtotal" x="75" y="72" text-anchor="middle" font-size="22" font-weight="700" fill="var(--navy)">${fmtN(total)}</text><text id="dsub" x="75" y="90" text-anchor="middle" font-size="11" fill="var(--muted)">students</text></svg>`;
+}
+function vbars(items, { max = 100, unit = "%", w = 340, h = 190, labelAxis = true } = {}) {
+  const L = 34, R = 8, T = 22, B = 34, iw = w - L - R, ih = h - T - B, band = iw / items.length, bw = Math.min(24, band * 0.5);
+  const ticks = [0, .25, .5, .75, 1].map(f => f * max);
+  const grid = ticks.map(t => { const y = T + ih - t / max * ih; return `<line class="hl" x1="${L}" x2="${w - R}" y1="${y}" y2="${y}"/><text class="axis" x="${L - 6}" y="${y + 3.5}" text-anchor="end">${Math.round(t)}</text>`; }).join("");
+  const bars = items.map((it, i) => {
+    const bh = Math.max(2, (it.v ?? 0) / max * ih), x = L + band * i + (band - bw) / 2, y = T + ih - bh, r = Math.min(4, bh);
+    const d = `M${x},${T + ih} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${T + ih} Z`;
+    return `<g><path class="vb" data-i="${i}" tabindex="0" role="img" aria-label="${esc(it.l)}: ${fmt(it.v)}${unit}" d="${d}" fill="var(--accent)" style="cursor:pointer"/><text x="${x + bw / 2}" y="${y - 6}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--navy)">${it.show ?? fmt(it.v, 0)}</text><text class="axis" x="${x + bw / 2}" y="${h - 14}" text-anchor="middle">${esc(it.l)}</text></g>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;overflow:visible">${grid}${bars}</svg>`;
+}
+function line(points, { w = 440, h = 200 } = {}) {
+  const L = 34, R = 18, T = 16, B = 30, iw = w - L - R, ih = h - T - B;
+  const vals = points.map(p => p.v), lo = Math.max(0, Math.floor(Math.min(...vals) - 0.5)), hi = Math.min(10, Math.ceil(Math.max(...vals) + 0.5)) || 10;
+  const x = i => L + (points.length === 1 ? iw / 2 : iw * i / (points.length - 1)), y = v => T + ih - (v - lo) / (hi - lo || 1) * ih;
+  const ticks = Array.from({ length: 5 }, (_, i) => lo + (hi - lo) * i / 4);
+  const grid = ticks.map(t => `<line class="hl" x1="${L}" x2="${w - R}" y1="${y(t)}" y2="${y(t)}"/><text class="axis" x="${L - 6}" y="${y(t) + 3.5}" text-anchor="end">${t.toFixed(1)}</text>`).join("");
+  const path = points.map((p, i) => `${i ? "L" : "M"}${x(i)},${y(p.v)}`).join(" ");
+  const area = `${path} L${x(points.length - 1)},${T + ih} L${x(0)},${T + ih} Z`;
+  const dots = points.map((p, i) => `<g><circle cx="${x(i)}" cy="${y(p.v)}" r="6.5" fill="var(--bg)"/><circle cx="${x(i)}" cy="${y(p.v)}" r="4.5" fill="var(--accent)"/></g>`).join("");
+  const xl = points.map((p, i) => `<text class="axis" x="${x(i)}" y="${h - 10}" text-anchor="middle">${p.l}</text>`).join("");
+  const hit = points.map((p, i) => `<rect class="lh" data-i="${i}" tabindex="0" role="img" aria-label="${p.l}: SPI ${p.v.toFixed(2)}" x="${x(i) - iw / (points.length - 1 || 1) / 2}" y="${T}" width="${iw / (points.length - 1 || 1)}" height="${ih}" fill="transparent"/>`).join("");
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" style="display:block;overflow:visible">${grid}<path d="${area}" fill="var(--accent)" opacity=".1"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><line id="xh" class="hl" y1="${T}" y2="${T + ih}" x1="-9" x2="-9" stroke="#CFC6F5"/>${dots}${xl}${hit}</svg>`;
+}
+function hbars(rows, { max = 100, unit = "%", digits = 1 } = {}) {
+  return `<div class="hb">${rows.map((r, i) => `<button type="button" class="hrow" data-i="${i}"><span class="lb" title="${esc(r.name)}">${esc(r.name)}</span><span class="tr"><i style="width:${clamp((r.v ?? 0) / max * 100, 0, 100)}%"></i></span><span class="v">${fmt(r.v, digits)}${unit}</span></button>`).join("")}</div>`;
+}
+const cardHead = (title, right = "") => `<div class="ch"><h2>${title}</h2><div class="r">${right}</div></div>`;
+const seg = (key, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-seg="${key}" data-v="${v}" aria-pressed="${UI[key] === v}">${l}</button>`).join("")}</div>`;
+const srTable = (head, rows) => `<table class="sr"><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+
+/* ============ cards ============ */
+function build(id, ctx) {
+  const { students, counts, total } = ctx, r = ROLES[role];
+  if (id === "att") {
+    return { html: `${cardHead("Attendance distribution")}<div class="donut">${donut(counts, total)}<div class="seglist" id="seglist">${TIERS.map(([k, l, hint, col]) => `<button type="button" class="segrow" data-k="${k}"><i class="sw" style="background:${col}"></i><span>${l}<small style="display:block;color:var(--muted);font-size:11px">${hint}</small></span><span class="n">${fmtN(counts[k])}</span><span class="p">${total ? Math.round(counts[k] / total * 100) : 0}%</span></button>`).join("")}</div></div>${srTable(["Tier", "Students"], TIERS.map(t => [t[1], counts[t[0]]]))}`, after(el) {
+      const setHover = k => { const t = TIERS.find(x => x[0] === k); const dt = el.querySelector("#dtotal"), ds = el.querySelector("#dsub"); if (k && t) { dt.textContent = fmtN(counts[k]); ds.textContent = t[1] + " · " + (total ? Math.round(counts[k] / total * 100) : 0) + "%"; } else { dt.textContent = fmtN(total); ds.textContent = "students"; } el.querySelectorAll(".segrow").forEach(b => b.classList.toggle("on", b.dataset.k === k)); };
+      el.querySelectorAll(".seg, .segrow").forEach(n => { n.addEventListener("mouseenter", () => setHover(n.dataset.k)); n.addEventListener("focus", () => setHover(n.dataset.k)); n.addEventListener("mouseleave", () => setHover(null)); n.addEventListener("blur", () => setHover(null)); n.addEventListener("click", () => go("Student Directory · " + TIERS.find(x => x[0] === n.dataset.k)[1] + " students")); });
+    } };
+  }
+  if (id === "trend") {
+    const pts = trendFor(students);
+    return { html: `${cardHead("SPI trend", `<span class="chip" style="background:var(--canvas);color:var(--muted)">out of 10</span>`)}${line(pts)}${srTable(["Period", "Average SPI"], pts.map(p => [p.l, p.v.toFixed(2)]))}`, after(el) {
+      const xh = el.querySelector("#xh");
+      el.querySelectorAll(".lh").forEach(n => { const p = pts[+n.dataset.i]; const cx = +n.getAttribute("x") + +n.getAttribute("width") / 2; tipOn(n, `<b>${p.l}</b><br><span>Average SPI</span> ${p.v.toFixed(2)}`); n.addEventListener("mouseenter", () => xh.setAttribute("x1", cx) || xh.setAttribute("x2", cx)); n.addEventListener("focus", () => xh.setAttribute("x1", cx) || xh.setAttribute("x2", cx)); n.addEventListener("mouseleave", () => { xh.setAttribute("x1", -9); xh.setAttribute("x2", -9); }); });
+    } };
+  }
+  if (id === "fsa") {
+    return { cls: "fsa", html: `<div><div class="lock">${ICON.lock}</div><h2>Final Skill Assessment (50%)</h2><span class="chip">Coming soon</span></div>` };
+  }
+  if (id === "assess") {
+    const items = [["Classroom Quiz", avg(students.map(s => s.cq))], ["Module Quiz", avg(students.map(s => s.mq))], ["Skill Assessment", avg(students.filter(s => s.sa != null).map(s => s.sa))]].map(([l, v]) => ({ l, v }));
+    return { html: `${cardHead("Assessment performance", `<span class="chip" style="background:var(--canvas);color:var(--muted)">avg score %</span>`)}${vbars(items)}${srTable(["Assessment", "Average %"], items.map(i => [i.l, fmt(i.v)]))}`, after(el) {
+      el.querySelectorAll(".vb").forEach(n => { const it = items[+n.dataset.i]; tipOn(n, `<b>${it.l}</b><br><span>Average score</span> ${fmt(it.v)}%`); n.addEventListener("click", () => go("Assessments · " + it.l)); });
+    } };
+  }
+  if (id === "spidist") {
+    const bins = [[0, 2], [2, 4], [4, 6], [6, 8], [8, 10.01]].map(([a, b]) => ({ l: `${a}–${Math.round(b)}`, v: students.filter(s => s.spi >= a && s.spi < b).length }));
+    return { html: `${cardHead("SPI distribution", `<span class="chip" style="background:var(--canvas);color:var(--muted)">students</span>`)}${vbars(bins, { max: (m => { const u = m < 100 ? 5 : m < 500 ? 25 : 50; return Math.max(4 * u, Math.ceil(m / (4 * u)) * 4 * u); })(Math.max(...bins.map(b => b.v))) })}${srTable(["SPI band", "Students"], bins.map(b => [b.l, b.v]))}`, after(el) {
+      el.querySelectorAll(".vb").forEach(n => { const b = bins[+n.dataset.i]; tipOn(n, `<b>SPI ${b.l}</b><br>${fmtN(b.v)} students (${students.length ? Math.round(b.v / students.length * 100) : 0}%)`); n.addEventListener("click", () => go("Student Directory · SPI " + b.l)); });
+    } };
+  }
+  if (id === "rank") return rankCard(ctx);
+  if (id === "subject") {
+    const rows = courseRows(students).map(c => ({ name: c.name, v: UI.subjMetric === "attendance" ? c.att : c.score })).sort((a, b) => b.v - a.v).slice(0, 5);
+    return { html: `${cardHead("Subject performance", seg("subjMetric", [["attendance", "Attendance"], ["score", "Avg score"]]))}${hbars(rows)}<div class="foot"><span></span><button type="button" class="link" data-all="Subject performance">View all ${ICON.arrow}</button></div>`, after(el) { hbarEvents(el, rows, "%"); } };
+  }
+  if (id === "debt") {
+    const rows = courseRows(students).map(c => ({ name: c.name, v: c.debt })).sort((a, b) => b.v - a.v).slice(0, 5);
+    const max = Math.max(1, ...rows.map(r => r.v));
+    return { html: `${cardHead("Skill debt by course", `<span class="chip" style="background:var(--canvas);color:var(--muted)">students</span>`)}${hbars(rows, { max, unit: "", digits: 0 })}<div class="foot"><span></span><button type="button" class="link" data-all="Skill debt">View all ${ICON.arrow}</button></div>`, after(el) { hbarEvents(el, rows, " students"); } };
+  }
+  if (id === "attention") {
+    const risk = students.filter(s => tierOf(s.att) === "risk").sort((a, b) => a.att - b.att), inel = students.filter(s => tierOf(s.att) === "inelig").sort((a, b) => a.att - b.att);
+    const sel = UI.attTab === "risk" ? risk : inel, tone = UI.attTab === "risk" ? ["var(--t-risk)", "var(--t-risk-bg)"] : ["var(--t-inelig)", "var(--t-inelig-bg)"];
+    const rows = sel.slice(0, 5);
+    return { html: `<div class="ch"><h2>Students requiring attention</h2><div class="tabs" role="tablist"><button type="button" role="tab" data-tab="risk" aria-selected="${UI.attTab === "risk"}">At risk <span class="ct" style="background:var(--t-risk-bg);color:var(--t-risk)">${fmtN(risk.length)}</span></button><button type="button" role="tab" data-tab="inelig" aria-selected="${UI.attTab === "inelig"}">Ineligible <span class="ct" style="background:var(--t-inelig-bg);color:var(--t-inelig)">${fmtN(inel.length)}</span></button></div></div>
+      <div class="list">${rows.length ? rows.map(s => `<button type="button" class="stu" data-s="${esc(s.name)}"><span><b>${esc(s.name)}</b><small>${esc(s.college)} · ${s.section}</small></span><span class="pill" style="color:${tone[0]};background:${tone[1]}">${s.att}%</span></button>`).join("") : `<div style="padding:24px;text-align:center;color:var(--muted)">No students in this group</div>`}</div>
+      <div class="foot"><span style="color:var(--muted)">Lowest attendance first</span><button type="button" class="link" data-all="Student Directory · ${UI.attTab === "risk" ? "At risk" : "Ineligible"} students">View all ${fmtN(sel.length)} ${ICON.arrow}</button></div>`, after(el) {
+      el.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => { UI.attTab = b.dataset.tab; render(); }));
+      el.querySelectorAll(".stu").forEach(b => b.addEventListener("click", () => go("Student Directory · " + b.dataset.s)));
+    } };
+  }
+  return { html: "" };
+}
+function hbarEvents(el, rows, unit) {
+  el.querySelectorAll(".hrow").forEach(n => { const r = rows[+n.dataset.i]; tipOn(n, `<b>${esc(r.name)}</b><br>${fmt(r.v, unit.trim() === "students" ? 0 : 1)}${unit}`); n.addEventListener("click", () => go("Student Directory · " + r.name)); });
+}
+function rankCard(ctx) {
+  const { students } = ctx, kind = ROLES[role].kind;
+  if (kind === "course") {
+    const rows = courseRows(students).map(c => ({ name: c.name, v: c.score / 10 })).sort((a, b) => b.v - a.v).slice(0, 5);
+    return { html: `${cardHead("Course-wise SPI", `<span class="chip" style="background:var(--canvas);color:var(--muted)">out of 10</span>`)}${hbars(rows, { max: 10, unit: "", digits: 2 })}<div class="foot"><span></span><button type="button" class="link" data-all="Course-wise SPI">View all ${ICON.arrow}</button></div>`, after(el) { hbarEvents(el, rows, ""); } };
+  }
+  const groups = kind === "section" ? [...new Set(students.map(s => s.section))] : [...new Set(students.map(s => s.college))];
+  let rows = groups.map(g => { const m = students.filter(s => (kind === "section" ? s.section : s.college) === g); return { name: kind === "section" ? "Section " + g : g, att: avg(m.map(s => s.att)), spi: avg(m.map(s => s.spi)) }; });
+  const useAtt = UI.metric === "attendance";
+  rows = rows.map(r => ({ name: r.name, v: useAtt ? r.att : r.spi }));
+  const bottom = role === "superadmin" && UI.order === "bottom";
+  rows.sort((a, b) => bottom ? a.v - b.v : b.v - a.v); rows = rows.slice(0, 5);
+  const title = kind === "section" ? "Section performance" : role === "boa" ? "College comparison" : "College performance";
+  const right = (role === "superadmin" ? seg("order", [["top", "Top 5"], ["bottom", "Bottom 5"]]) : "") + seg("metric", [["attendance", "Attendance"], ["spi", "SPI"]]);
+  return { html: `${cardHead(title, right)}${hbars(rows, useAtt ? {} : { max: 10, unit: "", digits: 2 })}<div class="foot"><span style="color:var(--muted)">${bottom ? "Lowest" : "Highest"} first</span><button type="button" class="link" data-all="${title}">View all ${ICON.arrow}</button></div>`, after(el) { hbarEvents(el, rows, useAtt ? "%" : ""); } };
+}
+
+/* ============ page ============ */
+function render() {
+  const r = ROLES[role], students = scoped(), total = students.length;
+  const counts = { eligible: 0, recovery: 0, risk: 0, inelig: 0 };
+  students.forEach(s => counts[tierOf(s.att)]++);
+  $("scope").textContent = r.scope;
+  $("meName").textContent = r.user; $("meRole").textContent = r.label; $("meAv").textContent = r.user[0];
+
+  /* header controls: date, college / section / course, export */
+  const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map(v => `<option${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("");
+  $("acts").innerHTML = `
+    ${r.kind === "section" ? `<select class="ctl" id="fSec" aria-label="Section">${opts(["S-001", "S-002", "S-003", "S-004", "S-005"], F.section, "All sections")}</select>` : ""}
+    ${r.courses ? `<select class="ctl" id="fCourse" aria-label="Course">${opts(r.courses, F.course, "All my courses")}</select>` : ""}
+    ${!r.lock ? `<select class="ctl" id="fCol" aria-label="College">${opts(r.colleges, F.college, "All colleges")}</select>` : `<select class="ctl" disabled aria-label="College"><option>${HOD_COLLEGE}</option></select>`}
+    <select class="ctl" id="fRange" aria-label="Date range">${[["semester", "Semester to date"], ["last30", "Last 30 days"], ["last7", "Last 7 days"], ["custom", "Custom range"]].map(([v, l]) => `<option value="${v}"${v === F.range ? " selected" : ""}>${l}</option>`).join("")}</select>
+    ${F.range === "custom" ? `<input class="ctl" type="date" id="fFrom" value="${F.from}" aria-label="From"><input class="ctl" type="date" id="fTo" value="${F.to}" aria-label="To">` : ""}
+    <button class="btn primary" type="button" id="exp">${ICON.dl}Export</button>`;
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener("change", e => { fn(e.target.value); render(); }); };
+  on("fCol", v => F.college = v); on("fSec", v => F.section = v); on("fCourse", v => F.course = v); on("fRange", v => F.range = v); on("fFrom", v => F.from = v); on("fTo", v => F.to = v);
+  $("exp").onclick = () => toast("Mockup only: exports this overview");
+
+  /* Super Admin: platform strip */
+  const pf = $("platform"); pf.hidden = !r.platform;
+  if (r.platform) pf.innerHTML = [["Colleges", new Set(STUDENTS.map(s => s.college)).size], ["Sections", new Set(STUDENTS.map(s => s.college + s.section)).size], ["Subjects", SUBJECTS.length], ["Students", STUDENTS.length]].map(([l, v]) => `<span>${v}<i>${l}</i></span>`).join("");
+
+  /* KPI cards */
+  const avgAtt = avg(students.map(s => s.att)), avgSpi = avg(students.map(s => s.spi));
+  const kp = [
+    ["Total students", fmtN(total), "", "all students"],
+    ["Average attendance", avgAtt == null ? "–" : fmt(avgAtt) + "%", "", "attendance"],
+    ["Average SPI", avgSpi == null ? "–" : fmt(avgSpi, 2), "", "SPI"],
+    ["Eligible", fmtN(counts.eligible), "var(--t-eligible)", "eligible"],
+    ["Recovery", fmtN(counts.recovery), "var(--t-recovery)", "recovery"],
+    ["At risk", fmtN(counts.risk), "var(--t-risk)", "at-risk"],
+    ["Ineligible", fmtN(counts.inelig), "var(--t-inelig)", "ineligible"],
+  ];
+  if (r.debtKpi) kp.push(["Skill debt", fmtN(students.filter(s => s.subs.some((x, i) => (r.courses || SUBJECTS).includes(SUBJECTS[i]) && x.score < 50)).length), "var(--accent)", "skill debt"]);
+  $("kpis").innerHTML = kp.map(([l, v, c, k]) => `<button type="button" class="kpi" data-k="${esc(l)}">${c ? `<i style="background:${c}"></i>` : ""}<span>${l}</span><b${c ? ` style="color:${c}"` : ""}>${v}</b>${ICON.arrow}</button>`).join("");
+  $("kpis").querySelectorAll(".kpi").forEach(b => b.addEventListener("click", () => go("Student Directory · " + b.dataset.k)));
+
+  /* cards */
+  const ctx = { students, counts, total };
+  const grid = $("grid"); grid.innerHTML = "";
+  r.layout.forEach(([id, span]) => {
+    const c = build(id, ctx), el = document.createElement("article");
+    el.className = `card c${span} ${c.cls || ""}`; el.innerHTML = c.html; grid.appendChild(el);
+    c.after && c.after(el);
+    el.querySelectorAll("[data-seg]").forEach(b => b.addEventListener("click", () => { UI[b.dataset.seg] = b.dataset.v; render(); }));
+    el.querySelectorAll("[data-all]").forEach(b => b.addEventListener("click", () => go(b.dataset.all + " (full list)")));
+  });
+}
+function setRole(k) {
+  role = k; F = { ...NO }; UI.attTab = "risk"; UI.metric = "attendance"; UI.subjMetric = "attendance"; UI.order = "top";
+  history.replaceState(null, "", "#" + k);
+  $("roles").innerHTML = Object.entries(ROLES).map(([key, v]) => `<button type="button" data-role="${key}" aria-pressed="${key === role}">${v.label}</button>`).join("");
+  $("roles").querySelectorAll("button").forEach(b => b.onclick = () => setRole(b.dataset.role));
+  render();
+}
+setRole(ROLES[location.hash.slice(1)] ? location.hash.slice(1) : "admin");
+</script>
+</body>
+</html>

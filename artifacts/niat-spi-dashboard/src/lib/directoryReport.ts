@@ -13,8 +13,10 @@ export interface DirectoryFilters {
   attMin: number;
   attMax: number;
   q: string;
+  /** The report's attendance tier ("eligible", "recovery_eligible", "at_risk", "ineligible"), or "" for all. */
+  tier: string;
 }
-export const NO_DIRECTORY_FILTERS: DirectoryFilters = { college: "", semester: "", section: "", subject: "", attMin: 0, attMax: 100, q: "" };
+export const NO_DIRECTORY_FILTERS: DirectoryFilters = { college: "", semester: "", section: "", subject: "", attMin: 0, attMax: 100, q: "", tier: "" };
 
 export type QuizTypeFilter = "" | "classroom" | "module" | "skill";
 
