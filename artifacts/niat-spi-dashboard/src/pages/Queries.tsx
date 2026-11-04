@@ -158,7 +158,7 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
   });
   const [text, setText] = useState("");
   const [note, setNote] = useState(false);
-  const [status, setStatus] = useState<QueryStatus>("in_progress");
+  const [allSubjects, setAllSubjects] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -168,7 +168,7 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     setText("");
     setNote(false);
     setError(null);
-    setStatus("in_progress");
+    setAllSubjects(false);
   }, [queryId]);
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -187,6 +187,8 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     if (!body || sending || !data) return;
     setSending(true);
     setError(null);
+    // A reply moves a chat that was waiting for the team to "In progress"; any other status stays as the team set it.
+    const status = data.query.status === "received" ? "in_progress" : data.query.status;
     const res = await sendJson("/api/query-inbox/reply", { studentId: data.student.studentId, queryIds: [queryId], body, internal: note, status });
     setSending(false);
     if (!res.ok) {
@@ -198,8 +200,9 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     await refreshAll();
   };
 
-  const resolve = async () => {
-    const res = await sendJson(`/api/query-inbox/queries/${queryId}/status`, { status: "resolved" });
+  const changeStatus = async (next: QueryStatus) => {
+    setError(null);
+    const res = await sendJson(`/api/query-inbox/queries/${queryId}/status`, { status: next });
     if (!res.ok) setError(res.error ?? "Could not change the status.");
     else await refreshAll();
   };
@@ -226,23 +229,44 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
             <b className="block truncate text-[15px] text-brand-900">{studentLabel(student.name, student.studentId)}</b>
             <small className="block truncate text-[11.5px] text-slate-500">{place || student.studentId}</small>
           </div>
-          <a href={`/spi/${student.studentId}`} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-semibold text-brand-900 hover:bg-slate-50">
+          {query.status !== "resolved" && (
+            <button type="button" onClick={() => void changeStatus("resolved")} className="min-h-8 shrink-0 rounded-lg border border-[#16A34A] px-3 text-[12px] font-bold text-[#16A34A] hover:bg-[#E8F7EE]">
+              Mark resolved
+            </button>
+          )}
+          <a href={`/spi/${student.studentId}`} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11.5px] font-semibold text-brand-900 hover:bg-slate-50">
             Open report
           </a>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
           <span className="h-2 w-2 rounded-full" style={{ background: CATEGORY_DOT[query.category] ?? "#2563EB" }} aria-hidden />
           <b className="text-brand-900">{categoryLabel(query.category)}</b>
-          <StatusPill status={query.status} />
-          {query.assignedTo && <small className="text-[11px] text-slate-400">{query.assignedTo}</small>}
+          <select
+            value={query.status}
+            onChange={(e) => void changeStatus(e.target.value as QueryStatus)}
+            aria-label="Status"
+            className={`cursor-pointer rounded-full border-0 px-2 py-0.5 text-[10.5px] font-bold focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 ${STATUS_STYLE[query.status]}`}
+          >
+            {(["received", "in_progress", "waiting_on_student", "resolved"] as QueryStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL.staff[s]}
+              </option>
+            ))}
+          </select>
           {otherQueries > 0 && (
             <button type="button" onClick={() => onShowStudent(student.studentId)} className="ml-auto text-[11.5px] font-semibold text-brand-600 hover:underline">
-              Student also has {otherQueries} other {otherQueries === 1 ? "chat" : "chats"}
+              +{otherQueries} other {otherQueries === 1 ? "chat" : "chats"}
             </button>
           )}
         </div>
         <p className="mt-1.5 text-[12px] leading-snug text-slate-700">
-          <b className="text-brand-900">{query.subjects.length === 1 ? "Subject:" : "Subjects:"}</b> {query.subjects.join(", ")}
+          <b className="text-brand-900">{query.subjects.length === 1 ? "Subject:" : "Subjects:"}</b>{" "}
+          {allSubjects || query.subjects.length <= 2 ? query.subjects.join(", ") : query.subjects.slice(0, 2).join(", ")}
+          {query.subjects.length > 2 && (
+            <button type="button" onClick={() => setAllSubjects((v) => !v)} className="ml-1.5 font-semibold text-brand-600 hover:underline">
+              {allSubjects ? "show less" : `+${query.subjects.length - 2} more`}
+            </button>
+          )}
         </p>
       </div>
 
@@ -288,70 +312,57 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
       </div>
 
       <div className="border-t border-slate-200 bg-white px-4 py-2.5">
-        <div className="mb-2 flex items-center gap-1" role="tablist" aria-label="Message type">
-          <button type="button" role="tab" aria-selected={!note} onClick={() => setNote(false)} className={`rounded-md px-2.5 py-1 text-[12px] font-bold ${!note ? "bg-[#EAF1FF] text-[#2563EB]" : "text-slate-500"}`}>
-            Reply to student
-          </button>
-          <button type="button" role="tab" aria-selected={note} onClick={() => setNote(true)} className={`rounded-md px-2.5 py-1 text-[12px] font-bold ${note ? "bg-[#FFF4DD] text-[#D97706]" : "text-slate-500"}`}>
-            Internal note
-          </button>
+        <div className="mb-2 flex flex-wrap items-center gap-1">
+          <div className="flex items-center gap-1" role="tablist" aria-label="Message type">
+            <button type="button" role="tab" aria-selected={!note} onClick={() => setNote(false)} className={`rounded-md px-2.5 py-1 text-[12px] font-bold ${!note ? "bg-[#EAF1FF] text-[#2563EB]" : "text-slate-500"}`}>
+              Reply
+            </button>
+            <button type="button" role="tab" aria-selected={note} onClick={() => setNote(true)} className={`rounded-md px-2.5 py-1 text-[12px] font-bold ${note ? "bg-[#FFF4DD] text-[#D97706]" : "text-slate-500"}`}>
+              Internal note
+            </button>
+          </div>
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            {!note && (
+              <select aria-label="Quick reply" value="" onChange={(e) => e.target.value && insert(e.target.value)} className="h-8 max-w-[160px] rounded-md border border-slate-200 bg-white px-2 text-[12px] font-semibold text-slate-600">
+                <option value="">Quick reply</option>
+                {QUICK_REPLIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c.length > 48 ? `${c.slice(0, 46)}…` : c}
+                  </option>
+                ))}
+              </select>
+            )}
+            {query.subjects.length > 1 && (
+              <select aria-label="Add a subject name to the message" value="" onChange={(e) => e.target.value && insert(e.target.value)} className="h-8 max-w-[160px] rounded-md border border-slate-200 bg-white px-2 text-[12px] font-semibold text-slate-600">
+                <option value="">Add subject</option>
+                {query.subjects.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            )}
+          </span>
         </div>
-        {query.subjects.length > 1 && (
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-slate-500">Add a subject name to your message:</span>
-            {query.subjects.map((s) => (
-              <button key={s} type="button" onClick={() => insert(s)} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-brand-900 hover:bg-slate-50">
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-        {!note && (
-          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-slate-500">Quick replies:</span>
-            {QUICK_REPLIES.map((c) => (
-              <button key={c} type="button" onClick={() => insert(c)} className="rounded-full bg-[#EAF1FF] px-2.5 py-1 text-[11px] font-semibold text-[#2563EB]">
-                {c.length > 34 ? `${c.slice(0, 32)}…` : c}
-              </button>
-            ))}
-          </div>
-        )}
         {error && (
           <p role="alert" className="mb-2 rounded-lg bg-[#FDECEF] px-2.5 py-1.5 text-[12px] text-[#9F1239]">
             {error}
           </p>
         )}
-        <textarea
-          ref={boxRef}
-          value={text}
-          maxLength={MAX_REPLY}
-          rows={2}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={note ? "Write a note for the team (the student will not see it)…" : "Write a reply the student will see in their report…"}
-          aria-label={note ? "Internal note" : "Reply"}
-          className={`w-full resize-y rounded-lg border px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 ${note ? "border-[#F0C96B] bg-[#FFFDF3]" : "border-slate-300"}`}
-        />
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {!note && (
-            <label className="flex items-center gap-1.5 text-[12px] text-slate-600">
-              After sending:
-              <select value={status} onChange={(e) => setStatus(e.target.value as QueryStatus)} className="rounded-md border border-slate-200 px-1.5 py-1 text-[12px] font-semibold text-brand-900">
-                <option value="in_progress">In progress</option>
-                <option value="waiting_on_student">Waiting on student</option>
-                <option value="resolved">Resolved</option>
-              </select>
-            </label>
-          )}
-          <span className="ml-auto flex items-center gap-2">
-            {query.status !== "resolved" && (
-              <button type="button" onClick={() => void resolve()} className="min-h-9 rounded-lg border border-[#16A34A] px-3 text-[12px] font-bold text-[#16A34A] hover:bg-[#E8F7EE]">
-                Mark resolved
-              </button>
-            )}
-            <button type="button" onClick={() => void send()} disabled={!text.trim() || sending} className="min-h-9 rounded-lg bg-[#2563EB] px-4 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
-              {sending ? "Sending…" : note ? "Save note" : "Send reply"}
-            </button>
-          </span>
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={boxRef}
+            value={text}
+            maxLength={MAX_REPLY}
+            rows={2}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={note ? "Write a note for the team (the student will not see it)…" : "Write a reply the student will see…"}
+            aria-label={note ? "Internal note" : "Reply"}
+            className={`min-w-0 flex-1 resize-y rounded-lg border px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 ${note ? "border-[#F0C96B] bg-[#FFFDF3]" : "border-slate-300"}`}
+          />
+          <button type="button" onClick={() => void send()} disabled={!text.trim() || sending} className="min-h-10 shrink-0 rounded-lg bg-[#2563EB] px-4 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            {sending ? "Sending…" : note ? "Save note" : "Send"}
+          </button>
         </div>
       </div>
     </div>
@@ -362,6 +373,7 @@ export default function Queries() {
   // The team opens on what is waiting for a reply.
   const [status, setStatus] = useState("received");
   const [category, setCategory] = useState("all");
+  const [college, setCollege] = useState("all");
   const [search, setSearch] = useState("");
   const [term, setTerm] = useState("");
   const [page, setPage] = useState(0);
@@ -376,17 +388,18 @@ export default function Queries() {
   }, [search]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["query-inbox", status, category, term, page],
+    queryKey: ["query-inbox", status, category, college, term, page],
     refetchInterval: 30_000,
-    queryFn: () => getJson<{ queries: InboxQuery[]; hasMore: boolean }>(`/api/query-inbox/queries?status=${status}&category=${category}&q=${encodeURIComponent(term)}&page=${page}`),
+    queryFn: () => getJson<{ queries: InboxQuery[]; hasMore: boolean }>(`/api/query-inbox/queries?status=${status}&category=${category}&college=${encodeURIComponent(college)}&q=${encodeURIComponent(term)}&page=${page}`),
   });
   const queries = data?.queries ?? [];
+  const { data: collegeData } = useQuery({ queryKey: ["query-inbox-colleges"], staleTime: 5 * 60_000, queryFn: () => getJson<{ colleges: string[] }>("/api/query-inbox/colleges") });
 
   return (
     <div className="flex flex-col">
       <PageHeader
         title="Student queries"
-        subtitle="Each category is its own chat. Your reply appears in that chat in the student's SPI report."
+        subtitle="Replies appear in the student's SPI report."
         right={
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -424,6 +437,22 @@ export default function Queries() {
               {QUERY_CATEGORIES.map((c) => (
                 <option key={c.value} value={c.value}>
                   {c.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={college}
+              onChange={(e) => {
+                setCollege(e.target.value);
+                setPage(0);
+              }}
+              aria-label="College"
+              className={`${SELECT} max-w-[200px] truncate`}
+            >
+              <option value="all">All colleges</option>
+              {(collegeData?.colleges ?? []).map((c) => (
+                <option key={c} value={c}>
+                  {c}
                 </option>
               ))}
             </select>
@@ -487,6 +516,7 @@ export default function Queries() {
               onShowStudent={(id) => {
                 setStatus("all");
                 setCategory("all");
+                setCollege("all");
                 setSearch(id);
               }}
             />

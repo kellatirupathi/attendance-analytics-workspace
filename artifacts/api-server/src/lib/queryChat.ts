@@ -390,7 +390,7 @@ export interface InboxQuery {
 export const INBOX_PAGE = 50;
 
 /** One row per chat, newest activity first. `status` = all | received | in_progress | waiting_on_student | resolved; `category` = all | a category key. */
-export async function listStaffQueries(opts: { status: string; category: string; search: string; page: number }) {
+export async function listStaffQueries(opts: { status: string; category: string; college?: string; search: string; page: number }) {
   await ensureTables();
   await getCachedPlacement("-"); // makes sure spi_report_cache exists (the student's name comes from it)
   const conds: string[] = [];
@@ -402,6 +402,10 @@ export async function listStaffQueries(opts: { status: string; category: string;
   if (Object.hasOwn(QUERY_CATEGORIES, opts.category)) {
     params.push(opts.category);
     conds.push(`x.category = $${params.length}`);
+  }
+  if (opts.college && opts.college !== "all") {
+    params.push(opts.college);
+    conds.push(`x.college = $${params.length}`);
   }
   const search = opts.search.trim().toLowerCase();
   if (search) {
@@ -445,6 +449,13 @@ export async function listStaffQueries(opts: { status: string; category: string;
     lastAt: r.last_at.toISOString(),
   }));
   return { queries, hasMore: rows.length > INBOX_PAGE };
+}
+
+/** The colleges that have raised a query (for the College filter). */
+export async function listQueryColleges(): Promise<string[]> {
+  await ensureTables();
+  const { rows } = await pool.query<{ college: string }>("SELECT DISTINCT college FROM spi_student_queries WHERE college IS NOT NULL AND college <> '' ORDER BY college");
+  return rows.map((r) => r.college);
 }
 
 /** One query's chat for the staff view (internal notes and who replied included), with the student's details. */

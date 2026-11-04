@@ -7,6 +7,7 @@ import {
   getStaffBell,
   getStaffQuery,
   getStaffSummary,
+  listQueryColleges,
   listStaffQueries,
   markStaffSeen,
   postStaffReply,
@@ -38,14 +39,25 @@ router.get("/summary", async (req, res): Promise<void> => {
   }
 });
 
-/** GET /api/query-inbox/queries?status=&category=&q=&page=0: one row per chat (status and category default to all). */
+/** GET /api/query-inbox/queries?status=&category=&college=&q=&page=0: one row per chat (filters default to all). */
 router.get("/queries", async (req, res): Promise<void> => {
   const page = Math.max(0, Math.floor(Number(req.query["page"]) || 0));
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
   try {
-    res.json(await listStaffQueries({ status: text(req.query["status"], 30), category: text(req.query["category"], 40), search: text(req.query["q"], 80), page }));
+    res.json(
+      await listStaffQueries({ status: text(req.query["status"], 30), category: text(req.query["category"], 40), college: text(req.query["college"], 200), search: text(req.query["q"], 80), page }),
+    );
   } catch (err) {
     fail(res, req, err, "Reading the query inbox failed");
+  }
+});
+
+/** GET /api/query-inbox/colleges: the colleges that have raised a query, for the College filter. */
+router.get("/colleges", async (req, res): Promise<void> => {
+  try {
+    res.json({ colleges: await listQueryColleges() });
+  } catch (err) {
+    fail(res, req, err, "Reading the query colleges failed");
   }
 });
 
