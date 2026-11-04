@@ -77,6 +77,21 @@ const shortSemester = (s: string | null) => (s ? s.replace(/^Semester\s+/i, "Sem
 
 const clampPct = (v: string) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
 
+type AttendanceOp = "gte" | "lte" | "between";
+const ATTENDANCE_OPS: { value: AttendanceOp; label: string }[] = [
+  { value: "gte", label: "≥" },
+  { value: "lte", label: "≤" },
+  { value: "between", label: "Range" },
+];
+/** The operator and values as the server's attendance range (attMin, attMax). */
+function attendanceRange(op: AttendanceOp, a: string, b: string): { attMin: number; attMax: number } {
+  const x = clampPct(a);
+  const y = clampPct(b);
+  if (op === "gte") return { attMin: x, attMax: 100 };
+  if (op === "lte") return { attMin: 0, attMax: x };
+  return { attMin: Math.min(x, y), attMax: Math.max(x, y) };
+}
+
 export default function Students() {
   const { user } = useAuth();
   const link = useQueryParams();
@@ -89,6 +104,9 @@ export default function Students() {
   }));
   const [debouncedQ, setDebouncedQ] = useState(filters.q);
   const [quiz, setQuiz] = useState<QuizTypeFilter>("");
+  const [attOp, setAttOp] = useState<AttendanceOp>("gte");
+  const [attA, setAttA] = useState("0");
+  const [attB, setAttB] = useState("100");
   const [sort, setSort] = useState<Sort>({ key: "college", dir: "asc" });
   const [pageSize, setPageSize] = useState(25);
 
@@ -125,9 +143,18 @@ export default function Students() {
       }
       return next;
     });
+  const setAttendance = (op: AttendanceOp, a: string, b: string) => {
+    setAttOp(op);
+    setAttA(a);
+    setAttB(b);
+    change(attendanceRange(op, a, b));
+  };
   const reset = () => {
     setFilters(NO_DIRECTORY_FILTERS);
     setQuiz("");
+    setAttOp("gte");
+    setAttA("0");
+    setAttB("100");
   };
 
   const onSort = (key: string) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: ["college", "name", "semester", "section"].includes(key) ? "asc" : "desc" }));
@@ -155,7 +182,7 @@ export default function Students() {
         }
       />
 
-      <div role="group" aria-label="Filters" className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div role="group" aria-label="Filters" className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.7fr)_minmax(0,1fr)]">
         <Field label="College">
           <select className={selectClass} value={filters.college} disabled={o?.colleges.length === 1} onChange={(e) => change({ college: e.target.value })}>
             {o?.colleges.length === 1 ? null : <option value="">All colleges</option>}
@@ -190,9 +217,36 @@ export default function Students() {
         </Field>
         <Field label="Attendance %">
           <div className="flex items-center gap-1.5">
-            <input type="number" inputMode="numeric" min={0} max={100} aria-label="Minimum attendance" value={filters.attMin} onChange={(e) => change({ attMin: Math.min(clampPct(e.target.value), filters.attMax) })} className={cn(selectClass, "px-2 text-center")} />
-            <span className="text-slate-400" aria-hidden="true">–</span>
-            <input type="number" inputMode="numeric" min={0} max={100} aria-label="Maximum attendance" value={filters.attMax} onChange={(e) => change({ attMax: Math.max(clampPct(e.target.value), filters.attMin) })} className={cn(selectClass, "px-2 text-center")} />
+            <select
+              aria-label="Attendance comparison"
+              value={attOp}
+              onChange={(e) => {
+                const op = e.target.value as AttendanceOp;
+                // A single-sided filter starts from a sensible value: 80 for ≥, 60 for ≤ (the tier lines).
+                setAttendance(op, op === "gte" && attA === "0" ? "80" : op === "lte" && (attA === "0" || attA === "80") ? "60" : attA, attB);
+              }}
+              className={cn(selectClass, "w-[4.75rem] shrink-0 px-2 text-center font-semibold")}
+            >
+              {ATTENDANCE_OPS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={100}
+              aria-label={attOp === "between" ? "From attendance %" : "Attendance %"}
+              value={attA}
+              onChange={(e) => setAttendance(attOp, e.target.value, attB)}
+              className={cn(selectClass, "min-w-0 px-2 text-center")}
+            />
+            {attOp === "between" && (
+              <>
+                <span className="text-slate-400" aria-hidden="true">–</span>
+                <input type="number" inputMode="numeric" min={0} max={100} aria-label="To attendance %" value={attB} onChange={(e) => setAttendance(attOp, attA, e.target.value)} className={cn(selectClass, "min-w-0 px-2 text-center")} />
+              </>
+            )}
           </div>
         </Field>
         <Field label="Quiz type">
