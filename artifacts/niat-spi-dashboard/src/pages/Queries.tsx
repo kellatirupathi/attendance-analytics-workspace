@@ -72,7 +72,7 @@ const QUICK_REPLIES = [
   "We checked, and your report is correct. Here is why: ",
 ];
 const MAX_REPLY = 2000;
-const SELECT = "h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] font-semibold text-brand-900";
+const SELECT = "h-10 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-semibold text-brand-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-600";
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: "include" });
@@ -146,7 +146,7 @@ function QueryBell({ onOpen }: { onOpen: (queryId: number) => void }) {
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => void toggle()} aria-label={`Notifications, ${unread} new`} aria-expanded={open} className="relative grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-brand-900 hover:bg-slate-50">
+      <button type="button" onClick={() => void toggle()} aria-label={`Notifications, ${unread} new`} aria-expanded={open} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-brand-900 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-600">
         <Bell className="h-4 w-4" />
         {unread > 0 && <span className="absolute -right-1.5 -top-1.5 rounded-full border-2 border-white bg-[#E11D48] px-1.5 text-[10px] font-bold text-white">{unread > 99 ? "99+" : unread}</span>}
       </button>
@@ -444,66 +444,65 @@ export default function Queries() {
       <PageHeader
         title="Student queries"
         subtitle="Replies appear in the student's SPI report."
-        right={
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by student name or ID"
-              aria-label="Search queries"
-              className="h-9 w-52 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] focus:border-brand-600 focus:outline-none"
-            />
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(0);
-              }}
-              aria-label="Status"
-              className={SELECT}
-            >
-              {STATUS_FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={category}
-              onChange={(e) => {
-                setCategory(e.target.value);
-                setPage(0);
-              }}
-              aria-label="Category"
-              className={SELECT}
-            >
-              <option value="all">All categories</option>
-              {QUERY_CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={college}
-              onChange={(e) => {
-                setCollege(e.target.value);
-                setPage(0);
-              }}
-              aria-label="College"
-              className={`${SELECT} max-w-[200px] truncate`}
-            >
-              <option value="all">All colleges</option>
-              {(collegeData?.colleges ?? []).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <QueryBell onOpen={(id) => setSelected(id)} />
-          </div>
-        }
       />
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by student name or ID"
+          aria-label="Search queries"
+          className="h-10 min-w-0 basis-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] focus:border-brand-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600/20 sm:basis-0 sm:min-w-[220px] sm:flex-1"
+        />
+        <select
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value);
+            setPage(0);
+          }}
+          aria-label="Status"
+          className={SELECT}
+        >
+          {STATUS_FILTERS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value);
+            setPage(0);
+          }}
+          aria-label="Category"
+          className={SELECT}
+        >
+          <option value="all">All categories</option>
+          {QUERY_CATEGORIES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={college}
+          onChange={(e) => {
+            setCollege(e.target.value);
+            setPage(0);
+          }}
+          aria-label="College"
+          className={`${SELECT} w-full truncate sm:w-[200px]`}
+        >
+          <option value="all">All colleges</option>
+          {(collegeData?.colleges ?? []).map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <QueryBell onOpen={(id) => setSelected(id)} />
+      </div>
 
       <KpiCards
         counts={data?.counts}
