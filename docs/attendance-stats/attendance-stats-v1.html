@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Attendance Stats · mockup (v1)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0B1F4D; --ink:#1E2B4F; --muted:#64708F; --line:#E3E8F4; --line-2:#EEF1F8;
+  --canvas:#F3F6FD; --bg:#FFFFFF; --brand:#2563EB; --brand-700:#1D4FD8; --brand-50:#EAF1FF; --brand-100:#DCE6FB;
+  --green:#15803D; --green-bg:#E8F6EE; --amber:#B45309; --amber-bg:#FEF3E2; --orange:#C2410C; --orange-bg:#FFEDE0; --red:#B42318; --red-bg:#FDECEA;
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,"Segoe UI",system-ui,sans-serif;font-size:13px;color:var(--ink);background:var(--canvas);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.mock{background:var(--navy);color:#fff;padding:9px 16px;font-size:12.5px}.mock b{font-weight:600}.mock small{color:#B8C4E6;margin-left:8px}
+
+.app{display:flex;min-height:calc(100vh - 36px)}
+.side{width:212px;flex:none;background:var(--bg);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column}
+.brand{display:flex;gap:10px;align-items:center;padding:2px 8px 16px}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:700}
+.brand b{font-size:15px;color:var(--navy)}.brand b i{color:#EA580C;font-style:normal}.brand small{display:block;color:var(--muted);font-size:11px}
+.grp{font-size:10.5px;letter-spacing:.06em;color:#9AA6C4;font-weight:600;padding:14px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink);font-weight:500;text-decoration:none}
+.nav:hover{background:var(--canvas)}.nav.on{background:var(--brand-50);color:var(--brand-700);font-weight:600}
+.nav svg{width:16px;height:16px;flex:none}
+.me{margin-top:auto;display:flex;gap:10px;align-items:center;padding:12px 8px 0;border-top:1px solid var(--line)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700}
+.me b{display:block;font-size:12.5px;color:var(--navy)}.me small{color:var(--muted)}
+
+.main{flex:1;min-width:0;padding:18px 20px 28px}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.top h1{font-size:22px;font-weight:700;color:var(--navy);letter-spacing:-.01em}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-weight:600;cursor:pointer;color:var(--ink)}
+.btn:hover{background:var(--canvas)}.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn.primary:hover{background:var(--brand-700)}
+.btn svg{width:14px;height:14px}
+
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius)}
+.filters{padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;align-items:end;margin-bottom:10px}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f label{font-size:11.5px;font-weight:600;color:var(--ink)}
+.ctl{height:36px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:0 10px;width:100%;transition:border-color .15s,box-shadow .15s}
+.ctl:hover{border-color:#CBD5EC}.ctl:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-100);outline:none}
+select.ctl{appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364708F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.f.group select.ctl{border-color:var(--brand-100);background-color:var(--brand-50);font-weight:600;color:var(--brand-700)}
+.dates{display:flex;gap:6px}.dates .ctl{padding:0 8px}
+.f.dt{grid-column:span 2}@media (max-width:640px){.f.dt{grid-column:1/-1}}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:10px}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:9px 14px;display:flex;flex-direction:column;gap:1px}
+.kpi span{font-size:11.5px;color:var(--muted);font-weight:500}
+.kpi b{font-size:20px;font-weight:700;color:var(--navy);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi small{font-size:11px;color:var(--muted)}
+.kpi.g b{color:var(--green)}.kpi.a b{color:var(--amber)}.kpi.o b{color:var(--orange)}.kpi.r b{color:var(--red)}
+
+.tablecard{overflow:hidden}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+.tools .l{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:1}
+.search{position:relative;min-width:200px;flex:1;max-width:340px}.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted)}
+.search .ctl{padding-left:32px}
+.gbrow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:2px 0 10px}
+.gblabel{font-size:13px;font-weight:700;color:var(--navy)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 18px;border-radius:12px;border:1px solid transparent;background:var(--bg);box-shadow:0 1px 3px rgba(11,31,77,.08);font-weight:600;font-size:13px;color:var(--ink);cursor:pointer;transition:background .15s,color .15s,box-shadow .15s,transform .15s}
+.chip svg{width:16px;height:16px}
+.chip:hover{box-shadow:0 2px 8px rgba(11,31,77,.14);transform:translateY(-1px)}
+.chip[aria-pressed=true]{background:#6D4AE0;color:#fff;box-shadow:0 4px 12px rgba(109,74,224,.35)}
+.count{color:var(--muted);font-weight:500}.count b{color:var(--navy)}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:860px}
+th{background:var(--canvas);font-size:11.5px;font-weight:600;color:var(--ink);padding:0;white-space:nowrap;border-bottom:1px solid var(--line);text-align:left}
+th button{display:inline-flex;align-items:center;gap:4px;width:100%;padding:10px 9px;border:0;background:transparent;font-weight:600;font-size:11.5px;cursor:pointer;text-align:left}
+th button:hover{color:var(--brand-700)}th.num{text-align:right}th.num button{justify-content:flex-end}
+th .arr{font-size:9px;color:transparent}th[aria-sort] .arr{color:var(--brand)}
+td{padding:9px 9px;border-bottom:1px solid var(--line-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+tbody tr{transition:background .12s}tbody tr:hover{background:#F8FAFF}
+td.num{text-align:right}.nm{font-weight:600;color:var(--navy)}
+.pill{display:inline-block;min-width:56px;text-align:center;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.pill.g{background:var(--green-bg);color:var(--green)}.pill.a{background:var(--amber-bg);color:var(--amber)}.pill.o{background:var(--orange-bg);color:var(--orange)}.pill.r{background:var(--red-bg);color:var(--red)}
+.tier{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:600}
+.zero{color:#B6BED3}
+.uid{display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted)}
+.cp{border:0;background:transparent;color:#9AA6C4;cursor:pointer;padding:4px;border-radius:5px;display:inline-grid;place-items:center}
+.cp:hover{background:var(--brand-50);color:var(--brand-700)}.cp svg{width:13px;height:13px}
+.open{border:1px solid var(--line);background:var(--bg);border-radius:7px;width:30px;height:28px;cursor:pointer;color:var(--muted);display:inline-grid;place-items:center}
+.open:hover{background:var(--brand-50);color:var(--brand-700);border-color:var(--brand-100)}.open svg{width:14px;height:14px}
+.empty{padding:40px 12px;text-align:center;color:var(--muted)}
+.foot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;color:var(--muted)}
+.pg{display:flex;gap:4px;align-items:center}
+.pg button{min-width:32px;height:32px;border:1px solid var(--line);background:var(--bg);border-radius:7px;cursor:pointer;font-weight:600;color:var(--ink)}
+.pg button:hover:not(:disabled){background:var(--canvas)}.pg button:disabled{opacity:.4;cursor:default}
+.pg button[aria-current=page]{background:var(--brand);border-color:var(--brand);color:#fff}
+.rows{display:flex;gap:8px;align-items:center}.rows select{height:32px;width:auto}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:8px 14px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50}
+.toast.on{opacity:1;transform:translateX(-50%)}
+@media (max-width:1000px){.side{display:none}.main{padding:14px 12px 24px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="mock"><b>Student Attendance Stats · mockup</b><small>sample data, nothing is live</small></div>
+<div class="app">
+  <aside class="side" aria-label="Main navigation">
+    <div class="brand"><div class="logo">N</div><div><b>NIAT <i>SPI</i></b><small>Skill Performance Index</small></div></div>
+    <div class="grp">MAIN</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a6 6 0 0 0-12 0"/><circle cx="12" cy="8" r="4"/></svg>Student Directory</a>
+    <a class="nav on" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M8 17V9M13 17V5M18 17v-6"/></svg>Student Attendance Stats</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>SPI Record Dashboard</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Assessments</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="m9 12 2 2 4-4"/></svg>SPI Quiz</a>
+    <div class="grp">OPERATIONS</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z"/></svg>Request Inbox</a>
+    <div class="me"><div class="av">A</div><div><b>Akhilendar Reddy</b><small>Super Admin</small></div></div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <h1>Student Attendance Stats</h1>
+      <div class="acts">
+        <button class="btn" type="button" id="exView"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Export this view</button>
+        <button class="btn primary" type="button" id="exAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Export all campuses</button>
+      </div>
+    </div>
+
+    <section class="kpis" aria-label="Summary" id="kpis"></section>
+    <div class="gbrow" role="group" aria-label="View by"><span class="gblabel">View by</span><div class="chips" id="chips"></div></div>
+    <section class="panel filters" aria-label="Filters" id="filters"></section>
+
+    <section class="panel tablecard" aria-label="Attendance">
+      <div class="tools">
+        <div class="l">
+          <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input class="ctl" id="q" type="search" placeholder="Search this view" aria-label="Search this view"></div>
+          <span class="count" id="count"></span>
+        </div>
+        <button type="button" class="btn" id="clear">Clear filters</button>
+      </div>
+      <div class="scroll"><table id="tbl"></table></div>
+      <div class="foot" id="foot"></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ---------- dummy data (seeded) ---------- */
+const rng = (a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; })(20261105);
+const pick = a => a[Math.floor(rng() * a.length)];
+const COLLEGES = ["Crescent University","Aurora University","S-VYASA","Joy University","AMET","Alard University","A Dy Patil University","Noida International University"];
+const SEMS = ["Semester 1","Semester 3","Semester 5"];
+const FIRST = ["Aarav","Ananya","Vihaan","Diya","Rohan","Sneha","Karthik","Meera","Arjun","Pooja","Harsha","Lakshmi","Nikhil","Ishita","Sai","Divya","Varun","Kavya","Rahul","Sanjana","Manoj","Priya","Tarun","Neha"];
+const LAST = ["Reddy","Sharma","Naik","Rao","Patel","Kumar","Iyer","Singh","Das","Gupta","Menon","Joshi","Varma","Khan","Nair"];
+const SUBJECTS = {
+  "Data Structures":["Arrays","Linked Lists","Trees"],
+  "Programming Foundations":["Variables","Loops","Functions"],
+  "Web Application Development":["HTML & CSS","JavaScript","React"],
+  "Probability and Statistics":["Probability","Distributions","Inference"],
+  "Communicative English":["Listening","Speaking","Writing"],
+  "Quantitative Aptitude":["Arithmetic","Algebra","Data Interpretation"],
+};
+const hex = n => Array.from({length:n},()=>Math.floor(rng()*16).toString(16)).join("");
+const STUDENTS = Array.from({length:420},(_,i)=>({
+  id:`${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`, name:`${pick(FIRST)} ${pick(LAST)}`, college:COLLEGES[i % COLLEGES.length],
+  sem:pick(SEMS), section:"S-00" + (1 + Math.floor(rng()*5)), base:Math.min(99, Math.max(25, 60 + rng()*40 - (rng()<.2 ? 28 : 0))),
+}));
+const FACTS = [];   // one row per student x subject x unit
+for (const s of STUDENTS) for (const [sub, units] of Object.entries(SUBJECTS)) for (const u of units) {
+  const sched = 8 + Math.floor(rng()*8);
+  const present = Math.min(sched, Math.max(0, Math.round(sched * Math.min(1, Math.max(0, (s.base + (rng()*24 - 12)) / 100)))));
+  FACTS.push({ stu:s, college:s.college, sem:s.sem, section:s.section, subject:sub, unit:u, sched, present });
+}
+
+/* ---------- state ---------- */
+const GROUPS = [["campus","Campus-wise"],["section","Section-wise"],["subject","Subject-wise"],["unit","Unit-wise"],["student","Student-wise"]];
+const NO = { college:"", sem:"", section:"", subject:"", student:"", dtype:"semester", day:"2026-11-03", from:"2026-10-01", to:"2026-11-03" };
+let G = "campus", F = { ...NO }, sort = null, page = 1, size = 10, search = "";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct = (p, s) => s ? p / s * 100 : null;
+const tierOf = v => v == null ? null : v >= 80 ? "eligible" : v >= 60 ? "recovery" : v >= 50 ? "risk" : "inelig";
+const TIERS = [["eligible","Eligible ≥80%","g"],["recovery","Recovery 60–79%","a"],["risk","At risk 50–59%","o"],["inelig","Ineligible <50%","r"]];
+const pillCls = v => v >= 80 ? "g" : v >= 60 ? "a" : v >= 50 ? "o" : "r";
+const fmt = v => v == null ? "–" : v.toFixed(1) + "%";
+const scale = () => F.dtype === "day" ? 0.06 : F.dtype === "range" ? Math.max(0.05, Math.min(1, ((new Date(F.to) - new Date(F.from)) / 864e5 + 1) / 150)) : 1;
+
+/* scoped facts: filters apply; attendance date scales the sessions */
+function scoped() {
+  const k = scale();
+  return FACTS.filter(f => (!F.college || f.college === F.college) && (!F.sem || f.sem === F.sem) && (!F.section || f.section === F.section) && (!F.subject || f.subject === F.subject) && (!F.student || f.stu.name === F.student))
+    .map(f => k === 1 ? f : { ...f, sched: Math.max(1, Math.round(f.sched * k)), present: Math.round(f.present * k) });
+}
+const KEY = { campus: f => [f.college], subject: f => [f.college, f.subject], section: f => [f.college, f.section], unit: f => [f.college, f.subject, f.unit], student: f => [f.college, f.stu.id] };
+function build() {
+  const facts = scoped(), campusAgg = new Map(), groups = new Map();
+  for (const f of facts) { const c = campusAgg.get(f.college) ?? { p:0, s:0 }; c.p += f.present; c.s += f.sched; campusAgg.set(f.college, c); }
+  for (const f of facts) {
+    const key = KEY[G](f).join("|"), g = groups.get(key) ?? { college:f.college, subject:f.subject, section:f.section, unit:f.unit, stu:f.stu, p:0, s:0, perStu:new Map(), sessions:new Set() };
+    g.p += f.present; g.s += f.sched;
+    const ps = g.perStu.get(f.stu.id) ?? { p:0, s:0 }; ps.p += f.present; ps.s += f.sched; g.perStu.set(f.stu.id, ps);
+    groups.set(key, g);
+  }
+  return [...groups.values()].map(g => {
+    const tiers = { eligible:0, recovery:0, risk:0, inelig:0 };
+    for (const ps of g.perStu.values()) { const t = tierOf(pct(ps.p, ps.s)); if (t) tiers[t]++; }
+    const c = campusAgg.get(g.college);
+    return { ...g, students: g.perStu.size, grain: pct(g.p, g.s), overall: pct(c.p, c.s), tiers, tier: tierOf(pct(g.p, g.s)) };
+  });
+}
+
+/* ---------- columns per group ---------- */
+const cols = () => {
+  const id = { campus:[], subject:[["subject","Subject"]], section:[["section","Section"]], unit:[["subject","Subject"],["unit","Unit"]], student:[["student","Student"],["uuid","UUID"],["section","Section"]] }[G];
+  const label = { campus:"Campus Attendance %", subject:"Subject Attendance %", section:"Section Attendance %", unit:"Unit Attendance %", student:"Student Attendance %" }[G];
+  const base = [["college","Campus"], ...id];
+  if (G === "student") return [...base, ["p","Present",1], ["s","Scheduled",1], ["grain",label,1], ["overall","Campus overall %",1], ["tier","Tier"], ["open",""]];
+  return [...base, ["overall","Overall Attendance %",1], ["grain",label,1], ...TIERS.map(([k,l]) => [k,l,1]), ["open",""]];
+};
+const val = (r, k) => ({college:r.college,subject:r.subject,section:r.section,unit:r.unit,student:r.stu.name,uuid:r.stu.id,p:r.p,s:r.s,grain:r.grain,overall:r.overall,tier:r.grain,eligible:r.tiers.eligible,recovery:r.tiers.recovery,risk:r.tiers.risk,inelig:r.tiers.inelig})[k];
+
+/* ---------- render ---------- */
+const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map(v => `<option${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("");
+function renderFilters() {
+  const colleges = COLLEGES, secs = [...new Set(STUDENTS.filter(s => !F.college || s.college === F.college).map(s => s.section))].sort();
+  const names = [...new Set(STUDENTS.filter(s => (!F.college || s.college === F.college) && (!F.section || s.section === F.section)).map(s => s.name))].sort().slice(0, 60);
+  $("filters").innerHTML = `
+    <div class="f"><label for="fc">College</label><select class="ctl" id="fc">${opts(colleges, F.college, "All colleges")}</select></div>
+    <div class="f"><label for="fs">Semester</label><select class="ctl" id="fs">${opts(SEMS, F.sem, "Current semesters")}</select></div>
+    <div class="f"><label for="fx">Section</label><select class="ctl" id="fx">${opts(secs, F.section, "All sections")}</select></div>
+    <div class="f"><label for="fj">Subject</label><select class="ctl" id="fj">${opts(Object.keys(SUBJECTS), F.subject, "All subjects")}</select></div>
+    <div class="f"><label for="fn">Student</label><input class="ctl" id="fn" list="names" placeholder="All students" value="${esc(F.student)}" autocomplete="off"><datalist id="names">${names.map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
+    <div class="f dt"><label for="dt">Attendance date</label><div class="dates"><select class="ctl" id="dt" style="max-width:150px">${[["semester","Semester dates"],["day","Single day"],["range","Date range"]].map(([v,l]) => `<option value="${v}"${v === F.dtype ? " selected" : ""}>${l}</option>`).join("")}</select>
+      ${F.dtype === "day" ? `<input class="ctl" type="date" id="d1" value="${F.day}" aria-label="Day">` : F.dtype === "range" ? `<input class="ctl" type="date" id="d2" value="${F.from}" aria-label="From"><input class="ctl" type="date" id="d3" value="${F.to}" aria-label="To">` : `<span class="ctl" style="display:flex;align-items:center;color:var(--muted)">4 Aug 2026 – today</span>`}</div></div>`;
+  const on = (id, fn, ev = "change", rerender = false) => { const el = $(id); if (el) el.addEventListener(ev, e => { fn(e.target.value); page = 1; if (rerender) renderFilters(); renderResults(); }); };
+  on("fc", v => { F.college = v; F.section = ""; F.student = ""; }, "change", true);
+  on("fs", v => F.sem = v); on("fx", v => { F.section = v; F.student = ""; }, "change", true); on("fj", v => F.subject = v);
+  on("fn", v => F.student = v, "input"); on("dt", v => F.dtype = v, "change", true);
+  on("d1", v => F.day = v); on("d2", v => F.from = v); on("d3", v => F.to = v);
+}
+function renderResults() {
+  const all = build();
+  const q = search.trim().toLowerCase();
+  let rows = all.filter(r => !q || [r.college, r.subject, r.section, r.unit, r.stu.name, r.stu.id].join(" ").toLowerCase().includes(q));
+  if (sort) { const k = sort.key; rows = rows.slice().sort((a, b) => { const x = val(a, k), y = val(b, k); if (x == null) return 1; if (y == null) return -1; return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, {numeric:true})) * sort.dir; }); }
+  else rows = rows.slice().sort((a, b) => a.college.localeCompare(b.college) || String(val(a, "subject")).localeCompare(String(val(b, "subject"))) || String(val(a, "section")).localeCompare(String(val(b, "section"))) || String(val(a, "unit")).localeCompare(String(val(b, "unit"))) || a.stu.name.localeCompare(b.stu.name));
+
+  /* KPI cards: students of the whole scope, by tier */
+  const facts = scoped(), per = new Map();
+  for (const f of facts) { const x = per.get(f.stu.id) ?? { p:0, s:0 }; x.p += f.present; x.s += f.sched; per.set(f.stu.id, x); }
+  const t = { eligible:0, recovery:0, risk:0, inelig:0 }, tp = [...facts].reduce((a, f) => a + f.present, 0), ts = facts.reduce((a, f) => a + f.sched, 0);
+  for (const x of per.values()) { const k = tierOf(pct(x.p, x.s)); if (k) t[k]++; }
+  const n = per.size, share = v => n ? (v / n * 100).toFixed(1) + "%" : "–";
+  $("kpis").innerHTML = [
+    ["Students", n.toLocaleString("en-IN"), "", ""],
+    ["Overall attendance", fmt(pct(tp, ts)), "", ""],
+    ["Eligible", t.eligible.toLocaleString("en-IN"), share(t.eligible), "g"],
+    ["Recovery", t.recovery.toLocaleString("en-IN"), share(t.recovery), "a"],
+    ["At risk", t.risk.toLocaleString("en-IN"), share(t.risk), "o"],
+    ["Ineligible", t.inelig.toLocaleString("en-IN"), share(t.inelig), "r"],
+  ].map(([l, v, s, c]) => `<div class="kpi ${c}"><span>${l}</span><b>${v}</b>${s ? `<small>${s} of students</small>` : ""}</div>`).join("");
+
+  /* table */
+  const C = cols(), pages = Math.max(1, Math.ceil(rows.length / size)); page = Math.min(page, pages);
+  const slice = rows.slice((page - 1) * size, page * size);
+  const head = C.map(([k, l, numeric]) => {
+    const sortable = k !== "open" && k !== "tier" && k !== "uuid";
+    const aria = sort && sort.key === k ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : "";
+    return `<th class="${numeric ? "num" : ""}" scope="col"${aria}>${sortable ? `<button type="button" data-sort="${k}">${l}<span class="arr">${sort && sort.key === k && sort.dir < 0 ? "▼" : "▲"}</span></button>` : `<span style="display:block;padding:10px 9px">${l}</span>`}</th>`;
+  }).join("");
+  const cell = (r, k) => {
+    if (k === "college") return `<td>${esc(r.college)}</td>`;
+    if (k === "subject") return `<td>${esc(r.subject)}</td>`;
+    if (k === "section") return `<td>${esc(r.section)}</td>`;
+    if (k === "unit") return `<td>${esc(r.unit)}</td>`;
+    if (k === "student") return `<td class="nm">${esc(r.stu.name)}</td>`;
+    if (k === "uuid") return `<td><span class="uid" title="${r.stu.id}">${r.stu.id.slice(0,8)}<button class="cp" type="button" data-copy="${r.stu.id}" aria-label="Copy full UUID" title="Copy full UUID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></span></td>`;
+    if (k === "p") return `<td class="num">${r.p.toLocaleString("en-IN")}</td>`;
+    if (k === "s") return `<td class="num">${r.s.toLocaleString("en-IN")}</td>`;
+    if (k === "overall" || k === "grain") return `<td class="num"><span class="pill ${pillCls(r[k])}">${fmt(r[k])}</span></td>`;
+    if (k === "tier") { const [, l, c] = TIERS.find(x => x[0] === r.tier) ?? []; return `<td><span class="tier pill ${c}" style="min-width:0">${l ? l.split(" ").slice(0, l.startsWith("At") ? 2 : 1).join(" ") : "–"}</span></td>`; }
+    if (k === "open") return `<td class="num"><button class="open" type="button" aria-label="Open sessions" title="Open sessions"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button></td>`;
+    const v = r.tiers[k]; return `<td class="num ${v ? "" : "zero"}">${v.toLocaleString("en-IN")}</td>`;
+  };
+  $("tbl").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${slice.map(r => `<tr>${C.map(([k]) => cell(r, k)).join("")}</tr>`).join("") || `<tr><td colspan="${C.length}" class="empty">No rows match these filters</td></tr>`}</tbody>`;
+  $("tbl").querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { sort = { key:b.dataset.sort, dir: sort && sort.key === b.dataset.sort ? -sort.dir : (["college","subject","section","unit","student"].includes(b.dataset.sort) ? 1 : -1) }; renderResults(); });
+  $("tbl").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(b.dataset.copy) : Promise.reject()).then(() => toast("UUID copied"), () => toast("UUID copied")); });
+  $("count").innerHTML = `<b>${rows.length.toLocaleString("en-IN")}</b> ${{campus:"campuses",subject:"campus × subject rows",section:"campus × section rows",unit:"campus × unit rows",student:"students"}[G]}`;
+  const from = rows.length ? (page - 1) * size + 1 : 0, to = Math.min(rows.length, page * size);
+  const set = [...new Set([1, pages, page - 1, page, page + 1].filter(p => p >= 1 && p <= pages))].sort((a, b) => a - b);
+  let nums = "", last = 0; for (const p of set) { if (p - last > 1) nums += `<span aria-hidden="true">…</span>`; nums += `<button type="button" data-page="${p}"${p === page ? ' aria-current="page"' : ""}>${p}</button>`; last = p; }
+  $("foot").innerHTML = `<span>${from}–${to} of ${rows.length.toLocaleString("en-IN")}</span>
+    <nav class="pg" aria-label="Pages"><button type="button" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""} aria-label="Previous page">‹</button>${nums}<button type="button" data-page="${page + 1}" ${page >= pages ? "disabled" : ""} aria-label="Next page">›</button></nav>
+    <label class="rows">Rows per page<select class="ctl" id="size">${[10,25,50].map(x => `<option${x === size ? " selected" : ""}>${x}</option>`).join("")}</select></label>`;
+  $("foot").querySelectorAll("[data-page]").forEach(b => b.onclick = () => { page = Number(b.dataset.page); renderResults(); });
+  $("size").onchange = e => { size = Number(e.target.value); page = 1; renderResults(); };
+}
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.id); toast.id = setTimeout(() => el.classList.remove("on"), 1400); }
+$("q").addEventListener("input", e => { search = e.target.value; page = 1; renderResults(); });
+$("clear").onclick = () => { F = { ...NO }; search = ""; $("q").value = ""; sort = null; page = 1; renderFilters(); renderResults(); };
+$("exView").onclick = () => toast("Mockup only: exports the table as shown");
+$("exAll").onclick = () => toast("Mockup only: exports every campus");
+if (GROUPS.some(([k]) => k === location.hash.slice(1))) G = location.hash.slice(1);
+const ICON = {
+  campus:"<path d=\"M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01\"/>",
+  subject:"<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z\"/><path d=\"M14 3v5h5\"/>",
+  section:"<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/>",
+  unit:"<path d=\"m12 3 9 5-9 5-9-5z\"/><path d=\"m3 13 9 5 9-5\"/>",
+  student:"<circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M18 21a6 6 0 0 0-12 0\"/>",
+};
+function renderChips() {
+  $("chips").innerHTML = GROUPS.map(([k,l]) => `<button type="button" class="chip" data-g="${k}" aria-pressed="${k === G}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>${l}</button>`).join("");
+  $("chips").querySelectorAll("[data-g]").forEach(b => b.onclick = () => { G = b.dataset.g; sort = null; search = ""; $("q").value = ""; page = 1; renderChips(); renderResults(); });
+}
+renderChips();
+renderFilters(); renderResults();
+</script>
+</body>
+</html>

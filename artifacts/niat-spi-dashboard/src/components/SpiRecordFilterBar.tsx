@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
+import { cn } from "@/lib/utils";
 
 export type FilterId = "group" | "campus" | "semester" | "section" | "student" | "spi" | "attendance";
 export type Grain = "all" | "campus" | "semester" | "section" | "student";
@@ -323,11 +324,14 @@ export function CheckMenu({
   options,
   selected,
   onChange,
+  className,
 }: {
   label: string;
   options: { id: string; label: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
+  /** Overrides the button's default width. */
+  className?: string;
 }) {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -342,7 +346,7 @@ export function CheckMenu({
   return (
     <Popover onOpenChange={(open) => { if (!open) setSearch(""); }}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="w-[180px] justify-between">{label}</Button>
+        <Button variant="outline" className={cn("w-[180px] justify-between", className)}>{label}</Button>
       </PopoverTrigger>
       <PopoverContent
         className="w-72"

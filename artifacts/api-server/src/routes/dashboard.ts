@@ -1796,6 +1796,44 @@ function attendanceViewFilters(q: Record<string, string | string[] | undefined>)
   };
 }
 
+const ATTENDANCE_SORTERS: Record<string, (row: AttendanceViewRow) => string | number | null> = {
+  university: (r) => r.university,
+  subject: (r) => r.subject,
+  section: (r) => r.section,
+  unit: (r) => r.unit,
+  student: (r) => r.studentName || r.studentId,
+  overallPct: (r) => (r.campusScheduled > 0 ? r.overallPct : null),
+  grainPct: (r) => (r.scheduled > 0 ? r.grainPct : null),
+  present: (r) => r.present,
+  scheduled: (r) => r.scheduled,
+  sessions: (r) => r.sessions,
+  students: (r) => r.students,
+  absences: (r) => r.absences,
+  eligible: (r) => r.eligible,
+  recoveryEligible: (r) => r.recoveryEligible,
+  atRisk: (r) => r.atRisk,
+  ineligible: (r) => r.ineligible,
+};
+
+/** Search (campus, subject, section, unit, student name or id) and sort on the already aggregated rows. */
+function searchAndSortAttendanceRows(rows: AttendanceViewRow[], search: string, sortKey: string, dir: 1 | -1): AttendanceViewRow[] {
+  const needle = search.trim().toLowerCase();
+  let out = rows;
+  if (needle) {
+    out = rows.filter((r) => [r.university, r.subject, r.section, r.unit, r.studentName, r.studentId].some((v) => (v ?? "").toLowerCase().includes(needle)));
+  }
+  const get = ATTENDANCE_SORTERS[sortKey];
+  if (!get) return out;
+  return out.slice().sort((a, b) => {
+    const x = get(a);
+    const y = get(b);
+    if (x == null && y == null) return 0;
+    if (x == null) return 1;
+    if (y == null) return -1;
+    return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: "base" })) * dir;
+  });
+}
+
 /**
  * Student Attendance Stats, one page at a time: the table rows for the page,
  * the header totals and the filter choices. Aggregates the cached
@@ -1836,6 +1874,7 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
       });
       rows = aggregateAttendanceStats(units.students, units.classes, grain, filters).rows;
     }
+    rows = searchAndSortAttendanceRows(rows, firstQuery(q, "q").slice(0, 100), firstQuery(q, "sort"), firstQuery(q, "dir") === "desc" ? -1 : 1);
     const page = pageOf(rows, pageRequest);
     const body = {
       ...page,

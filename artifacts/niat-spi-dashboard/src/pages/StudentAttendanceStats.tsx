@@ -1,26 +1,19 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
-import { TableShell, TablePagination } from "@/components/DataTable";
+import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/QuizTables";
+import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ChevronRight, Download } from "lucide-react";
+import { Building2, ChevronRight, Download, FileText, Layers, LayoutGrid, Search, User, type LucideIcon } from "lucide-react";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
 import { cn } from "@/lib/utils";
-import { NO_SESSIONS_LABEL, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY, tierTextColor } from "@/lib/attendanceTiers";
+import { ATTENDANCE_TIERS, getTier, NO_SESSIONS_LABEL, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { readSubjects, subjectOptionList } from "@/lib/subjects";
 import { exportCsv } from "@/lib/csv";
@@ -38,7 +31,25 @@ import {
 } from "@/lib/attendanceStatsAggregate";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
-const PAGE_SIZES = [25, 50, 100];
+/** Tighter cells than the Assessments tables: up to eleven columns have to fit next to the sidebar. */
+const cell = "whitespace-nowrap px-2.5 py-2.5 text-sm text-slate-700";
+const num = `${cell} text-right tabular-nums`;
+
+/** Shorter tier headings for the table; the Columns list and the CSV keep the full labels. */
+const TABLE_TIER_LABEL: Partial<Record<ColumnId, string>> = {
+  eligible: `Eligible ≥${TIER_ELIGIBLE}%`,
+  recoveryEligible: `Recovery ${TIER_RECOVERY}⁠–⁠${TIER_ELIGIBLE - 1}%`,
+  atRisk: `At risk ${TIER_AT_RISK}⁠–⁠${TIER_RECOVERY - 1}%`,
+  ineligible: `Ineligible <${TIER_AT_RISK}%`,
+};
+
+const VIEWS: { value: Grain; label: string; icon: LucideIcon }[] = [
+  { value: "university", label: "Campus-wise", icon: Building2 },
+  { value: "university_section", label: "Section-wise", icon: LayoutGrid },
+  { value: "university_subject", label: "Subject-wise", icon: FileText },
+  { value: "university_unit", label: "Unit-wise", icon: Layers },
+  { value: "university_student", label: "Student-wise", icon: User },
+];
 
 type Grain = AttendanceViewGrain;
 
@@ -218,6 +229,17 @@ export default function StudentAttendanceStats() {
   const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
   const [draftColumns, setDraftColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sort, setSort] = useState<Sort | null>(null);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [search]);
 
   const writeQuery = (patch: Record<string, string | undefined>) => {
     const params = new URLSearchParams(query);
@@ -274,6 +296,11 @@ export default function StudentAttendanceStats() {
     list("sections", overrides.sections ?? sections.map((item) => `${item.campus}\t${item.section}`));
     list("students", overrides.students ?? students.map((item) => `${item.campus}\t${item.studentId}`));
     list("subjects", subjects);
+    if (debouncedSearch) params.set("q", debouncedSearch);
+    if (sort) {
+      params.set("sort", sort.key);
+      params.set("dir", sort.dir);
+    }
     return params;
   };
   const viewKey = viewParams().toString();
@@ -398,6 +425,7 @@ export default function StudentAttendanceStats() {
 
   const exportAll = async () => {
     const params = viewParams({ campuses: [], sections: [], students: [] });
+    params.delete("q");
     params.set("export", "1");
     exportRows((await fetchRows(params)).rows, "attendance-stats-all-campuses.csv");
   };
@@ -440,168 +468,197 @@ export default function StudentAttendanceStats() {
   const share = (count: number) => (rated > 0 ? `${Math.round((count / rated) * 100)}%` : "—");
   const multiCampus = campuses.length !== 1;
 
-  const toolbar = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
-        <PopoverTrigger asChild>
-          <Button type="button" variant="outline" size="sm">Columns</Button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-72">
-          <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
-          <ColumnOrderList
-            ids={columnOrder}
-            label={(id) => columnLabel(id, grain)}
-            checked={(id) => draftColumns.includes(id)}
-            locked={(id) => id === "overallPct"}
-            onToggle={toggleDraft}
-            onReorder={(from, to) => {
-              const next = moveListItem(columnOrder, from, to);
-              setDraftColumns(next.filter((id) => draftColumns.includes(id)));
-            }}
-          />
-          <div className="mt-3 flex flex-col gap-2">
-            <Button type="button" size="sm" onClick={() => void applyColumns(false)}>Apply</Button>
-            {isSuperAdmin && (
-              <Button type="button" variant="outline" size="sm" onClick={() => void applyColumns(true)}>
-                Set as default for all users
-              </Button>
-            )}
-          </div>
-        </PopoverContent>
-      </Popover>
-      <Button type="button" variant="outline" size="sm" disabled={totalRows === 0 || tableLoading} onClick={() => void exportView()}>
-        <Download className="mr-1 h-4 w-4" /> Export this view
-      </Button>
-      <Button type="button" variant="outline" size="sm" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={() => void exportAll()}>
-        <Download className="mr-1 h-4 w-4" /> Export all campuses
-      </Button>
-    </div>
-  );
+  const isStudent = grain === "university_student";
+  const tierShown = visibleColumns.some((id) => TIER_COLUMNS.has(id));
+  const shownColumns = visibleColumns.filter((id) => !(isStudent && TIER_COLUMNS.has(id)));
+  const tableColumns: { key: string; label: string; align?: "right"; sortable?: boolean }[] = [
+    { key: "university", label: "College" },
+    ...identity.map((header) => ({ key: header.toLowerCase(), label: header })),
+    ...(isStudent ? [{ key: "uuid", label: "UUID", sortable: false }] : []),
+    ...shownColumns.map((id) => ({ key: id, label: TABLE_TIER_LABEL[id] ?? columnLabel(id, grain), align: "right" as const })),
+    ...(isStudent && tierShown ? [{ key: "tier", label: "Tier", sortable: false }] : []),
+  ];
+  const onSort = (key: string) => {
+    setPage(1);
+    setSort((current) =>
+      current?.key === key
+        ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: ["university", "subject", "section", "unit", "student"].includes(key) ? "asc" : "desc" },
+    );
+  };
+  const clearFilters = () => {
+    setSearch("");
+    writeQuery({
+      campuses: undefined,
+      semesters: undefined,
+      sections: undefined,
+      students: undefined,
+      subjects: undefined,
+      campus: undefined,
+      semester: undefined,
+      scope: undefined,
+      date: undefined,
+      dateFrom: undefined,
+      dateTo: undefined,
+    });
+  };
+  const emptyText = grain === "university_unit" && !campuses.length ? "Select a campus to see unit-wise attendance." : `No rows for ${scopeLabel}.`;
+  const lockedCampus = isBoa && user?.campuses?.length === 1;
+  const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 focus-visible:ring-offset-2";
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader attendanceNote title="Student Attendance Stats" right={toolbar} />
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} hint={scopeLabel} />
-        <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} hint="" />
-        <StatTile label="Eligible" value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} at ${TIER_ELIGIBLE}% or above`} />
-        <StatTile label="Recovery" value={isLoading ? null : summary.recoveryEligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.recoveryEligible)} at ${TIER_RECOVERY}–${TIER_ELIGIBLE - 1}%`} />
-        <StatTile label="At risk" value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} at ${TIER_AT_RISK}–${TIER_RECOVERY - 1}%`} />
-        <StatTile label="Ineligible" value={isLoading ? null : summary.ineligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.ineligible)} below ${TIER_AT_RISK}%`} tone="rose" />
+      <PageHeader
+        attendanceNote
+        title="Student Attendance Stats"
+        right={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={totalRows === 0 || tableLoading} onClick={() => void exportView()}>
+              <Download className="mr-1 h-4 w-4" aria-hidden="true" /> Export this view
+            </Button>
+            <Button type="button" size="sm" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={() => void exportAll()}>
+              <Download className="mr-1 h-4 w-4" aria-hidden="true" /> Export all campuses
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
+        <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} />
+        <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} />
+        <StatTile label="Eligible" tier={ATTENDANCE_TIERS[0]} value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} · ≥${TIER_ELIGIBLE}%`} />
+        <StatTile label="Recovery" tier={ATTENDANCE_TIERS[1]} value={isLoading ? null : summary.recoveryEligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.recoveryEligible)} · ${TIER_RECOVERY}–${TIER_ELIGIBLE - 1}%`} />
+        <StatTile label="At risk" tier={ATTENDANCE_TIERS[2]} value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} · ${TIER_AT_RISK}–${TIER_RECOVERY - 1}%`} />
+        <StatTile label="Ineligible" tier={ATTENDANCE_TIERS[3]} value={isLoading ? null : summary.ineligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.ineligible)} · below ${TIER_AT_RISK}%`} />
       </div>
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="flex flex-nowrap items-end gap-3 overflow-x-auto pb-1">
-          <FilterField label="Group by">
-            <SearchableSelect
-              value={grain}
-              onValueChange={(value) => writeQuery({ group: value === "university" ? undefined : value })}
-              options={[
-                { value: "university", label: "Campus-wise" },
-                { value: "university_subject", label: "Subject-wise" },
-                { value: "university_section", label: "Section-wise" },
-                { value: "university_unit", label: "Unit-wise" },
-                { value: "university_student", label: "Student-wise" },
-              ]}
-              placeholder="Group by"
-              searchPlaceholder="Search…"
-              className="w-[180px]"
-            />
-          </FilterField>
-          {!(isBoa && user?.campuses?.length === 1) && (
-            <FilterField label="Campus">
-              <CheckMenu
-                label={campuses.length ? `${campuses.length} selected` : "All campuses"}
-                options={campusOptions.map((name) => ({ id: name, label: name }))}
-                selected={campuses}
-                onChange={(next) => {
-                  const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
-                  const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
-                  writeQuery({
-                    campuses: next.join("||") || undefined,
-                    sections: keptSections.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
-                    students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
-                  });
+
+      <div role="group" aria-label="View by" className="mt-3 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-bold text-slate-900">View by</span>
+        <div className="flex flex-wrap gap-2">
+          {VIEWS.map(({ value, label, icon: Icon }) => {
+            const on = grain === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  if (on) return;
+                  setSort(null);
+                  setSearch("");
+                  writeQuery({ group: value === "university" ? undefined : value });
                 }}
-              />
-            </FilterField>
-          )}
-          <FilterField label="Semester">
+                className={cn(
+                  "inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold transition-all motion-reduce:transition-none",
+                  focusRing,
+                  on ? "bg-violet-600 text-white shadow-md shadow-violet-600/30" : "bg-white text-slate-700 shadow-sm hover:-translate-y-px hover:shadow-md motion-reduce:hover:translate-y-0",
+                )}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div role="group" aria-label="Filters" className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(5,minmax(0,1fr))_minmax(0,1.8fr)]">
+        {!lockedCampus && (
+          <FilterField label="College">
             <CheckMenu
-              label={semesters.length ? `${semesters.length} selected` : "Current semesters"}
-              options={semesterOptions.map((name) => ({ id: name, label: name }))}
-              selected={semesters}
-              onChange={(next) => writeQuery({ semesters: next.join("||") || undefined })}
-            />
-          </FilterField>
-          <FilterField label="Section">
-            <CheckMenu
-              label={sections.length ? `${sections.length} selected` : campuses.length ? "All sections" : "Select a campus"}
-              options={sectionChoices.map((item) => ({
-                id: `${item.campus}\t${item.section}`,
-                label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
-              }))}
-              selected={sections.map((item) => `${item.campus}\t${item.section}`)}
-              onChange={(ids) => {
-                const next = ids.map((id) => {
-                  const [sectionCampus, section] = id.split("\t");
-                  return { campus: sectionCampus ?? "", section: section ?? "" };
-                });
-                const keptStudents = next.length
-                  ? students.filter((item) => next.some((section) => section.campus === item.campus))
-                  : [];
+              className="w-full"
+              label={campuses.length ? `${campuses.length} selected` : "All colleges"}
+              options={campusOptions.map((name) => ({ id: name, label: name }))}
+              selected={campuses}
+              onChange={(next) => {
+                const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
+                const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
                 writeQuery({
-                  sections: next.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
+                  campuses: next.join("||") || undefined,
+                  sections: keptSections.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
                   students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
                 });
               }}
             />
           </FilterField>
-          <FilterField label="Subject">
-            <CheckMenu
-              label={subjects.length ? `${subjects.length} selected` : "All subjects"}
-              options={subjectOptions.map((name) => ({ id: name, label: name }))}
-              selected={subjects}
-              onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
-            />
-          </FilterField>
-          <FilterField label="Student">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="w-[180px] justify-between">{students.length ? `${students.length} selected` : "All students"}</Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-72" align="start">
-                <Input value={studentQuery} placeholder="Search name or ID" onChange={(event) => setStudentQuery(event.target.value)} />
-                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
-                  {studentHits.map((hit) => {
-                    const on = students.some((item) => item.studentId === hit.studentId && item.campus === hit.campus);
-                    return (
-                      <label key={`${hit.campus}-${hit.studentId}`} className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={() => {
-                            const next = on
-                              ? students.filter((item) => !(item.studentId === hit.studentId && item.campus === hit.campus))
-                              : [...students, hit];
-                            writeQuery({
-                              students: next.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
-                            });
-                          }}
-                        />
-                        <span>
-                          {hit.studentName}
-                          <span className="block text-xs text-gray-500">{hit.campus}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </FilterField>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <FilterField label="Date scope">
+        )}
+        <FilterField label="Semester">
+          <CheckMenu
+            className="w-full"
+            label={semesters.length ? `${semesters.length} selected` : "Current semesters"}
+            options={semesterOptions.map((name) => ({ id: name, label: name }))}
+            selected={semesters}
+            onChange={(next) => writeQuery({ semesters: next.join("||") || undefined })}
+          />
+        </FilterField>
+        <FilterField label="Section">
+          <CheckMenu
+            className="w-full"
+            label={sections.length ? `${sections.length} selected` : campuses.length ? "All sections" : "Select a college"}
+            options={sectionChoices.map((item) => ({
+              id: `${item.campus}\t${item.section}`,
+              label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
+            }))}
+            selected={sections.map((item) => `${item.campus}\t${item.section}`)}
+            onChange={(ids) => {
+              const next = ids.map((id) => {
+                const [sectionCampus, section] = id.split("\t");
+                return { campus: sectionCampus ?? "", section: section ?? "" };
+              });
+              const keptStudents = next.length ? students.filter((item) => next.some((section) => section.campus === item.campus)) : [];
+              writeQuery({
+                sections: next.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
+                students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+              });
+            }}
+          />
+        </FilterField>
+        <FilterField label="Subject">
+          <CheckMenu
+            className="w-full"
+            label={subjects.length ? `${subjects.length} selected` : "All subjects"}
+            options={subjectOptions.map((name) => ({ id: name, label: name }))}
+            selected={subjects}
+            onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
+          />
+        </FilterField>
+        <FilterField label="Student">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="w-full justify-between">{students.length ? `${students.length} selected` : "All students"}</Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start">
+              <Input value={studentQuery} placeholder="Search name or ID" onChange={(event) => setStudentQuery(event.target.value)} />
+              <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+                {studentHits.map((hit) => {
+                  const on = students.some((item) => item.studentId === hit.studentId && item.campus === hit.campus);
+                  return (
+                    <label key={`${hit.campus}-${hit.studentId}`} className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => {
+                          const next = on
+                            ? students.filter((item) => !(item.studentId === hit.studentId && item.campus === hit.campus))
+                            : [...students, hit];
+                          writeQuery({
+                            students: next.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
+                          });
+                        }}
+                      />
+                      <span>
+                        {hit.studentName}
+                        <span className="block text-xs text-gray-500">{hit.campus}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </FilterField>
+        <FilterField label="Attendance date">
+          <div className="flex items-center gap-2">
             <SearchableSelect
               value={scopeKind === "day" ? "day" : scopeKind === "range" ? "range" : "semester"}
               onValueChange={(value) => {
@@ -614,145 +671,155 @@ export default function StudentAttendanceStats() {
                 { value: "day", label: "Single day" },
                 { value: "range", label: "Date range" },
               ]}
-              placeholder="Date scope"
-              className="w-[180px]"
+              placeholder="Attendance date"
+              className="min-w-[8.5rem] flex-1"
             />
-          </FilterField>
-          {scopeKind === "day" && (
-            <FilterField label="Day">
-              <Input type="date" value={day} aria-label="Day" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "day", date: e.target.value })} />
-            </FilterField>
-          )}
-          {scopeKind === "range" && (
-            <>
-              <FilterField label="From">
-                <Input type="date" value={dateFrom} aria-label="From" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
-              </FilterField>
-              <FilterField label="To">
-                <Input type="date" value={dateTo} aria-label="To" className="h-9 w-[160px]" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
-              </FilterField>
-            </>
-          )}
-          <Button type="button" variant="outline" className="h-9" onClick={() => writeQuery({
-            campuses: undefined,
-            semesters: undefined,
-            sections: undefined,
-            students: undefined,
-            subjects: undefined,
-            campus: undefined,
-            semester: undefined,
-          })}>
-            Clear
-          </Button>
-        </div>
+            {scopeKind === "day" && (
+              <Input type="date" value={day} aria-label="Day" className="h-9 w-[9.5rem] shrink-0" onChange={(e) => writeQuery({ scope: "day", date: e.target.value })} />
+            )}
+            {scopeKind === "range" && (
+              <>
+                <Input type="date" value={dateFrom} aria-label="From" className="h-9 w-[9.5rem] shrink-0" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
+                <Input type="date" value={dateTo} aria-label="To" className="h-9 w-[9.5rem] shrink-0" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
+              </>
+            )}
+          </div>
+        </FilterField>
       </div>
 
       {isError && (
-        <div className="mb-4">
+        <div className="mt-3">
           <ErrorState message="Failed to load attendance stats." onRetry={() => void refetch()} />
         </div>
       )}
 
-      <TableShell>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-b border-gray-200 bg-gray-50 hover:bg-gray-50">
-                {headers.map((header, index) => (
-                  <TableHead
-                    key={header}
-                    className={`h-11 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-600 ${index < textColumnCount ? "text-left" : "text-right"}`}
-                  >
-                    {header}
-                  </TableHead>
-                ))}
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {tableLoading ? (
-                Array.from({ length: 8 }).map((_, index) => (
-                  <TableRow key={index}>
-                    <TableCell colSpan={headers.length + 1}><Skeleton className="h-8 w-full" /></TableCell>
-                  </TableRow>
-                ))
-              ) : paged.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={headers.length + 1} className="h-32 text-center text-gray-500">
-                    {grain === "university_unit" && !campuses.length
-                      ? "Select a campus to see unit-wise attendance."
-                      : `No rows for ${scopeLabel}.`}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                paged.map((row) => (
-                  <TableRow key={rowKey(row, grain)} className="border-b border-gray-200">
-                    <TableCell className="py-3 font-medium text-gray-900">
-                      <button type="button" className="text-left hover:underline" onClick={() => openUniversity(row.university)}>
-                        {row.university}
-                      </button>
-                    </TableCell>
-                    {identity.map((header, index) => (
-                      <TableCell key={header} className="py-3">
-                        {header === "Subject" && row.subject ? (
-                          <button type="button" className="text-left font-medium text-brand-700 hover:underline" onClick={() => openSubject(row)}>
-                            {row.subject}
-                          </button>
-                        ) : header === "Student" ? (
-                          row.spiPath ? (
-                            <a className="font-medium text-brand-700 hover:underline" href={row.spiPath}>{row.studentName || row.studentId}</a>
-                          ) : (
-                            row.studentName || row.studentId
-                          )
-                        ) : (
-                          identityValues(row, grain)[index]
-                        )}
-                      </TableCell>
-                    ))}
-                    {visibleColumns.map((id) => (
-                      <TableCell
-                        key={id}
-                        className="text-right tabular-nums"
-                        style={
-                          id === "overallPct" && row.campusScheduled > 0
-                            ? { color: tierTextColor(row.overallPct) }
-                            : id === "grainPct" && row.scheduled > 0
-                              ? { color: tierTextColor(row.grainPct) }
-                              : undefined
-                        }
-                      >
-                        {cellValue(row, id)}
-                      </TableCell>
-                    ))}
-                    <TableCell className="text-right text-gray-300">
-                      {grain === "university" && (
-                        <button type="button" aria-label="Open sessions" onClick={() => openUniversity(row.university)}>
-                          <ChevronRight className="ml-auto h-4 w-4" />
-                        </button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+      <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Attendance">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 p-3">
+          <label className="relative min-w-[14rem] flex-1 sm:max-w-sm">
+            <span className="sr-only">Search this view</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search this view"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
+            />
+          </label>
+          <p className="min-w-0 truncate text-sm text-slate-500 tabular-nums" title={scopeLabel}>
+            <span className="font-semibold text-slate-900">{totalRows.toLocaleString("en-IN")}</span> rows · {scopeLabel}
+          </p>
+          <div className="ml-auto flex items-center gap-2">
+            <Popover open={columnsOpen} onOpenChange={(open) => { setColumnsOpen(open); if (open) setDraftColumns(columns); }}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" size="sm">Columns</Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72">
+                <p className="mb-2 text-xs text-gray-500">Drag to set the column order.</p>
+                <ColumnOrderList
+                  ids={columnOrder}
+                  label={(id) => columnLabel(id, grain)}
+                  checked={(id) => draftColumns.includes(id)}
+                  locked={(id) => id === "overallPct"}
+                  onToggle={toggleDraft}
+                  onReorder={(from, to) => {
+                    const next = moveListItem(columnOrder, from, to);
+                    setDraftColumns(next.filter((id) => draftColumns.includes(id)));
+                  }}
+                />
+                <div className="mt-3 flex flex-col gap-2">
+                  <Button type="button" size="sm" onClick={() => void applyColumns(false)}>Apply</Button>
+                  {isSuperAdmin && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void applyColumns(true)}>
+                      Set as default for all users
+                    </Button>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+            <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+          </div>
         </div>
-        {!tableLoading && totalRows > 0 && (
-          <TablePagination
-            page={currentPage}
-            totalPages={totalPages}
-            totalItems={totalRows}
-            pageSize={pageSize}
-            pageSizeOptions={PAGE_SIZES}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPage(1);
-            }}
-            itemLabel="rows"
-          />
-        )}
-      </TableShell>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[48rem] text-left">
+            <Head columns={tableColumns} sort={sort ?? { key: "", dir: "asc" }} onSort={onSort} extra dense />
+            <Body loading={tableLoading} empty={emptyText} colSpan={tableColumns.length + 1} rowsCount={paged.length}>
+              {paged.map((row) => (
+                <tr key={rowKey(row, grain)} className="hover:bg-slate-50">
+                  <td className={cn(cell, "font-medium text-slate-900")}>
+                    <button type="button" className={cn("rounded text-left hover:underline", focusRing)} onClick={() => openUniversity(row.university)}>
+                      {row.university}
+                    </button>
+                  </td>
+                  {identity.map((header, index) => (
+                    <td key={header} className={cell}>
+                      {header === "Subject" && row.subject ? (
+                        <button type="button" className={cn("rounded text-left font-medium text-brand-700 hover:underline", focusRing)} onClick={() => openSubject(row)}>
+                          {row.subject}
+                        </button>
+                      ) : header === "Student" ? (
+                        row.spiPath ? (
+                          <a className="font-medium text-brand-700 hover:underline" href={row.spiPath}>{row.studentName || row.studentId}</a>
+                        ) : (
+                          row.studentName || row.studentId
+                        )
+                      ) : (
+                        identityValues(row, grain)[index]
+                      )}
+                    </td>
+                  ))}
+                  {isStudent && <td className={cell}>{row.studentId ? <CopyUid uid={row.studentId} /> : "—"}</td>}
+                  {shownColumns.map((id) => (
+                    <td key={id} className={num}>
+                      {id === "overallPct" ? (
+                        <AttendancePill pct={row.overallPct} scheduled={row.campusScheduled} />
+                      ) : id === "grainPct" ? (
+                        <AttendancePill pct={row.grainPct} scheduled={row.scheduled} />
+                      ) : (
+                        cellValue(row, id)
+                      )}
+                    </td>
+                  ))}
+                  {isStudent && tierShown && (
+                    <td className={cell}>
+                      {row.scheduled > 0 ? (
+                        <span className="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ color: getTier(row.grainPct).color, background: getTier(row.grainPct).bg }}>
+                          {getTier(row.grainPct).label}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">{NO_SESSIONS_LABEL}</span>
+                      )}
+                    </td>
+                  )}
+                  <td className="px-2 py-3 text-right">
+                    {grain === "university" && (
+                      <button
+                        type="button"
+                        aria-label={`Open sessions for ${row.university}`}
+                        onClick={() => openUniversity(row.university)}
+                        className={cn("rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100", focusRing)}
+                      >
+                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </Body>
+          </table>
+        </div>
+        <Pager
+          page={totalRows > 0 ? { rows: [], total: totalRows, page: currentPage, pageSize, totalPages } : undefined}
+          unit="rows"
+          pageSize={pageSize}
+          onPage={setPage}
+          onPageSize={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
+      </section>
     </div>
   );
 }
@@ -779,19 +846,30 @@ function rowKey(row: StatsRow, grain: Grain): string {
 
 function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex shrink-0 flex-col gap-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+    <label className="flex min-w-0 flex-col gap-1.5 text-xs font-medium text-slate-600">
       {label}
       {children}
     </label>
   );
 }
 
-function StatTile({ label, value, hint, tone }: { label: string; value: string | null; hint: string; tone?: "rose" }) {
+/** An attendance % in a pill coloured by its tier; "No sessions" when nothing is scheduled. */
+function AttendancePill({ pct, scheduled }: { pct: number; scheduled: number }) {
+  if (scheduled <= 0) return <span className="text-slate-400">{NO_SESSIONS_LABEL}</span>;
+  const tier = getTier(pct);
   return (
-    <div className={cn("rounded-lg border p-4", tone === "rose" ? "border-rose-200 bg-rose-50" : "border-gray-200 bg-white")}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
-      {value == null ? <Skeleton className="mt-2 h-8 w-24" /> : <div className="mt-1 text-2xl font-semibold text-gray-900">{value}</div>}
-      {hint ? <div className="mt-1 text-xs text-gray-500">{hint}</div> : null}
+    <span className="inline-block min-w-[3.5rem] rounded-full px-2.5 py-0.5 text-center text-xs font-semibold tabular-nums" style={{ color: tier.color, background: tier.bg }}>
+      {pct}%
+    </span>
+  );
+}
+
+function StatTile({ label, value, hint, tier }: { label: string; value: string | null; hint?: string; tier?: { color: string } }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
+      <div className="text-xs font-medium text-slate-500">{label}</div>
+      {value == null ? <Skeleton className="h-7 w-20" /> : <div className="text-xl font-bold tracking-tight tabular-nums text-slate-900" style={tier ? { color: tier.color } : undefined}>{value}</div>}
+      {hint ? <div className="text-[11px] text-slate-500">{hint}</div> : null}
     </div>
   );
 }
