@@ -3,7 +3,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Building2, Search, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
-import { formatAsOf, isSkill, NO_FILTERS, quizApi, type QuizFilters, type QuizType } from "@/lib/quizCoverage";
+import { formatAsOf, isSkill, NO_FILTERS, QUIZ_LABEL, quizApi, type QuizFilters, type QuizType } from "@/lib/quizCoverage";
+import { fmtInt } from "@/lib/assessmentMetrics";
 import { QuizKpiCards } from "./quizParts";
 import { CampusTable, Pager, StudentTable, type Sort } from "./QuizTables";
 import { QuizStudentPanel } from "./QuizStudentPanel";
@@ -190,7 +191,17 @@ export function QuizCoverageTab({ quizType, tabs, filters, onFiltersChange }: { 
           </div>
         ) : null}
 
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Results">
+        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label={`${QUIZ_LABEL[quizType].name}, ${view === "campus" ? "college-wise" : "student-wise"}`}>
+          {/* What this table is: the tab, how it is grouped, how many rows, and the filters applied. */}
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-slate-200 px-4 py-3">
+            <h2 className="text-base font-bold text-slate-900">
+              {QUIZ_LABEL[quizType].name} <span className="font-medium text-slate-400">·</span> <span className="text-violet-700">{view === "campus" ? "College-wise" : "Student-wise"}</span>
+            </h2>
+            <p className="text-sm tabular-nums text-slate-500">
+              {active.data ? <span className="font-semibold text-slate-900">{fmtInt(active.data.total)}</span> : null} {view === "campus" ? "colleges" : "students"}
+              {[applied.college, applied.semester, applied.section && `Section ${applied.section}`, applied.category, applied.subject].filter(Boolean).map((v) => ` · ${v}`).join("")}
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-4">
             <div role="group" aria-label="View" className="inline-flex gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
               {segment("campus", "Campus", Building2)}
