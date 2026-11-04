@@ -843,6 +843,10 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
           chats={thread.queries}
           onSent={() => void refreshThread()}
           onClose={() => setQueryOpen(false)}
+          onOpenChat={() => {
+            setQueryOpen(false);
+            setChatOpen(true);
+          }}
         />
       )}
     </div>

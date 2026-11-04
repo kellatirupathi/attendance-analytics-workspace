@@ -57,8 +57,17 @@ export const categoryLabel = (c: string) => CATEGORY_LABEL[c] ?? c;
 
 /** Status as the student reads it, and as the team reads it. */
 export const STATUS_LABEL: Record<"student" | "staff", Record<QueryStatus, string>> = {
-  student: { received: "Received", in_progress: "In progress", waiting_on_student: "Needs your reply", resolved: "Resolved" },
+  // Plain words for a student: who is on the move now, not the team's internal state names.
+  student: { received: "Waiting for SPI team", in_progress: "SPI team checking", waiting_on_student: "Your reply needed", resolved: "✓ Resolved" },
   staff: { received: "Needs reply", in_progress: "In progress", waiting_on_student: "Waiting on student", resolved: "Resolved" },
+};
+
+/** Student side: the one status that needs the student (their turn) is solid blue; the rest are quiet. */
+export const STUDENT_STATUS_STYLE: Record<QueryStatus, string> = {
+  received: "bg-[#EEF2F8] text-[#475569]",
+  in_progress: "bg-[#FFF4DD] text-[#B45309]",
+  waiting_on_student: "bg-[#2563EB] text-white",
+  resolved: "bg-[#E8F7EE] text-[#15803D]",
 };
 
 export const STATUS_STYLE: Record<QueryStatus, string> = {

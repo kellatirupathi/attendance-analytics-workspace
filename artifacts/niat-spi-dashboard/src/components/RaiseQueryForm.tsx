@@ -16,6 +16,7 @@ export function RaiseQueryForm({
   chats,
   onClose,
   onSent,
+  onOpenChat,
 }: {
   studentId: string;
   /** Every subject the student's report shows. */
@@ -24,6 +25,8 @@ export function RaiseQueryForm({
   chats: ThreadQuery[];
   onClose: () => void;
   onSent: () => void;
+  /** Opens the student's chat list (shown after a query is sent). */
+  onOpenChat: () => void;
 }) {
   const [category, setCategory] = useState("");
   const [problem, setProblem] = useState("");
@@ -90,8 +93,14 @@ export function RaiseQueryForm({
             <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#E6F7EC] text-xl font-bold text-[#16A34A]" aria-hidden>
               ✓
             </span>
-            <h2 className="text-base font-bold text-[#0B1F4D]">{done.added ? `Added to your ${categoryLabel(category)} query` : "Query submitted"}</h2>
-            <button type="button" onClick={onClose} className="mt-5 min-h-11 w-full rounded-[10px] border border-[#BFD0F7] bg-white text-[13px] font-semibold text-[#2563EB]">
+            <h2 className="text-base font-bold text-[#0B1F4D]">{done.added ? `Added to your ${categoryLabel(category)} query` : "Your query is sent"}</h2>
+            <p className="mt-2 text-[13px] text-[#334155]">
+              The SPI team will reply in <b className="text-[#0B1F4D]">My queries</b>.
+            </p>
+            <button type="button" onClick={onOpenChat} className="mt-5 min-h-11 w-full rounded-[10px] bg-[#2563EB] text-[13px] font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]">
+              Open my chat
+            </button>
+            <button type="button" onClick={onClose} className="mt-2 min-h-11 w-full rounded-[10px] border border-[#BFD0F7] bg-white text-[13px] font-semibold text-[#2563EB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB]">
               Back to report
             </button>
           </div>
