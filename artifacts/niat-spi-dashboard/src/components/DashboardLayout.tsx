@@ -266,7 +266,7 @@ function SidebarInner({
         )}
       </div>
 
-      <nav className={cn("scrollbar-thin flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden py-4", collapsed ? "px-1.5" : "px-2")}>
+      <nav className={cn("scrollbar-none flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden py-4", collapsed ? "px-1.5" : "px-2")}>
         <SectionLabel collapsed={collapsed} first>
           Main
         </SectionLabel>

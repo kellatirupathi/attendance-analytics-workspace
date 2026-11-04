@@ -91,7 +91,7 @@ export function Donut({ items, total, onSelect }: { items: DonutItem[]; total: n
         <text x={75} y={72} textAnchor="middle" fontSize={22} fontWeight={700} fill={INK}>{(hit ? hit.count : total).toLocaleString("en-IN")}</text>
         <text x={75} y={90} textAnchor="middle" fontSize={11} fill={MUTED}>{hit ? `${hit.label} · ${pctOf(hit.count)}%` : "students"}</text>
       </svg>
-      <ul className="flex min-w-[10rem] flex-1 flex-col gap-1">
+      <ul className="flex min-w-[14rem] flex-1 flex-col gap-1">
         {items.map((i) => (
           <li key={i.key}>
             <button
@@ -104,12 +104,12 @@ export function Donut({ items, total, onSelect }: { items: DonutItem[]; total: n
               className={cn("flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600", active === i.key ? "bg-slate-100" : "hover:bg-slate-50")}
             >
               <span className="h-2.5 w-2.5 flex-none rounded-[3px]" style={{ background: i.color }} aria-hidden="true" />
-              <span className="min-w-0 flex-1 leading-tight text-slate-800">
+              <span className="min-w-0 flex-1 whitespace-nowrap leading-tight text-slate-800">
                 {i.label}
                 <span className="block text-[11px] text-slate-500">{i.hint}</span>
               </span>
-              <span className="font-bold tabular-nums text-slate-900">{i.count.toLocaleString("en-IN")}</span>
-              <span className="w-10 text-right tabular-nums text-slate-500">{pctOf(i.count)}%</span>
+              <span className="shrink-0 font-bold tabular-nums text-slate-900">{i.count.toLocaleString("en-IN")}</span>
+              <span className="w-10 shrink-0 text-right tabular-nums text-slate-500">{pctOf(i.count)}%</span>
             </button>
           </li>
         ))}
