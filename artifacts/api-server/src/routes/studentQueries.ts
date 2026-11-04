@@ -80,7 +80,7 @@ router.get("/thread", threadLimiter, async (req, res): Promise<void> => {
   }
 });
 
-/** POST /api/spi-queries/read { student }: the student opened the chat, so the team's replies count as read. */
+/** POST /api/spi-queries/read { student, queryId? }: the student opened a query's chat, so its replies count as read. */
 router.post("/read", threadLimiter, async (req, res): Promise<void> => {
   res.set("Cache-Control", "no-store");
   const student = String((req.body as { student?: unknown } | undefined)?.student ?? "").trim();
@@ -92,8 +92,9 @@ router.post("/read", threadLimiter, async (req, res): Promise<void> => {
     res.json({ ok: true, preview: true });
     return;
   }
+  const queryId = Number((req.body as { queryId?: unknown } | undefined)?.queryId);
   try {
-    await markStudentRead(studentKey(student));
+    await markStudentRead(studentKey(student), Number.isInteger(queryId) ? queryId : undefined);
     res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "Marking a student's replies read failed");

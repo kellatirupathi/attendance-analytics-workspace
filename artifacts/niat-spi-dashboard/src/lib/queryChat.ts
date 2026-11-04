@@ -10,6 +10,8 @@ export interface ThreadQuery {
   status: QueryStatus;
   createdAt: string;
   assignedTo?: string | null;
+  /** Student side: the team's replies not read yet. */
+  unread?: number;
 }
 
 export interface ThreadMessage {
@@ -59,6 +61,30 @@ export const STATUS_STYLE: Record<QueryStatus, string> = {
   waiting_on_student: "bg-[#EAF1FF] text-[#2563EB]",
   resolved: "bg-[#E8F7EE] text-[#16A34A]",
 };
+
+/** The student as the team reads it: their name, else the start of their ID (reports without a name exist). */
+export function studentLabel(name: string | null | undefined, studentId: string): string {
+  return name?.trim() || `Student ${studentId.slice(0, 8)}`;
+}
+
+/** "Semester 3" stays "Semester 3"; a bare "3" becomes "Semester 3". */
+export function semesterLabel(semester: string | null | undefined): string | null {
+  const s = semester?.trim();
+  if (!s) return null;
+  return /^semester\b/i.test(s) ? s : `Semester ${s}`;
+}
+
+export function initials(label: string): string {
+  return (
+    label
+      .split(/\s+/)
+      .filter((w) => /^\p{L}/u.test(w))
+      .map((w) => w[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "S"
+  );
+}
 
 export function timeLabel(iso: string): string {
   const d = new Date(iso);

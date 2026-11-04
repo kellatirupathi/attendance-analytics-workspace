@@ -4,9 +4,9 @@ import { validateStudentId } from "../lib/bigquery.js";
 import { studentKey } from "../lib/testStudents.js";
 import {
   getStaffBell,
-  getStaffConversation,
+  getStaffQuery,
   getStaffSummary,
-  listInbox,
+  listStaffQueries,
   markStaffSeen,
   postStaffReply,
   setQueryStatus,
@@ -37,28 +37,33 @@ router.get("/summary", async (req, res): Promise<void> => {
   }
 });
 
-/** GET /api/query-inbox/students?filter=needs_reply|open|all&q=&page=0: one row per student. */
-router.get("/students", async (req, res): Promise<void> => {
+/** GET /api/query-inbox/queries?filter=needs_reply|open|all&q=&page=0: one row per query. */
+router.get("/queries", async (req, res): Promise<void> => {
   const filter = ["needs_reply", "open", "all"].includes(String(req.query["filter"])) ? String(req.query["filter"]) : "needs_reply";
   const page = Math.max(0, Math.floor(Number(req.query["page"]) || 0));
   try {
-    res.json(await listInbox({ filter, search: typeof req.query["q"] === "string" ? req.query["q"].slice(0, 80) : "", page }));
+    res.json(await listStaffQueries({ filter, search: typeof req.query["q"] === "string" ? req.query["q"].slice(0, 80) : "", page }));
   } catch (err) {
     fail(res, req, err, "Reading the query inbox failed");
   }
 });
 
-/** GET /api/query-inbox/students/:id: the student's whole conversation, internal notes included. */
-router.get("/students/:id", async (req, res): Promise<void> => {
-  const id = String(req.params["id"]);
-  if (!validateStudentId.test(id)) {
-    res.status(400).json({ error: "Student required" });
+/** GET /api/query-inbox/queries/:id: one query's chat, internal notes included, with the student's details. */
+router.get("/queries/:id", async (req, res): Promise<void> => {
+  const queryId = Number(req.params["id"]);
+  if (!Number.isInteger(queryId)) {
+    res.status(400).json({ error: "Query required" });
     return;
   }
   try {
-    res.json(await getStaffConversation(studentKey(id)));
+    const found = await getStaffQuery(queryId);
+    if (!found) {
+      res.status(404).json({ error: "Query not found" });
+      return;
+    }
+    res.json(found);
   } catch (err) {
-    fail(res, req, err, "Reading a student's conversation failed");
+    fail(res, req, err, "Reading a query failed");
   }
 });
 

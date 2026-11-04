@@ -64,6 +64,8 @@ export interface ThreadQuery {
   status: QueryStatus;
   createdAt: string;
   assignedTo?: string | null;
+  /** Student side: the team's replies this student has not read yet. */
+  unread?: number;
 }
 export interface ThreadMessage {
   /** Negative = the query's own first message (id is -queryId). */
@@ -85,6 +87,7 @@ interface QueryRow {
   created_at: Date;
   status: QueryStatus;
   assigned_to: string | null;
+  unread: string;
 }
 interface MessageRow {
   id: number;
@@ -98,7 +101,9 @@ interface MessageRow {
 
 async function loadThread(studentKey: string, forStaff: boolean): Promise<{ queries: ThreadQuery[]; messages: ThreadMessage[] }> {
   const { rows: qs } = await pool.query<QueryRow>(
-    `SELECT q.id, q.category, q.sub_category, q.subject, q.details, q.created_at, ${EFFECTIVE_STATUS} AS status, s.assigned_to
+    `SELECT q.id, q.category, q.sub_category, q.subject, q.details, q.created_at, ${EFFECTIVE_STATUS} AS status, s.assigned_to,
+            (SELECT count(*) FROM spi_query_messages m WHERE m.query_id = q.id AND m.author = 'ops' AND NOT m.internal
+               AND m.created_at > COALESCE(s.student_read_at, '-infinity')) AS unread
      FROM spi_student_queries q LEFT JOIN spi_query_state s ON s.query_id = q.id
      WHERE q.student_id = $1 ORDER BY q.created_at, q.id`,
     [studentKey],
@@ -118,7 +123,7 @@ async function loadThread(studentKey: string, forStaff: boolean): Promise<{ quer
     subject: q.subject,
     status: q.status,
     createdAt: q.created_at.toISOString(),
-    ...(forStaff ? { assignedTo: q.assigned_to } : {}),
+    ...(forStaff ? { assignedTo: q.assigned_to } : { unread: Number(q.unread) }),
   }));
   const first: ThreadMessage[] = qs.map((q) => ({ id: -q.id, queryId: q.id, author: "student", body: q.details, createdAt: q.created_at.toISOString() }));
   const replies: ThreadMessage[] = ms.map((m) => ({
@@ -156,13 +161,15 @@ export async function getStudentUnread(studentKey: string): Promise<number> {
   return Number(rows[0]?.unread ?? 0);
 }
 
-export async function markStudentRead(studentKey: string): Promise<void> {
+/** The student opened one query's chat (or, without `queryId`, all of them): its replies count as read. */
+export async function markStudentRead(studentKey: string, queryId?: number): Promise<void> {
   await ensureTables();
   await pool.query(
     `INSERT INTO spi_query_state (query_id, status, student_read_at)
-     SELECT id, CASE WHEN status = 'closed' THEN 'resolved' ELSE 'received' END, now() FROM spi_student_queries WHERE student_id = $1
+     SELECT id, CASE WHEN status = 'closed' THEN 'resolved' ELSE 'received' END, now() FROM spi_student_queries
+     WHERE student_id = $1 AND ($2::int IS NULL OR id = $2)
      ON CONFLICT (query_id) DO UPDATE SET student_read_at = now()`,
-    [studentKey],
+    [studentKey, queryId ?? null],
   );
 }
 
@@ -195,75 +202,98 @@ export async function postStudentMessage(studentKey: string, queryId: number, ra
 
 /* -------------------------------- staff side ------------------------------- */
 
-export interface InboxStudent {
+export interface InboxQuery {
+  id: number;
   studentId: string;
+  /** Null when the student's report has no name. */
   name: string | null;
   college: string | null;
   section: string | null;
   isTest: boolean;
-  total: number;
-  needsReply: number;
-  open: number;
+  category: string;
+  subject: string;
+  status: QueryStatus;
+  assignedTo: string | null;
+  /** The last visible message: who sent it and the start of its text. */
+  lastAuthor: "student" | "ops";
+  preview: string;
   lastAt: string;
 }
 
 export const INBOX_PAGE = 50;
 
-/** One row per student, newest activity first; `filter` = needs_reply | open | all. */
-export async function listInbox(opts: { filter: string; search: string; page: number }) {
+/** One row per query, newest activity first; `filter` = needs_reply | open | all. */
+export async function listStaffQueries(opts: { filter: string; search: string; page: number }) {
   await ensureTables();
   await getCachedPlacement("-"); // makes sure spi_report_cache exists (the student's name comes from it)
-  const having = opts.filter === "needs_reply" ? "HAVING count(*) FILTER (WHERE x.st = 'received') > 0" : opts.filter === "open" ? "HAVING count(*) FILTER (WHERE x.st <> 'resolved') > 0" : "";
-  const search = opts.search.trim().toLowerCase();
+  const conds: string[] = [];
+  if (opts.filter === "needs_reply") conds.push("x.st = 'received'");
+  else if (opts.filter === "open") conds.push("x.st <> 'resolved'");
   const params: unknown[] = [];
-  let where = "";
+  const search = opts.search.trim().toLowerCase();
   if (search) {
     params.push(`%${search.replace(/[\\%_]/g, "\\$&")}%`);
-    where = `WHERE lower(x.student_id) LIKE $1 OR lower(coalesce(r.report->>'studentName', '')) LIKE $1`;
+    conds.push(`(lower(x.student_id) LIKE $1 OR lower(coalesce(x.name, '')) LIKE $1)`);
   }
   params.push(INBOX_PAGE + 1, opts.page * INBOX_PAGE);
   const { rows } = await pool.query<{
-    student_id: string; name: string | null; college: string | null; section: string | null; is_test: boolean;
-    total: string; needs: string; open_count: string; last_at: Date;
+    id: number; student_id: string; name: string | null; college: string | null; section: string | null; is_test: boolean;
+    category: string; subject: string; st: QueryStatus; assigned_to: string | null; last_author: "student" | "ops"; preview: string; last_at: Date;
   }>(
     `WITH x AS (
-       SELECT q.student_id, q.is_test, q.college, q.section, ${EFFECTIVE_STATUS} AS st,
-              GREATEST(q.created_at, coalesce((SELECT max(m.created_at) FROM spi_query_messages m WHERE m.query_id = q.id), q.created_at)) AS last_at
-       FROM spi_student_queries q LEFT JOIN spi_query_state s ON s.query_id = q.id)
-     SELECT x.student_id, max(r.report->>'studentName') AS name, max(x.college) AS college, max(x.section) AS section, bool_or(x.is_test) AS is_test,
-            count(*) AS total, count(*) FILTER (WHERE x.st = 'received') AS needs, count(*) FILTER (WHERE x.st <> 'resolved') AS open_count, max(x.last_at) AS last_at
-     FROM x LEFT JOIN spi_report_cache r ON r.student_id = x.student_id
-     ${where}
-     GROUP BY x.student_id ${having}
-     ORDER BY max(x.last_at) DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+       SELECT q.id, q.student_id, q.is_test, q.college, q.section, q.category, q.subject, ${EFFECTIVE_STATUS} AS st, s.assigned_to,
+              nullif(trim(r.report->>'studentName'), '') AS name,
+              coalesce(lm.author, 'student') AS last_author, left(coalesce(lm.body, q.details), 100) AS preview,
+              coalesce(lm.created_at, q.created_at) AS last_at
+       FROM spi_student_queries q
+       LEFT JOIN spi_query_state s ON s.query_id = q.id
+       LEFT JOIN spi_report_cache r ON r.student_id = q.student_id
+       LEFT JOIN LATERAL (SELECT m.author, m.body, m.created_at FROM spi_query_messages m
+                          WHERE m.query_id = q.id AND NOT m.internal ORDER BY m.created_at DESC, m.id DESC LIMIT 1) lm ON true)
+     SELECT * FROM x ${conds.length ? `WHERE ${conds.join(" AND ")}` : ""}
+     ORDER BY x.last_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
-  const students: InboxStudent[] = rows.slice(0, INBOX_PAGE).map((r) => ({
+  const queries: InboxQuery[] = rows.slice(0, INBOX_PAGE).map((r) => ({
+    id: r.id,
     studentId: r.student_id,
     name: r.name,
     college: r.college,
     section: r.section,
     isTest: r.is_test,
-    total: Number(r.total),
-    needsReply: Number(r.needs),
-    open: Number(r.open_count),
+    category: r.category,
+    subject: r.subject,
+    status: r.st,
+    assignedTo: r.assigned_to,
+    lastAuthor: r.last_author,
+    preview: r.preview,
     lastAt: r.last_at.toISOString(),
   }));
-  return { students, hasMore: rows.length > INBOX_PAGE };
+  return { queries, hasMore: rows.length > INBOX_PAGE };
 }
 
-/** A student's full conversation for the staff view (internal notes and who replied included). */
-export async function getStaffConversation(studentKey: string) {
+/** One query's chat for the staff view (internal notes and who replied included), with the student's details. */
+export async function getStaffQuery(queryId: number) {
   await ensureTables();
+  const { rows: found } = await pool.query<{ student_id: string }>("SELECT student_id FROM spi_student_queries WHERE id = $1", [queryId]);
+  const studentId = found[0]?.student_id;
+  if (!studentId) return null;
   const [thread, placement, name] = await Promise.all([
-    loadThread(studentKey, true),
-    getCachedPlacement(studentKey),
+    loadThread(studentId, true),
+    getCachedPlacement(studentId),
     pool
-      .query<{ name: string | null }>("SELECT report->>'studentName' AS name FROM spi_report_cache WHERE student_id = $1", [studentKey])
+      .query<{ name: string | null }>("SELECT nullif(trim(report->>'studentName'), '') AS name FROM spi_report_cache WHERE student_id = $1", [studentId])
       .then((r) => r.rows[0]?.name ?? null)
       .catch(() => null),
   ]);
-  return { studentId: studentKey, name, college: placement?.college ?? null, semester: placement?.semester ?? null, section: placement?.section ?? null, ...thread };
+  const query = thread.queries.find((q) => q.id === queryId)!;
+  return {
+    query,
+    student: { studentId, name, college: placement?.college ?? null, semester: placement?.semester ?? null, section: placement?.section ?? null },
+    messages: thread.messages.filter((m) => m.queryId === queryId),
+    /** How many other queries this student has raised. */
+    otherQueries: thread.queries.length - 1,
+  };
 }
 
 export type ReplyResult = { ok: true; ids: number[] } | { ok: false; status: 400 | 404; error: string };
