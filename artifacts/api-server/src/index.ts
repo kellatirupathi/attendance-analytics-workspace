@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { runStartupSeed } from "./lib/seed-data";
 import { startSnapshots } from "./lib/snapshot";
 import { startReportSync } from "./lib/spiReportSync";
+import { startAttachmentCleanup } from "./lib/queryAttachments";
 
 const rawPort = process.env["PORT"];
 
@@ -36,6 +37,8 @@ async function start(): Promise<void> {
     startSnapshots();
     // Student reports: BigQuery → Postgres every hour, so a report opens without live BigQuery queries.
     startReportSync();
+    // Query screenshots: deleted 90 days after their query is resolved (does nothing until Cloudflare R2 is set up).
+    startAttachmentCleanup();
   });
 }
 

@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { MessageImages } from "@/components/QueryShots";
 import { useQueryInboxSummary } from "@/hooks/useQueryInboxSummary";
+import { QUERY_CATEGORIES, problemLabel } from "@/lib/queryCategories";
 import {
   CATEGORY_DOT,
   STATUS_LABEL,
@@ -10,7 +12,9 @@ import {
   categoryLabel,
   semesterLabel,
   sendJson,
+  staffImageUrl,
   studentLabel,
+  systemLine,
   timeLabel,
   type QueryStatus,
   type ThreadMessage,
@@ -18,8 +22,8 @@ import {
 } from "@/lib/queryChat";
 
 /**
- * Student queries (Admin and Super Admin only): a list with one row per query, and the chat of the
- * selected query on the right. A reply always goes to the query that is open, so nothing is mixed.
+ * Student queries (Admin and Super Admin only): a list with one row per category chat, and the selected chat
+ * on the right. The subjects are shown once in the header; a reply goes to the chat that is open.
  */
 
 interface InboxQuery {
@@ -31,10 +35,9 @@ interface InboxQuery {
   isTest: boolean;
   category: string;
   subject: string;
+  subjectCount: number;
   status: QueryStatus;
   assignedTo: string | null;
-  lastAuthor: "student" | "ops";
-  preview: string;
   lastAt: string;
 }
 interface QueryDetail {
@@ -55,18 +58,21 @@ interface BellItem {
   unread: boolean;
 }
 
-const FILTERS = [
-  { value: "needs_reply", label: "Needs reply" },
-  { value: "open", label: "All open" },
-  { value: "all", label: "Everything" },
+const STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: "all", label: "All status" },
+  { value: "received", label: "Needs reply" },
+  { value: "in_progress", label: "In progress" },
+  { value: "waiting_on_student", label: "Waiting on student" },
+  { value: "resolved", label: "Resolved" },
 ];
-const CANNED = [
+const QUICK_REPLIES = [
   "Received, we are checking this.",
   "Please share more details (the date, class or quiz name).",
   "Fixed. It will show in your report within 24 hours.",
   "We checked, and your report is correct. Here is why: ",
 ];
 const MAX_REPLY = 2000;
+const SELECT = "h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] font-semibold text-brand-900";
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: "include" });
@@ -156,6 +162,7 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setText("");
@@ -197,6 +204,12 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     else await refreshAll();
   };
 
+  /** Puts text into the reply box at the cursor: a quick reply or a subject name. */
+  const insert = (piece: string) => {
+    setText((t) => (t && !t.endsWith(" ") && !t.endsWith("\n") ? `${t} ${piece}` : `${t}${piece}`));
+    boxRef.current?.focus();
+  };
+
   if (isLoading) return <div className="grid flex-1 place-items-center text-[13px] text-slate-500">Loading…</div>;
   if (isError || !data) return <div className="grid flex-1 place-items-center text-[13px] text-red-600">Could not load this query.</div>;
 
@@ -213,7 +226,6 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
             <b className="block truncate text-[15px] text-brand-900">{studentLabel(student.name, student.studentId)}</b>
             <small className="block truncate text-[11.5px] text-slate-500">{place || student.studentId}</small>
           </div>
-          <StatusPill status={query.status} />
           <a href={`/spi/${student.studentId}`} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-[11.5px] font-semibold text-brand-900 hover:bg-slate-50">
             Open report
           </a>
@@ -221,26 +233,47 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
           <span className="h-2 w-2 rounded-full" style={{ background: CATEGORY_DOT[query.category] ?? "#2563EB" }} aria-hidden />
           <b className="text-brand-900">{categoryLabel(query.category)}</b>
-          <span className="text-slate-500">· {query.subject}</span>
+          <StatusPill status={query.status} />
+          {query.assignedTo && <small className="text-[11px] text-slate-400">{query.assignedTo}</small>}
           {otherQueries > 0 && (
             <button type="button" onClick={() => onShowStudent(student.studentId)} className="ml-auto text-[11.5px] font-semibold text-brand-600 hover:underline">
-              This student has {otherQueries} other {otherQueries === 1 ? "query" : "queries"}
+              Student also has {otherQueries} other {otherQueries === 1 ? "chat" : "chats"}
             </button>
           )}
         </div>
+        <p className="mt-1.5 text-[12px] leading-snug text-slate-700">
+          <b className="text-brand-900">{query.subjects.length === 1 ? "Subject:" : "Subjects:"}</b> {query.subjects.join(", ")}
+        </p>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto bg-[#FAFCFF] px-4 py-3">
-        {messages.map((m) =>
-          m.internal ? (
-            <div key={m.id} className="w-[78%] self-center rounded-[10px] border border-dashed border-[#F0C96B] bg-[#FFF8E1] px-3 py-2 text-[12px] text-[#7A5B00]">
-              Internal note (the student cannot see this) · {m.authorName}
-              <p className="mt-0.5 whitespace-pre-wrap break-words">{m.body}</p>
-            </div>
-          ) : m.author === "student" ? (
+        {messages.map((m) => {
+          if (m.author === "system") {
+            return (
+              <p key={m.id} className="self-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] text-slate-500">
+                {systemLine(m.body, "staff")}
+              </p>
+            );
+          }
+          const images = (m.attachments ?? []).map((a) => staffImageUrl(a.token));
+          const problem = problemLabel(query.category, m.problem);
+          if (m.internal) {
+            return (
+              <div key={m.id} className="w-[78%] self-center rounded-[10px] border border-dashed border-[#F0C96B] bg-[#FFF8E1] px-3 py-2 text-[12px] text-[#7A5B00]">
+                Internal note (the student cannot see this) · {m.authorName}
+                <p className="mt-0.5 whitespace-pre-wrap break-words">{m.body}</p>
+              </div>
+            );
+          }
+          return m.author === "student" ? (
             <div key={m.id} className="max-w-[72%] self-start whitespace-pre-wrap break-words rounded-[12px] rounded-bl-[3px] border border-slate-200 bg-white px-3 py-2 text-[12.5px] leading-snug text-brand-900">
+              {problem && <b className="mb-0.5 block">{problem}</b>}
               {m.body}
-              <small className="mt-1 block text-[10.5px] opacity-60">{timeLabel(m.createdAt)}</small>
+              <MessageImages urls={images} />
+              <small className="mt-1 block text-[10.5px] opacity-60">
+                Student · {timeLabel(m.createdAt)}
+                {images.length > 0 ? ` · ${images.length} screenshot${images.length === 1 ? "" : "s"}` : ""}
+              </small>
             </div>
           ) : (
             <div key={m.id} className="max-w-[72%] self-end whitespace-pre-wrap break-words rounded-[12px] rounded-br-[3px] bg-[#2563EB] px-3 py-2 text-[12.5px] leading-snug text-white">
@@ -249,8 +282,8 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
                 {m.authorName} · {timeLabel(m.createdAt)}
               </small>
             </div>
-          ),
-        )}
+          );
+        })}
         <div ref={endRef} />
       </div>
 
@@ -263,10 +296,21 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
             Internal note
           </button>
         </div>
+        {query.subjects.length > 1 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate-500">Add a subject name to your message:</span>
+            {query.subjects.map((s) => (
+              <button key={s} type="button" onClick={() => insert(s)} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-brand-900 hover:bg-slate-50">
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
         {!note && (
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {CANNED.map((c) => (
-              <button key={c} type="button" onClick={() => setText((t) => (t ? `${t} ${c}` : c))} className="rounded-full bg-[#EAF1FF] px-2.5 py-1 text-[11px] font-semibold text-[#2563EB]">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate-500">Quick replies:</span>
+            {QUICK_REPLIES.map((c) => (
+              <button key={c} type="button" onClick={() => insert(c)} className="rounded-full bg-[#EAF1FF] px-2.5 py-1 text-[11px] font-semibold text-[#2563EB]">
                 {c.length > 34 ? `${c.slice(0, 32)}…` : c}
               </button>
             ))}
@@ -278,9 +322,10 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
           </p>
         )}
         <textarea
+          ref={boxRef}
           value={text}
           maxLength={MAX_REPLY}
-          rows={3}
+          rows={2}
           onChange={(e) => setText(e.target.value)}
           placeholder={note ? "Write a note for the team (the student will not see it)…" : "Write a reply the student will see in their report…"}
           aria-label={note ? "Internal note" : "Reply"}
@@ -314,7 +359,9 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
 }
 
 export default function Queries() {
-  const [filter, setFilter] = useState("needs_reply");
+  // The team opens on what is waiting for a reply.
+  const [status, setStatus] = useState("received");
+  const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [term, setTerm] = useState("");
   const [page, setPage] = useState(0);
@@ -329,9 +376,9 @@ export default function Queries() {
   }, [search]);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["query-inbox", filter, term, page],
+    queryKey: ["query-inbox", status, category, term, page],
     refetchInterval: 30_000,
-    queryFn: () => getJson<{ queries: InboxQuery[]; hasMore: boolean }>(`/api/query-inbox/queries?filter=${filter}&q=${encodeURIComponent(term)}&page=${page}`),
+    queryFn: () => getJson<{ queries: InboxQuery[]; hasMore: boolean }>(`/api/query-inbox/queries?status=${status}&category=${category}&q=${encodeURIComponent(term)}&page=${page}`),
   });
   const queries = data?.queries ?? [];
 
@@ -339,31 +386,47 @@ export default function Queries() {
     <div className="flex flex-col">
       <PageHeader
         title="Student queries"
-        subtitle="Each query is its own chat. Your reply appears in that query in the student's SPI report."
+        subtitle="Each category is its own chat. Your reply appears in that chat in the student's SPI report."
         right={
           <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by student name or ID"
+              aria-label="Search queries"
+              className="h-9 w-52 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] focus:border-brand-600 focus:outline-none"
+            />
             <select
-              value={filter}
+              value={status}
               onChange={(e) => {
-                setFilter(e.target.value);
+                setStatus(e.target.value);
                 setPage(0);
               }}
-              aria-label="Show"
-              className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] font-semibold text-brand-900"
+              aria-label="Status"
+              className={SELECT}
             >
-              {FILTERS.map((f) => (
+              {STATUS_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
                   {f.label}
                 </option>
               ))}
             </select>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name or student ID"
-              aria-label="Search queries"
-              className="h-9 w-48 rounded-lg border border-slate-200 bg-white px-2.5 text-[12.5px] focus:border-brand-600 focus:outline-none"
-            />
+            <select
+              value={category}
+              onChange={(e) => {
+                setCategory(e.target.value);
+                setPage(0);
+              }}
+              aria-label="Category"
+              className={SELECT}
+            >
+              <option value="all">All categories</option>
+              {QUERY_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
             <QueryBell onOpen={(id) => setSelected(id)} />
           </div>
         }
@@ -374,7 +437,7 @@ export default function Queries() {
           <ul className="min-h-0 flex-1 overflow-y-auto">
             {isLoading && <li className="px-4 py-6 text-center text-[12.5px] text-slate-500">Loading…</li>}
             {isError && <li className="px-4 py-6 text-center text-[12.5px] text-red-600">Could not load the queries.</li>}
-            {!isLoading && !isError && queries.length === 0 && <li className="px-4 py-8 text-center text-[12.5px] text-slate-500">{filter === "needs_reply" ? "Nothing is waiting for a reply." : "No queries found."}</li>}
+            {!isLoading && !isError && queries.length === 0 && <li className="px-4 py-8 text-center text-[12.5px] text-slate-500">{status === "received" ? "Nothing is waiting for a reply." : "No queries found."}</li>}
             {queries.map((q) => (
               <li key={q.id}>
                 <button
@@ -392,15 +455,13 @@ export default function Queries() {
                   </span>
                   <span className="mt-1 flex items-center gap-1.5 text-[12px]">
                     <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: CATEGORY_DOT[q.category] ?? "#2563EB" }} aria-hidden />
-                    <b className="shrink-0 text-slate-700">{categoryLabel(q.category)}</b>
-                    <span className="truncate text-slate-500">· {q.subject}</span>
+                    <b className="text-slate-700">{categoryLabel(q.category)}</b>
                   </span>
-                  <span className="mt-1 flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[12px] text-slate-600">
-                      <span className="text-slate-400">{q.lastAuthor === "ops" ? "You: " : "Student: "}</span>
-                      {q.preview}
+                  <span className="mt-1 flex items-center justify-between gap-2 text-[11.5px] text-slate-500">
+                    <span>
+                      {q.subjectCount} {q.subjectCount === 1 ? "subject" : "subjects"}
                     </span>
-                    <small className="shrink-0 text-[10.5px] text-slate-400">{timeLabel(q.lastAt)}</small>
+                    <span className="shrink-0 text-slate-400">{timeLabel(q.lastAt)}</span>
                   </span>
                 </button>
               </li>
@@ -424,7 +485,8 @@ export default function Queries() {
               queryId={selected}
               onBack={() => setSelected(null)}
               onShowStudent={(id) => {
-                setFilter("all");
+                setStatus("all");
+                setCategory("all");
                 setSearch(id);
               }}
             />

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Query chat - one simple view per category</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#0B1F4D; --text:#334155; --muted:#6B7280; --line:#E6ECF5; --blue:#2563EB; --blue-soft:#EAF1FF; --red:#E11D48; --red-soft:#FDE8EE; --amber:#D97706; --amber-soft:#FFF4DD; --green:#16A34A; --green-soft:#E8F7EE; --purple:#7C3AED; --purple-soft:#F1EAFE; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:#E9EEF7; font-family:"Inter",system-ui,sans-serif; color:var(--text); font-size:12.5px; padding:28px; width:1430px; }
+  svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+  h2.sec { font-size:14px; font-weight:800; color:var(--navy); margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  h2.sec span { background:var(--navy); color:#fff; font-size:11px; border-radius:6px; padding:3px 9px; }
+  .row { display:flex; gap:24px; align-items:flex-start; }
+  .cap { font-size:12px; font-weight:700; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:.04em; }
+  .phone { width:440px; height:740px; background:#fff; border:1px solid #D5DEEC; border-radius:18px; overflow:hidden; display:flex; flex-direction:column; position:relative; }
+  .hd { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--line); }
+  .hd h3 { font-size:15px; color:var(--navy); font-weight:800; } .hd small { display:block; font-size:11px; color:var(--muted); }
+  .btn { background:var(--blue); color:#fff; font-weight:700; border-radius:9px; padding:8px 12px; font-size:12px; display:inline-flex; gap:6px; align-items:center; }
+  .btn.ghost { background:#fff; color:var(--navy); border:1px solid #D5DEEC; }
+  .btn.ok { background:#fff; color:var(--green); border:1px solid var(--green); }
+  .pill { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:999px; white-space:nowrap; }
+  .p-new { background:var(--red-soft); color:var(--red); } .p-work { background:var(--amber-soft); color:var(--amber); }
+  .p-wait { background:var(--blue-soft); color:var(--blue); } .p-done { background:var(--green-soft); color:var(--green); } .p-recv { background:#EEF2F8; color:#475569; }
+  .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+  .m { display:inline-grid; place-items:center; width:17px; height:17px; border-radius:50%; background:#0B1F4D; color:#fff; font-size:10px; font-weight:800; flex:none; }
+  .abs { position:absolute; }
+
+  .card { margin:10px 12px 0; border:1px solid var(--line); border-radius:13px; padding:12px; background:#fff; position:relative; }
+  .card.unread { border-color:#BBD0FF; background:#F6F9FF; }
+  .card.done { opacity:.7; background:#FAFBFD; }
+  .card .t { display:flex; align-items:center; gap:8px; } .card .t b { font-size:13.5px; color:var(--navy); }
+  .card .subs { font-size:11.5px; color:var(--muted); margin-top:5px; }
+  .card .last { font-size:12px; margin-top:7px; color:var(--text); }
+  .newb { background:var(--red); color:#fff; font-size:10.5px; font-weight:700; border-radius:999px; padding:1px 7px; }
+  .sticky { margin-top:auto; padding:12px; border-top:1px solid var(--line); }
+  .sticky .btn { width:100%; justify-content:center; height:42px; font-size:13px; }
+
+  .fm { padding:12px 14px; display:flex; flex-direction:column; gap:11px; overflow:hidden; flex:1; }
+  .fl > b { display:block; font-size:11.5px; color:var(--navy); margin-bottom:5px; }
+  .seg { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .seg div { border:1px solid #D5DEEC; border-radius:9px; padding:8px; text-align:center; font-weight:600; color:var(--navy); display:flex; gap:6px; justify-content:center; align-items:center; }
+  .seg div.on { border-color:var(--purple); background:var(--purple-soft); color:var(--purple); }
+  .banner { background:var(--blue-soft); border:1px solid #BBD0FF; color:#1D4ED8; border-radius:10px; padding:9px 11px; display:flex; gap:8px; align-items:flex-start; line-height:1.4; font-weight:500; position:relative; }
+  .list { border:1px solid #D5DEEC; border-radius:10px; overflow:hidden; }
+  .li { display:flex; align-items:center; gap:9px; padding:8px 11px; border-top:1px solid var(--line); color:var(--navy); }
+  .li:first-child { border-top:0; }
+  .cb { width:16px; height:16px; border-radius:5px; border:1.5px solid #9DB6F2; background:#fff; display:grid; place-items:center; color:#fff; flex:none; }
+  .cb.on { background:var(--blue); border-color:var(--blue); } .cb.lock { background:#CBD5E1; border-color:#CBD5E1; }
+  .cb svg { width:10px; height:10px; stroke-width:3.5; }
+  .li small { margin-left:auto; color:var(--muted); font-size:10.5px; }
+  .li.search { color:#9AA6B8; background:#FAFCFF; }
+  .sel { border:1px solid #D5DEEC; border-radius:9px; padding:9px 11px; color:var(--navy); font-weight:600; display:flex; justify-content:space-between; }
+  .ta { border:1px solid #D5DEEC; border-radius:9px; padding:9px 11px; color:var(--navy); height:56px; line-height:1.4; }
+  .shots { display:flex; gap:8px; align-items:center; position:relative; }
+  .shot { width:54px; height:42px; border-radius:8px; border:1px solid var(--line); background:#fff; padding:5px; position:relative; }
+  .shot i { display:block; height:5px; background:#DCE4F1; border-radius:3px; margin-bottom:4px; } .shot i.r { background:#FADADD; width:70%; }
+  .shot u { position:absolute; top:-5px; right:-5px; width:15px; height:15px; border-radius:50%; background:var(--navy); color:#fff; font-size:9px; display:grid; place-items:center; text-decoration:none; }
+  .add { border:1.5px dashed #9DB6F2; background:#F6F9FF; color:var(--blue); font-weight:600; border-radius:9px; padding:9px 12px; display:flex; gap:7px; align-items:center; }
+
+  .subline { padding:8px 14px; border-bottom:1px solid var(--line); background:#FAFCFF; font-size:12px; color:var(--text); display:flex; gap:8px; align-items:center; position:relative; }
+  .subline b { color:var(--navy); }
+  .chat { flex:1; padding:12px 14px; display:flex; flex-direction:column; gap:9px; background:#FAFCFF; overflow:hidden; }
+  .bub { max-width:84%; padding:9px 11px; border-radius:13px; line-height:1.42; font-size:12.5px; position:relative; }
+  .bub small { display:block; margin-top:5px; font-size:10.5px; opacity:.72; }
+  .bub b.q { display:block; margin-bottom:3px; }
+  .me { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:3px; }
+  .tm { align-self:flex-start; background:#F1F5FB; color:var(--navy); border-bottom-left-radius:3px; }
+  .tm .w { display:block; font-size:10.5px; font-weight:700; color:var(--blue); margin-bottom:3px; }
+  .th { display:flex; gap:6px; margin-top:7px; } .th .shot { width:50px; height:38px; background:rgba(255,255,255,.2); border-color:rgba(255,255,255,.4); } .th .shot i { background:rgba(255,255,255,.55); } .th .shot i.r { background:#FFD1D8; }
+  .sys { align-self:center; background:#EEF2F8; color:var(--muted); font-size:10.5px; border-radius:999px; padding:3px 10px; position:relative; }
+  .cmp { border-top:1px solid var(--line); padding:10px 12px; background:#fff; }
+  .in { display:flex; gap:8px; align-items:center; }
+  .in .box { flex:1; border:1px solid #D5DEEC; border-radius:9px; padding:9px 11px; color:#9AA6B8; } .in .ic { color:var(--muted); width:34px; height:34px; border:1px solid #D5DEEC; border-radius:9px; display:grid; place-items:center; }
+  .in .send { background:var(--blue); color:#fff; border-radius:9px; padding:9px 14px; font-weight:700; }
+  .toast { position:absolute; left:12px; right:12px; bottom:84px; background:var(--navy); color:#fff; border-radius:12px; padding:10px 12px; box-shadow:0 10px 24px rgba(11,31,77,.3); }
+  .toast b { font-size:12px; display:block; } .toast p { font-size:11px; color:#C9D5F2; margin-top:2px; }
+
+  .adm { width:1000px; height:920px; background:#fff; border:1px solid #D5DEEC; border-radius:18px; overflow:hidden; display:flex; flex-direction:column; }
+  .atop { display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:1px solid var(--line); }
+  .atop h3 { font-size:15px; color:var(--navy); font-weight:800; }
+  .sel2 { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; font-weight:600; color:var(--navy); font-size:12px; }
+  .srch { border:1px solid #D5DEEC; border-radius:8px; padding:6px 10px; color:#9AA6B8; width:190px; font-size:12px; }
+  .bell { position:relative; width:32px; height:32px; border:1px solid var(--line); border-radius:8px; display:grid; place-items:center; color:var(--navy); }
+  .bell i { position:absolute; top:-5px; right:-5px; background:var(--red); color:#fff; font-style:normal; font-size:10px; font-weight:700; border-radius:999px; padding:0 5px; border:2px solid #fff; }
+  .abody { flex:1; display:grid; grid-template-columns:330px 1fr; min-height:0; }
+  .alist { border-right:1px solid var(--line); overflow:hidden; }
+  .ar { padding:11px 14px; border-bottom:1px solid var(--line); }
+  .ar.cur { background:#F3F7FF; box-shadow:inset 3px 0 0 var(--blue); }
+  .ar .l1 { display:flex; align-items:center; gap:8px; } .ar .l1 b { color:var(--navy); font-size:12.5px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ar .l2 { display:flex; align-items:center; gap:6px; margin-top:4px; font-size:11.5px; color:var(--text); }
+  .ar .l3 { margin-top:4px; font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .ar .l3 span { color:#94A3B8; }
+  .athread { display:flex; flex-direction:column; min-width:0; }
+  .ath { padding:11px 16px; border-bottom:1px solid var(--line); }
+  .ath .r1 { display:flex; align-items:center; gap:8px; } .ath .r1 b { font-size:14.5px; color:var(--navy); } .ath .r1 small { color:var(--muted); font-size:11.5px; }
+  .ath .r2 { display:flex; align-items:center; gap:8px; margin-top:7px; font-size:12px; }
+  .ath .r3 { margin-top:6px; font-size:12px; color:var(--text); display:flex; align-items:center; gap:8px; position:relative; }
+  .link { color:var(--blue); font-weight:600; font-size:11.5px; margin-left:auto; }
+  .achat { flex:1; padding:11px 16px; display:flex; flex-direction:column; gap:8px; background:#FAFCFF; overflow:hidden; }
+  .bub.st { align-self:flex-start; background:#fff; border:1px solid var(--line); color:var(--navy); border-bottom-left-radius:3px; }
+  .bub.op { align-self:flex-end; background:var(--blue); color:#fff; border-bottom-right-radius:3px; }
+  .note { align-self:center; width:70%; border:1px dashed #F0C96B; background:#FFF8E1; color:#7A5B00; font-size:11.5px; border-radius:10px; padding:7px 11px; }
+  .acmp { border-top:1px solid var(--line); padding:10px 16px; background:#fff; }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; } .tabs div { font-size:12px; font-weight:700; padding:4px 10px; border-radius:7px; color:var(--muted); } .tabs .on { background:var(--blue-soft); color:var(--blue); }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; align-items:center; position:relative; } .chips em { font-style:normal; font-size:11px; color:var(--muted); }
+  .chip { font-size:11px; font-weight:700; border-radius:999px; padding:3px 9px; border:1px solid transparent; background:var(--blue-soft); color:var(--blue); }
+  .chip.alt { background:#fff; border-color:#D5DEEC; color:var(--navy); }
+  .abox { border:1px solid #D5DEEC; border-radius:9px; padding:9px 11px; color:#9AA6B8; height:52px; }
+  .arow2 { display:flex; align-items:center; gap:8px; margin-top:8px; } .arow2 .sp { margin-left:auto; display:flex; gap:8px; align-items:center; }
+
+  .rules { width:344px; background:#fff; border:1px solid #D5DEEC; border-radius:18px; padding:16px; align-self:stretch; }
+  .rules h3 { font-size:13px; color:var(--navy); font-weight:800; margin-bottom:10px; }
+  .rule { display:flex; gap:9px; padding:7px 0; border-top:1px solid var(--line); line-height:1.42; font-size:12px; color:var(--text); }
+  .rule:first-of-type { border-top:0; } .rule b { color:var(--navy); }
+</style>
+</head>
+<body>
+
+<h2 class="sec"><span>STUDENT VIEW</span> in the SPI report</h2>
+<div class="row">
+
+  <div>
+    <div class="cap">1 · My queries: one card per category</div>
+    <div class="phone">
+      <div class="hd"><div><h3>My queries</h3><small>One chat per category</small></div><span class="btn" style="margin-left:auto">+ New</span></div>
+      <div class="card unread">
+        <div class="t"><span class="dot" style="background:var(--purple)"></span><b>Classroom Quiz</b><span class="newb" style="margin-left:auto">1 new</span><span class="pill p-work">In progress</span></div>
+        <div class="subs">Data Structures, DBMS, AI For Finance</div>
+        <div class="last">SPI team: DBMS is fixed. Your score now…</div>
+        <span class="m abs" style="right:-6px;top:-6px">5</span>
+      </div>
+      <div class="card">
+        <div class="t"><span class="dot" style="background:var(--blue)"></span><b>Attendance</b><span class="pill p-wait" style="margin-left:auto">Needs your reply</span></div>
+        <div class="subs">Back End Development</div>
+        <div class="last">SPI team: Which device did you join from?</div>
+      </div>
+      <div class="card">
+        <div class="t"><span class="dot" style="background:var(--red)"></span><b>Module Quiz</b><span class="pill p-recv" style="margin-left:auto">Received</span></div>
+        <div class="subs">Back End Development, Calculus</div>
+        <div class="last">Received. The SPI team will reply here.</div>
+      </div>
+      <div class="card done">
+        <div class="t"><span class="dot" style="background:var(--amber)"></span><b>Skill Assessment</b><span class="pill p-done" style="margin-left:auto">Resolved</span></div>
+        <div class="subs">Data Structures</div>
+        <div class="last">Resolved 29 Oct · reply to reopen</div>
+        <span class="m abs" style="right:-6px;top:-6px">7</span>
+      </div>
+      <div class="sticky"><div class="btn"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Raise a query</div></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="cap">2 · Raise a query: tick many subjects</div>
+    <div class="phone">
+      <div class="hd"><div><h3>Raise a query</h3></div><svg style="margin-left:auto;color:var(--muted)" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></div>
+      <div class="fm">
+        <div class="fl"><b>Category</b>
+          <div class="seg"><div>Attendance</div><div class="on"><span class="dot" style="background:var(--purple)"></span>Classroom Quiz</div><div>Module Quiz</div><div>Skill Assessment</div></div></div>
+        <div class="banner"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg><span>You already have an open Classroom Quiz query. The subjects you tick are added to it.</span><span class="m abs" style="right:-6px;top:-6px">1</span></div>
+        <div class="fl"><b>Subjects <span style="font-weight:500;color:var(--muted)">(tick all that apply)</span></b>
+          <div class="list">
+            <div class="li search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Search subject<small style="color:var(--blue);font-weight:700">Select all</small></div>
+            <div class="li"><span class="cb lock"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>Data Structures<small>already in your query</small></div>
+            <div class="li"><span class="cb lock"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>DBMS<small>already in your query</small></div>
+            <div class="li"><span class="cb on"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>Probability and Statistics</div>
+            <div class="li"><span class="cb"></span>Calculus</div>
+          </div></div>
+        <div class="fl"><b>What is the problem?</b><div class="sel">My score is wrong <span>▾</span></div></div>
+        <div class="fl"><b>Details</b><div class="ta">Score shows 6, review page shows 9.</div></div>
+        <div class="fl"><b>Screenshots <span style="font-weight:500;color:var(--muted)">(optional, up to 3)</span></b>
+          <div class="shots"><div class="add"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>Add</div>
+            <div class="shot"><i></i><i class="r"></i><u>✕</u></div><div class="shot"><i></i><i class="r"></i><u>✕</u></div>
+            <span class="m abs" style="left:-6px;top:-8px">6</span></div></div>
+      </div>
+      <div class="sticky"><div class="btn">Add to my Classroom Quiz query</div></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="cap">3 · The chat: one simple view</div>
+    <div class="phone">
+      <div class="hd"><span style="color:var(--navy);font-size:16px">←</span><div><h3 style="display:flex;gap:7px;align-items:center"><span class="dot" style="background:var(--purple)"></span>Classroom Quiz</h3></div><span class="pill p-work" style="margin-left:auto">In progress</span><span class="m abs" style="right:-6px;top:14px;display:none"></span></div>
+      <div class="subline"><span><b>Subjects:</b> Data Structures, DBMS, AI For Finance, Probability and Statistics</span><span class="m abs" style="right:8px;top:-8px">2</span></div>
+      <div class="chat">
+        <div class="bub me"><b class="q">My score is wrong</b>Shows 6, review page shows 9.
+          <div class="th"><div class="shot"><i></i><i class="r"></i></div><div class="shot"><i></i><i class="r"></i></div></div><small>2 Nov, 10:42 am</small></div>
+        <div class="bub tm"><span class="w">SPI team</span>Hi, we are checking all three subjects.<small>2 Nov, 11:20 am</small></div>
+        <div class="bub tm"><span class="w">SPI team</span>DBMS and Data Structures are fixed. Your scores now show correctly. We are still checking AI For Finance.<small>2 Nov, 12:05 pm</small></div>
+        <div class="sys">You added Probability and Statistics<span class="m abs" style="right:-9px;top:-8px">3</span></div>
+        <div class="bub me">Please check Probability and Statistics also.<small>3 Nov, 9:10 am</small></div>
+        <div class="sys">Received. The SPI team will reply here.</div>
+      </div>
+      <div class="cmp"><div class="in"><div class="box">Write a message…</div><div class="ic"><svg viewBox="0 0 24 24"><path d="m21 12-9 9a5 5 0 0 1-7-7l9-9a3 3 0 0 1 4 4l-9 9a1 1 0 0 1-2-2l8-8"/></svg></div><div class="send">Send</div></div></div>
+    </div>
+  </div>
+</div>
+
+<div style="height:26px"></div>
+<h2 class="sec"><span>ADMIN VIEW</span> Admin and Super Admin only</h2>
+<div class="row">
+  <div class="adm">
+    <div class="atop"><h3>Student queries</h3><span style="color:var(--muted);font-size:11.5px">One row per category chat</span>
+      <span style="margin-left:auto" class="sel2">Needs reply ▾</span><span class="srch">Search name or student ID</span><div class="bell"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><i>3</i></div></div>
+    <div class="abody">
+      <div class="alist">
+        <div class="ar cur"><div class="l1"><b>Gunasekhar Reddy</b><span class="pill p-new">Needs reply</span></div>
+          <div class="l2"><span class="dot" style="background:var(--purple)"></span><b style="color:#475569">Classroom Quiz</b>· 4 subjects</div>
+          <div class="l3"><span>Student:</span> Please check Probability and Statistics also.</div></div>
+        <div class="ar"><div class="l1"><b>Student 3f2a9c1b</b><span class="m" style="width:auto;padding:0 6px;border-radius:9px;font-size:9.5px">8</span><span class="pill p-new">Needs reply</span></div>
+          <div class="l2"><span class="dot" style="background:var(--blue)"></span><b style="color:#475569">Attendance</b>· Data Structures</div>
+          <div class="l3"><span>Student:</span> I attended the 4 Oct class but it shows absent</div></div>
+        <div class="ar"><div class="l1"><b>P Sravani</b><span class="pill p-new">Needs reply</span></div>
+          <div class="l2"><span class="dot" style="background:var(--red)"></span><b style="color:#475569">Module Quiz</b>· 2 subjects</div>
+          <div class="l3"><span>Student:</span> My score shows 6 but the review shows 9</div></div>
+        <div class="ar"><div class="l1"><b>K Manoj</b><span class="pill p-wait">Waiting on student</span></div>
+          <div class="l2"><span class="dot" style="background:var(--blue)"></span><b style="color:#475569">Attendance</b>· Back End Development</div>
+          <div class="l3"><span>You:</span> Which device did you join from?</div></div>
+        <div class="ar"><div class="l1"><b>A Varshini</b><span class="pill p-done">Resolved</span></div>
+          <div class="l2"><span class="dot" style="background:var(--amber)"></span><b style="color:#475569">Skill Assessment</b>· Data Structures</div>
+          <div class="l3"><span>You:</span> This query has been marked as resolved.</div></div>
+      </div>
+
+      <div class="athread">
+        <div class="ath">
+          <div class="r1"><b>Gunasekhar Reddy</b><small>Chaitanya Deemed-to-be University · Semester 3 · CDU Batch -1-S-001</small></div>
+          <div class="r2"><span class="dot" style="background:var(--purple)"></span><b style="color:var(--navy)">Classroom Quiz</b><span class="pill p-new">Needs reply</span><span class="link">Student also has: Attendance, Module Quiz</span><span class="btn ghost" style="padding:5px 10px">Open report</span></div>
+          <div class="r3"><b style="color:var(--navy)">Subjects:</b> Data Structures, DBMS, AI For Finance, Probability and Statistics</div>
+        </div>
+        <div class="achat">
+          <div class="bub st"><b class="q">My score is wrong</b>Shows 6, review page shows 9.
+            <div class="th"><div class="shot" style="background:#fff;border-color:var(--line);width:58px;height:44px"><i style="background:#DCE4F1"></i><i class="r" style="background:#FADADD"></i></div><div class="shot" style="background:#fff;border-color:var(--line);width:58px;height:44px"><i style="background:#DCE4F1"></i><i class="r" style="background:#FADADD"></i></div></div><small>Student · 2 Nov, 10:42 am · 2 screenshots</small></div>
+          <div class="bub op">Hi, we are checking all three subjects.<small>Syam · 11:20 am</small></div>
+          <div class="note">Internal note (student can't see): DS and DBMS came from the old sheet; re-run sync.</div>
+          <div class="bub op">DBMS and Data Structures are fixed. Your scores now show correctly. We are still checking AI For Finance.<small>Syam · 12:05 pm</small></div>
+          <div class="bub st" style="background:#EEF2F8;border-style:dashed;color:var(--muted);font-size:11.5px;align-self:center">Student added Probability and Statistics</div>
+          <div class="bub st">Please check Probability and Statistics also.<small>Student · 3 Nov, 9:10 am</small></div>
+        </div>
+        <div class="acmp">
+          <div class="tabs"><div class="on">Reply to student</div><div>Internal note</div></div>
+          <div class="chips"><span class="m">9</span><em>Add a subject name to your message:</em><span class="chip alt">Data Structures</span><span class="chip alt">DBMS</span><span class="chip alt">AI For Finance</span><span class="chip alt">Probability and Statistics</span></div>
+          <div class="chips"><em>Quick replies:</em><span class="chip">Received, we are checking this.</span><span class="chip">Please share more details.</span><span class="chip">Fixed. It will show within 24 hours.</span></div>
+          <div class="abox">Write a reply the student will see in their report…</div>
+          <div class="arow2"><span style="font-size:11.5px;color:var(--muted)">After sending:</span><span class="sel2">In progress ▾</span>
+            <span class="sp"><span class="btn ok">Mark resolved</span><span class="btn">Send reply</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rules">
+    <h3>How it behaves</h3>
+    <div class="rule"><span class="m">1</span><span><b>One open chat per category.</b> A new issue in the same category is added to it. No duplicate queries.</span></div>
+    <div class="rule"><span class="m">2</span><span><b>Subjects are shown once</b>, as plain text in the header. No subject-wise status or tags.</span></div>
+    <div class="rule"><span class="m">3</span><span><b>Adding a subject later</b> shows one small line in the chat, so both sides see the change.</span></div>
+    <div class="rule"><span class="m">4</span><span><b>One status per chat:</b> Received, In progress, Waiting on student, Resolved. The team sets it.</span></div>
+    <div class="rule"><span class="m">5</span><span><b>Student list:</b> "N new" for unread replies, "Needs your reply" when the team asked something. A toast shows a new reply while the report is open.</span></div>
+    <div class="rule"><span class="m">6</span><span><b>Screenshots:</b> up to 3 per message, images only, shrunk before upload. Optional.</span></div>
+    <div class="rule"><span class="m">7</span><span><b>Resolved chats stay in the list.</b> A student reply reopens it.</span></div>
+    <div class="rule"><span class="m">8</span><span><b>No name on the report?</b> The team sees "Student" plus the start of the ID.</span></div>
+    <div class="rule"><span class="m">9</span><span><b>Reply about one subject?</b> The team writes it in the message. Subject chips paste the name in with one tap.</span></div>
+    <div class="rule"><span class="m">·</span><span>Internal notes are never shown to the student, who sees "SPI team" and never a staff name. Only Admin and Super Admin see this page.</span></div>
+  </div>
+</div>
+</body>
+</html>

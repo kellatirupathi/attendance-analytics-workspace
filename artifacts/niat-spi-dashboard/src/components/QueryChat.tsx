@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MessageImages, ShotPicker, useShots } from "@/components/QueryShots";
+import { problemLabel } from "@/lib/queryCategories";
 import {
   CATEGORY_DOT,
   STATUS_LABEL,
   STATUS_STYLE,
   categoryLabel,
   sendJson,
+  studentImageUrl,
+  systemLine,
   timeLabel,
   type Thread,
   type ThreadMessage,
@@ -12,7 +16,7 @@ import {
 } from "@/lib/queryChat";
 
 /**
- * The student's side of "Raise a query": a list of their queries, and one chat per query with the SPI team.
+ * The student's side of "Raise a query": one card per category chat, and one chat with the SPI team per card.
  * useStudentThread keeps the data fresh (the report page uses it for the "My queries" badge);
  * QueryChatSheet is the list and the chat.
  */
@@ -24,7 +28,7 @@ interface StudentThread extends Thread {
 const EMPTY: StudentThread = { queries: [], messages: [], unread: 0 };
 const MAX_CHARS = 2000;
 
-/** Loads the student's queries and replies and refreshes them every `pollMs` while the tab is visible. */
+/** Loads the student's chats and replies and refreshes them every `pollMs` while the tab is visible. */
 export function useStudentThread(studentId: string | undefined, pollMs: number) {
   const [thread, setThread] = useState<StudentThread>(EMPTY);
 
@@ -57,9 +61,12 @@ function StatusPill({ status }: { status: ThreadQuery["status"] }) {
   return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${STATUS_STYLE[status]}`}>{STATUS_LABEL.student[status]}</span>;
 }
 
-/** Newest activity first: the last message of each query decides where it sits. */
+/** The newest message a person wrote (system lines are not shown as a preview). */
 function lastMessage(messages: ThreadMessage[], queryId: number): ThreadMessage | undefined {
-  for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.queryId === queryId) return messages[i];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.queryId === queryId && m.author !== "system") return m;
+  }
   return undefined;
 }
 
@@ -75,11 +82,11 @@ function QueryList({ thread, onPick }: { thread: StudentThread; onPick: (id: num
     <ul className="flex-1 divide-y divide-[#E6ECF5] overflow-y-auto">
       {rows.map(({ q, last }) => (
         <li key={q.id}>
-          <button type="button" onClick={() => onPick(q.id)} className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-[#F6F9FF]">
+          <button type="button" onClick={() => onPick(q.id)} className={`flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-[#F6F9FF] ${q.status === "resolved" ? "opacity-70" : ""}`}>
             <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_DOT[q.category] ?? "#2563EB" }} aria-hidden />
             <span className="min-w-0 flex-1">
               <b className="block truncate text-[13px] text-[#0B1F4D]">{categoryLabel(q.category)}</b>
-              <span className="block truncate text-[12px] text-[#6B7280]">{q.subject}</span>
+              <span className="block truncate text-[12px] text-[#6B7280]">{q.subjects.join(", ")}</span>
               {last && (
                 <span className={`mt-1 block truncate text-[12px] ${(q.unread ?? 0) > 0 ? "font-semibold text-[#0B1F4D]" : "text-[#6B7280]"}`}>
                   {last.author === "ops" ? "SPI team: " : "You: "}
@@ -108,6 +115,7 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const shots = useShots(studentId);
   const mine = useMemo(() => messages.filter((m) => m.queryId === query.id), [messages, query.id]);
 
   // Opening this chat counts its replies as read; a reply that arrives while it is open is marked too.
@@ -123,49 +131,62 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
 
   const send = async () => {
     const body = text.trim();
-    if (!body || sending) return;
+    if (!body || sending || shots.busy) return;
     setSending(true);
     setError(null);
-    const res = await sendJson(`/api/spi-queries/${query.id}/messages`, { student: studentId, body });
+    const res = await sendJson(`/api/spi-queries/${query.id}/messages`, { student: studentId, body, attachments: shots.tokens });
     setSending(false);
     if (!res.ok) {
       setError(res.error ?? "Could not send your message.");
       return;
     }
     setText("");
+    shots.reset();
     await onRefresh();
   };
 
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-[#E6ECF5] px-3 py-2.5">
-        <button type="button" onClick={onBack} className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#0B1F4D] hover:bg-[#F1F5FB]" aria-label="Back to my queries">
-          ←
-        </button>
-        <div className="min-w-0">
-          <h2 className="truncate text-[14px] font-bold text-[#0B1F4D]">{categoryLabel(query.category)}</h2>
-          <p className="truncate text-[11px] text-[#6B7280]">{query.subject}</p>
-        </div>
-        <span className="ml-auto">
+      <div className="border-b border-[#E6ECF5] px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onBack} className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#0B1F4D] hover:bg-[#F1F5FB]" aria-label="Back to my queries">
+            ←
+          </button>
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_DOT[query.category] ?? "#2563EB" }} aria-hidden />
+          <h2 className="min-w-0 flex-1 truncate text-[14px] font-bold text-[#0B1F4D]">{categoryLabel(query.category)}</h2>
           <StatusPill status={query.status} />
-        </span>
+        </div>
+        <p className="mt-1.5 line-clamp-2 pl-10 text-[12px] leading-snug text-[#334155]">
+          <b className="text-[#0B1F4D]">{query.subjects.length === 1 ? "Subject:" : "Subjects:"}</b> {query.subjects.join(", ")}
+        </p>
       </div>
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto bg-[#FAFCFF] px-3.5 py-3" aria-live="polite">
-        {mine.map((m) =>
-          m.author === "student" ? (
-            <div key={m.id} className="max-w-[82%] self-end whitespace-pre-wrap break-words rounded-[12px] rounded-br-[3px] bg-[#2563EB] px-3 py-2 text-[12.5px] leading-snug text-white">
+        {mine.map((m) => {
+          if (m.author === "system") {
+            return (
+              <p key={m.id} className="self-center rounded-full bg-[#EEF2F8] px-2.5 py-1 text-[10.5px] text-[#6B7280]">
+                {systemLine(m.body, "student")}
+              </p>
+            );
+          }
+          const images = (m.attachments ?? []).map((a) => studentImageUrl(studentId, a.token));
+          const problem = problemLabel(query.category, m.problem);
+          return m.author === "student" ? (
+            <div key={m.id} className="max-w-[84%] self-end whitespace-pre-wrap break-words rounded-[12px] rounded-br-[3px] bg-[#2563EB] px-3 py-2 text-[12.5px] leading-snug text-white">
+              {problem && <b className="mb-0.5 block">{problem}</b>}
               {m.body}
+              <MessageImages urls={images} />
               <small className="mt-1 block text-[10.5px] opacity-75">{timeLabel(m.createdAt)}</small>
             </div>
           ) : (
-            <div key={m.id} className="max-w-[82%] self-start whitespace-pre-wrap break-words rounded-[12px] rounded-bl-[3px] bg-[#F1F5FB] px-3 py-2 text-[12.5px] leading-snug text-[#0B1F4D]">
+            <div key={m.id} className="max-w-[84%] self-start whitespace-pre-wrap break-words rounded-[12px] rounded-bl-[3px] bg-[#F1F5FB] px-3 py-2 text-[12.5px] leading-snug text-[#0B1F4D]">
               <b className="mb-0.5 block text-[10.5px] text-[#2563EB]">SPI team</b>
               {m.body}
               <small className="mt-1 block text-[10.5px] text-[#6B7280]">{timeLabel(m.createdAt)}</small>
             </div>
-          ),
-        )}
+          );
+        })}
         {mine.length > 0 && mine[mine.length - 1]!.author === "student" && query.status !== "resolved" && (
           <p className="self-center rounded-full bg-[#EEF2F8] px-2.5 py-1 text-[10.5px] text-[#6B7280]">Received. The SPI team will reply here.</p>
         )}
@@ -179,6 +200,11 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
             {error}
           </p>
         )}
+        {shots.shots.length > 0 && (
+          <div className="mb-2">
+            <ShotPicker state={shots} compact />
+          </div>
+        )}
         <form
           className="flex items-end gap-2"
           onSubmit={(e) => {
@@ -186,11 +212,13 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
             void send();
           }}
         >
+          {shots.shots.length === 0 && <ShotPicker state={shots} compact />}
           <textarea
             value={text}
             maxLength={MAX_CHARS}
             rows={1}
             onChange={(e) => setText(e.target.value)}
+            onPaste={shots.onPaste}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -199,9 +227,9 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
             }}
             placeholder="Write a message…"
             aria-label="Your message"
-            className="max-h-28 min-h-10 flex-1 resize-none rounded-[8px] border border-[#CBD5E1] px-3 py-2 text-[12.5px] text-[#0B1F4D] focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+            className="max-h-28 min-h-10 min-w-0 flex-1 resize-none rounded-[8px] border border-[#CBD5E1] px-3 py-2 text-[12.5px] text-[#0B1F4D] focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
           />
-          <button type="submit" disabled={!text.trim() || sending} className="min-h-10 rounded-[8px] bg-[#2563EB] px-4 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="submit" disabled={!text.trim() || sending || shots.busy} className="min-h-10 rounded-[8px] bg-[#2563EB] px-4 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
             {sending ? "…" : "Send"}
           </button>
         </form>
@@ -242,7 +270,7 @@ export function QueryChatSheet({
             <div className="flex items-center gap-2 border-b border-[#E6ECF5] px-4 py-3">
               <div className="min-w-0">
                 <h2 className="text-[14px] font-bold text-[#0B1F4D]">My queries</h2>
-                <p className="text-[11px] text-[#6B7280]">Your questions and the SPI team's replies</p>
+                <p className="text-[11px] text-[#6B7280]">One chat per category</p>
               </div>
               <button type="button" onClick={onNew} className="ml-auto min-h-9 rounded-[8px] bg-[#2563EB] px-3 text-[12px] font-bold text-white">
                 + New

@@ -1,15 +1,19 @@
 import { pool } from "@workspace/db";
-import { getCachedPlacement } from "./spiReportSync.js";
-import { ensureTable as ensureQueriesTable } from "./studentQueries.js";
+import { getCachedPlacement, getCachedReport } from "./spiReportSync.js";
+import { QUERY_CATEGORIES, MAX_DETAILS, ensureTable as ensureQueriesTable } from "./studentQueries.js";
+import { isTestStudent, studentKey as keyOf } from "./testStudents.js";
 
 /**
- * Chat on top of "Raise a query": one conversation per student, one thread per query.
- * The first message of a query is the query's own `details` (spi_student_queries is not altered,
- * so queries raised before the chat existed show up as threads with no replies).
+ * Chat on top of "Raise a query": one chat per category. A student's chat holds the subjects they ticked, and
+ * a new issue in a category that already has an open chat is added to it. spi_student_queries is the chat's
+ * header row (not altered): its `details` is the first message and `subject` keeps the subjects as text, so
+ * queries raised before the chat existed show up as chats with one subject and no replies.
  * Tables (created only when missing, like spi_student_queries):
- *   spi_query_messages  the replies, from the student or the SPI team (`internal` = staff-only note)
- *   spi_query_state     per query: status, who is on it, first reply time, when the student last read
- *   spi_query_ops_seen  per admin: when they last opened the bell
+ *   spi_query_messages     student messages, team replies, internal notes and system lines
+ *   spi_query_state        per chat: status, who is on it, first reply time, when the student last read
+ *   spi_query_subjects     the subjects of a chat
+ *   spi_query_attachments  screenshots: details only, the image is in Cloudflare R2 (queryStorage.ts)
+ *   spi_query_ops_seen     per admin: when they last opened the bell
  */
 
 /** received = waiting for the SPI team; waiting_on_student = the team asked the student something. */
@@ -21,7 +25,7 @@ const DUPLICATE_WINDOW = "1 minute";
 
 let tablesReady: Promise<void> | null = null;
 
-function ensureTables(): Promise<void> {
+export function ensureTables(): Promise<void> {
   tablesReady ??= (async () => {
     await ensureQueriesTable();
     await pool.query(`CREATE TABLE IF NOT EXISTS spi_query_messages (
@@ -46,6 +50,30 @@ function ensureTables(): Promise<void> {
       admin_sub text PRIMARY KEY,
       seen_at timestamptz NOT NULL DEFAULT now()
     )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS spi_query_subjects (
+      query_id integer NOT NULL,
+      subject text NOT NULL,
+      ord serial,
+      added_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (query_id, subject)
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS spi_query_attachments (
+      id serial PRIMARY KEY,
+      token text NOT NULL UNIQUE,
+      student_id text NOT NULL,
+      query_id integer,
+      message_id integer,
+      storage_key text NOT NULL,
+      mime text NOT NULL,
+      size integer NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    await pool.query("CREATE INDEX IF NOT EXISTS spi_query_attachments_query_idx ON spi_query_attachments (query_id)");
+    // spi_query_messages may predate its `problem` column (the problem the student picked); this app made the table, so it can alter it.
+    const { rows: cols } = await pool.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'spi_query_messages'",
+    );
+    if (!cols.some((c) => c.column_name === "problem")) await pool.query("ALTER TABLE spi_query_messages ADD COLUMN IF NOT EXISTS problem text");
   })().catch((err) => {
     tablesReady = null;
     throw err;
@@ -60,7 +88,9 @@ export interface ThreadQuery {
   id: number;
   category: string;
   subCategory: string | null;
+  /** The subjects as text ("A, B"); `subjects` is the list. */
   subject: string;
+  subjects: string[];
   status: QueryStatus;
   createdAt: string;
   assignedTo?: string | null;
@@ -71,10 +101,14 @@ export interface ThreadMessage {
   /** Negative = the query's own first message (id is -queryId). */
   id: number;
   queryId: number;
-  author: "student" | "ops";
+  /** system = a line the app adds (a subject was added). */
+  author: "student" | "ops" | "system";
   authorName?: string | null;
+  /** Key of the problem the student picked, on the message that raised it. */
+  problem?: string | null;
   body: string;
   internal?: boolean;
+  attachments?: { token: string }[];
   createdAt: string;
 }
 
@@ -92,8 +126,9 @@ interface QueryRow {
 interface MessageRow {
   id: number;
   query_id: number;
-  author: "student" | "ops";
+  author: "student" | "ops" | "system";
   author_name: string | null;
+  problem: string | null;
   body: string;
   internal: boolean;
   created_at: Date;
@@ -109,30 +144,53 @@ async function loadThread(studentKey: string, forStaff: boolean): Promise<{ quer
     [studentKey],
   );
   const ids = qs.map((q) => q.id);
-  const { rows: ms } = ids.length
-    ? await pool.query<MessageRow>(
-        `SELECT id, query_id, author, author_name, body, internal, created_at FROM spi_query_messages
-         WHERE query_id = ANY($1::int[]) ${forStaff ? "" : "AND NOT internal"} ORDER BY created_at, id`,
-        [ids],
-      )
-    : { rows: [] as MessageRow[] };
+  const [{ rows: ms }, { rows: subs }, { rows: atts }] = ids.length
+    ? await Promise.all([
+        pool.query<MessageRow>(
+          `SELECT id, query_id, author, author_name, problem, body, internal, created_at FROM spi_query_messages
+           WHERE query_id = ANY($1::int[]) ${forStaff ? "" : "AND NOT internal"} ORDER BY created_at, id`,
+          [ids],
+        ),
+        pool.query<{ query_id: number; subject: string }>("SELECT query_id, subject FROM spi_query_subjects WHERE query_id = ANY($1::int[]) ORDER BY ord", [ids]),
+        pool.query<{ query_id: number; message_id: number | null; token: string }>("SELECT query_id, message_id, token FROM spi_query_attachments WHERE query_id = ANY($1::int[]) ORDER BY id", [ids]),
+      ])
+    : [{ rows: [] as MessageRow[] }, { rows: [] as { query_id: number; subject: string }[] }, { rows: [] as { query_id: number; message_id: number | null; token: string }[] }];
+  const subjectsOf = new Map<number, string[]>();
+  for (const s of subs) subjectsOf.set(s.query_id, [...(subjectsOf.get(s.query_id) ?? []), s.subject]);
+  // An image on the chat's first message has no message id; on a later message it has one.
+  const attachmentsOf = new Map<number, { token: string }[]>();
+  for (const a of atts) {
+    const key = a.message_id ?? -a.query_id;
+    attachmentsOf.set(key, [...(attachmentsOf.get(key) ?? []), { token: a.token }]);
+  }
   const queries: ThreadQuery[] = qs.map((q) => ({
     id: q.id,
     category: q.category,
     subCategory: q.sub_category,
     subject: q.subject,
+    subjects: subjectsOf.get(q.id) ?? [q.subject],
     status: q.status,
     createdAt: q.created_at.toISOString(),
     ...(forStaff ? { assignedTo: q.assigned_to } : { unread: Number(q.unread) }),
   }));
-  const first: ThreadMessage[] = qs.map((q) => ({ id: -q.id, queryId: q.id, author: "student", body: q.details, createdAt: q.created_at.toISOString() }));
+  const first: ThreadMessage[] = qs.map((q) => ({
+    id: -q.id,
+    queryId: q.id,
+    author: "student",
+    problem: q.sub_category,
+    body: q.details,
+    ...(attachmentsOf.has(-q.id) ? { attachments: attachmentsOf.get(-q.id) } : {}),
+    createdAt: q.created_at.toISOString(),
+  }));
   const replies: ThreadMessage[] = ms.map((m) => ({
     id: m.id,
     queryId: m.query_id,
     author: m.author,
     // The student never sees which staff member replied.
     ...(forStaff ? { authorName: m.author_name, internal: m.internal } : {}),
+    ...(m.problem ? { problem: m.problem } : {}),
     body: m.body,
+    ...(attachmentsOf.has(m.id) ? { attachments: attachmentsOf.get(m.id) } : {}),
     createdAt: m.created_at.toISOString(),
   }));
   const messages = [...first, ...replies].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id);
@@ -175,14 +233,34 @@ export async function markStudentRead(studentKey: string, queryId?: number): Pro
 
 export type PostResult = { ok: true; id: number } | { ok: false; status: 400 | 404; error: string };
 
-/** A student's reply on one of their own queries; it puts the query back in the team's "needs reply" list. */
-export async function postStudentMessage(studentKey: string, queryId: number, rawBody: string): Promise<PostResult> {
+export const MAX_ATTACHMENTS = 3;
+
+/** The screenshots a student uploaded and has not attached to a message yet; false when any token is not theirs or already used. */
+async function tokensUsable(studentKey: string, tokens: string[]): Promise<boolean> {
+  if (tokens.length === 0) return true;
+  if (tokens.length > MAX_ATTACHMENTS) return false;
+  const { rows } = await pool.query<{ n: string }>("SELECT count(*) AS n FROM spi_query_attachments WHERE token = ANY($1::text[]) AND student_id = $2 AND query_id IS NULL", [tokens, studentKey]);
+  return Number(rows[0]?.n ?? 0) === tokens.length;
+}
+
+/** Attaches uploaded screenshots to a chat; `messageId` is null for the chat's first message. */
+async function linkAttachments(studentKey: string, tokens: string[], queryId: number, messageId: number | null): Promise<void> {
+  if (tokens.length === 0) return;
+  await pool.query("UPDATE spi_query_attachments SET query_id = $3, message_id = $4 WHERE token = ANY($1::text[]) AND student_id = $2 AND query_id IS NULL", [tokens, studentKey, queryId, messageId]);
+}
+
+const ATTACH_ERROR = "A screenshot could not be attached. Please add it again.";
+
+/** A student's reply on one of their own chats; it puts the chat back in the team's "needs reply" list. */
+export async function postStudentMessage(studentKey: string, queryId: number, rawBody: string, rawTokens: string[] = []): Promise<PostResult> {
   const body = rawBody.trim();
+  const tokens = [...new Set(rawTokens)];
   if (!body) return { ok: false, status: 400, error: "Write a message" };
   if (body.length > MAX_MESSAGE) return { ok: false, status: 400, error: `Keep the message within ${MAX_MESSAGE} characters` };
   await ensureTables();
   const { rows: own } = await pool.query<{ id: number }>("SELECT id FROM spi_student_queries WHERE id = $1 AND student_id = $2", [queryId, studentKey]);
   if (!own[0]) return { ok: false, status: 404, error: "Query not found" };
+  if (!(await tokensUsable(studentKey, tokens))) return { ok: false, status: 400, error: ATTACH_ERROR };
 
   const { rows: same } = await pool.query<{ id: number }>(
     `SELECT id FROM spi_query_messages WHERE query_id = $1 AND author = 'student' AND body = $2
@@ -192,12 +270,100 @@ export async function postStudentMessage(studentKey: string, queryId: number, ra
   if (same[0]) return { ok: true, id: same[0].id };
 
   const { rows } = await pool.query<{ id: number }>("INSERT INTO spi_query_messages (query_id, author, body) VALUES ($1, 'student', $2) RETURNING id", [queryId, body]);
+  await linkAttachments(studentKey, tokens, queryId, rows[0]!.id);
   await pool.query(
     `INSERT INTO spi_query_state (query_id, status, student_read_at) VALUES ($1, 'received', now())
      ON CONFLICT (query_id) DO UPDATE SET status = 'received', student_read_at = now(), updated_at = now()`,
     [queryId],
   );
   return { ok: true, id: rows[0]!.id };
+}
+
+export type SubmitResult = { ok: true; id: number; added: boolean } | { ok: false; status: 400 | 404; error: string };
+
+/**
+ * "Raise a query": one open chat per category. If the student already has an open chat in this category, the
+ * subjects they ticked are added to it (a system line says so) and their message goes in; otherwise a new chat starts.
+ * A resolved chat is not reused: a new issue starts a new one.
+ */
+export async function submitQuery(input: {
+  studentId: string;
+  category: string;
+  subCategory: string;
+  subjects: string[];
+  details: string;
+  attachments: string[];
+}): Promise<SubmitResult> {
+  const key = keyOf(input.studentId);
+  const category = Object.hasOwn(QUERY_CATEGORIES, input.category) ? QUERY_CATEGORIES[input.category] : undefined;
+  const details = input.details.trim();
+  const subjects = [...new Set(input.subjects.map((s) => s.trim()).filter(Boolean))];
+  const tokens = [...new Set(input.attachments)];
+  if (!category?.open) return { ok: false, status: 400, error: "Choose a category" };
+  if (!category.subCategories.includes(input.subCategory)) return { ok: false, status: 400, error: "Choose what the problem is" };
+  if (subjects.length === 0) return { ok: false, status: 400, error: "Choose at least one subject" };
+  if (!details) return { ok: false, status: 400, error: "Describe the issue" };
+  if (details.length > MAX_DETAILS) return { ok: false, status: 400, error: `Keep the details within ${MAX_DETAILS} characters` };
+
+  const report = (await getCachedReport(key)) as { courses?: { name?: unknown }[] } | null;
+  if (!report) return { ok: false, status: 404, error: "Student not found" };
+  const names = new Set((report.courses ?? []).map((c) => c.name));
+  if (!subjects.every((s) => names.has(s))) return { ok: false, status: 400, error: "Choose subjects from your report" };
+
+  await ensureTables();
+  if (!(await tokensUsable(key, tokens))) return { ok: false, status: 400, error: ATTACH_ERROR };
+
+  const { rows: open } = await pool.query<{ id: number; subject: string }>(
+    `SELECT q.id, q.subject FROM spi_student_queries q LEFT JOIN spi_query_state s ON s.query_id = q.id
+     WHERE q.student_id = $1 AND q.category = $2 AND ${EFFECTIVE_STATUS} <> 'resolved' ORDER BY q.id DESC LIMIT 1`,
+    [key, input.category],
+  );
+  const chat = open[0];
+
+  if (chat) {
+    const { rows: same } = await pool.query<{ id: number }>(
+      `SELECT id FROM spi_query_messages WHERE query_id = $1 AND author = 'student' AND body = $2 AND created_at > now() - interval '${DUPLICATE_WINDOW}' LIMIT 1`,
+      [chat.id, details],
+    );
+    if (same[0]) return { ok: true, id: chat.id, added: true };
+    let { rows: before } = await pool.query<{ subject: string }>("SELECT subject FROM spi_query_subjects WHERE query_id = $1 ORDER BY ord", [chat.id]);
+    if (before.length === 0) {
+      // A chat from before subjects were listed has its one subject only in `subject`; keep it in the list.
+      await pool.query("INSERT INTO spi_query_subjects (query_id, subject) VALUES ($1, $2) ON CONFLICT DO NOTHING", [chat.id, chat.subject]);
+      before = [{ subject: chat.subject }];
+    }
+    const had = new Set(before.map((r) => r.subject));
+    const fresh = subjects.filter((s) => !had.has(s));
+    for (const s of fresh) await pool.query("INSERT INTO spi_query_subjects (query_id, subject) VALUES ($1, $2) ON CONFLICT DO NOTHING", [chat.id, s]);
+    if (fresh.length > 0) {
+      await pool.query("UPDATE spi_student_queries SET subject = $2 WHERE id = $1", [chat.id, [...had, ...fresh].join(", ")]);
+      await pool.query("INSERT INTO spi_query_messages (query_id, author, body) VALUES ($1, 'system', $2)", [chat.id, `Added ${fresh.join(", ")}`]);
+    }
+    const { rows } = await pool.query<{ id: number }>("INSERT INTO spi_query_messages (query_id, author, problem, body) VALUES ($1, 'student', $2, $3) RETURNING id", [chat.id, input.subCategory, details]);
+    await linkAttachments(key, tokens, chat.id, rows[0]!.id);
+    await pool.query(
+      `INSERT INTO spi_query_state (query_id, status, student_read_at) VALUES ($1, 'received', now())
+       ON CONFLICT (query_id) DO UPDATE SET status = 'received', student_read_at = now(), updated_at = now()`,
+      [chat.id],
+    );
+    return { ok: true, id: chat.id, added: true };
+  }
+
+  const { rows: same } = await pool.query<{ id: number }>(
+    `SELECT id FROM spi_student_queries WHERE student_id = $1 AND category = $2 AND sub_category = $3 AND details = $4 AND created_at > now() - interval '${DUPLICATE_WINDOW}' ORDER BY id DESC LIMIT 1`,
+    [key, input.category, input.subCategory, details],
+  );
+  if (same[0]) return { ok: true, id: same[0].id, added: false };
+  const [placement, isTest] = await Promise.all([getCachedPlacement(key), isTestStudent(key)]);
+  const { rows } = await pool.query<{ id: number }>(
+    `INSERT INTO spi_student_queries (student_id, is_test, college, semester, section, category, sub_category, subject, details)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+    [key, isTest, placement?.college ?? null, placement?.semester ?? null, placement?.section ?? null, input.category, input.subCategory, subjects.join(", "), details],
+  );
+  const id = rows[0]!.id;
+  for (const s of subjects) await pool.query("INSERT INTO spi_query_subjects (query_id, subject) VALUES ($1, $2) ON CONFLICT DO NOTHING", [id, s]);
+  await linkAttachments(key, tokens, id, null);
+  return { ok: true, id, added: false };
 }
 
 /* -------------------------------- staff side ------------------------------- */
@@ -212,6 +378,7 @@ export interface InboxQuery {
   isTest: boolean;
   category: string;
   subject: string;
+  subjectCount: number;
   status: QueryStatus;
   assignedTo: string | null;
   /** The last visible message: who sent it and the start of its text. */
@@ -222,26 +389,33 @@ export interface InboxQuery {
 
 export const INBOX_PAGE = 50;
 
-/** One row per query, newest activity first; `filter` = needs_reply | open | all. */
-export async function listStaffQueries(opts: { filter: string; search: string; page: number }) {
+/** One row per chat, newest activity first. `status` = all | received | in_progress | waiting_on_student | resolved; `category` = all | a category key. */
+export async function listStaffQueries(opts: { status: string; category: string; search: string; page: number }) {
   await ensureTables();
   await getCachedPlacement("-"); // makes sure spi_report_cache exists (the student's name comes from it)
   const conds: string[] = [];
-  if (opts.filter === "needs_reply") conds.push("x.st = 'received'");
-  else if (opts.filter === "open") conds.push("x.st <> 'resolved'");
   const params: unknown[] = [];
+  if ((QUERY_STATUSES as readonly string[]).includes(opts.status)) {
+    params.push(opts.status);
+    conds.push(`x.st = $${params.length}`);
+  }
+  if (Object.hasOwn(QUERY_CATEGORIES, opts.category)) {
+    params.push(opts.category);
+    conds.push(`x.category = $${params.length}`);
+  }
   const search = opts.search.trim().toLowerCase();
   if (search) {
     params.push(`%${search.replace(/[\\%_]/g, "\\$&")}%`);
-    conds.push(`(lower(x.student_id) LIKE $1 OR lower(coalesce(x.name, '')) LIKE $1)`);
+    conds.push(`(lower(x.student_id) LIKE $${params.length} OR lower(coalesce(x.name, '')) LIKE $${params.length})`);
   }
   params.push(INBOX_PAGE + 1, opts.page * INBOX_PAGE);
   const { rows } = await pool.query<{
     id: number; student_id: string; name: string | null; college: string | null; section: string | null; is_test: boolean;
-    category: string; subject: string; st: QueryStatus; assigned_to: string | null; last_author: "student" | "ops"; preview: string; last_at: Date;
+    category: string; subject: string; subject_n: string; st: QueryStatus; assigned_to: string | null; last_author: "student" | "ops"; preview: string; last_at: Date;
   }>(
     `WITH x AS (
        SELECT q.id, q.student_id, q.is_test, q.college, q.section, q.category, q.subject, ${EFFECTIVE_STATUS} AS st, s.assigned_to,
+              greatest((SELECT count(*) FROM spi_query_subjects ss WHERE ss.query_id = q.id), 1) AS subject_n,
               nullif(trim(r.report->>'studentName'), '') AS name,
               coalesce(lm.author, 'student') AS last_author, left(coalesce(lm.body, q.details), 100) AS preview,
               coalesce(lm.created_at, q.created_at) AS last_at
@@ -263,6 +437,7 @@ export async function listStaffQueries(opts: { filter: string; search: string; p
     isTest: r.is_test,
     category: r.category,
     subject: r.subject,
+    subjectCount: Number(r.subject_n),
     status: r.st,
     assignedTo: r.assigned_to,
     lastAuthor: r.last_author,

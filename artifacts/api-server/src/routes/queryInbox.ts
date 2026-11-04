@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireSession } from "../lib/auth.js";
 import { validateStudentId } from "../lib/bigquery.js";
 import { studentKey } from "../lib/testStudents.js";
+import { findAttachment, sendAttachment } from "../lib/queryAttachments.js";
 import {
   getStaffBell,
   getStaffQuery,
@@ -37,14 +38,28 @@ router.get("/summary", async (req, res): Promise<void> => {
   }
 });
 
-/** GET /api/query-inbox/queries?filter=needs_reply|open|all&q=&page=0: one row per query. */
+/** GET /api/query-inbox/queries?status=&category=&q=&page=0: one row per chat (status and category default to all). */
 router.get("/queries", async (req, res): Promise<void> => {
-  const filter = ["needs_reply", "open", "all"].includes(String(req.query["filter"])) ? String(req.query["filter"]) : "needs_reply";
   const page = Math.max(0, Math.floor(Number(req.query["page"]) || 0));
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
   try {
-    res.json(await listStaffQueries({ filter, search: typeof req.query["q"] === "string" ? req.query["q"].slice(0, 80) : "", page }));
+    res.json(await listStaffQueries({ status: text(req.query["status"], 30), category: text(req.query["category"], 40), search: text(req.query["q"], 80), page }));
   } catch (err) {
     fail(res, req, err, "Reading the query inbox failed");
+  }
+});
+
+/** GET /api/query-inbox/attachments/:token: a screenshot (Admin / Super Admin only, like the rest of this router). */
+router.get("/attachments/:token", async (req, res): Promise<void> => {
+  try {
+    const att = await findAttachment(String(req.params["token"]));
+    if (!att) {
+      res.status(404).json({ error: "Image not found" });
+      return;
+    }
+    await sendAttachment(res, att);
+  } catch (err) {
+    fail(res, req, err, "Reading a query screenshot failed");
   }
 });
 

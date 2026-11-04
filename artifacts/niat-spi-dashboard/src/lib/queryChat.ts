@@ -6,7 +6,9 @@ export interface ThreadQuery {
   id: number;
   category: string;
   subCategory: string | null;
+  /** The subjects as text ("A, B"); `subjects` is the list. */
   subject: string;
+  subjects: string[];
   status: QueryStatus;
   createdAt: string;
   assignedTo?: string | null;
@@ -18,10 +20,14 @@ export interface ThreadMessage {
   /** Negative = the query's own first message. */
   id: number;
   queryId: number;
-  author: "student" | "ops";
+  /** system = a line the app adds (a subject was added). */
+  author: "student" | "ops" | "system";
   authorName?: string | null;
+  /** Key of the problem the student picked, on the message that raised it. */
+  problem?: string | null;
   body: string;
   internal?: boolean;
+  attachments?: { token: string }[];
   createdAt: string;
 }
 
@@ -93,6 +99,56 @@ export function timeLabel(iso: string): string {
   const time = d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
   return sameDay ? time : `${d.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}, ${time}`;
 }
+
+/** "Added A, B" (a system line) as each side reads it. */
+export function systemLine(body: string, who: "student" | "staff"): string {
+  const rest = body.replace(/^Added /, "");
+  return who === "student" ? `You added ${rest}` : `Student added ${rest}`;
+}
+
+export const MAX_SHOTS = 3;
+const MAX_SHOT_EDGE = 1600;
+const MAX_SHOT_BYTES = 2 * 1024 * 1024;
+
+/** Shrinks a screenshot before upload (about 1600 px on the long side, JPEG); this also drops location and device data. */
+export async function shrinkImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_SHOT_EDGE / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not read the image.");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  for (const quality of [0.82, 0.65, 0.5]) {
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (blob && blob.size <= MAX_SHOT_BYTES) return blob;
+  }
+  throw new Error("That image is too large. Please choose a smaller one.");
+}
+
+/** Uploads one shrunk screenshot; the token goes with the message that attaches it. */
+export async function uploadShot(studentId: string, blob: Blob): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`/api/spi-queries/attachments?student=${encodeURIComponent(studentId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg" },
+      credentials: "include",
+      body: blob,
+    });
+    const data = (await res.json().catch(() => null)) as { token?: string; error?: string } | null;
+    if (!res.ok || !data?.token) return { ok: false, error: res.status === 429 ? "Too many tries. Please wait a minute." : (data?.error ?? "Could not add the screenshot.") };
+    return { ok: true, token: data.token };
+  } catch {
+    return { ok: false, error: "Could not reach the server. Please try again." };
+  }
+}
+
+export const studentImageUrl = (studentId: string, token: string) => `/api/spi-queries/attachments/${token}?student=${encodeURIComponent(studentId)}`;
+export const staffImageUrl = (token: string) => `/api/query-inbox/attachments/${token}`;
 
 export async function sendJson(url: string, body: unknown): Promise<{ ok: boolean; error?: string }> {
   try {
