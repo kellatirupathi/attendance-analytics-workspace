@@ -47,8 +47,10 @@ export const spiQuerySubjectsTable = pgTable(
 );
 
 /**
- * Screenshots: details only; the image itself is in the private Cloudflare R2 bucket under `storageKey`.
- * `queryId` is null until the student sends the message that attaches it, and `messageId` is null for a chat's first message.
+ * Screenshots: the record of each image (who, which chat and message, name, type, size); the image itself is in the
+ * private Cloudflare R2 bucket under `storageKey`. `queryId` is null until the student sends the message that attaches
+ * it, and `messageId` is null for a chat's first message. An image sent with a message is kept for good; only an
+ * upload that was never sent is removed, after a day.
  */
 export const spiQueryAttachmentsTable = pgTable(
   "spi_query_attachments",
@@ -61,6 +63,8 @@ export const spiQueryAttachmentsTable = pgTable(
     storageKey: text("storage_key").notNull(),
     mime: text("mime").notNull(),
     size: integer("size").notNull(),
+    /** The name the student's device gave the picture. */
+    fileName: text("file_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("spi_query_attachments_query_idx").on(t.queryId)],

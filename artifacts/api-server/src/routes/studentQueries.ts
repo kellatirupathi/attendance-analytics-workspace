@@ -130,7 +130,7 @@ router.post(
       return;
     }
     try {
-      const result = await saveUpload(studentKey(student), req.body);
+      const result = await saveUpload(studentKey(student), req.body, req.header("x-file-name"));
       if (!result.ok) {
         res.status(result.status).json({ error: result.error });
         return;

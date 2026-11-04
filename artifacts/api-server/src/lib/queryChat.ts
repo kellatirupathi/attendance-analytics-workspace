@@ -66,14 +66,18 @@ export function ensureTables(): Promise<void> {
       storage_key text NOT NULL,
       mime text NOT NULL,
       size integer NOT NULL,
+      file_name text,
       created_at timestamptz NOT NULL DEFAULT now()
     )`);
     await pool.query("CREATE INDEX IF NOT EXISTS spi_query_attachments_query_idx ON spi_query_attachments (query_id)");
-    // spi_query_messages may predate its `problem` column (the problem the student picked); this app made the table, so it can alter it.
-    const { rows: cols } = await pool.query<{ column_name: string }>(
-      "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'spi_query_messages'",
+    // These two tables may predate a column (the problem a student picked; a screenshot's file name). This app made
+    // them, so it can alter them; each is only altered when the column is missing.
+    const { rows: cols } = await pool.query<{ table_name: string; column_name: string }>(
+      "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name IN ('spi_query_messages', 'spi_query_attachments')",
     );
-    if (!cols.some((c) => c.column_name === "problem")) await pool.query("ALTER TABLE spi_query_messages ADD COLUMN IF NOT EXISTS problem text");
+    const has = (table: string, column: string) => cols.some((c) => c.table_name === table && c.column_name === column);
+    if (!has("spi_query_messages", "problem")) await pool.query("ALTER TABLE spi_query_messages ADD COLUMN IF NOT EXISTS problem text");
+    if (!has("spi_query_attachments", "file_name")) await pool.query("ALTER TABLE spi_query_attachments ADD COLUMN IF NOT EXISTS file_name text");
   })().catch((err) => {
     tablesReady = null;
     throw err;
@@ -108,7 +112,7 @@ export interface ThreadMessage {
   problem?: string | null;
   body: string;
   internal?: boolean;
-  attachments?: { token: string }[];
+  attachments?: { token: string; name: string | null; size: number }[];
   createdAt: string;
 }
 
@@ -134,6 +138,14 @@ interface MessageRow {
   created_at: Date;
 }
 
+interface AttachmentRow {
+  query_id: number;
+  message_id: number | null;
+  token: string;
+  file_name: string | null;
+  size: number;
+}
+
 async function loadThread(studentKey: string, forStaff: boolean): Promise<{ queries: ThreadQuery[]; messages: ThreadMessage[] }> {
   const { rows: qs } = await pool.query<QueryRow>(
     `SELECT q.id, q.category, q.sub_category, q.subject, q.details, q.created_at, ${EFFECTIVE_STATUS} AS status, s.assigned_to,
@@ -152,16 +164,16 @@ async function loadThread(studentKey: string, forStaff: boolean): Promise<{ quer
           [ids],
         ),
         pool.query<{ query_id: number; subject: string }>("SELECT query_id, subject FROM spi_query_subjects WHERE query_id = ANY($1::int[]) ORDER BY ord", [ids]),
-        pool.query<{ query_id: number; message_id: number | null; token: string }>("SELECT query_id, message_id, token FROM spi_query_attachments WHERE query_id = ANY($1::int[]) ORDER BY id", [ids]),
+        pool.query<AttachmentRow>("SELECT query_id, message_id, token, file_name, size FROM spi_query_attachments WHERE query_id = ANY($1::int[]) ORDER BY id", [ids]),
       ])
-    : [{ rows: [] as MessageRow[] }, { rows: [] as { query_id: number; subject: string }[] }, { rows: [] as { query_id: number; message_id: number | null; token: string }[] }];
+    : [{ rows: [] as MessageRow[] }, { rows: [] as { query_id: number; subject: string }[] }, { rows: [] as AttachmentRow[] }];
   const subjectsOf = new Map<number, string[]>();
   for (const s of subs) subjectsOf.set(s.query_id, [...(subjectsOf.get(s.query_id) ?? []), s.subject]);
   // An image on the chat's first message has no message id; on a later message it has one.
-  const attachmentsOf = new Map<number, { token: string }[]>();
+  const attachmentsOf = new Map<number, { token: string; name: string | null; size: number }[]>();
   for (const a of atts) {
     const key = a.message_id ?? -a.query_id;
-    attachmentsOf.set(key, [...(attachmentsOf.get(key) ?? []), { token: a.token }]);
+    attachmentsOf.set(key, [...(attachmentsOf.get(key) ?? []), { token: a.token, name: a.file_name, size: a.size }]);
   }
   const queries: ThreadQuery[] = qs.map((q) => ({
     id: q.id,
@@ -233,7 +245,7 @@ export async function markStudentRead(studentKey: string, queryId?: number): Pro
 
 export type PostResult = { ok: true; id: number } | { ok: false; status: 400 | 404; error: string };
 
-export const MAX_ATTACHMENTS = 3;
+export const MAX_ATTACHMENTS = 6;
 
 /** The screenshots a student uploaded and has not attached to a message yet; false when any token is not theirs or already used. */
 async function tokensUsable(studentKey: string, tokens: string[]): Promise<boolean> {

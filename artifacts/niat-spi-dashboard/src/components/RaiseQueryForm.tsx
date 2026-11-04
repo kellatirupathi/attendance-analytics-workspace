@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { QUERY_CATEGORIES } from "@/lib/queryCategories";
-import { CATEGORY_DOT, categoryLabel, type ThreadQuery } from "@/lib/queryChat";
+import { CATEGORY_DOT, MAX_SHOTS, categoryLabel, type ThreadQuery } from "@/lib/queryChat";
 import { ShotPicker, useShots } from "@/components/QueryShots";
 
 /**
@@ -221,7 +221,7 @@ export function RaiseQueryForm({
 
             <div className="grid gap-1.5">
               <span className="text-xs font-semibold text-[#0B1F4D]">
-                Screenshots <span className="font-normal text-[#6B7280]">(optional, up to 3)</span>
+                Screenshots <span className="font-normal text-[#6B7280]">(optional, up to {MAX_SHOTS})</span>
               </span>
               <ShotPicker state={shots} />
             </div>

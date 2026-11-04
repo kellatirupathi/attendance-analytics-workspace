@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCircle2, Clock, Hourglass, Inbox } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
-import { MessageImages } from "@/components/QueryShots";
+import { ShotGallery } from "@/components/QueryShots";
 import { useQueryInboxSummary } from "@/hooks/useQueryInboxSummary";
 import { QUERY_CATEGORIES, problemLabel } from "@/lib/queryCategories";
 import {
@@ -321,7 +321,7 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
               </p>
             );
           }
-          const images = (m.attachments ?? []).map((a) => staffImageUrl(a.token));
+          const images = (m.attachments ?? []).map((a) => ({ url: staffImageUrl(a.token), name: a.name, size: a.size }));
           const problem = problemLabel(query.category, m.problem);
           if (m.internal) {
             return (
@@ -335,11 +335,8 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
             <div key={m.id} className="max-w-[72%] self-start whitespace-pre-wrap break-words rounded-[12px] rounded-bl-[3px] border border-slate-200 bg-white px-3 py-2 text-[12.5px] leading-snug text-brand-900">
               {problem && <b className="mb-0.5 block">{problem}</b>}
               {m.body}
-              <MessageImages urls={images} />
-              <small className="mt-1 block text-[10.5px] opacity-60">
-                Student · {timeLabel(m.createdAt)}
-                {images.length > 0 ? ` · ${images.length} screenshot${images.length === 1 ? "" : "s"}` : ""}
-              </small>
+              <ShotGallery items={images} large />
+              <small className="mt-1 block text-[10.5px] opacity-60">Student · {timeLabel(m.createdAt)}</small>
             </div>
           ) : (
             <div key={m.id} className="max-w-[72%] self-end whitespace-pre-wrap break-words rounded-[12px] rounded-br-[3px] bg-[#2563EB] px-3 py-2 text-[12.5px] leading-snug text-white">

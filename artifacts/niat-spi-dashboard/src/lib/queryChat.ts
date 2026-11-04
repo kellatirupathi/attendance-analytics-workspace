@@ -27,7 +27,7 @@ export interface ThreadMessage {
   problem?: string | null;
   body: string;
   internal?: boolean;
-  attachments?: { token: string }[];
+  attachments?: { token: string; name: string | null; size: number }[];
   createdAt: string;
 }
 
@@ -106,7 +106,13 @@ export function systemLine(body: string, who: "student" | "staff"): string {
   return who === "student" ? `You added ${rest}` : `Student added ${rest}`;
 }
 
-export const MAX_SHOTS = 3;
+export const MAX_SHOTS = 6;
+/** What a student is told about screenshots, in one place so the form and the chat say the same. */
+export const SHOT_RULES = `PNG, JPG or WebP · up to ${MAX_SHOTS} · 2 MB each`;
+
+export function formatSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 const MAX_SHOT_EDGE = 1600;
 const MAX_SHOT_BYTES = 2 * 1024 * 1024;
 
@@ -131,11 +137,12 @@ export async function shrinkImage(file: File): Promise<Blob> {
 }
 
 /** Uploads one shrunk screenshot; the token goes with the message that attaches it. */
-export async function uploadShot(studentId: string, blob: Blob): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
+export async function uploadShot(studentId: string, blob: Blob, fileName: string): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
   try {
     const res = await fetch(`/api/spi-queries/attachments?student=${encodeURIComponent(studentId)}`, {
       method: "POST",
-      headers: { "Content-Type": "image/jpeg" },
+      // The original file name is kept with the image (the browser re-saves the picture, which drops the name).
+      headers: { "Content-Type": "image/jpeg", "X-File-Name": encodeURIComponent(fileName) },
       credentials: "include",
       body: blob,
     });

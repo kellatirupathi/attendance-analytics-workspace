@@ -37,7 +37,7 @@ async function start(): Promise<void> {
     startSnapshots();
     // Student reports: BigQuery → Postgres every hour, so a report opens without live BigQuery queries.
     startReportSync();
-    // Query screenshots: deleted 90 days after their query is resolved (does nothing until Cloudflare R2 is set up).
+    // Query screenshots: drops uploads that were never sent with a message (does nothing until Cloudflare R2 is set up).
     startAttachmentCleanup();
   });
 }

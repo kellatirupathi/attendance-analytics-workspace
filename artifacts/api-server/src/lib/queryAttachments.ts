@@ -9,12 +9,12 @@ import { getQueryStorage, StorageNotConfigured, storageConfigured } from "./quer
  * Screenshots on a query. A student uploads each image first (it is checked here and kept in R2), gets a random
  * token back, and sends the tokens with the message that attaches them. Images are only ever served through
  * the two routes that check who is asking (the student who owns the chat, or Admin / Super Admin).
+ * Every image that was sent with a message is kept for good (the history of a query is not deleted); only an
+ * upload that was never attached to a message is dropped, after a day.
  */
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-/** Uploaded but not yet attached to a message: a student cannot pile up more than this. */
-const MAX_WAITING = 10;
-/** Images are kept this long after their query is resolved; ones never attached are dropped after a day. */
-const KEEP_AFTER_RESOLVED = "90 days";
+/** Uploaded but not yet attached to a message: a student cannot pile up more than this (a message takes up to 6). */
+const MAX_WAITING = 20;
 
 export type ImageMime = "image/png" | "image/jpeg" | "image/webp";
 
@@ -30,7 +30,20 @@ export { storageConfigured };
 
 export type UploadResult = { ok: true; token: string } | { ok: false; status: 400 | 429 | 503; error: string };
 
-export async function saveUpload(studentKey: string, body: unknown): Promise<UploadResult> {
+/** The file name the student's device gave the image, made safe to store and show (no path, no control characters). */
+export function cleanFileName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  let name = raw;
+  try {
+    name = decodeURIComponent(raw);
+  } catch {
+    /* keep it as sent */
+  }
+  name = name.replace(/[\u0000-\u001f\u007f]/g, "").split(/[\\/]/).pop()!.trim().slice(0, 120);
+  return name || null;
+}
+
+export async function saveUpload(studentKey: string, body: unknown, fileName?: unknown): Promise<UploadResult> {
   if (!storageConfigured()) return { ok: false, status: 503, error: new StorageNotConfigured().message };
   if (!Buffer.isBuffer(body) || body.length === 0) return { ok: false, status: 400, error: "Choose a PNG, JPG or WebP image." };
   if (body.length > MAX_IMAGE_BYTES) return { ok: false, status: 400, error: "That image is too large. Please choose one under 2 MB." };
@@ -44,7 +57,7 @@ export async function saveUpload(studentKey: string, body: unknown): Promise<Upl
   const token = randomBytes(16).toString("hex");
   const key = `queries/${studentKey}/${token}`;
   await getQueryStorage().put(key, body, mime);
-  await pool.query("INSERT INTO spi_query_attachments (token, student_id, storage_key, mime, size) VALUES ($1, $2, $3, $4, $5)", [token, studentKey, key, mime, body.length]);
+  await pool.query("INSERT INTO spi_query_attachments (token, student_id, storage_key, mime, size, file_name) VALUES ($1, $2, $3, $4, $5, $6)", [token, studentKey, key, mime, body.length, cleanFileName(fileName)]);
   return { ok: true, token };
 }
 
@@ -80,22 +93,22 @@ export async function sendAttachment(res: Response, att: AttachmentRow): Promise
   stream.pipe(res);
 }
 
-/** Runs the cleanup once a day. */
+/** Runs the cleanup of abandoned uploads once a day. */
 export function startAttachmentCleanup(): void {
   const run = () => void purgeAttachments().catch((err) => logger.error({ err }, "Query screenshot cleanup failed"));
   setTimeout(run, 60_000).unref();
   setInterval(run, 24 * 60 * 60 * 1000).unref();
 }
 
-/** Deletes screenshots of chats resolved more than 90 days ago, and uploads never attached after a day. */
+/**
+ * Deletes uploads that were never attached to a message (a student picked an image and left) after a day.
+ * An image that was sent with a message is never deleted: the history of a query is kept.
+ */
 export async function purgeAttachments(): Promise<number> {
   if (!storageConfigured()) return 0;
   await ensureTables();
   const { rows } = await pool.query<{ id: number; storage_key: string }>(
-    `SELECT a.id, a.storage_key FROM spi_query_attachments a
-     WHERE (a.query_id IS NULL AND a.created_at < now() - interval '1 day')
-        OR (a.query_id IS NOT NULL AND EXISTS (SELECT 1 FROM spi_query_state s WHERE s.query_id = a.query_id AND s.status = 'resolved' AND s.updated_at < now() - interval '${KEEP_AFTER_RESOLVED}'))
-     LIMIT 500`,
+    "SELECT id, storage_key FROM spi_query_attachments WHERE query_id IS NULL AND created_at < now() - interval '1 day' LIMIT 500",
   );
   const storage = getQueryStorage();
   let removed = 0;

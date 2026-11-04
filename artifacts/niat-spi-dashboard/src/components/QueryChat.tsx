@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageImages, ShotPicker, useShots } from "@/components/QueryShots";
+import { ShotGallery, ShotPicker, useShots } from "@/components/QueryShots";
 import { problemLabel } from "@/lib/queryCategories";
 import {
   CATEGORY_DOT,
@@ -170,13 +170,13 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
               </p>
             );
           }
-          const images = (m.attachments ?? []).map((a) => studentImageUrl(studentId, a.token));
+          const images = (m.attachments ?? []).map((a) => ({ url: studentImageUrl(studentId, a.token), name: a.name, size: a.size }));
           const problem = problemLabel(query.category, m.problem);
           return m.author === "student" ? (
             <div key={m.id} className="max-w-[84%] self-end whitespace-pre-wrap break-words rounded-[12px] rounded-br-[3px] bg-[#2563EB] px-3 py-2 text-[12.5px] leading-snug text-white">
               {problem && <b className="mb-0.5 block">{problem}</b>}
               {m.body}
-              <MessageImages urls={images} />
+              <ShotGallery items={images} onBlue />
               <small className="mt-1 block text-[10.5px] opacity-75">{timeLabel(m.createdAt)}</small>
             </div>
           ) : (
