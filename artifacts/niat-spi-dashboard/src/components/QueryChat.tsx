@@ -7,6 +7,7 @@ import {
   STUDENT_STATUS_STYLE,
   categoryLabel,
   sendJson,
+  shortDate,
   studentImageUrl,
   systemLine,
   timeLabel,
@@ -74,17 +75,71 @@ function cardPill(q: ThreadQuery): { text: string; className: string } {
   return { text: STATUS_LABEL.student[q.status], className: STUDENT_STATUS_STYLE[q.status] };
 }
 
-function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (id: number) => void; onNew: () => void }) {
-  // The student's turn first, then chats with a new reply, then the rest by latest activity; resolved ones last.
-  const rows = useMemo(() => {
-    const rank = (q: ThreadQuery) => (q.status === "waiting_on_student" ? 0 : (q.unread ?? 0) > 0 && q.status !== "resolved" ? 1 : q.status === "resolved" ? 3 : 2);
-    return thread.queries
-      .map((q) => ({ q, last: lastMessage(thread.messages, q.id) }))
-      .sort((a, b) => rank(a.q) - rank(b.q) || (b.last?.createdAt ?? b.q.createdAt).localeCompare(a.last?.createdAt ?? a.q.createdAt));
-  }, [thread]);
-  const waiting = thread.queries.filter((q) => q.status === "waiting_on_student").length;
+/** One chat in the list: its category and date, the plain status, the last message, and the action that fits. */
+function QueryCard({ q, last, onPick }: { q: ThreadQuery; last: ThreadMessage | undefined; onPick: (id: number) => void }) {
+  const pill = cardPill(q);
+  const turn = q.status === "waiting_on_student";
+  const fresh = !turn && (q.unread ?? 0) > 0 && q.status !== "resolved";
+  const subjects = q.subjects.length > 2 ? `${q.subjects.slice(0, 2).join(", ")} +${q.subjects.length - 2}` : q.subjects.join(", ");
+  return (
+    <li className="min-w-0">
+      <button
+        type="button"
+        onClick={() => onPick(q.id)}
+        className={`block w-full rounded-[12px] border p-3 text-left transition-colors hover:bg-[#F6F9FF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] ${
+          turn ? "border-[#2563EB] bg-[#F6F9FF] ring-1 ring-[#2563EB]" : q.status === "resolved" ? "border-[#E6ECF5] bg-[#FAFBFD]" : "border-[#E6ECF5] bg-white"
+        }`}
+      >
+        <span className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_DOT[q.category] ?? "#2563EB" }} aria-hidden />
+          <b className="min-w-0 truncate text-[14px] text-[#0B1F4D]">{categoryLabel(q.category)}</b>
+          {/* The date it was raised: two chats in one category are never mixed up. */}
+          <span className="shrink-0 whitespace-nowrap text-[12px] text-[#6B7280]">{shortDate(q.createdAt)}</span>
+          <span className={`ml-auto shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11.5px] font-bold ${pill.className}`}>{pill.text}</span>
+        </span>
+        <span className="mt-1 block truncate text-[12px] text-[#6B7280]">{subjects}</span>
+        {last && (
+          <span className="mt-2 flex items-center gap-2 rounded-[9px] bg-[#F4F7FD] px-2.5 py-1.5 text-[12.5px] text-[#334155]">
+            <span className="min-w-0 flex-1 truncate">
+              <b className="text-[#0B1F4D]">{last.author === "ops" ? "SPI team: " : "You: "}</b>
+              {last.body}
+            </span>
+            {!turn && !fresh && <span className="shrink-0 text-[12px] font-bold text-[#2563EB]" aria-hidden>Open chat ›</span>}
+          </span>
+        )}
+        {(turn || fresh) && (
+          <span
+            className={`mt-2.5 grid min-h-11 place-items-center rounded-[10px] text-[13px] font-bold ${turn ? "bg-[#2563EB] text-white" : "border border-[#BBD0FF] bg-white text-[#2563EB]"}`}
+            aria-hidden
+          >
+            {turn ? "Reply now" : "Read and reply"}
+          </span>
+        )}
+      </button>
+    </li>
+  );
+}
 
-  if (rows.length === 0) {
+/**
+ * Open chats first (the student's turn, then new replies, then the rest); resolved chats sit in one collapsed row with a
+ * count, so a student with a long history still sees a short list. A reply in a resolved chat reopens it.
+ */
+function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (id: number) => void; onNew: () => void }) {
+  const [showResolved, setShowResolved] = useState(false);
+  const { open, resolved } = useMemo(() => {
+    const rank = (q: ThreadQuery) => (q.status === "waiting_on_student" ? 0 : (q.unread ?? 0) > 0 ? 1 : 2);
+    const byActivity = (a: { q: ThreadQuery; last?: ThreadMessage }, b: { q: ThreadQuery; last?: ThreadMessage }) => (b.last?.createdAt ?? b.q.createdAt).localeCompare(a.last?.createdAt ?? a.q.createdAt);
+    const all = thread.queries.map((q) => ({ q, last: lastMessage(thread.messages, q.id) }));
+    return {
+      open: all.filter((r) => r.q.status !== "resolved").sort((a, b) => rank(a.q) - rank(b.q) || byActivity(a, b)),
+      resolved: all.filter((r) => r.q.status === "resolved").sort(byActivity),
+    };
+  }, [thread]);
+  const waiting = open.filter((r) => r.q.status === "waiting_on_student").length;
+  // With nothing open, the resolved chats are the whole list, so they show.
+  const expanded = showResolved || open.length === 0;
+
+  if (open.length + resolved.length === 0) {
     return (
       <div className="grid flex-1 place-items-center px-6 text-center">
         <div>
@@ -97,6 +152,13 @@ function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (
     );
   }
 
+  const header = (
+    <>
+      <span>Resolved</span>
+      <span className="rounded-full bg-[#E4EAF4] px-2 py-px text-[12px] font-bold text-[#334155]">{resolved.length}</span>
+    </>
+  );
+
   return (
     <div className="flex-1 overflow-y-auto px-3 pb-3">
       {waiting > 0 && (
@@ -108,49 +170,39 @@ function QueryList({ thread, onPick, onNew }: { thread: StudentThread; onPick: (
           {waiting === 1 ? "1 chat needs your reply" : `${waiting} chats need your reply`}
         </p>
       )}
-      <ul className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-2.5">
-        {rows.map(({ q, last }) => {
-          const pill = cardPill(q);
-          const turn = q.status === "waiting_on_student";
-          const fresh = !turn && (q.unread ?? 0) > 0 && q.status !== "resolved";
-          const subjects = q.subjects.length > 2 ? `${q.subjects.slice(0, 2).join(", ")} +${q.subjects.length - 2}` : q.subjects.join(", ");
-          return (
-            <li key={q.id} className="min-w-0">
-              <button
-                type="button"
-                onClick={() => onPick(q.id)}
-                className={`block w-full rounded-[12px] border p-3 text-left transition-colors hover:bg-[#F6F9FF] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] ${
-                  turn ? "border-[#2563EB] bg-[#F6F9FF] ring-1 ring-[#2563EB]" : q.status === "resolved" ? "border-[#E6ECF5] bg-[#FAFBFD]" : "border-[#E6ECF5] bg-white"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_DOT[q.category] ?? "#2563EB" }} aria-hidden />
-                  <b className="min-w-0 flex-1 truncate text-[14px] text-[#0B1F4D]">{categoryLabel(q.category)}</b>
-                  <span className={`shrink-0 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11.5px] font-bold ${pill.className}`}>{pill.text}</span>
-                </span>
-                <span className="mt-1 block truncate text-[12px] text-[#6B7280]">{subjects}</span>
-                {last && (
-                  <span className="mt-2 flex items-center gap-2 rounded-[9px] bg-[#F4F7FD] px-2.5 py-1.5 text-[12.5px] text-[#334155]">
-                    <span className="min-w-0 flex-1 truncate">
-                      <b className="text-[#0B1F4D]">{last.author === "ops" ? "SPI team: " : "You: "}</b>
-                      {last.body}
-                    </span>
-                    {!turn && !fresh && <span className="shrink-0 text-[12px] font-bold text-[#2563EB]" aria-hidden>Open chat ›</span>}
-                  </span>
-                )}
-                {(turn || fresh) && (
-                  <span
-                    className={`mt-2.5 grid min-h-11 place-items-center rounded-[10px] text-[13px] font-bold ${turn ? "bg-[#2563EB] text-white" : "border border-[#BBD0FF] bg-white text-[#2563EB]"}`}
-                    aria-hidden
-                  >
-                    {turn ? "Reply now" : "Read and reply"}
-                  </span>
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      {open.length > 0 && (
+        <ul className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-2.5">
+          {open.map(({ q, last }) => (
+            <QueryCard key={q.id} q={q} last={last} onPick={onPick} />
+          ))}
+        </ul>
+      )}
+      {resolved.length > 0 && (
+        <>
+          {open.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowResolved((v) => !v)}
+              aria-expanded={expanded}
+              className="mt-3.5 flex min-h-11 w-full items-center gap-2 rounded-[12px] border border-dashed border-[#C5D1E6] bg-[#FAFBFD] px-3.5 text-[13px] font-bold text-[#475569] hover:bg-[#F4F7FD] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]"
+            >
+              {header}
+              <svg viewBox="0 0 24 24" className={`ml-auto h-4 w-4 transition-transform motion-reduce:transition-none ${expanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          ) : (
+            <p className="mt-3 flex items-center gap-2 px-1 text-[13px] font-bold text-[#475569]">{header}</p>
+          )}
+          {expanded && (
+            <ul className="mt-2.5 grid grid-cols-[minmax(0,1fr)] gap-2.5">
+              {resolved.map(({ q, last }) => (
+                <QueryCard key={q.id} q={q} last={last} onPick={onPick} />
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -200,7 +252,8 @@ function QueryChat({ studentId, query, messages, onBack, onRefresh }: { studentI
             ←
           </button>
           <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CATEGORY_DOT[query.category] ?? "#2563EB" }} aria-hidden />
-          <h2 className="min-w-0 flex-1 truncate text-[15px] font-bold text-[#0B1F4D]">{categoryLabel(query.category)}</h2>
+          <h2 className="min-w-0 truncate text-[15px] font-bold text-[#0B1F4D]">{categoryLabel(query.category)}</h2>
+          <span className="shrink-0 whitespace-nowrap text-[12px] text-[#6B7280]">{shortDate(query.createdAt)}</span>
         </div>
         <p className="mt-0.5 pl-12 text-[12px] leading-snug text-[#334155]">{query.subjects.join(", ")}</p>
       </div>

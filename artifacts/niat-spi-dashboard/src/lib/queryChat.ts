@@ -101,6 +101,13 @@ export function initials(label: string): string {
   );
 }
 
+/** "4 Nov", with the year once it is not this year ("4 Nov 2025"). */
+export function shortDate(iso: string): string {
+  const d = new Date(iso);
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(thisYear ? {} : { year: "numeric" }) });
+}
+
 export function timeLabel(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
