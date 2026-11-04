@@ -120,7 +120,7 @@ test("filter options list the colleges, sections, categories and subjects in sco
   const o = quizFilterOptions(model, { scopeCampuses: ["Alpha"] });
   assert.deepEqual(o.colleges, ["Alpha"]);
   assert.deepEqual(o.sections.map((s) => s.section), ["S-01", "S-02"]);
-  assert.deepEqual(o.categories, ["MATH", "TECH"]);
+  assert.deepEqual(o.categories, ["APTITUDE", "ENGLISH", "MATH", "TECH"]); // the four NIAT categories are always listed
 });
 
 test("planned quizzes of colleges with no student rows are not counted", () => {

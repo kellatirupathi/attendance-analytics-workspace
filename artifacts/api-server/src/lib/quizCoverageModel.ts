@@ -347,12 +347,15 @@ export interface QuizFilterOptions {
   subjects: { college: string; subject: string; category: string | null }[];
 }
 
+/** The NIAT categories: always in the Category list, even when a college has no quiz of that type for one of them. */
+export const NIAT_CATEGORIES = ["APTITUDE", "ENGLISH", "MATH", "TECH"] as const;
+
 export function quizFilterOptions(model: QuizCoverageModel, f: Pick<QuizFilter, "scopeCampuses" | "scopeSubjects">): QuizFilterOptions {
   const rows = filterRows(model, f);
   const colleges = new Set<string>();
   const semesters = new Set<string>();
   const sections = new Map<string, { college: string; semester?: string; section: string }>();
-  const categories = new Set<string>();
+  const categories = new Set<string>(NIAT_CATEGORIES);
   const subjects = new Map<string, { college: string; subject: string; category: string | null }>();
   for (const r of rows) {
     colleges.add(r.campus);
