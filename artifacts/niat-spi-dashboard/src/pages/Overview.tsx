@@ -54,7 +54,7 @@ function Card({ title, right, children, className }: { title: string; right?: Re
   );
 }
 
-function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+function Seg({ value, options, onChange, label }: { value: string; options: [string, string][]; onChange: (v: string) => void; label: string }) {
   return (
     <div role="group" aria-label={label} className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
       {options.map(([v, l]) => (
@@ -203,7 +203,7 @@ export default function Overview() {
       const rows = rankRows(list, (r) => (useAtt ? r.attendance : r.spi), (n) => (useAtt ? n.toFixed(1) : n.toFixed(2)), useAtt ? "%" : "", bottom).map((r) => ({ ...r, name: showColleges ? r.name : `Section ${r.name}` }));
       const title = showColleges ? (role === "boa" ? "College comparison" : "College performance") : "Section performance";
       return (
-        <Card title={title} right={<>{role === "superadmin" && <Seg<"top" | "bottom"> label="Order" value={order} onChange={setOrder} options={[["top", "Top 5"], ["bottom", "Bottom 5"]]} />}<Seg<"attendance" | "spi"> label="Metric" value={metric} onChange={setMetric} options={[["attendance", "Attendance"], ["spi", "SPI"]]} /></>}>
+        <Card title={title} right={<>{role === "superadmin" && <Seg label="Order" value={order} onChange={(v) => setOrder(v as "top" | "bottom")} options={[["top", "Top 5"], ["bottom", "Bottom 5"]]} />}<Seg label="Metric" value={metric} onChange={(v) => setMetric(v as "attendance" | "spi")} options={[["attendance", "Attendance"], ["spi", "SPI"]]} /></>}>
           {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={useAtt ? 100 : 10} tip={tip.props} onSelect={(i) => showColleges && change({ college: list.find((r) => r.name === rows[i]!.name)?.name ?? "" })} />}
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{bottom ? "Lowest" : "Highest"} first</span><ViewAll href={showColleges ? "/dashboard/attendance-stats" : "/dashboard/attendance-stats?group=university_section"} /></div>
         </Card>
@@ -213,7 +213,7 @@ export default function Overview() {
       const useAtt = subjectMetric === "attendance";
       const rows = rankRows(o?.subjects ?? [], (r) => (useAtt ? r.attendance : r.score), (n) => n.toFixed(1), "%");
       return (
-        <Card title="Subject performance" right={<Seg<"attendance" | "score"> label="Metric" value={subjectMetric} onChange={setSubjectMetric} options={[["attendance", "Attendance"], ["score", "Avg score"]]} />}>
+        <Card title="Subject performance" right={<Seg label="Metric" value={subjectMetric} onChange={(v) => setSubjectMetric(v as "attendance" | "score")} options={[["attendance", "Attendance"], ["score", "Avg score"]]} />}>
           {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={100} tip={tip.props} onSelect={(i) => setFilters((f) => ({ ...f, subject: rows[i]!.name }))} />}
           <div className="mt-2 flex justify-end"><ViewAll href="/dashboard/attendance-stats?group=university_subject" /></div>
         </Card>
