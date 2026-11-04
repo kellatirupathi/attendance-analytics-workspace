@@ -70,7 +70,7 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
   // The courses the student report shows (the report decides them; this only reads the result).
   const report = await loadReportCourses();
   const model = report ? restrictToReportCourses({ rows: studentRows, plan: planRows }, report) : { rows: studentRows, plan: planRows };
-  return { rows: model.rows, plan: scopePlanToStudentColleges(model.rows, model.plan) };
+  return { rows: model.rows, plan: scopePlanToStudentColleges(model.rows, model.plan), ...(report?.names ? { reportCourses: report.names } : {}) };
 }
 
 /** "Takshasila University Batch 1-S-003" → "S-003", so the section filter reads the same on every tab. */
@@ -126,7 +126,8 @@ async function loadSkill(): Promise<QuizCoverageModel> {
       });
     }
   }
-  return { rows, plan: [], mode: "skill" };
+  const reportCourses = new Map(reports.map((r) => [r.studentKey, r.courses.map((c) => c.name.trim())]));
+  return { rows, plan: [], mode: "skill", reportCourses };
 }
 
 const snapshots = new Map<CoverageType, Snapshot<QuizCoverageModel>>();

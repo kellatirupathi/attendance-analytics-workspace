@@ -162,3 +162,11 @@ test("skill assessment rows: held once per section and course, score is the cour
   assert.equal(studentRows(skill, {}).find((s) => s.uid === "u1")!.avgScore, 40); // (80 + 0) / 2 courses
   assert.equal(studentSubjectRows(skill, {}, "u1").find((s) => s.subject === "Python")!.avgScore, 80);
 });
+
+test("student panel lists the report's other courses as Awaited; the full download does not", () => {
+  const withReport: QuizCoverageModel = { ...model, reportCourses: new Map([["u1", ["Maths", "Python", "Constitution of India"]]]) };
+  const one = studentSubjectRows(withReport, {}, "u1");
+  assert.deepEqual(one.map((s) => [s.subject, Boolean(s.awaited)]).sort(), [["Constitution of India", true], ["Maths", false], ["Python", false]]);
+  assert.equal(one.find((s) => s.subject === "Constitution of India")?.scheduled, 0);
+  assert.equal(studentSubjectRows(withReport, {}).length, 4); // no uid: only real rows
+});

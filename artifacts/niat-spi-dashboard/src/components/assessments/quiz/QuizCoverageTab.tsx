@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Building2, Search, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { formatAsOf, isSkill, NO_FILTERS, quizApi, type QuizFilters, type QuizType } from "@/lib/quizCoverage";
@@ -31,10 +31,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
  * Assessments → Classroom Quiz (and Module Quiz, by quizType): filters, four cards, a Campus | Students table,
  * a student side panel and one Download button. Numbers come from the server; filters apply to everything.
  */
-export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: ReactNode }) {
-  // Draft = what the selects show; applied = what the page uses (changes on Apply).
-  const [draft, setDraft] = useState<QuizFilters>(NO_FILTERS);
-  const [applied, setApplied] = useState<QuizFilters>(NO_FILTERS);
+export function QuizCoverageTab({ quizType, tabs, filters, onFiltersChange }: { quizType: QuizType; tabs: ReactNode; filters: QuizFilters; onFiltersChange: (next: QuizFilters) => void }) {
+  // Filters live in the page, so Classroom Quiz, Module Quiz and Skill Assessment share them; a change applies at once.
+  const draft = filters;
+  const applied = filters;
   const [view, setView] = useState<View>("campus");
   const [sorts, setSorts] = useState(DEFAULT_SORT);
   const [pageSize, setPageSize] = useState(25);
@@ -86,9 +86,9 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
     () => [...new Set((o?.subjects ?? []).filter((s) => (!draft.college || s.college === draft.college) && (!draft.category || s.category === draft.category)).map((s) => s.subject))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
     [o, draft.college, draft.category],
   );
-  const change = (patch: Partial<QuizFilters>) =>
-    setDraft((d) => {
-      const next = { ...d, ...patch };
+  const change = (patch: Partial<QuizFilters>) => {
+    {
+      const next = { ...filters, ...patch };
       if (patch.college !== undefined && next.semester && !(o?.sections ?? []).some((s) => (!next.college || s.college === next.college) && s.semester === next.semester)) next.semester = "";
       if (patch.college !== undefined || patch.category !== undefined || patch.semester !== undefined) {
         const sections = (o?.sections ?? []).filter((s) => (!next.college || s.college === next.college) && (!next.semester || s.semester === next.semester)).map((s) => s.section);
@@ -96,24 +96,28 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
         const subjects = (o?.subjects ?? []).filter((s) => (!next.college || s.college === next.college) && (!next.category || s.category === next.category)).map((s) => s.subject);
         if (next.subject && !subjects.includes(next.subject)) next.subject = "";
       }
-      return next;
-    });
+      onFiltersChange(next);
+    }
+  };
   const reset = () => {
-    setDraft(NO_FILTERS);
-    setApplied(NO_FILTERS);
+    onFiltersChange(NO_FILTERS);
     setSearch("");
   };
 
   const onSort = (key: string) =>
     setSorts((s) => ({ ...s, [view]: s[view].key === key ? { key, dir: s[view].dir === "asc" ? "desc" : "asc" } : { key, dir: key === "college" || key === "student" || key === "uid" || key === "section" ? "asc" : "desc" } }));
 
-  const segment = (value: View, label: string) => (
+  const segment = (value: View, label: string, Icon: typeof Search) => (
     <button
       type="button"
       aria-pressed={view === value}
       onClick={() => setView(value)}
-      className={cn("h-9 rounded-md px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600", view === value ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900")}
+      className={cn(
+        "inline-flex h-9 items-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-1",
+        view === value ? "bg-brand-600 text-white shadow-sm" : "text-slate-700 hover:bg-white hover:text-slate-900",
+      )}
     >
+      <Icon className="h-4 w-4" aria-hidden="true" />
       {label}
     </button>
   );
@@ -122,13 +126,7 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
     <div className="flex min-w-0 flex-col">
       <PageHeader title="Assessments" right={kpis.data?.asOf ? <p className="text-sm text-slate-500">Data as of {formatAsOf(kpis.data.asOf)}</p> : undefined} />
 
-      <form
-        className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setApplied(draft);
-        }}
-      >
+      <div role="group" aria-label="Filters" className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <Field label="College">
           <select className={selectClass} value={draft.college} onChange={(e) => change({ college: e.target.value })}>
             <option value="">All colleges</option>
@@ -173,11 +171,8 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
           <button type="button" onClick={reset} className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">
             Reset
           </button>
-          <button type="submit" className="h-10 rounded-lg bg-brand-600 px-5 text-sm font-semibold text-white hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2">
-            Apply
-          </button>
         </div>
-      </form>
+      </div>
 
       <div className="mt-5">{tabs}</div>
 
@@ -197,9 +192,9 @@ export function QuizCoverageTab({ quizType, tabs }: { quizType: QuizType; tabs: 
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Results">
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-4">
-            <div role="group" aria-label="View" className="inline-flex rounded-lg bg-slate-100 p-1">
-              {segment("campus", "Campus")}
-              {segment("students", "Students")}
+            <div role="group" aria-label="View" className="inline-flex gap-1 rounded-lg border border-slate-200 bg-slate-100 p-1">
+              {segment("campus", "Campus", Building2)}
+              {segment("students", "Students", Users)}
             </div>
             {view === "students" && (
               <label className="relative min-w-[14rem] flex-1 sm:max-w-sm">

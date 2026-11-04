@@ -75,10 +75,12 @@ export async function loadReportCourses(): Promise<ReportCourses | null> {
   if (!reports) return null;
   const byStudent = new Map<string, Set<string>>();
   const campusCourses = new Set<string>();
+  const display = new Map<string, string[]>();
   for (const r of reports) {
     const names = new Set(r.courses.map((c) => plainCourseName(c.name)));
     byStudent.set(r.studentKey, names);
+    display.set(r.studentKey, r.courses.map((c) => c.name.trim()));
     if (r.campus) for (const name of names) campusCourses.add(`${r.campus.trim()}\t${name}`);
   }
-  return { byStudent, campusCourses };
+  return { byStudent, campusCourses, names: display };
 }

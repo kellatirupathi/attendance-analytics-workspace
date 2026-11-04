@@ -99,7 +99,7 @@ export interface StudentPanel {
   completed: number;
   completionPct: number | null;
   avgScore: number | null;
-  subjects: { subject: string; category: string | null; scheduled: number; completed: number; completionPct: number | null; avgScore: number | null }[];
+  subjects: { subject: string; category: string | null; scheduled: number; completed: number; completionPct: number | null; avgScore: number | null; awaited?: boolean }[];
 }
 
 export type DownloadView = "campus" | "student" | "student-subject";

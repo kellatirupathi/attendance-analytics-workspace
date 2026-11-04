@@ -154,7 +154,7 @@ router.get("/student", async (req, res): Promise<void> => {
       completed: total?.completed ?? 0,
       completionPct: total?.completionPct ?? null,
       avgScore: total?.avgScore ?? null,
-      subjects: subjects.map((s) => ({ subject: s.subject, category: s.category, scheduled: s.scheduled, completed: s.completed, completionPct: s.completionPct, avgScore: s.avgScore })),
+      subjects: subjects.map((s) => ({ subject: s.subject, category: s.category, scheduled: s.scheduled, completed: s.completed, completionPct: s.completionPct, avgScore: s.avgScore, awaited: Boolean(s.awaited) })),
     });
   } catch (err) {
     fail(req, res, err, "quiz student panel");
@@ -196,8 +196,8 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
     );
     return {
       view: uid ? "StudentReport" : "StudentBySubject",
-      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", held, done, "Completion rate %", "Overall score % (missed = 0)"],
-      rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, r.scheduled, r.completed, r.completionPct, r.avgScore]),
+      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", held, done, "Completion rate %", "Overall score % (missed = 0)", "Status"],
+      rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, r.scheduled, r.completed, r.completionPct, r.avgScore, r.awaited ? "Awaited" : "Held"]),
     };
   }
   return null;

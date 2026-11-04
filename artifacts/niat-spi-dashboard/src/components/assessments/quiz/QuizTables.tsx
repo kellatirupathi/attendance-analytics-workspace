@@ -4,6 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { fmtInt } from "@/lib/assessmentMetrics";
 import type { CampusRow, Page, StudentRow } from "@/lib/quizCoverage";
 import { Pill } from "./quizParts";
+import { CopyUid } from "./CopyUid";
 
 export interface Sort {
   key: string;
@@ -119,7 +120,7 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
                   {r.name || "Unknown student"}
                 </button>
               </td>
-              <td className={`${cell} font-mono text-xs text-slate-500`} title={r.uid}>{r.uid.slice(0, 8)}</td>
+              <td className={cell}><CopyUid uid={r.uid} /></td>
               <td className={cell}>{r.section}</td>
               <td className={num}>{fmtInt(r.scheduled)}</td>
               <td className={num}>{fmtInt(r.completed)}</td>

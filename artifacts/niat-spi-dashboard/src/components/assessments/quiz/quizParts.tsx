@@ -46,12 +46,12 @@ function Bar({ pct }: { pct: number | null }) {
 
 function Card({ label, tip, value, children, loading }: { label: string; tip: ReactNode; value: string; children?: ReactNode; loading: boolean }) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
       <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
         <span>{label}</span>
         <InfoTip label={label}>{tip}</InfoTip>
       </div>
-      {loading ? <Skeleton className="h-9 w-28" /> : <p className="text-3xl font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>}
+      {loading ? <Skeleton className="h-7 w-24" /> : <p className="text-xl font-bold tracking-tight text-slate-900 tabular-nums">{value}</p>}
       {!loading && children}
     </div>
   );
@@ -75,7 +75,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
   }
   const k = kpis;
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
       <Card
         label={skill ? "Held so far" : "Available (prod sequence)"}
         tip={skill ? "Skill Assessments held so far, counted once for each section and course. An assessment counts as held for a section once a student there has attempted it" : `${Quizzes} planned in the prod sequence for the current semester, counted per section`}

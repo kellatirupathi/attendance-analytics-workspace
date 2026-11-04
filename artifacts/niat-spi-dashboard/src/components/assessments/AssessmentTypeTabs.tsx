@@ -2,11 +2,12 @@ import { useRef, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import type { AssessmentTypeId } from "@/lib/assessmentMetrics";
 
-/** Plain tab labels: no SPI weights, and no locked "Final skill assessment" tab on this page. */
-const TABS: { id: AssessmentTypeId; label: string }[] = [
+/** Plain tab labels: no SPI weights. Final Skill Assessment is marked "Soon". */
+const TABS: { id: AssessmentTypeId; label: string; soon?: boolean }[] = [
   { id: "cq", label: "Classroom Quiz" },
   { id: "mq", label: "Module Quiz" },
   { id: "skill", label: "Skill Assessment" },
+  { id: "final", label: "Final Skill Assessment", soon: true },
 ];
 
 /** Assessment type tabs, styled like SubNav. */
@@ -52,6 +53,7 @@ export function AssessmentTypeTabs({
             )}
           >
             {t.label}
+            {t.soon && <span className="ml-2 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">Soon</span>}
           </button>
         );
       })}

@@ -48,6 +48,8 @@ export interface QuizCoverageModel {
   plan: PlanRow[];
   /** "skill": Skill Assessment rows from the saved reports (no plan); the cards count assessments held. */
   mode?: "skill";
+  /** Student id without hyphens → the course names on that student's report (a course with no quiz held shows as Awaited). */
+  reportCourses?: Map<string, string[]>;
 }
 
 export interface QuizFilter {
@@ -89,6 +91,8 @@ export interface ReportCourses {
   byStudent: Map<string, Set<string>>;
   /** `college + tab + plain course name` for every course some student of that college sees on the report. */
   campusCourses: Set<string>;
+  /** Student id without hyphens → course names as the report shows them. */
+  names?: Map<string, string[]>;
 }
 
 const plainName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
@@ -299,25 +303,40 @@ export interface StudentSubjectRow {
   completed: number;
   completionPct: number | null;
   avgScore: number | null;
+  /** The course is on the student's report but no quiz of this type is held yet. */
+  awaited?: boolean;
 }
 
 /** One row per student × subject (the student panel and the Student × subject download). */
 export function studentSubjectRows(model: QuizCoverageModel, f: QuizFilter, uid?: string): StudentSubjectRow[] {
   const wanted = uid ? uid.toLowerCase().replace(/-/g, "") : "";
-  return filterRows(model, f)
-    .filter((r) => !wanted || r.studentId.toLowerCase().replace(/-/g, "") === wanted)
-    .map((r) => ({
-      uid: r.studentId,
-      name: r.studentName,
-      college: r.campus,
-      section: r.section,
-      category: r.category,
-      subject: r.subject,
-      scheduled: r.scheduled,
-      completed: r.completed,
-      completionPct: pct(r.completed, r.scheduled),
-      avgScore: overall(rowPoints(r), rowWeight(r)),
-    }));
+  const own = filterRows(model, f).filter((r) => !wanted || r.studentId.toLowerCase().replace(/-/g, "") === wanted);
+  const out: StudentSubjectRow[] = own.map((r) => ({
+    uid: r.studentId,
+    name: r.studentName,
+    college: r.campus,
+    section: r.section,
+    category: r.category,
+    subject: r.subject,
+    scheduled: r.scheduled,
+    completed: r.completed,
+    completionPct: pct(r.completed, r.scheduled),
+    avgScore: overall(rowPoints(r), rowWeight(r)),
+    ...(r.scheduled <= 0 ? { awaited: true } : {}),
+  }));
+  // One student: also list the report's other courses, as Awaited, so this matches the student report.
+  const first = own[0];
+  const onReport = wanted ? model.reportCourses?.get(wanted) : undefined;
+  if (first && onReport) {
+    const shown = new Set(own.map((r) => plainName(r.subject)));
+    for (const name of onReport) {
+      if (shown.has(plainName(name))) continue;
+      shown.add(plainName(name));
+      const sameCourse = model.rows.find((r) => r.campus === first.campus && plainName(r.subject) === plainName(name));
+      out.push({ uid: first.studentId, name: first.studentName, college: first.campus, section: first.section, category: sameCourse?.category ?? null, subject: name.trim(), scheduled: 0, completed: 0, completionPct: null, avgScore: null, awaited: true });
+    }
+  }
+  return out;
 }
 
 export interface QuizFilterOptions {
