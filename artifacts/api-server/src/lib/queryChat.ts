@@ -389,35 +389,8 @@ export interface InboxQuery {
 
 export const INBOX_PAGE = 50;
 
-/** One row per chat, newest activity first. `status` = all | received | in_progress | waiting_on_student | resolved; `category` = all | a category key. */
-export async function listStaffQueries(opts: { status: string; category: string; college?: string; search: string; page: number }) {
-  await ensureTables();
-  await getCachedPlacement("-"); // makes sure spi_report_cache exists (the student's name comes from it)
-  const conds: string[] = [];
-  const params: unknown[] = [];
-  if ((QUERY_STATUSES as readonly string[]).includes(opts.status)) {
-    params.push(opts.status);
-    conds.push(`x.st = $${params.length}`);
-  }
-  if (Object.hasOwn(QUERY_CATEGORIES, opts.category)) {
-    params.push(opts.category);
-    conds.push(`x.category = $${params.length}`);
-  }
-  if (opts.college && opts.college !== "all") {
-    params.push(opts.college);
-    conds.push(`x.college = $${params.length}`);
-  }
-  const search = opts.search.trim().toLowerCase();
-  if (search) {
-    params.push(`%${search.replace(/[\\%_]/g, "\\$&")}%`);
-    conds.push(`(lower(x.student_id) LIKE $${params.length} OR lower(coalesce(x.name, '')) LIKE $${params.length})`);
-  }
-  params.push(INBOX_PAGE + 1, opts.page * INBOX_PAGE);
-  const { rows } = await pool.query<{
-    id: number; student_id: string; name: string | null; college: string | null; section: string | null; is_test: boolean;
-    category: string; subject: string; subject_n: string; st: QueryStatus; assigned_to: string | null; last_author: "student" | "ops"; preview: string; last_at: Date;
-  }>(
-    `WITH x AS (
+/** Every chat as one row with what the inbox shows: the student's name, last message and last activity. */
+const INBOX_CTE = `WITH x AS (
        SELECT q.id, q.student_id, q.is_test, q.college, q.section, q.category, q.subject, ${EFFECTIVE_STATUS} AS st, s.assigned_to,
               greatest((SELECT count(*) FROM spi_query_subjects ss WHERE ss.query_id = q.id), 1) AS subject_n,
               nullif(trim(r.report->>'studentName'), '') AS name,
@@ -427,12 +400,54 @@ export async function listStaffQueries(opts: { status: string; category: string;
        LEFT JOIN spi_query_state s ON s.query_id = q.id
        LEFT JOIN spi_report_cache r ON r.student_id = q.student_id
        LEFT JOIN LATERAL (SELECT m.author, m.body, m.created_at FROM spi_query_messages m
-                          WHERE m.query_id = q.id AND NOT m.internal ORDER BY m.created_at DESC, m.id DESC LIMIT 1) lm ON true)
-     SELECT * FROM x ${conds.length ? `WHERE ${conds.join(" AND ")}` : ""}
-     ORDER BY x.last_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params,
-  );
-  const queries: InboxQuery[] = rows.slice(0, INBOX_PAGE).map((r) => ({
+                          WHERE m.query_id = q.id AND NOT m.internal ORDER BY m.created_at DESC, m.id DESC LIMIT 1) lm ON true)`;
+
+export type StatusCounts = Record<QueryStatus, number>;
+
+/**
+ * One row per chat, newest activity first, plus how many chats are in each status (for the cards above the list).
+ * `status` = all | received | in_progress | waiting_on_student | resolved; `category` = all | a category key.
+ * The counts follow the category, college and search filters but not the status filter, so the cards stay useful
+ * while one status is chosen.
+ */
+export async function listStaffQueries(opts: { status: string; category: string; college?: string; search: string; page: number }) {
+  await ensureTables();
+  await getCachedPlacement("-"); // makes sure spi_report_cache exists (the student's name comes from it)
+  const base: string[] = [];
+  const params: unknown[] = [];
+  if (Object.hasOwn(QUERY_CATEGORIES, opts.category)) {
+    params.push(opts.category);
+    base.push(`x.category = $${params.length}`);
+  }
+  if (opts.college && opts.college !== "all") {
+    params.push(opts.college);
+    base.push(`x.college = $${params.length}`);
+  }
+  const search = opts.search.trim().toLowerCase();
+  if (search) {
+    params.push(`%${search.replace(/[\\%_]/g, "\\$&")}%`);
+    base.push(`(lower(x.student_id) LIKE $${params.length} OR lower(coalesce(x.name, '')) LIKE $${params.length})`);
+  }
+  const where = (conds: string[]) => (conds.length ? `WHERE ${conds.join(" AND ")}` : "");
+  const listConds = [...base];
+  const listParams = [...params];
+  if ((QUERY_STATUSES as readonly string[]).includes(opts.status)) {
+    listParams.push(opts.status);
+    listConds.push(`x.st = $${listParams.length}`);
+  }
+  listParams.push(INBOX_PAGE + 1, opts.page * INBOX_PAGE);
+
+  const [list, count] = await Promise.all([
+    pool.query<{
+      id: number; student_id: string; name: string | null; college: string | null; section: string | null; is_test: boolean;
+      category: string; subject: string; subject_n: string; st: QueryStatus; assigned_to: string | null; last_author: "student" | "ops"; preview: string; last_at: Date;
+    }>(`${INBOX_CTE} SELECT * FROM x ${where(listConds)} ORDER BY x.last_at DESC LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`, listParams),
+    pool.query<{ st: QueryStatus; n: string }>(`${INBOX_CTE} SELECT st, count(*) AS n FROM x ${where(base)} GROUP BY st`, params),
+  ]);
+
+  const counts: StatusCounts = { received: 0, in_progress: 0, waiting_on_student: 0, resolved: 0 };
+  for (const r of count.rows) if (r.st in counts) counts[r.st] = Number(r.n);
+  const queries: InboxQuery[] = list.rows.slice(0, INBOX_PAGE).map((r) => ({
     id: r.id,
     studentId: r.student_id,
     name: r.name,
@@ -448,7 +463,7 @@ export async function listStaffQueries(opts: { status: string; category: string;
     preview: r.preview,
     lastAt: r.last_at.toISOString(),
   }));
-  return { queries, hasMore: rows.length > INBOX_PAGE };
+  return { queries, hasMore: list.rows.length > INBOX_PAGE, counts };
 }
 
 /** The colleges that have raised a query (for the College filter). */

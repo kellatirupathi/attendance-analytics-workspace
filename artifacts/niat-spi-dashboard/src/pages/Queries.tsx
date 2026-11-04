@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell } from "lucide-react";
+import { Bell, CheckCircle2, Clock, Hourglass, Inbox } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { MessageImages } from "@/components/QueryShots";
 import { useQueryInboxSummary } from "@/hooks/useQueryInboxSummary";
@@ -78,6 +78,48 @@ async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: "include" });
   if (!res.ok) throw new Error(String(res.status));
   return (await res.json()) as T;
+}
+
+type StatusCounts = Record<QueryStatus, number>;
+
+const KPI_CARDS: { status: QueryStatus; label: string; Icon: typeof Inbox; tint: string }[] = [
+  { status: "received", label: "Needs reply", Icon: Inbox, tint: "bg-[#FDE8EE] text-[#BE123C]" },
+  { status: "in_progress", label: "In progress", Icon: Clock, tint: "bg-[#FFF4DD] text-[#B45309]" },
+  { status: "waiting_on_student", label: "Waiting on student", Icon: Hourglass, tint: "bg-[#EAF1FF] text-[#1D4FD8]" },
+  { status: "resolved", label: "Resolved", Icon: CheckCircle2, tint: "bg-[#E8F7EE] text-[#15803D]" },
+];
+
+/**
+ * How many chats are in each status (counted on the server for the chosen college, category and search).
+ * Each card filters the list to that status; pressing the chosen card again shows every status.
+ */
+function KpiCards({ counts, status, onPick }: { counts: StatusCounts | undefined; status: string; onPick: (status: string) => void }) {
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4" role="group" aria-label="Filter by status">
+      {KPI_CARDS.map(({ status: s, label, Icon, tint }) => {
+        const active = status === s;
+        const n = counts?.[s];
+        return (
+          <button
+            key={s}
+            type="button"
+            aria-pressed={active}
+            aria-label={`${label}: ${n ?? "loading"}`}
+            onClick={() => onPick(active ? "all" : s)}
+            className={`flex min-h-14 items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${active ? "border-brand-600 bg-brand-50 ring-1 ring-brand-600" : "border-slate-200 bg-white"}`}
+          >
+            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${tint}`} aria-hidden>
+              <Icon className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0">
+              <span className="block min-w-[2ch] text-[22px] font-bold leading-none tabular-nums text-brand-900">{n ?? "–"}</span>
+              <span className="mt-1 block truncate text-[12px] font-medium text-slate-600">{label}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function StatusPill({ status }: { status: QueryStatus }) {
@@ -390,7 +432,9 @@ export default function Queries() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["query-inbox", status, category, college, term, page],
     refetchInterval: 30_000,
-    queryFn: () => getJson<{ queries: InboxQuery[]; hasMore: boolean }>(`/api/query-inbox/queries?status=${status}&category=${category}&college=${encodeURIComponent(college)}&q=${encodeURIComponent(term)}&page=${page}`),
+    // Keep the old rows and counts on screen while a filter change loads, so nothing jumps.
+    placeholderData: (previous) => previous,
+    queryFn: () => getJson<{ queries: InboxQuery[]; hasMore: boolean; counts: StatusCounts }>(`/api/query-inbox/queries?status=${status}&category=${category}&college=${encodeURIComponent(college)}&q=${encodeURIComponent(term)}&page=${page}`),
   });
   const queries = data?.queries ?? [];
   const { data: collegeData } = useQuery({ queryKey: ["query-inbox-colleges"], staleTime: 5 * 60_000, queryFn: () => getJson<{ colleges: string[] }>("/api/query-inbox/colleges") });
@@ -461,7 +505,16 @@ export default function Queries() {
         }
       />
 
-      <div className="mt-4 grid h-[calc(100vh-210px)] min-h-[520px] overflow-hidden rounded-xl border border-slate-200 bg-white md:grid-cols-[340px_minmax(0,1fr)]">
+      <KpiCards
+        counts={data?.counts}
+        status={status}
+        onPick={(next) => {
+          setStatus(next);
+          setPage(0);
+        }}
+      />
+
+      <div className="mt-3 grid h-[calc(100vh-300px)] min-h-[480px] overflow-hidden rounded-xl border border-slate-200 bg-white md:grid-cols-[340px_minmax(0,1fr)]">
         <div className={`min-h-0 flex-col overflow-hidden border-r border-slate-200 ${selected ? "hidden md:flex" : "flex"}`}>
           <ul className="min-h-0 flex-1 overflow-y-auto">
             {isLoading && <li className="px-4 py-6 text-center text-[12.5px] text-slate-500">Loading…</li>}
