@@ -3,6 +3,7 @@ import { requireSession } from "../lib/auth.js";
 import { validateStudentId } from "../lib/bigquery.js";
 import { studentKey } from "../lib/testStudents.js";
 import { findAttachment, sendAttachment } from "../lib/queryAttachments.js";
+import { checkStorage } from "../lib/queryStorage.js";
 import {
   getStaffBell,
   getStaffQuery,
@@ -49,6 +50,18 @@ router.get("/queries", async (req, res): Promise<void> => {
     );
   } catch (err) {
     fail(res, req, err, "Reading the query inbox failed");
+  }
+});
+
+/**
+ * GET /api/query-inbox/storage-check: tests the Cloudflare R2 connection (write, read back, delete a tiny file) and says
+ * what is wrong. Open it in the browser while signed in as Admin or Super Admin.
+ */
+router.get("/storage-check", async (req, res): Promise<void> => {
+  try {
+    res.json(await checkStorage());
+  } catch (err) {
+    fail(res, req, err, "The storage check failed");
   }
 });
 
