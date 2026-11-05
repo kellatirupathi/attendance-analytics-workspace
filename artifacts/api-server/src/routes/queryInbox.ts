@@ -124,7 +124,8 @@ router.post("/reply", async (req, res): Promise<void> => {
       studentKey: studentKey(studentId),
       queryIds,
       body: typeof b["body"] === "string" ? b["body"] : "",
-      internal: b["internal"] === true,
+      // Students do not read replies: whatever the team writes is an internal note.
+      internal: true,
       status: typeof b["status"] === "string" ? b["status"] : "in_progress",
       adminName: req.session!.name,
     });

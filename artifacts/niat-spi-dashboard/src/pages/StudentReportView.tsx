@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { QueryChatSheet, useStudentThread } from "@/components/QueryChat";
 import { RaiseQueryForm } from "@/components/RaiseQueryForm";
 
 /* ------------------------------------------------------------------ */
@@ -746,26 +745,8 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
   const [attentionOpen, setAttentionOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
   const midSemester = !spiReady(data);
   const canQuery = Boolean(studentId) && data.courses.length > 0;
-  // The student's chat with the SPI team: checked once a minute (every 15 s while the chat is open).
-  const { thread, refresh: refreshThread } = useStudentThread(canQuery ? studentId : undefined, chatOpen ? 15_000 : 60_000);
-  const hasQueries = thread.queries.length > 0;
-  const unread = chatOpen ? 0 : thread.unread;
-  const lastReply = [...thread.messages].reverse().find((m) => m.author === "ops");
-  const [toast, setToast] = useState<string | null>(null);
-  const prevUnread = useRef<number | null>(null);
-  useEffect(() => {
-    // First load only records the count; a later rise means a new reply arrived while the student is on the report.
-    if (prevUnread.current !== null && unread > prevUnread.current && lastReply) setToast(lastReply.body);
-    prevUnread.current = unread;
-  }, [unread, lastReply]);
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(null), 9000);
-    return () => clearTimeout(id);
-  }, [toast]);
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
       <main className={`mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8 ${canQuery ? "pb-24" : ""}`}>
@@ -793,61 +774,22 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
       {canQuery && (
         <button
           type="button"
-          onClick={() => {
-            setToast(null);
-            if (hasQueries) setChatOpen(true);
-            else setQueryOpen(true);
-          }}
+          onClick={() => setQueryOpen(true)}
           className="fixed bottom-5 right-5 z-40 inline-flex min-h-11 items-center gap-2 rounded-full bg-[#2563EB] px-5 text-[13px] font-semibold text-white shadow-[0_8px_20px_rgba(37,99,235,0.35)] hover:bg-[#1D4ED8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] sm:bottom-6 sm:right-6"
         >
           <Icon d={ICONS.chat} className="!h-4 !w-4" />
-          {hasQueries ? "My queries" : "Raise a query"}
-          {unread > 0 && (
-            <span className="-mr-2 grid h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-[#E11D48] px-1 text-[11px] font-bold" aria-label={`${unread} new ${unread === 1 ? "reply" : "replies"}`}>
-              {unread}
-            </span>
-          )}
-        </button>
-      )}
-      {toast && !chatOpen && (
-        <button
-          type="button"
-          onClick={() => {
-            setToast(null);
-            setChatOpen(true);
-          }}
-          role="status"
-          className="fixed bottom-20 right-5 z-40 w-[min(330px,calc(100vw-2.5rem))] rounded-[12px] bg-[#0B1F4D] px-3.5 py-3 text-left text-white shadow-[0_12px_28px_rgba(11,31,77,0.35)] sm:bottom-[88px] sm:right-6"
-        >
-          <b className="block text-[12.5px]">SPI team replied to your query</b>
-          <span className="mt-0.5 line-clamp-2 block text-[11.5px] leading-snug text-[#C9D5F2]">{toast}</span>
-          <span className="mt-1.5 block text-[11.5px] font-semibold text-[#9DB6F2]">View reply</span>
+          Raise a query
         </button>
       )}
 
       {attentionOpen && <NeedsAttentionDialog data={data} onClose={() => setAttentionOpen(false)} />}
       {guideOpen && <SpiGuide data={data} onClose={() => setGuideOpen(false)} />}
-      {chatOpen && studentId && (
-        <QueryChatSheet
-          studentId={studentId}
-          thread={thread}
-          onRefresh={refreshThread}
-          onNew={() => setQueryOpen(true)}
-          onClose={() => setChatOpen(false)}
-        />
-      )}
       {queryOpen && studentId && (
         <RaiseQueryForm
           studentId={studentId}
           subjects={data.courses.map((c) => c.name)}
-          chats={thread.queries}
-          screenshots={Boolean(thread.screenshots)}
-          onSent={() => void refreshThread()}
+          onSent={() => undefined}
           onClose={() => setQueryOpen(false)}
-          onOpenChat={() => {
-            setQueryOpen(false);
-            setChatOpen(true);
-          }}
         />
       )}
     </div>

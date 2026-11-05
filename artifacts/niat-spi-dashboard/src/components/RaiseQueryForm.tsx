@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { QUERY_CATEGORIES } from "@/lib/queryCategories";
-import { CATEGORY_DOT, MAX_SHOTS, categoryLabel, type ThreadQuery } from "@/lib/queryChat";
+import { CATEGORY_DOT, MAX_SHOTS } from "@/lib/queryChat";
 import { ShotPicker, useShots } from "@/components/QueryShots";
 
 /**
  * "Raise a query": pick a category, tick the subjects, say what is wrong, add screenshots if you like.
- * A category that already has an open chat takes the new subjects and message into that chat.
+ * The SPI team does not reply here; the student only sends the query.
  */
 const MAX_CHARS = 2000;
 const FIELD = "w-full rounded-[10px] border border-[#CBD5E1] bg-white px-3 text-[13px] text-[#0B1F4D] focus:border-[#2563EB] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20";
@@ -13,23 +13,14 @@ const FIELD = "w-full rounded-[10px] border border-[#CBD5E1] bg-white px-3 text-
 export function RaiseQueryForm({
   studentId,
   subjects,
-  chats,
   onClose,
   onSent,
-  onOpenChat,
-  screenshots,
 }: {
   studentId: string;
   /** Every subject the student's report shows. */
   subjects: string[];
-  /** The student's chats so far (to find an open one in the chosen category). */
-  chats: ThreadQuery[];
   onClose: () => void;
   onSent: () => void;
-  /** Opens the student's chat list (shown after a query is sent). */
-  onOpenChat: () => void;
-  /** The server has image storage set up; without it the screenshot option is not shown. */
-  screenshots: boolean;
 }) {
   const [category, setCategory] = useState("");
   const [problem, setProblem] = useState("");
@@ -38,16 +29,26 @@ export function RaiseQueryForm({
   const [details, setDetails] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<null | { added: boolean }>(null);
+  const [done, setDone] = useState(false);
+  // Screenshots are offered only when the server has image storage set up.
+  const [screenshots, setScreenshots] = useState(false);
   const shots = useShots(studentId);
 
   const problems = QUERY_CATEGORIES.find((c) => c.value === category)?.problems ?? [];
-  // The newest chat in this category that is not resolved: new subjects go into it.
-  const openChat = useMemo(() => [...chats].reverse().find((q) => q.category === category && q.status !== "resolved"), [chats, category]);
-  const already = new Set(openChat?.subjects ?? []);
   const shown = subjects.filter((s) => s.toLowerCase().includes(search.trim().toLowerCase()));
-  const selectable = shown.filter((s) => !already.has(s));
-  const ready = Boolean(category && problem && details.trim() && (picked.length > 0 || openChat) && !shots.busy);
+  const selectable = shown;
+  const ready = Boolean(category && problem && details.trim() && picked.length > 0 && !shots.busy);
+
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/spi-queries/options?student=${encodeURIComponent(studentId)}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b: { screenshots?: boolean } | null) => live && setScreenshots(Boolean(b?.screenshots)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [studentId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -71,15 +72,14 @@ export function RaiseQueryForm({
           student: studentId,
           category,
           subCategory: problem,
-          // Only existing subjects ticked (or none): the chat keeps what it has.
-          subjects: picked.length > 0 ? picked : (openChat?.subjects ?? []),
+          subjects: picked,
           details: details.trim(),
           attachments: shots.tokens,
         }),
       });
-      const body = (await res.json().catch(() => null)) as { error?: string; added?: boolean } | null;
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
       if (!res.ok) throw new Error(res.status === 429 ? "Too many tries. Please wait a minute and submit again." : (body?.error ?? "Could not submit your query. Please try again."));
-      setDone({ added: Boolean(body?.added) });
+      setDone(true);
       onSent();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not submit your query. Please try again.");
@@ -96,14 +96,9 @@ export function RaiseQueryForm({
             <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[#E6F7EC] text-xl font-bold text-[#16A34A]" aria-hidden>
               ✓
             </span>
-            <h2 className="text-base font-bold text-[#0B1F4D]">{done.added ? `Added to your ${categoryLabel(category)} query` : "Your query is sent"}</h2>
-            <p className="mt-2 text-[13px] text-[#334155]">
-              The SPI team will reply in <b className="text-[#0B1F4D]">My queries</b>.
-            </p>
-            <button type="button" onClick={onOpenChat} className="mt-5 min-h-11 w-full rounded-[10px] bg-[#2563EB] text-[13px] font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB]">
-              Open my chat
-            </button>
-            <button type="button" onClick={onClose} className="mt-2 min-h-11 w-full rounded-[10px] border border-[#BFD0F7] bg-white text-[13px] font-semibold text-[#2563EB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB]">
+            <h2 className="text-base font-bold text-[#0B1F4D]">Your query is sent</h2>
+            <p className="mt-2 text-[13px] text-[#334155]">The SPI team has received it.</p>
+            <button type="button" onClick={onClose} className="mt-5 min-h-11 w-full rounded-[10px] bg-[#2563EB] text-[13px] font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#2563EB]">
               Back to report
             </button>
           </div>
@@ -147,13 +142,6 @@ export function RaiseQueryForm({
               </div>
             </div>
 
-            {openChat && (
-              <p className="flex gap-2 rounded-[10px] border border-[#BBD0FF] bg-[#EAF1FF] px-3 py-2.5 text-[12.5px] leading-snug text-[#1D4ED8]">
-                <span aria-hidden>ⓘ</span>
-                You already have an open {categoryLabel(category)} query. The subjects you tick are added to it.
-              </p>
-            )}
-
             {category && (
               <div className="grid gap-1.5">
                 <span id="rq-subject-label" className="text-xs font-semibold text-[#0B1F4D]">
@@ -170,13 +158,11 @@ export function RaiseQueryForm({
                   </div>
                   <ul className="max-h-52 overflow-y-auto">
                     {shown.map((s) => {
-                      const locked = already.has(s);
                       return (
                         <li key={s} className="border-t border-[#E6ECF5] first:border-t-0">
-                          <label className={`flex min-h-10 items-center gap-2.5 px-3 text-[13px] text-[#0B1F4D] ${locked ? "cursor-not-allowed opacity-70" : "cursor-pointer hover:bg-[#F6F9FF]"}`}>
-                            <input type="checkbox" checked={locked || picked.includes(s)} disabled={locked} onChange={() => toggle(s)} className="h-4 w-4 accent-[#2563EB]" />
+                          <label className="flex min-h-10 cursor-pointer items-center gap-2.5 px-3 text-[13px] text-[#0B1F4D] hover:bg-[#F6F9FF]">
+                            <input type="checkbox" checked={picked.includes(s)} onChange={() => toggle(s)} className="h-4 w-4 accent-[#2563EB]" />
                             <span className="min-w-0 flex-1">{s}</span>
-                            {locked && <small className="shrink-0 text-[10.5px] text-[#6B7280]">already in your query</small>}
                           </label>
                         </li>
                       );
@@ -250,7 +236,7 @@ export function RaiseQueryForm({
                 Cancel
               </button>
               <button type="submit" disabled={!ready || sending} className="min-h-10 rounded-[10px] bg-[#2563EB] px-5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
-                {sending ? "Submitting…" : openChat ? `Add to my ${categoryLabel(category)} query` : "Submit"}
+                {sending ? "Submitting…" : "Submit"}
               </button>
             </div>
           </form>

@@ -2,7 +2,7 @@ import express, { Router } from "express";
 import { allLimits, perNetworkLimit, perStudentLimit } from "../lib/rateLimits.js";
 import { getSessionFromRequest } from "../lib/auth.js";
 import { validateStudentId } from "../lib/bigquery.js";
-import { getStudentThread, getStudentUnread, markStudentRead, postStudentMessage, submitQuery } from "../lib/queryChat.js";
+import { submitQuery } from "../lib/queryChat.js";
 import { MAX_IMAGE_BYTES, findAttachment, saveUpload, sendAttachment, storageConfigured } from "../lib/queryAttachments.js";
 import { studentKey } from "../lib/testStudents.js";
 
@@ -55,57 +55,24 @@ router.post("/", queryLimiter, async (req, res): Promise<void> => {
   }
 });
 
-// Polling for replies: a student's open report asks about once a minute.
+// The form asks once when it opens.
 const threadLimiter = allLimits(
   perNetworkLimit(6000),
   perStudentLimit(20, (req) => (req.method === "GET" ? req.query["student"] : (req.body as { student?: unknown } | undefined)?.student)),
 );
 
 /**
- * GET /api/spi-queries/thread?student=: the student's conversation with the SPI team (their queries, the
- * team's replies, never internal notes or staff names). `?count=1` returns only the unread count.
+ * GET /api/spi-queries/options?student=: what the Raise a query form may offer. `screenshots` is true only when the
+ * image storage is set up on this server. Students do not read replies; there is no chat.
  */
-router.get("/thread", threadLimiter, async (req, res): Promise<void> => {
+router.get("/options", threadLimiter, (req, res): void => {
   res.set("Cache-Control", "no-store");
   const student = typeof req.query["student"] === "string" ? req.query["student"].trim() : "";
   if (!validateStudentId.test(student)) {
     res.status(400).json({ error: "Student required" });
     return;
   }
-  try {
-    const key = studentKey(student);
-    if (req.query["count"] === "1") {
-      res.json({ unread: await getStudentUnread(key) });
-      return;
-    }
-    // `screenshots`: the Add screenshot button is only offered when the image storage is set up on this server.
-    res.json({ ...(await getStudentThread(key)), screenshots: storageConfigured() });
-  } catch (err) {
-    req.log.error({ err }, "Reading a student's query thread failed");
-    res.status(500).json({ error: "Could not load your queries. Please try again." });
-  }
-});
-
-/** POST /api/spi-queries/read { student, queryId? }: the student opened a query's chat, so its replies count as read. */
-router.post("/read", threadLimiter, async (req, res): Promise<void> => {
-  res.set("Cache-Control", "no-store");
-  const student = String((req.body as { student?: unknown } | undefined)?.student ?? "").trim();
-  if (!validateStudentId.test(student)) {
-    res.status(400).json({ error: "Student required" });
-    return;
-  }
-  if (getSessionFromRequest(req)) {
-    res.json({ ok: true, preview: true });
-    return;
-  }
-  const queryId = Number((req.body as { queryId?: unknown } | undefined)?.queryId);
-  try {
-    await markStudentRead(studentKey(student), Number.isInteger(queryId) ? queryId : undefined);
-    res.json({ ok: true });
-  } catch (err) {
-    req.log.error({ err }, "Marking a student's replies read failed");
-    res.status(500).json({ error: "Could not update. Please try again." });
-  }
+  res.json({ screenshots: storageConfigured() });
 });
 
 // Screenshots: a few per message, so 12 a minute per student per network.
@@ -157,33 +124,6 @@ router.get("/attachments/:token", threadLimiter, async (req, res): Promise<void>
   } catch (err) {
     req.log.error({ err }, "Reading a query screenshot failed");
     res.status(500).json({ error: "Could not load the image." });
-  }
-});
-
-/** POST /api/spi-queries/:id/messages { student, body, attachments[] }: the student replies on one of their own chats. */
-router.post("/:id/messages", queryLimiter, async (req, res): Promise<void> => {
-  res.set("Cache-Control", "no-store");
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const queryId = Number(req.params["id"]);
-  const student = typeof body["student"] === "string" ? body["student"].trim() : "";
-  if (!Number.isInteger(queryId) || !validateStudentId.test(student)) {
-    res.status(400).json({ error: "Student required" });
-    return;
-  }
-  if (getSessionFromRequest(req)) {
-    res.json({ saved: false, preview: true });
-    return;
-  }
-  try {
-    const result = await postStudentMessage(studentKey(student), queryId, typeof body["body"] === "string" ? body["body"] : "", strings(body["attachments"]));
-    if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-    res.status(201).json({ saved: true, id: result.id });
-  } catch (err) {
-    req.log.error({ err }, "Saving a student's reply failed");
-    res.status(500).json({ error: "Could not send your message. Please try again." });
   }
 });
 

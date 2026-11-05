@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCircle2, Clock, Hourglass, Inbox } from "lucide-react";
+import { Bell, CheckCircle2, Clock, Inbox } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ShotGallery } from "@/components/QueryShots";
 import { useQueryInboxSummary } from "@/hooks/useQueryInboxSummary";
@@ -62,14 +62,7 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "all", label: "All status" },
   { value: "received", label: "Needs reply" },
   { value: "in_progress", label: "In progress" },
-  { value: "waiting_on_student", label: "Waiting on student" },
   { value: "resolved", label: "Resolved" },
-];
-const QUICK_REPLIES = [
-  "Received, we are checking this.",
-  "Please share more details (the date, class or quiz name).",
-  "Fixed. It will show in your report within 24 hours.",
-  "We checked, and your report is correct. Here is why: ",
 ];
 const MAX_REPLY = 2000;
 const SELECT = "h-10 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-semibold text-brand-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-600";
@@ -85,7 +78,6 @@ type StatusCounts = Record<QueryStatus, number>;
 const KPI_CARDS: { status: QueryStatus; label: string; Icon: typeof Inbox; tint: string }[] = [
   { status: "received", label: "Needs reply", Icon: Inbox, tint: "bg-[#FDE8EE] text-[#BE123C]" },
   { status: "in_progress", label: "In progress", Icon: Clock, tint: "bg-[#FFF4DD] text-[#B45309]" },
-  { status: "waiting_on_student", label: "Waiting on student", Icon: Hourglass, tint: "bg-[#EAF1FF] text-[#1D4FD8]" },
   { status: "resolved", label: "Resolved", Icon: CheckCircle2, tint: "bg-[#E8F7EE] text-[#15803D]" },
 ];
 
@@ -95,7 +87,7 @@ const KPI_CARDS: { status: QueryStatus; label: string; Icon: typeof Inbox; tint:
  */
 function KpiCards({ counts, status, onPick }: { counts: StatusCounts | undefined; status: string; onPick: (status: string) => void }) {
   return (
-    <div className="mt-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4" role="group" aria-label="Filter by status">
+    <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-3" role="group" aria-label="Filter by status">
       {KPI_CARDS.map(({ status: s, label, Icon, tint }) => {
         const active = status === s;
         const n = counts?.[s];
@@ -199,7 +191,6 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     queryFn: () => getJson<QueryDetail>(`/api/query-inbox/queries/${queryId}`),
   });
   const [text, setText] = useState("");
-  const [note, setNote] = useState(false);
   const [allSubjects, setAllSubjects] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -208,7 +199,6 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
 
   useEffect(() => {
     setText("");
-    setNote(false);
     setError(null);
     setAllSubjects(false);
   }, [queryId]);
@@ -229,16 +219,14 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     if (!body || sending || !data) return;
     setSending(true);
     setError(null);
-    // A reply moves a chat that was waiting for the team to "In progress"; any other status stays as the team set it.
-    const status = data.query.status === "received" ? "in_progress" : data.query.status;
-    const res = await sendJson("/api/query-inbox/reply", { studentId: data.student.studentId, queryIds: [queryId], body, internal: note, status });
+    // Students do not read replies, so this is always an internal note; the status stays as the team set it.
+    const res = await sendJson("/api/query-inbox/reply", { studentId: data.student.studentId, queryIds: [queryId], body, internal: true, status: data.query.status });
     setSending(false);
     if (!res.ok) {
       setError(res.error ?? "Could not send the reply.");
       return;
     }
     setText("");
-    setNote(false);
     await refreshAll();
   };
 
@@ -247,12 +235,6 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
     const res = await sendJson(`/api/query-inbox/queries/${queryId}/status`, { status: next });
     if (!res.ok) setError(res.error ?? "Could not change the status.");
     else await refreshAll();
-  };
-
-  /** Puts text into the reply box at the cursor: a quick reply or a subject name. */
-  const insert = (piece: string) => {
-    setText((t) => (t && !t.endsWith(" ") && !t.endsWith("\n") ? `${t} ${piece}` : `${t}${piece}`));
-    boxRef.current?.focus();
   };
 
   if (isLoading) return <div className="grid flex-1 place-items-center text-[13px] text-slate-500">Loading…</div>;
@@ -289,7 +271,7 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
             aria-label="Status"
             className={`cursor-pointer rounded-full border-0 px-2 py-0.5 text-[10.5px] font-bold focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 ${STATUS_STYLE[query.status]}`}
           >
-            {(["received", "in_progress", "waiting_on_student", "resolved"] as QueryStatus[]).map((s) => (
+            {(["received", "in_progress", "resolved"] as QueryStatus[]).map((s) => (
               <option key={s} value={s}>
                 {STATUS_LABEL.staff[s]}
               </option>
@@ -354,56 +336,27 @@ function ChatPane({ queryId, onBack, onShowStudent }: { queryId: number; onBack:
       </div>
 
       <div className="border-t border-slate-200 bg-white px-4 py-2.5">
-        <div className="mb-2 flex flex-wrap items-center gap-1">
-          <div className="flex items-center gap-1" role="tablist" aria-label="Message type">
-            <button type="button" role="tab" aria-selected={!note} onClick={() => setNote(false)} className={`rounded-md px-2.5 py-1 text-[12px] font-bold ${!note ? "bg-[#EAF1FF] text-[#2563EB]" : "text-slate-500"}`}>
-              Reply
-            </button>
-            <button type="button" role="tab" aria-selected={note} onClick={() => setNote(true)} className={`rounded-md px-2.5 py-1 text-[12px] font-bold ${note ? "bg-[#FFF4DD] text-[#D97706]" : "text-slate-500"}`}>
-              Internal note
-            </button>
-          </div>
-          <span className="ml-auto flex flex-wrap items-center gap-2">
-            {!note && (
-              <select aria-label="Quick reply" value="" onChange={(e) => e.target.value && insert(e.target.value)} className="h-8 max-w-[160px] rounded-md border border-slate-200 bg-white px-2 text-[12px] font-semibold text-slate-600">
-                <option value="">Quick reply</option>
-                {QUICK_REPLIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c.length > 48 ? `${c.slice(0, 46)}…` : c}
-                  </option>
-                ))}
-              </select>
-            )}
-            {query.subjects.length > 1 && (
-              <select aria-label="Add a subject name to the message" value="" onChange={(e) => e.target.value && insert(e.target.value)} className="h-8 max-w-[160px] rounded-md border border-slate-200 bg-white px-2 text-[12px] font-semibold text-slate-600">
-                <option value="">Add subject</option>
-                {query.subjects.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            )}
-          </span>
-        </div>
         {error && (
           <p role="alert" className="mb-2 rounded-lg bg-[#FDECEF] px-2.5 py-1.5 text-[12px] text-[#9F1239]">
             {error}
           </p>
         )}
+        <label htmlFor="q-note" className="mb-1 block text-[12px] font-bold text-[#D97706]">
+          Internal note <span className="font-normal text-slate-500">(only the SPI team sees this)</span>
+        </label>
         <div className="flex items-end gap-2">
           <textarea
+            id="q-note"
             ref={boxRef}
             value={text}
             maxLength={MAX_REPLY}
             rows={2}
             onChange={(e) => setText(e.target.value)}
-            placeholder={note ? "Write a note for the team (the student will not see it)…" : "Write a reply the student will see…"}
-            aria-label={note ? "Internal note" : "Reply"}
-            className={`min-w-0 flex-1 resize-y rounded-lg border px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 ${note ? "border-[#F0C96B] bg-[#FFFDF3]" : "border-slate-300"}`}
+            placeholder="Write a note for the team…"
+            className="min-w-0 flex-1 resize-y rounded-lg border border-[#F0C96B] bg-[#FFFDF3] px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
           />
           <button type="button" onClick={() => void send()} disabled={!text.trim() || sending} className="min-h-10 shrink-0 rounded-lg bg-[#2563EB] px-4 text-[12.5px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">
-            {sending ? "Sending…" : note ? "Save note" : "Send"}
+            {sending ? "Saving…" : "Save note"}
           </button>
         </div>
       </div>
