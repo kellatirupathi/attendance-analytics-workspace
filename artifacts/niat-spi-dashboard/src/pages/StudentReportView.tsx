@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { RaiseQueryForm } from "@/components/RaiseQueryForm";
+import { FEATURES } from "@/lib/featureFlags";
 
 /* ------------------------------------------------------------------ */
 /*  Data shape: GET /api/attendance/students/:id/scorecard            */
@@ -746,7 +747,7 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
   const [guideOpen, setGuideOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
   const midSemester = !spiReady(data);
-  const canQuery = Boolean(studentId) && data.courses.length > 0;
+  const canQuery = FEATURES.raiseQuery && Boolean(studentId) && data.courses.length > 0;
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
       <main className={`mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8 ${canQuery ? "pb-24" : ""}`}>

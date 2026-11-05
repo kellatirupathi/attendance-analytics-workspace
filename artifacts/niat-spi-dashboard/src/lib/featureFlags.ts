@@ -13,4 +13,9 @@ export const FEATURES = {
    * route redirects to Attendance Stats. The page code stays in place.
    */
   campusAnalytics: flag(import.meta.env.VITE_FEATURE_CAMPUS_ANALYTICS),
+  /**
+   * "Raise a query" button on the student report (/spi/:studentId). Off by default (hidden for now);
+   * the form, the Student Queries page and the API stay in place.
+   */
+  raiseQuery: flag(import.meta.env.VITE_FEATURE_RAISE_QUERY),
 } as const;
