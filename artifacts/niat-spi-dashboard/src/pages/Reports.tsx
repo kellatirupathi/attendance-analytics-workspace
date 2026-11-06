@@ -165,7 +165,7 @@ function Th({
 
 function SpiRecordPanel() {
   const { user } = useAuth();
-  const isBoa = user?.role === "boa";
+  const isBoa = user?.role === "boa" || user?.role === "co";
   const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
 
   const [drill, setDrill] = useState<Drill>(hideCampus ? "section" : "campus");
@@ -870,7 +870,7 @@ function SpiRecordPanel() {
 
 function InsightsPanel() {
   const { user } = useAuth();
-  const isBoa = user?.role === "boa";
+  const isBoa = user?.role === "boa" || user?.role === "co";
   const hideCampus = Boolean(isBoa && user?.campuses?.length === 1);
 
   const [semester, setSemester] = useState("");

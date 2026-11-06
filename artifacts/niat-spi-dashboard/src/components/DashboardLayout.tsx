@@ -232,7 +232,7 @@ function SidebarInner({
   const visibleMainNav = mainNav.filter(
     (item) =>
       (item.href !== "/dashboard/campuses" ||
-        (FEATURES.campusAnalytics && user?.role !== "boa")) &&
+        (FEATURES.campusAnalytics && user?.role !== "boa" && user?.role !== "co")) &&
       (item.href !== "/dashboard/spi-quiz" || QUIZ_ANALYTICS_ROLES.includes(user?.role ?? "")),
   );
   const instructorNav: NavItem[] = [

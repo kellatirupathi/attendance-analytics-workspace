@@ -6,6 +6,7 @@ export type Role =
   | "hod"
   | "capability_manager"
   | "boa"
+  | "co"
   | "instructor";
 
 export interface SessionScope {
@@ -40,6 +41,10 @@ export const ROLE_META: Record<
     label: "BOA",
     description: "Branch of Academic; view data scoped to assigned campuses",
   },
+  co: {
+    label: "CO",
+    description: "College Officer; view data scoped to assigned campuses (one or many colleges)",
+  },
   instructor: {
     label: "Instructor",
     description: "View data scoped to assigned campuses and subjects",
@@ -52,8 +57,8 @@ export function canManage(role: Role): boolean {
 
 export function manageableRoles(role: Role): Role[] {
   if (role === "superadmin")
-    return ["admin", "hod", "capability_manager", "boa", "instructor"];
-  if (role === "admin") return ["hod", "capability_manager", "boa", "instructor"];
+    return ["admin", "hod", "capability_manager", "boa", "co", "instructor"];
+  if (role === "admin") return ["hod", "capability_manager", "boa", "co", "instructor"];
   return [];
 }
 
@@ -71,7 +76,7 @@ export function scopeForSession(session: {
     return {};
   }
   const assigned = omitExcludedInstitutes(session.campuses);
-  if (session.role === "boa") {
+  if (session.role === "boa" || session.role === "co") {
     if (assigned.length === 0) {
       return { campuses: ["__none__"] };
     }

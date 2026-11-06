@@ -148,7 +148,7 @@ function fmt(n: number | null | undefined): string {
 
 export default function SpiRecordDashboard() {
   const { user } = useAuth();
-  const isBoa = user?.role === "boa";
+  const isBoa = user?.role === "boa" || user?.role === "co";
   const [, setLocation] = useLocation();
   const query = useQueryParams();
   const grain = (query.get("group") as Grain) || "campus";

@@ -26,6 +26,7 @@ const LAYOUT: Record<string, [CardId, number][]> = {
   admin: [["att", 4], ["trend", 5], ["fsa", 3], ["assess", 4], ["spidist", 4], ["rank", 4], ["subject", 4], ["attention", 8]],
   superadmin: [["trend", 5], ["att", 4], ["fsa", 3], ["rank", 6], ["subject", 6], ["assess", 4], ["spidist", 4], ["attention", 4]],
   boa: [["assess", 5], ["spidist", 4], ["fsa", 3], ["att", 4], ["rank", 8], ["trend", 6], ["subject", 6], ["attention", 12]],
+  co: [["assess", 5], ["spidist", 4], ["fsa", 3], ["att", 4], ["rank", 8], ["trend", 6], ["subject", 6], ["attention", 12]],
   hod: [["att", 4], ["trend", 5], ["fsa", 3], ["rank", 6], ["subject", 6], ["assess", 4], ["spidist", 4], ["attention", 4]],
   capability_manager: [["assess", 4], ["rank", 4], ["fsa", 4], ["att", 4], ["trend", 4], ["debt", 4], ["attention", 12]],
 };

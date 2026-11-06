@@ -19,6 +19,7 @@ export const roleEnum = pgEnum("role", [
   "hod",
   "capability_manager",
   "boa",
+  "co",
   "instructor",
 ]);
 
