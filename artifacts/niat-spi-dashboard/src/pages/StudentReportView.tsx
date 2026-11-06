@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { RaiseQueryForm } from "@/components/RaiseQueryForm";
 import { FEATURES } from "@/lib/featureFlags";
 
+/** Temporary note under the report header. Set to false to hide it; nothing else depends on it. */
+const SHOW_DATA_FIX_NOTE = true;
+const DATA_FIX_NOTE_TEXT =
+  "If you see any difference in your Classroom Quiz, Module Quiz, Skill Assessment or Attendance numbers, it will be fixed soon.";
+
 /* ------------------------------------------------------------------ */
 /*  Data shape: GET /api/attendance/students/:id/scorecard            */
 /*  (built in api-server/src/lib/spiScorecardRules.ts; this page only shows it) */
@@ -759,6 +764,13 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
           </div>
           <p className="ml-auto text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
         </header>
+
+        {SHOW_DATA_FIX_NOTE && (
+          <p className="flex items-start gap-[7px] justify-self-start rounded-lg bg-[#EAF1FF] px-2.5 py-1.5 text-[11.5px] text-[#0B1F4D] sm:items-center">
+            <span className="shrink-0 text-[#2563EB]"><Icon d={ICONS.info} className="!h-[15px] !w-[15px]" /></span>
+            {DATA_FIX_NOTE_TEXT}
+          </p>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1.15fr_1fr_1fr]">
           <SpiCard data={data} />
