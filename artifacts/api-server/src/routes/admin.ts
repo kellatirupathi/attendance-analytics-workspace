@@ -27,7 +27,7 @@ const router = Router();
 
 const BULK_USER_LIMIT = 200;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const SCOPED_ROLES: Role[] = ["capability_manager", "boa", "co", "instructor"];
+const SCOPED_ROLES: Role[] = ["capability_manager", "boa", "cos", "instructor"];
 
 function toUserDto(u: typeof usersTable.$inferSelect) {
   return {

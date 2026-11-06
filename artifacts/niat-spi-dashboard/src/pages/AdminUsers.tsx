@@ -50,7 +50,7 @@ import { MultiSelect } from "@/components/MultiSelect";
 import { Edit2, Trash2, Shield, Plus, Upload } from "lucide-react";
 import { BulkImportUsersDialog } from "@/pages/BulkImportUsersDialog";
 
-const CAMPUS_ROLES = ["capability_manager", "boa", "co", "instructor"];
+const CAMPUS_ROLES = ["capability_manager", "boa", "cos", "instructor"];
 const SUBJECT_ROLES = ["capability_manager", "instructor"];
 
 export default function AdminUsers() {

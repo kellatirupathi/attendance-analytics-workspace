@@ -4,7 +4,7 @@ export const roleLabels: Record<string, string> = {
   hod: "HOD",
   capability_manager: "Capability Manager",
   boa: "BOA",
-  co: "CO",
+  cos: "COS",
   instructor: "Instructor",
 };
 

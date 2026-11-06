@@ -65,7 +65,7 @@ type Role =
   | "hod"
   | "capability_manager"
   | "boa"
-  | "co"
+  | "cos"
   | "instructor";
 
 type KpiId = "students" | "attendance" | "eligible" | "belowSixty" | "avgSpi" | "skillDebt" | "completion";
@@ -129,7 +129,7 @@ const ROLE_THEME: Record<Role, RoleTheme> = {
     title: "Campus Overview",
     subtitle: "Attendance health, skill levels and requests for your campuses.",
   },
-  co: {
+  cos: {
     title: "College Overview",
     subtitle: "Attendance health and skill levels across your colleges.",
   },
@@ -147,7 +147,7 @@ const ROLE_LAYOUT: Record<Role, RoleLayout> = {
   hod: { leader: "campus", kpis: ALL_KPIS },
   capability_manager: { leader: "subject", kpis: ["attendance", "avgSpi", "completion", "skillDebt"] },
   boa: { leader: "section", kpis: ALL_KPIS },
-  co: { leader: "section", kpis: ALL_KPIS },
+  cos: { leader: "section", kpis: ALL_KPIS },
   instructor: { leader: "section", kpis: ALL_KPIS },
 };
 
@@ -179,7 +179,7 @@ function quickActions(role: Role, range: DateRange, studentsHref: string): Quick
       return [students, campuses];
     case "boa":
       return [{ ...requests, primary: true }, students];
-    case "co":
+    case "cos":
       return [students, campuses];
     default:
       return [students];

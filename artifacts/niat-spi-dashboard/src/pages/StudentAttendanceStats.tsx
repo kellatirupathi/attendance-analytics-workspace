@@ -189,7 +189,7 @@ function cellValue(row: StatsRow, id: ColumnId): string | number {
 
 export default function StudentAttendanceStats() {
   const { user } = useAuth();
-  const isBoa = user?.role === "boa" || user?.role === "co";
+  const isBoa = user?.role === "boa" || user?.role === "cos";
   const isSuperAdmin = user?.role === "superadmin";
   const [, setLocation] = useLocation();
   const query = useQueryParams();
