@@ -47,7 +47,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MultiSelect } from "@/components/MultiSelect";
-import { Edit2, Trash2, Shield, Plus, Upload } from "lucide-react";
+import { Edit2, Trash2, Shield, Plus, Upload, Search, X } from "lucide-react";
+import { roleLabel } from "@/lib/roleLabels";
 import { BulkImportUsersDialog } from "@/pages/BulkImportUsersDialog";
 
 const CAMPUS_ROLES = ["capability_manager", "boa", "cos", "instructor"];
@@ -70,6 +71,24 @@ export default function AdminUsers() {
   });
 
   const deleteUser = useDeleteUser();
+
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toLowerCase();
+  const shownUsers = (users ?? []).filter((u) => {
+    if (!needle) return true;
+    const haystack = [
+      u.name,
+      u.email,
+      u.role,
+      roleLabel(u.role),
+      u.isActive ? "active" : "inactive",
+      ...u.campuses,
+      ...u.subjects,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return needle.split(/\s+/).every((word) => haystack.includes(word));
+  });
 
   const handleDelete = (id: string, name: string) => {
     if (!confirm(`Are you sure you want to delete user ${name}?`)) return;
@@ -126,6 +145,35 @@ export default function AdminUsers() {
         }
       />
 
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, email, role, college or subject"
+            aria-label="Search users"
+            className="h-9 pl-9 pr-9"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-gray-400 hover:text-gray-700"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        {users && (
+          <span className="text-xs text-gray-500">
+            {needle ? `${shownUsers.length} of ${users.length} users` : `${users.length} users`}
+          </span>
+        )}
+      </div>
+
       <TableShell>
         <div className="overflow-x-auto">
           <Table>
@@ -163,7 +211,7 @@ export default function AdminUsers() {
                     </TableCell>
                   </TableRow>
                 ))
-              ) : users?.length === 0 ? (
+              ) : shownUsers.length === 0 ? (
                 <TableRow>
                   <TableCell
                     colSpan={6}
@@ -173,7 +221,7 @@ export default function AdminUsers() {
                   </TableCell>
                 </TableRow>
               ) : (
-                users?.map((u) => (
+                shownUsers.map((u) => (
                   <TableRow
                     key={u.id}
                     className="border-b border-gray-100 hover:bg-gray-50/70"
@@ -198,7 +246,7 @@ export default function AdminUsers() {
                         {u.role === "superadmin" && (
                           <Shield className="mr-1 h-3 w-3" />
                         )}
-                        {u.role.replace(/_/g, " ")}
+                        {roleLabel(u.role)}
                       </Badge>
                     </TableCell>
                     <TableCell className="max-w-[220px] text-xs text-gray-500">
