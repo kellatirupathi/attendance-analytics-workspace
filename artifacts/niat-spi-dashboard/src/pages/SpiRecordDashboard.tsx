@@ -1,247 +1,178 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Building2, CalendarDays, Download, Info, LayoutGrid, Search, User, X, type LucideIcon } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { ErrorState } from "@/components/PageStates";
-import { TableShell, TablePagination } from "@/components/DataTable";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/QuizTables";
+import { CopyUid } from "@/components/assessments/quiz/CopyUid";
+import { CheckMenu } from "@/components/SpiRecordFilterBar";
+import { SearchableSelect } from "@/components/SearchableSelect";
+import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  SpiRecordFilterBar,
-  SpiRecordFiltersButton,
-  DEFAULT_FILTERS,
-  type AttendanceRange,
-  type BoundOp,
-  type FilterId,
-  type Grain,
-  type SectionChoice,
-  type StudentChoice,
-} from "@/components/SpiRecordFilterBar";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQueryParams } from "@/hooks/useQueryParams";
 import { exportCsv } from "@/lib/csv";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import { cn } from "@/lib/utils";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Download } from "lucide-react";
-import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
 
-type ColumnId =
-  | "students"
-  | "avgSpi"
-  | "skillLevel"
-  | "levelAPlus"
-  | "levelA"
-  | "levelB"
-  | "levelC"
-  | "levelD"
-  | "skillDebt"
-  | "classroomPoints"
-  | "modulePoints"
-  | "sections"
-  | "attendancePct";
-
-const COLUMN_GROUPS: { title: string; ids: ColumnId[] }[] = [
-  { title: "SPI score", ids: ["students", "avgSpi", "skillLevel", "classroomPoints", "modulePoints"] },
-  { title: "Attendance", ids: ["attendancePct"] },
-  { title: "Skill level §3.2", ids: ["levelAPlus", "levelA", "levelB", "levelC", "levelD", "skillDebt"] },
-  { title: "Other", ids: ["sections"] },
-];
-
-const DEFAULT_COLUMNS: ColumnId[] = [
-  "students",
-  "avgSpi",
-  "skillLevel",
-  "levelAPlus",
-  "levelA",
-  "levelB",
-  "levelC",
-  "levelD",
-  "skillDebt",
-  "attendancePct",
-];
-
-const ALL_SPI_COLUMNS: ColumnId[] = COLUMN_GROUPS.flatMap((group) => group.ids);
-
-const COLUMN_LABEL: Record<ColumnId, string> = {
-  students: "Students",
-  avgSpi: "SPI points",
-  skillLevel: "Skill level",
-  levelAPlus: "A+",
-  levelA: "A",
-  levelB: "B",
-  levelC: "C",
-  levelD: "D",
-  skillDebt: "Skill Debt",
-  classroomPoints: "Classroom points",
-  modulePoints: "Module points",
-  sections: "Sections",
-  attendancePct: "Attendance %",
-};
+type Grain = "campus" | "semester" | "section" | "student";
+type Grade = "A+" | "A" | "B" | "C" | "D" | "F";
 
 interface RecordRow {
-  university: string | null;
+  university: string;
   semester: string | null;
   section: string | null;
   studentId: string | null;
   studentName: string | null;
   students: number;
-  avgSpi: number | null;
-  sections: number;
-  skillLevel: string | null;
-  levelAPlus: number;
-  levelA: number;
-  levelB: number;
-  levelC: number;
-  levelD: number;
-  skillDebt: number;
-  classroomPoints: number | null;
-  modulePoints: number | null;
-  attendancePct: number | null;
+  evaluated: number;
+  cq: number | null;
+  mq: number | null;
+  sa: number | null;
+  fsa: number | null;
+  spi: number | null;
+  grade: Grade | null;
   spiPath: string | null;
 }
 
-interface SpiSummary {
-  students: number;
-  campuses: number;
-  avgSpi: number | null;
-  attendancePct: number | null;
-  levelAPlus: number;
-  levelA: number;
-  levelB: number;
-  levelC: number;
-  levelD: number;
-  skillDebt: number;
-}
-
-/** One page from /spi-record/rows, with the header totals and filter choices for the whole view. */
-interface RowsPayload {
+interface TablePayload {
   rows: RecordRow[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
-  summary: SpiSummary;
-  options: { campuses: string[]; semesters: string[]; sections: SectionChoice[] };
+  summary: { students: number; evaluated: number; avgSpi: number | null; grades: Record<Grade, number> };
+  options: { campuses: string[]; semesters: string[]; sections: { campus: string; section: string }[] };
 }
 
-function levelTone(level: string): string {
-  if (level === "A+" || level === "A") return "text-emerald-700";
-  if (level === "B") return "text-lime-700";
-  if (level === "C") return "text-amber-700";
-  if (level === "D") return "text-orange-700";
-  return "text-red-700";
+const VIEWS: { value: Grain; label: string; icon: LucideIcon }[] = [
+  { value: "campus", label: "Campus-wise", icon: Building2 },
+  { value: "semester", label: "Semester-wise", icon: CalendarDays },
+  { value: "section", label: "Section-wise", icon: LayoutGrid },
+  { value: "student", label: "Student-wise", icon: User },
+];
+
+/** Grade colours: A+ green, A teal, B blue, C orange, D red; F (policy §3.2) grey. */
+const GRADE_STYLE: Record<Grade, { color: string; bg: string }> = {
+  "A+": { color: "#15803D", bg: "#E8F6EE" },
+  A: { color: "#0F766E", bg: "#E0F5F2" },
+  B: { color: "#1D4FD8", bg: "#EAF1FF" },
+  C: { color: "#C2410C", bg: "#FFEDE0" },
+  D: { color: "#B42318", bg: "#FDECEA" },
+  F: { color: "#4B5563", bg: "#E5E7EB" },
+};
+const KPI_GRADES: Grade[] = ["A+", "A", "B", "C", "D"];
+const GRADE_OPTIONS = [...(["A+", "A", "B", "C", "D", "F"] as Grade[]), "Pending"].map((value) => ({ value, label: value }));
+
+type ColumnId = "university" | "semester" | "section" | "studentId" | "studentName" | "students" | "evaluated" | "cq" | "mq" | "sa" | "fsa" | "spi" | "grade";
+
+const COLUMNS: Record<Grain, ColumnId[]> = {
+  campus: ["university", "students", "evaluated", "cq", "mq", "sa", "fsa", "spi", "grade"],
+  semester: ["university", "semester", "students", "evaluated", "cq", "mq", "sa", "fsa", "spi", "grade"],
+  section: ["university", "semester", "section", "students", "evaluated", "cq", "mq", "sa", "fsa", "spi", "grade"],
+  student: ["studentId", "studentName", "university", "semester", "section", "cq", "mq", "sa", "fsa", "spi", "grade"],
+};
+
+const WEIGHT: Partial<Record<ColumnId, string>> = { cq: "10%", mq: "15%", sa: "25%", fsa: "50%" };
+
+function columnLabel(id: ColumnId, grain: Grain): string {
+  const average = grain !== "student";
+  const base: Record<ColumnId, string> = {
+    university: "College",
+    semester: "Semester",
+    section: "Section",
+    studentId: "Student ID",
+    studentName: "Student Name",
+    students: "Students",
+    evaluated: "Evaluated",
+    cq: average ? "Avg CQ" : "CQ",
+    mq: average ? "Avg MQ" : "MQ",
+    sa: average ? "Avg SA" : "SA",
+    fsa: average ? "Avg FSA" : "FSA",
+    spi: average ? "Avg SPI" : "SPI",
+    grade: "Grade",
+  };
+  return base[id];
 }
 
-function fmt(n: number | null | undefined): string {
-  if (n == null || Number.isNaN(n)) return "—";
-  return n.toLocaleString("en-IN");
-}
+const NUMERIC = new Set<ColumnId>(["students", "evaluated", "cq", "mq", "sa", "fsa", "spi"]);
+const SORT_KEY: Partial<Record<ColumnId, string>> = { studentName: "studentName" };
+const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 focus-visible:ring-offset-2";
 
 export default function SpiRecordDashboard() {
   const { user } = useAuth();
   const isBoa = user?.role === "boa" || user?.role === "cos";
   const [, setLocation] = useLocation();
   const query = useQueryParams();
-  const grain = (query.get("group") as Grain) || "campus";
-  const campuses = splitList(query.get("campuses")).length
-    ? splitList(query.get("campuses"))
-    : isBoa && user?.campuses?.length === 1
-      ? [user.campuses[0]!]
-      : [];
+  const grain = (VIEWS.some((view) => view.value === query.get("group")) ? query.get("group") : "campus") as Grain;
+  const lockedCampus = isBoa && user?.campuses?.length === 1;
+  const campuses = splitList(query.get("campuses")).length ? splitList(query.get("campuses")) : lockedCampus ? [user!.campuses![0]!] : [];
   const semesters = splitList(query.get("semesters"));
-  const sections = splitList(query.get("sections")).map(parseSection).filter((item) => item.campus && item.section);
-  const students = splitList(query.get("students")).map(parseStudent).filter((item) => item.studentId);
-  const shown = (splitList(query.get("bar")) as FilterId[]).filter((id) => id in { group: 1, campus: 1, semester: 1, section: 1, student: 1, spi: 1, attendance: 1 });
-  const activeFilters = withRequiredFilters(shown);
-  const spiOp = (query.get("spiOp") || "") as BoundOp;
-  const spiA = query.get("spiA") || "";
-  const spiB = query.get("spiB") || "";
-  const attendanceOp = (query.get("attOp") || "") as BoundOp;
-  const attendanceA = query.get("attA") || "";
-  const attendanceB = query.get("attB") || "";
-  const attendanceRange = (query.get("attRange") || "semester_to_date") as AttendanceRange;
-  const attendanceFrom = query.get("attFrom") || "";
-  const attendanceTo = query.get("attTo") || "";
+  const sections = splitList(query.get("sections"));
+  const grade = query.get("grade") || "";
 
-  const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
-  const [draft, setDraft] = useState<ColumnId[]>(DEFAULT_COLUMNS);
-  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [sort, setSort] = useState<Sort | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const [hidden, setHidden] = useState<Record<Grain, ColumnId[]>>({ campus: [], semester: [], section: [], student: [] });
+  const [order, setOrder] = useState<Record<Grain, ColumnId[]>>(COLUMNS);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(true);
 
-  const detailParams = new URLSearchParams();
-  if (attendanceRange === "custom" && attendanceFrom && attendanceTo) {
-    detailParams.set("attRange", "custom");
-    detailParams.set("attFrom", attendanceFrom);
-    detailParams.set("attTo", attendanceTo);
-  } else if (attendanceRange !== "custom") {
-    detailParams.set("attRange", attendanceRange);
-  }
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebounced(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const spiBoundsOn = activeFilters.includes("spi") && Boolean(spiOp && spiA);
-  const attendanceBoundsOn = activeFilters.includes("attendance") && Boolean(attendanceOp && attendanceA);
-
-  /** Grouping, filters and bounds as the server reads them; the page number is added per request. */
-  const viewParams = (scopeOnly = false) => {
-    const params = new URLSearchParams(detailParams);
+  const viewParams = () => {
+    const params = new URLSearchParams();
     if (grain !== "campus") params.set("group", grain);
-    const list = (key: string, values: string[]) => {
-      if (values.length) params.set(key, values.join("||"));
-    };
-    list("semesters", semesters);
-    if (scopeOnly) return params;
-    list("campuses", campuses);
-    list("sections", sections.map((item) => `${item.campus}\t${item.section}`));
-    list("students", students.map((item) => `${item.campus}\t${item.studentId}`));
-    if (spiBoundsOn) {
-      params.set("spiOp", spiOp);
-      params.set("spiA", spiA);
-      if (spiOp === "between" && spiB) params.set("spiB", spiB);
-    }
-    if (attendanceBoundsOn) {
-      params.set("attOp", attendanceOp);
-      params.set("attA", attendanceA);
-      if (attendanceOp === "between" && attendanceB) params.set("attB", attendanceB);
+    if (campuses.length) params.set("campuses", campuses.join("||"));
+    if (semesters.length) params.set("semesters", semesters.join("||"));
+    if (sections.length) params.set("sections", sections.join("||"));
+    if (grade) params.set("grade", grade);
+    if (debounced) params.set("q", debounced);
+    if (sort) {
+      params.set("sort", SORT_KEY[sort.key as ColumnId] ?? sort.key);
+      params.set("dir", sort.dir);
     }
     return params;
   };
   const viewKey = viewParams().toString();
 
-  const fetchRows = async (params: URLSearchParams): Promise<RowsPayload> => {
-    const res = await fetch(`/api/dashboard/spi-record/rows?${params.toString()}`, {
-      credentials: "include",
-    });
+  const fetchTable = async (params: URLSearchParams): Promise<TablePayload> => {
+    const res = await fetch(`/api/dashboard/spi-record/table?${params.toString()}`, { credentials: "include" });
     if (!res.ok) throw new Error("Failed to load SPI record");
-    return res.json() as Promise<RowsPayload>;
+    return res.json() as Promise<TablePayload>;
   };
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ["spi-record-rows", viewKey, page, pageSize],
+    queryKey: ["spi-record-table", viewKey, page, pageSize],
     queryFn: () => {
       const params = new URLSearchParams(viewKey);
       params.set("page", String(page));
       params.set("pageSize", String(pageSize));
-      return fetchRows(params);
+      return fetchTable(params);
     },
     placeholderData: keepPreviousData,
     staleTime: 15 * 60_000,
   });
 
-  const campusOptions = useMemo(() => {
-    if (isBoa && user?.campuses?.length === 1) return omitExcludedInstitutes(user.campuses);
-    return omitExcludedInstitutes(data?.options.campuses ?? []);
-  }, [data, isBoa, user?.campuses]);
+  const campusOptions = useMemo(
+    () => (lockedCampus ? omitExcludedInstitutes(user!.campuses!) : omitExcludedInstitutes(data?.options.campuses ?? [])),
+    [data, lockedCampus, user],
+  );
   const semesterOptions = data?.options.semesters ?? [];
-  const sectionChoices: SectionChoice[] = data?.options.sections ?? [];
+  const sectionChoices = data?.options.sections ?? [];
+  const multiCampus = campuses.length !== 1;
 
   const writeQuery = (patch: Record<string, string | undefined>) => {
     const next = new URLSearchParams(query);
@@ -254,410 +185,307 @@ export default function SpiRecordDashboard() {
     setLocation(qs ? `/dashboard/spi-record?${qs}` : "/dashboard/spi-record");
   };
 
-  useEffect(() => {
-    if (!semesterOptions.length || !semesters.length) return;
-    const kept = semesters.filter((name) => semesterOptions.includes(name));
-    if (kept.length === semesters.length) return;
-    writeQuery({ semesters: kept.join("||") || undefined });
-  }, [semesterOptions.join("||"), semesters.join("||")]);
-
-  const [studentQuery, setStudentQuery] = useState("");
-  const searchText = studentQuery.trim();
-  const { data: studentSearch } = useQuery({
-    queryKey: ["spi-record-student-search", detailParams.toString(), campuses.join("||"), semesters.join("||"), query.get("sections") ?? "", searchText],
-    enabled: searchText.length >= 2,
-    queryFn: async () => {
-      const params = new URLSearchParams(detailParams);
-      if (campuses.length) params.set("campuses", campuses.join("||"));
-      if (semesters.length) params.set("semesters", semesters.join("||"));
-      if (sections.length) params.set("sections", sections.map((item) => `${item.campus}\t${item.section}`).join("||"));
-      params.set("q", searchText);
-      const res = await fetch(`/api/dashboard/spi-record/student-search?${params.toString()}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to search students");
-      return res.json() as Promise<{ students: StudentChoice[] }>;
-    },
-    placeholderData: keepPreviousData,
-    staleTime: 15 * 60_000,
-  });
-  const studentHits = searchText.length >= 2 ? studentSearch?.students ?? [] : [];
-
-  const pageRows = data?.rows ?? [];
+  const columns = order[grain].filter((id) => !hidden[grain].includes(id));
+  const rows = data?.rows ?? [];
   const totalRows = data?.total ?? 0;
   const summary = data?.summary;
-  const total = summary?.students ?? 0;
-  const split = (count: number) => (total > 0 ? Math.round((count / total) * 100) : 0);
-  const levelColumns: ColumnId[] = ["levelAPlus", "levelA", "levelB", "levelC", "levelD"];
-  const visible = columns.filter((id) => {
-    if (grain === "student" && (id === "sections" || levelColumns.includes(id))) return false;
-    if (grain !== "student" && id === "skillLevel") return false;
-    return true;
-  });
+  const evaluated = summary?.evaluated ?? 0;
+  const share = (count: number) => (evaluated > 0 ? `${((count / evaluated) * 100).toFixed(1)}% of evaluated` : "Pending");
+  const scopeLabel = [
+    campuses.length ? campuses.join(", ") : "All campuses",
+    semesters.length ? semesters.join(", ") : "Current semesters",
+  ].join(" · ");
 
-  const identityHeaders =
-    grain === "all"
-      ? ["Scope"]
-      : grain === "semester"
-        ? ["Campus", "Semester"]
-        : grain === "section"
-          ? ["Campus", "Section"]
-          : grain === "student"
-            ? ["Campus", "Semester", "Section", "Name", "Student ID"]
-            : ["Campus"];
-
-  const identityCells = (row: RecordRow): string[] => {
-    if (grain === "semester") return [row.university || "—", row.semester || "—"];
-    if (grain === "section") return [row.university || "—", row.section || "—"];
-    if (grain === "student") {
-      return [row.university || "—", row.semester || "—", row.section || "—", row.studentName || "—", row.studentId || "—"];
-    }
-    if (grain === "all") return ["All campuses"];
-    return [row.university || "—"];
+  const cellText = (row: RecordRow, id: ColumnId): string => {
+    if (id === "university") return row.university;
+    if (id === "semester") return row.semester ?? "";
+    if (id === "section") return row.section ?? "";
+    if (id === "studentId") return row.studentId ?? "";
+    if (id === "studentName") return row.studentName ?? "";
+    if (id === "students" || id === "evaluated") return String(row[id]);
+    if (id === "grade") return row.grade ?? "Pending";
+    const value = row[id];
+    if (value == null) return "N/A";
+    return id === "spi" ? value.toFixed(2) : `${value.toFixed(1)}%`;
   };
 
-  const cell = (row: RecordRow, id: ColumnId): string => {
-    if (id === "attendancePct") return row.attendancePct == null ? "—" : `${row.attendancePct.toFixed(1)}%`;
-    if (id === "avgSpi" || id === "classroomPoints" || id === "modulePoints") {
-      const value = row[id];
-      return value == null ? "—" : value.toFixed(1);
-    }
-    if (id === "skillLevel") return row.skillLevel || "—";
-    if (id === "skillDebt" && grain === "student") return row.skillDebt > 0 ? "Yes" : "No";
-    return fmt(row[id]);
-  };
-
-  const exportRows = (source: RecordRow[], filename: string) => {
-    exportCsv(
-      filename,
-      [...identityHeaders, ...visible.map((id) => COLUMN_LABEL[id])],
-      source.map((row) => [...identityCells(row), ...visible.map((id) => cell(row, id))]),
-    );
-  };
-
-  /** CSV needs every row, not the page on screen, so exports ask the server for the whole view. */
+  const exportRows = (source: RecordRow[], filename: string) =>
+    exportCsv(filename, columns.map((id) => columnLabel(id, grain)), source.map((row) => columns.map((id) => cellText(row, id))));
   const exportView = async () => {
     const params = viewParams();
     params.set("export", "1");
-    exportRows((await fetchRows(params)).rows, "spi-record-this-view.csv");
+    exportRows((await fetchTable(params)).rows, "spi-record-this-view.csv");
   };
-
-  /** Every campus at this grain: only the semester and attendance window carry over, as before. */
+  /** Every campus at this view: filters are dropped. */
   const exportAll = async () => {
-    const params = viewParams(true);
+    const params = new URLSearchParams();
+    if (grain !== "campus") params.set("group", grain);
     params.set("export", "1");
-    exportRows((await fetchRows(params)).rows, "spi-record-this-grain.csv");
+    exportRows((await fetchTable(params)).rows, "spi-record-all-campuses.csv");
   };
 
-  const scopeBits = [
-    campusScopeLabel(campuses, campusOptions),
-    semesters.length ? semesters.join(", ") : "Current semesters",
-    sections.length ? sections.map((item) => item.section).join(", ") : "",
-  ].filter(Boolean);
-  const scopeLabel = scopeBits.join(" · ");
+  const clearFilters = () => {
+    setSearch("");
+    writeQuery({ campuses: undefined, semesters: undefined, sections: undefined, grade: undefined });
+  };
 
-  const toolbar = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <SpiRecordFiltersButton
-        shown={activeFilters}
-        onShown={(next) => {
-          const patch: Record<string, string | undefined> = { bar: next.join("||") };
-          if (!next.includes("campus")) patch.campuses = undefined;
-          if (!next.includes("semester")) patch.semesters = undefined;
-          if (!next.includes("section")) patch.sections = undefined;
-          if (!next.includes("student")) patch.students = undefined;
-          if (!next.includes("spi")) {
-            patch.spiOp = undefined;
-            patch.spiA = undefined;
-            patch.spiB = undefined;
-          }
-          if (!next.includes("attendance")) {
-            patch.attOp = undefined;
-            patch.attA = undefined;
-            patch.attB = undefined;
-            patch.attRange = undefined;
-            patch.attFrom = undefined;
-            patch.attTo = undefined;
-          }
-          writeQuery(patch);
-        }}
-      />
-      <Popover open={open} onOpenChange={(next) => { setOpen(next); if (next) setDraft(columns); }}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">Columns</Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-72" align="end">
-          <p className="mb-2 text-xs text-gray-500">Drag to set the column order. {columns.length} of {Object.keys(COLUMN_LABEL).length} selected.</p>
-          <ColumnOrderList
-            ids={[...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))]}
-            label={(id) => COLUMN_LABEL[id]}
-            checked={(id) => draft.includes(id)}
-            onToggle={(id) =>
-              setDraft((current) =>
-                current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-              )
-            }
-            onReorder={(from, to) => {
-              const order = [...draft, ...ALL_SPI_COLUMNS.filter((id) => !draft.includes(id))];
-              const next = moveListItem(order, from, to);
-              setDraft(next.filter((id) => draft.includes(id)));
-            }}
-          />
-          <Button
-            size="sm"
-            className="mt-1 w-full"
-            onClick={() => {
-              setColumns(draft);
-              setOpen(false);
-            }}
-          >
-            Apply
-          </Button>
-        </PopoverContent>
-      </Popover>
-      <Button variant="outline" size="sm" disabled={!totalRows} onClick={() => void exportView()}>
-        <Download className="mr-1 h-4 w-4" /> Export
-      </Button>
-      <Button size="sm" onClick={() => void exportAll()}>
-        <Download className="mr-1 h-4 w-4" /> Export everything at this grain
-      </Button>
-    </div>
-  );
+  const onSort = (key: string) => {
+    setPage(1);
+    setSort((current) => (current?.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: NUMERIC.has(key as ColumnId) ? "desc" : "asc" }));
+  };
+
+  const header = columns.map((id) => ({
+    key: id,
+    label: WEIGHT[id] ? `${columnLabel(id, grain)} (${WEIGHT[id]})` : columnLabel(id, grain),
+    align: NUMERIC.has(id) ? ("right" as const) : undefined,
+    sortable: id !== "studentId",
+  }));
+
+  const renderCell = (row: RecordRow, id: ColumnId): ReactNode => {
+    if (id === "studentId") return row.studentId ? <CopyUid uid={row.studentId} /> : "";
+    if (id === "studentName") {
+      return row.spiPath ? <a className="font-medium text-brand-700 hover:underline" href={row.spiPath}>{row.studentName || row.studentId}</a> : row.studentName;
+    }
+    if (id === "grade") return <GradePill grade={row.grade} />;
+    if (id === "university") return <span className="font-medium text-slate-900">{row.university}</span>;
+    if (id === "semester" || id === "section") return row[id] ?? "";
+    if (id === "students" || id === "evaluated") return row[id].toLocaleString("en-IN");
+    const value = row[id];
+    if (value == null) return <NotAvailable what={id === "spi" ? "Pending: the Final (FSA) is not available yet" : id === "sa" || id === "fsa" ? "Coming soon: not in the data yet" : "Not conducted yet"} />;
+    if (id === "spi") {
+      return (
+        <span className="inline-flex flex-col items-end">
+          <span className="font-bold text-slate-900">{value.toFixed(2)}</span>
+          <span aria-hidden="true" className="mt-0.5 block h-[3px] w-11 overflow-hidden rounded bg-slate-200"><span className="block h-full bg-violet-600" style={{ width: `${value * 10}%` }} /></span>
+        </span>
+      );
+    }
+    return `${value.toFixed(1)}%`;
+  };
+
+  const rowKey = (row: RecordRow) => [row.university, row.semester, row.section, row.studentId].join("|");
 
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader attendanceNote title="SPI Record Dashboard" right={toolbar} />
+      <PageHeader
+        title="SPI Record Dashboard"
+        right={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={totalRows === 0 || isLoading} onClick={() => void exportView()}>
+              <Download className="mr-1 h-4 w-4" aria-hidden="true" /> Export this view
+            </Button>
+            <Button type="button" size="sm" disabled={isLoading} onClick={() => void exportAll()}>
+              <Download className="mr-1 h-4 w-4" aria-hidden="true" /> Export all campuses
+            </Button>
+          </div>
+        }
+      />
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Tile label="Students evaluated" value={isLoading ? null : fmt(summary?.students ?? 0)} hint={scopeLabel} />
-        <Tile
-          label="Average SPI points"
-          value={isLoading ? null : summary?.avgSpi == null ? "—" : summary.avgSpi.toFixed(1)}
-          hint="0–10. Classroom 10% and module 15%. Missing quizzes count as 0."
-        />
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Skill level split</div>
-          {isLoading || !summary ? (
-            <Skeleton className="mt-3 h-8 w-full" />
-          ) : (
-            <>
-              <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-gray-100">
-                <span className="bg-emerald-700" style={{ width: `${split(summary.levelAPlus)}%` }} />
-                <span className="bg-emerald-500" style={{ width: `${split(summary.levelA)}%` }} />
-                <span className="bg-lime-500" style={{ width: `${split(summary.levelB)}%` }} />
-                <span className="bg-amber-400" style={{ width: `${split(summary.levelC)}%` }} />
-                <span className="bg-orange-500" style={{ width: `${split(summary.levelD)}%` }} />
-                <span className="bg-red-600" style={{ width: `${split(summary.skillDebt)}%` }} />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-gray-600">
-                <span>A+ {split(summary.levelAPlus)}%</span>
-                <span>A {split(summary.levelA)}%</span>
-                <span>B {split(summary.levelB)}%</span>
-                <span>C {split(summary.levelC)}%</span>
-                <span>D {split(summary.levelD)}%</span>
-                <span>Skill Debt {split(summary.skillDebt)}%</span>
-              </div>
-            </>
-          )}
+      {noteOpen && (
+        <div role="note" className="mt-3 flex items-start gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-[13px] leading-relaxed text-slate-800">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" aria-hidden="true" />
+          <p className="flex-1">
+            <b>Course score</b> = CQ 10% + MQ 15% + SA 25% + FSA 50% (a part below 50% earns 0; parts with no data are left out and the score is re-scaled to 100). <b>SPI</b> = credit-weighted average of course level points. Shown once the Final (FSA) is available.
+          </p>
+          <button type="button" aria-label="Hide message" onClick={() => setNoteOpen(false)} className={cn("rounded p-1 text-slate-500 hover:bg-white", focusRing)}>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-        <Tile
-          label="Attendance %"
-          value={isLoading ? null : summary?.attendancePct == null ? "—" : `${summary.attendancePct.toFixed(1)}%`}
-          hint="Calendar attendance date range. Separate from the semester skill cycle."
-        />
-        <Tile
-          label="Skill Debt"
-          value={isLoading ? null : fmt(summary?.skillDebt ?? 0)}
-          hint="Below 50% on a quiz the student has, or no classroom and no module quiz."
-          tone="rose"
-        />
-      </div>
-
-      <div className="mb-4">
-        <SpiRecordFilterBar
-          shown={activeFilters}
-          grain={grain}
-          onGrain={(value) => writeQuery({ group: value === "campus" ? undefined : value })}
-          campuses={campuses}
-          campusOptions={campusOptions}
-          sectionChoices={sectionChoices}
-          studentQuery={studentQuery}
-          onStudentQuery={setStudentQuery}
-          studentHits={studentHits}
-          onCampuses={(next) => {
-            const keptSections = next.length ? sections.filter((item) => next.includes(item.campus)) : [];
-            const keptStudents = next.length ? students.filter((item) => next.includes(item.campus)) : [];
-            writeQuery({
-              campuses: next.join("||") || undefined,
-              sections: encodeSections(keptSections),
-              students: encodeStudents(keptStudents),
-            });
-          }}
-          semesters={semesters}
-          semesterOptions={semesterOptions}
-          onSemesters={(next) => writeQuery({ semesters: next.join("||") || undefined })}
-          sections={sections}
-          onSections={(next) => {
-            const keptStudents = next.length
-              ? students.filter((item) => next.some((section) => section.campus === item.campus && section.section === item.section))
-              : [];
-            writeQuery({ sections: encodeSections(next), students: encodeStudents(keptStudents) });
-          }}
-          students={students}
-          onStudents={(next) => writeQuery({ students: encodeStudents(next) })}
-          spiOp={spiOp}
-          spiA={spiA}
-          spiB={spiB}
-          onSpi={(op, a, b) => writeQuery({ spiOp: op || undefined, spiA: a || undefined, spiB: b || undefined })}
-          attendanceOp={attendanceOp}
-          attendanceA={attendanceA}
-          attendanceB={attendanceB}
-          attendanceRange={attendanceRange}
-          attendanceFrom={attendanceFrom}
-          attendanceTo={attendanceTo}
-          onAttendance={(patch) => {
-            const next: Record<string, string | undefined> = {};
-            if (patch.op !== undefined) next.attOp = patch.op || undefined;
-            if (patch.a !== undefined) next.attA = patch.a || undefined;
-            if (patch.b !== undefined) next.attB = patch.b || undefined;
-            if (patch.range !== undefined) next.attRange = patch.range;
-            if (patch.from !== undefined) next.attFrom = patch.from || undefined;
-            if (patch.to !== undefined) next.attTo = patch.to || undefined;
-            writeQuery(next);
-          }}
-          onClear={() =>
-            writeQuery({
-              campuses: undefined,
-              semesters: undefined,
-              sections: undefined,
-              students: undefined,
-              spiOp: undefined,
-              spiA: undefined,
-              spiB: undefined,
-              attOp: undefined,
-              attA: undefined,
-              attB: undefined,
-            })
-          }
-        />
-      </div>
-
-      {isError ? (
-        <ErrorState message="Failed to load the SPI record." onRetry={() => void refetch()} />
-      ) : (
-        <TableShell className="min-w-0">
-          <Table className="w-max min-w-full">
-            <TableHeader>
-              <TableRow>
-                {identityHeaders.map((header) => (
-                  <TableHead key={header} className={cn("whitespace-nowrap text-left", header === "Name" && "min-w-[12rem]")}>{header}</TableHead>
-                ))}
-                {visible.map((id) => (
-                  <TableHead key={id} className="text-right">{COLUMN_LABEL[id]}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading
-                ? Array.from({ length: 6 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell colSpan={8}><Skeleton className="h-5 w-full" /></TableCell>
-                    </TableRow>
-                  ))
-                : pageRows.map((row, index) => (
-                    <TableRow key={`${row.university ?? ""}-${row.semester ?? ""}-${row.section ?? ""}-${row.studentId ?? index}`}>
-                      {identityCells(row).map((value, cellIndex) => (
-                        <TableCell key={`${cellIndex}-${value}`} className={cn("whitespace-nowrap font-medium", grain === "student" && cellIndex === 3 && "min-w-[12rem]")}>
-                          {grain === "student" && cellIndex === 3 && row.spiPath ? (
-                            <a className="text-brand-700 hover:underline" href={row.spiPath}>{value}</a>
-                          ) : (
-                            value
-                          )}
-                        </TableCell>
-                      ))}
-                      {visible.map((id) => (
-                        <TableCell key={id} className="text-right tabular-nums">
-                          {id === "skillLevel" ? (
-                            <span className={cn("text-xs font-bold", levelTone(row.skillLevel ?? ""))}>{cell(row, id)}</span>
-                          ) : (
-                            cell(row, id)
-                          )}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
-            </TableBody>
-          </Table>
-          <TablePagination
-            page={data?.page ?? page}
-            totalPages={data?.totalPages ?? 1}
-            totalItems={totalRows}
-            pageSize={pageSize}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPage(1);
-            }}
-            itemLabel="rows"
-          />
-        </TableShell>
       )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:grid-cols-7">
+        <StatTile label="Total students evaluated" value={isLoading ? null : evaluated.toLocaleString("en-IN")} hint={isLoading ? "" : `of ${(summary?.students ?? 0).toLocaleString("en-IN")} students${summary?.grades.F ? ` · ${summary.grades.F.toLocaleString("en-IN")} F` : ""}`} accent="#6D4AE0" />
+        <StatTile label="Average SPI" value={isLoading ? null : summary?.avgSpi == null ? "N/A" : summary.avgSpi.toFixed(2)} hint={isLoading ? "" : summary?.avgSpi == null ? "Pending Final (FSA)" : "out of 10"} accent="#6D4AE0" />
+        {KPI_GRADES.map((g) => (
+          <StatTile key={g} label={`${g} grade`} value={isLoading ? null : (summary?.grades[g] ?? 0).toLocaleString("en-IN")} hint={isLoading ? "" : share(summary?.grades[g] ?? 0)} accent={GRADE_STYLE[g].color} />
+        ))}
+      </div>
+
+      <div role="group" aria-label="View by" className="mt-3 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-bold text-slate-900">View by</span>
+        <div className="flex flex-wrap gap-2">
+          {VIEWS.map(({ value, label, icon: Icon }) => {
+            const on = grain === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  if (on) return;
+                  setSort(null);
+                  setSearch("");
+                  writeQuery({ group: value === "campus" ? undefined : value });
+                }}
+                className={cn(
+                  "inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-semibold transition-all motion-reduce:transition-none",
+                  focusRing,
+                  on ? "bg-violet-600 text-white shadow-md shadow-violet-600/30" : "bg-white text-slate-700 shadow-sm hover:-translate-y-px hover:shadow-md motion-reduce:hover:translate-y-0",
+                )}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div role="group" aria-label="Filters" className="mt-3 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {!lockedCampus && (
+          <FilterField label="College">
+            <CheckMenu
+              className="w-full"
+              label={campuses.length ? `${campuses.length} selected` : "All colleges"}
+              options={campusOptions.map((name) => ({ id: name, label: name }))}
+              selected={campuses}
+              onChange={(next) =>
+                writeQuery({
+                  campuses: next.join("||") || undefined,
+                  sections: next.length ? sections.filter((id) => next.includes(id.split("\t")[0] ?? "")).join("||") || undefined : undefined,
+                })
+              }
+            />
+          </FilterField>
+        )}
+        <FilterField label="Semester">
+          <CheckMenu
+            className="w-full"
+            label={semesters.length ? `${semesters.length} selected` : "Current semesters"}
+            options={semesterOptions.map((name) => ({ id: name, label: name }))}
+            selected={semesters}
+            onChange={(next) => writeQuery({ semesters: next.join("||") || undefined })}
+          />
+        </FilterField>
+        <FilterField label="Section">
+          <CheckMenu
+            className="w-full"
+            label={sections.length ? `${sections.length} selected` : campuses.length ? "All sections" : "Select a college"}
+            options={sectionChoices.map((item) => ({ id: `${item.campus}\t${item.section}`, label: multiCampus ? `${item.campus} — ${item.section}` : item.section }))}
+            selected={sections}
+            onChange={(next) => writeQuery({ sections: next.join("||") || undefined })}
+          />
+        </FilterField>
+        <FilterField label="Grade">
+          <SearchableSelect
+            value={grade || "all"}
+            onValueChange={(value) => writeQuery({ grade: value === "all" ? undefined : value })}
+            options={[{ value: "all", label: "All grades" }, ...GRADE_OPTIONS]}
+            placeholder="All grades"
+          />
+        </FilterField>
+        <FilterField label="Student search">
+          <label className="relative block">
+            <span className="sr-only">Student name or ID</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Name or Student ID"
+              className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
+            />
+          </label>
+        </FilterField>
+      </div>
+
+      {isError && (
+        <div className="mt-3">
+          <ErrorState message="Failed to load the SPI record." onRetry={() => void refetch()} />
+        </div>
+      )}
+
+      <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="SPI records">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 p-3">
+          <p className="min-w-0 truncate text-sm text-slate-500 tabular-nums" title={scopeLabel}>
+            <span className="font-semibold text-slate-900">{totalRows.toLocaleString("en-IN")}</span> {rowsLabel(grain)} · {scopeLabel}
+          </p>
+          <div className="ml-auto flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={clearFilters}>Clear filters</Button>
+            <Popover open={columnsOpen} onOpenChange={setColumnsOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" size="sm">Columns</Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72">
+                <p className="mb-2 text-xs text-gray-500">Tick the columns to show; drag to reorder.</p>
+                <ColumnOrderList
+                  ids={order[grain]}
+                  label={(id) => columnLabel(id, grain)}
+                  checked={(id) => !hidden[grain].includes(id)}
+                  locked={(id) => id === (grain === "student" ? "studentName" : "university")}
+                  onToggle={(id) => setHidden((current) => ({ ...current, [grain]: current[grain].includes(id) ? current[grain].filter((item) => item !== id) : [...current[grain], id] }))}
+                  onReorder={(from, to) => setOrder((current) => ({ ...current, [grain]: moveListItem(current[grain], from, to) }))}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[56rem] text-left">
+            <Head columns={header} sort={sort ?? { key: "", dir: "asc" }} onSort={onSort} dense />
+            <Body loading={isLoading} empty={grade && grade !== "Pending" ? `No students have grade ${grade} yet. Grades appear once the Final (FSA) is available.` : "No rows match these filters."} colSpan={columns.length} rowsCount={rows.length}>
+              {rows.map((row) => (
+                <tr key={rowKey(row)} className="hover:bg-slate-50">
+                  {columns.map((id) => (
+                    <td key={id} className={cn("whitespace-nowrap px-2.5 py-2.5 text-sm text-slate-700", NUMERIC.has(id) && "text-right tabular-nums")}>
+                      {renderCell(row, id)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </Body>
+          </table>
+        </div>
+        <Pager page={data} unit={rowsLabel(grain)} pageSize={pageSize} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
+      </section>
     </div>
   );
 }
 
-function withRequiredFilters(ids: FilterId[]): FilterId[] {
-  const next = ids.length ? [...ids] : [...DEFAULT_FILTERS];
-  if (!next.includes("group")) next.unshift("group");
-  if (!next.includes("student")) next.splice(Math.max(next.indexOf("section") + 1, 1), 0, "student");
-  return next;
+function rowsLabel(grain: Grain): string {
+  return { campus: "campuses", semester: "campus × semester rows", section: "campus × semester × section rows", student: "students" }[grain];
 }
 
 function splitList(value: string | null): string[] {
   return value ? value.split("||").map((item) => item.trim()).filter(Boolean) : [];
 }
 
-function parseSection(value: string): SectionChoice {
-  const [campus, section] = value.split("\t");
-  return { campus: campus ?? "", section: section ?? "" };
-}
-
-function parseStudent(value: string): StudentChoice {
-  const [studentId, campus, section, studentName] = value.split("\t");
-  return { studentId: studentId ?? "", campus: campus ?? "", section: section ?? "", studentName: studentName || studentId || "" };
-}
-
-function encodeSections(items: SectionChoice[]): string | undefined {
-  return items.length ? items.map((item) => `${item.campus}\t${item.section}`).join("||") : undefined;
-}
-
-function encodeStudents(items: StudentChoice[]): string | undefined {
-  return items.length ? items.map((item) => [item.studentId, item.campus, item.section, item.studentName].join("\t")).join("||") : undefined;
-}
-
-function campusScopeLabel(selected: string[], options: string[]): string {
-  if (!selected.length) return "All campuses";
-  const everyCampus = options.length > 0 && options.every((name) => selected.includes(name));
-  if (everyCampus) return `${options.length.toLocaleString("en-IN")} campuses`;
-  return selected.join(", ");
-}
-
-function Tile({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: string;
-  value: string | null;
-  hint: string;
-  tone?: "rose";
-}) {
+function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className={cn("rounded-lg border p-4", tone === "rose" ? "border-rose-200 bg-rose-50" : "border-gray-200 bg-white")}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</div>
-      {value == null ? <Skeleton className="mt-2 h-8 w-24" /> : <div className="mt-1 text-2xl font-semibold text-gray-900">{value}</div>}
-      <div className="mt-1 text-xs text-gray-500">{hint}</div>
+    <div className="flex min-w-0 flex-col gap-1">
+      <span className="text-xs font-semibold text-slate-700">{label}</span>
+      {children}
     </div>
+  );
+}
+
+function StatTile({ label, value, hint, accent }: { label: string; value: string | null; hint?: string; accent: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg border border-slate-200 border-t-[3px] bg-white px-3.5 py-2.5 shadow-sm" style={{ borderTopColor: accent }}>
+      <div className="text-xs font-medium text-slate-500">{label}</div>
+      {value == null ? <Skeleton className="h-7 w-20" /> : <div className="text-xl font-bold tracking-tight tabular-nums text-slate-900" style={{ color: accent }}>{value}</div>}
+      {hint ? <div className="text-[11px] text-slate-500">{hint}</div> : null}
+    </div>
+  );
+}
+
+function NotAvailable({ what }: { what: string }) {
+  return <span className="cursor-help text-xs font-medium text-slate-500" title={what}>N/A</span>;
+}
+
+function GradePill({ grade }: { grade: Grade | null }) {
+  if (!grade) {
+    return (
+      <span className="inline-block rounded-full border border-dashed border-slate-300 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-500" title="Shown once the Final (FSA) is available">
+        Pending
+      </span>
+    );
+  }
+  const style = GRADE_STYLE[grade];
+  return (
+    <span className="inline-block min-w-[2.25rem] rounded-full px-2.5 py-0.5 text-center text-xs font-bold" style={{ color: style.color, background: style.bg }}>
+      {grade}
+    </span>
   );
 }

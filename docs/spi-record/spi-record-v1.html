@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPI Record Dashboard · mockup (v1)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#0B1F4D; --ink:#1E2B4F; --muted:#64708F; --line:#E3E8F4; --line-2:#EEF1F8;
+  --canvas:#F3F6FD; --bg:#FFFFFF; --brand:#2563EB; --brand-700:#1D4FD8; --brand-50:#EAF1FF; --brand-100:#DCE6FB;
+  --purple:#6D4AE0; --purple-50:#F1ECFD;
+  --ap:#15803D; --ap-bg:#E8F6EE;      /* A+ green  */
+  --a:#0F766E;  --a-bg:#E0F5F2;       /* A  teal   */
+  --b:#1D4FD8;  --b-bg:#EAF1FF;       /* B  blue   */
+  --c:#C2410C;  --c-bg:#FFEDE0;       /* C  orange */
+  --d:#B42318;  --d-bg:#FDECEA;       /* D  red    */
+  --f:#4B5563;  --f-bg:#E5E7EB;       /* F  grey (policy §3.2, not one of the five colours asked for) */
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,"Segoe UI",system-ui,sans-serif;font-size:13px;color:var(--ink);background:var(--canvas);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+.mock{background:var(--navy);color:#fff;padding:9px 16px;font-size:12.5px}.mock b{font-weight:600}.mock small{color:#B8C4E6;margin-left:8px}
+
+.app{display:flex;min-height:calc(100vh - 36px)}
+.side{width:212px;flex:none;background:var(--bg);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column}
+.brand{display:flex;gap:10px;align-items:center;padding:2px 8px 16px}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--navy);color:#fff;display:grid;place-items:center;font-weight:700}
+.brand b{font-size:15px;color:var(--navy)}.brand b i{color:#EA580C;font-style:normal}.brand small{display:block;color:var(--muted);font-size:11px}
+.grp{font-size:10.5px;letter-spacing:.06em;color:#9AA6C4;font-weight:600;padding:14px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;color:var(--ink);font-weight:500;text-decoration:none}
+.nav:hover{background:var(--canvas)}.nav.on{background:var(--brand-50);color:var(--brand-700);font-weight:600}
+.nav svg{width:16px;height:16px;flex:none}
+.me{margin-top:auto;display:flex;gap:10px;align-items:center;padding:12px 8px 0;border-top:1px solid var(--line)}
+.av{width:32px;height:32px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:700}
+.me b{display:block;font-size:12.5px;color:var(--navy)}.me small{color:var(--muted)}
+
+.main{flex:1;min-width:0;padding:18px 20px 28px}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.top h1{font-size:22px;font-weight:700;color:var(--navy);letter-spacing:-.01em}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-weight:600;cursor:pointer;color:var(--ink)}
+.btn:hover{background:var(--canvas)}.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}.btn.primary:hover{background:var(--brand-700)}
+.btn svg{width:14px;height:14px}
+
+.info{display:flex;gap:10px;align-items:flex-start;background:var(--purple-50);border:1px solid #DDD3FA;border-radius:var(--radius);padding:9px 12px;margin-bottom:10px;color:var(--navy);line-height:1.5}
+.info svg{width:16px;height:16px;flex:none;margin-top:2px;color:var(--purple)}
+.info p{flex:1}.info b{font-weight:700}
+.info .x{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;border-radius:5px}.info .x:hover{background:#fff}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px;margin-bottom:10px}
+.kpi{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);padding:9px 14px;display:flex;flex-direction:column;gap:1px;border-top:3px solid var(--line)}
+.kpi span{font-size:11.5px;color:var(--muted);font-weight:500}
+.kpi b{font-size:20px;font-weight:700;color:var(--navy);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi small{font-size:11px;color:var(--muted)}
+.kpi.ap{border-top-color:var(--ap)}.kpi.ap b{color:var(--ap)}
+.kpi.a{border-top-color:var(--a)}.kpi.a b{color:var(--a)}
+.kpi.b{border-top-color:var(--b)}.kpi.b b{color:var(--b)}
+.kpi.c{border-top-color:var(--c)}.kpi.c b{color:var(--c)}
+.kpi.d{border-top-color:var(--d)}.kpi.d b{color:var(--d)}
+.kpi.p{border-top-color:var(--purple)}
+
+.gbrow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:2px 0 10px}
+.gblabel{font-size:13px;font-weight:700;color:var(--navy)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 18px;border-radius:12px;border:1px solid transparent;background:var(--bg);box-shadow:0 1px 3px rgba(11,31,77,.08);font-weight:600;font-size:13px;color:var(--ink);cursor:pointer;transition:background .15s,color .15s,box-shadow .15s,transform .15s}
+.chip svg{width:16px;height:16px}
+.chip:hover{box-shadow:0 2px 8px rgba(11,31,77,.14);transform:translateY(-1px)}
+.chip[aria-pressed=true]{background:var(--purple);color:#fff;box-shadow:0 4px 12px rgba(109,74,224,.35)}
+
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius)}
+.filters{padding:10px 12px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end;margin-bottom:10px}
+@media (max-width:1180px){.filters{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:640px){.filters{grid-template-columns:1fr 1fr}}
+.f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.f label{font-size:11.5px;font-weight:600;color:var(--ink)}
+.ctl{height:36px;border:1px solid var(--line);border-radius:8px;background:var(--bg);padding:0 10px;width:100%;transition:border-color .15s,box-shadow .15s}
+.ctl:hover{border-color:#CBD5EC}.ctl:focus{border-color:var(--purple);box-shadow:0 0 0 3px #E4DBFB;outline:none}
+select.ctl{appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364708F' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.search{position:relative}.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--muted)}.search .ctl{padding-left:32px}
+
+.tablecard{overflow:visible}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+.count{color:var(--muted);font-weight:500}.count b{color:var(--navy)}
+.tools .r{display:flex;gap:8px;position:relative}
+.pop{position:absolute;right:0;top:42px;z-index:20;width:230px;background:var(--bg);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(11,31,77,.16);padding:8px;display:none}
+.pop.on{display:block}
+.pop h4{font-size:11px;letter-spacing:.05em;color:#9AA6C4;font-weight:600;padding:4px 6px}
+.pop label{display:flex;gap:8px;align-items:center;padding:6px;border-radius:6px;cursor:pointer;font-weight:500}
+.pop label:hover{background:var(--canvas)}.pop input{accent-color:var(--purple)}
+.pop .row{display:flex;justify-content:space-between;border-top:1px solid var(--line);margin-top:6px;padding:8px 6px 2px}
+.pop .row button{border:0;background:transparent;color:var(--brand-700);font-weight:600;cursor:pointer}
+.scroll{overflow-x:auto;border-radius:0 0 10px 10px}
+table{width:100%;border-collapse:collapse;min-width:900px}
+th{background:var(--canvas);font-size:11.5px;font-weight:600;color:var(--ink);padding:0;white-space:nowrap;border-bottom:1px solid var(--line);text-align:left}
+th button,th .plain{display:inline-flex;align-items:center;gap:4px;width:100%;padding:10px 9px;border:0;background:transparent;font-weight:600;font-size:11.5px;text-align:left}
+th button{cursor:pointer}th button:hover{color:var(--brand-700)}
+th.num button,th.num .plain{justify-content:flex-end;text-align:right}
+th small{display:block;font-weight:500;color:var(--muted);font-size:10px}
+th .arr{font-size:9px;color:transparent}th[aria-sort] .arr{color:var(--purple)}
+td{padding:9px 9px;border-bottom:1px solid var(--line-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+tbody tr:hover{background:#F8FAFF}
+td.num{text-align:right}.nm{font-weight:600;color:var(--navy)}
+.na{color:#9AA6C4;font-weight:500;font-size:12px;cursor:help}
+.zero{color:#B6BED3}
+.grade{display:inline-block;min-width:34px;text-align:center;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:700}
+.grade.ap{background:var(--ap-bg);color:var(--ap)}.grade.a{background:var(--a-bg);color:var(--a)}.grade.b{background:var(--b-bg);color:var(--b)}
+.grade.c{background:var(--c-bg);color:var(--c)}.grade.d{background:var(--d-bg);color:var(--d)}.grade.f{background:var(--f-bg);color:var(--f)}
+.grade.pend{background:var(--canvas);color:#8A95B3;font-weight:600;border:1px dashed #CBD5EC;min-width:0}
+.spi{font-weight:700;color:var(--navy)}
+.bar{display:block;height:3px;border-radius:2px;background:var(--line);margin:3px 0 0 auto;width:44px;overflow:hidden}.bar i{display:block;height:100%;background:var(--purple)}
+.sub{color:var(--muted);font-size:11px;margin-left:4px}
+.uid{display:inline-flex;align-items:center;gap:4px;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted)}
+.cp{border:0;background:transparent;color:#9AA6C4;cursor:pointer;padding:4px;border-radius:5px;display:inline-grid;place-items:center}
+.cp:hover{background:var(--purple-50);color:var(--purple)}.cp svg{width:13px;height:13px}
+.empty{padding:40px 12px;text-align:center;color:var(--muted)}
+.foot{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:10px 12px;color:var(--muted)}
+.pg{display:flex;gap:4px;align-items:center}
+.pg button{min-width:32px;height:32px;border:1px solid var(--line);background:var(--bg);border-radius:7px;cursor:pointer;font-weight:600;color:var(--ink)}
+.pg button:hover:not(:disabled){background:var(--canvas)}.pg button:disabled{opacity:.4;cursor:default}
+.pg button[aria-current=page]{background:var(--purple);border-color:var(--purple);color:#fff}
+.rows{display:flex;gap:8px;align-items:center}.rows select{height:32px;width:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:8px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+.legend span{display:inline-flex;gap:5px;align-items:center}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:var(--navy);color:#fff;padding:8px 14px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50}
+.toast.on{opacity:1;transform:translateX(-50%)}
+@media (max-width:1000px){.side{display:none}.main{padding:14px 12px 24px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="mock"><b>SPI Record Dashboard · mockup (v1)</b><small>dummy data, nothing is live, no calculation logic is changed</small></div>
+<div class="app">
+  <aside class="side" aria-label="Main navigation">
+    <div class="brand"><div class="logo">N</div><div><b>NIAT <i>SPI</i></b><small>Skill Performance Index</small></div></div>
+    <div class="grp">MAIN</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Overview</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 21a6 6 0 0 0-12 0"/><circle cx="12" cy="8" r="4"/></svg>Student Directory</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M8 17V9M13 17V5M18 17v-6"/></svg>Student Attendance Stats</a>
+    <a class="nav on" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>SPI Record Dashboard</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Assessments</a>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="m9 12 2 2 4-4"/></svg>SPI Quiz</a>
+    <div class="grp">OPERATIONS</div>
+    <a class="nav" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H8l-4 4z"/></svg>Request Inbox</a>
+    <div class="me"><div class="av">A</div><div><b>Akhilendar Reddy</b><small>Super Admin</small></div></div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <h1>SPI Record Dashboard</h1>
+      <div class="acts">
+        <button class="btn" type="button" id="exView"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Export this view</button>
+        <button class="btn primary" type="button" id="exAll"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16"/></svg>Export all campuses</button>
+      </div>
+    </div>
+
+    <div class="info" id="info" role="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+      <p><b>Course score</b> = CQ 10% + MQ 15% + SA 25% + FSA 50% (a part below 50% earns 0; parts with no data are left out and the score is re-scaled to 100). <b>SPI</b> = credit-weighted average of course level points. Shown once the Final (FSA) is available.</p>
+      <button class="x" type="button" aria-label="Hide message" id="infoX">×</button>
+    </div>
+
+    <section class="kpis" aria-label="SPI summary" id="kpis"></section>
+    <div class="gbrow" role="group" aria-label="View by"><span class="gblabel">View by</span><div class="chips" id="chips"></div></div>
+    <section class="panel filters" aria-label="Filters" id="filters"></section>
+
+    <section class="panel tablecard" aria-label="SPI records">
+      <div class="tools">
+        <span class="count" id="count"></span>
+        <div class="r">
+          <button type="button" class="btn" id="clear">Clear filters</button>
+          <button type="button" class="btn" id="colBtn" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></svg>Columns</button>
+          <div class="pop" id="pop" role="dialog" aria-label="Choose columns"></div>
+        </div>
+      </div>
+      <div class="scroll"><table id="tbl"></table></div>
+      <div class="legend" id="legend"></div>
+      <div class="foot" id="foot"></div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ===================== dummy data (seeded) ===================== */
+const rng = (a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; })(20261109);
+const pick = a => a[Math.floor(rng() * a.length)];
+const COLLEGES = ["Crescent University","Aurora University","S-VYASA","Joy University","AMET","Alard University","A Dy Patil University","Noida International University"];
+const PROGRAMS = ["B.Tech CSE","B.Tech CSE (AI & ML)","B.Tech Data Science"];
+const SEMS = ["Semester 1","Semester 3","Semester 5"];
+const SECS = ["S-001","S-002","S-003","S-004"];
+const FIRST = ["Aarav","Ananya","Vihaan","Diya","Rohan","Sneha","Karthik","Meera","Arjun","Pooja","Harsha","Lakshmi","Nikhil","Ishita","Sai","Divya","Varun","Kavya","Rahul","Sanjana","Manoj","Priya","Tarun","Neha"];
+const LAST = ["Reddy","Sharma","Naik","Rao","Patel","Kumar","Iyer","Singh","Das","Gupta","Menon","Joshi","Varma","Khan","Nair"];
+/* SA exists for some colleges only, FSA only for some Semester-1 colleges (dummy, mirrors the real gaps). */
+const SA_COLLEGES = new Set(["Crescent University","Aurora University","S-VYASA","AMET"]);
+const FSA_COLLEGES = new Set(["Crescent University","Aurora University","AMET"]);
+const hex = n => Array.from({length:n},()=>Math.floor(rng()*16).toString(16)).join("");
+const clamp = v => Math.min(100, Math.max(5, v));
+const r1 = v => Math.round(v * 10) / 10, r2 = v => Math.round(v * 100) / 100;
+
+/* ---- same rules as the student report (spiScorecardRules.ts, policy §3) ---- */
+const W = { cq:10, mq:15, sa:25, fsa:50 };
+const credit = v => v >= 50 ? v : 0;                              // a part below 50% earns 0
+const levelFor = s => s >= 90 ? ["A+",10] : s >= 80 ? ["A",9] : s >= 70 ? ["B",8] : s >= 60 ? ["C",7] : s >= 50 ? ["D",6] : ["F",0];
+/* quiz part = best-attempt scores ÷ quizzes held, so a missed quiz counts as 0 */
+const quizPct = q => r1(q.avgAtt * q.att / q.held);
+/* course score = parts with data, weighted, re-scaled to 100 */
+function courseScore(c) {
+  const parts = [["cq", quizPct(c.cq)], ["mq", quizPct(c.mq)]];
+  if (c.sa != null) parts.push(["sa", c.sa]);
+  if (c.fsa != null) parts.push(["fsa", c.fsa]);
+  const w = parts.reduce((t, [k]) => t + W[k], 0);
+  return r2(parts.reduce((t, [k, v]) => t + credit(v) * W[k], 0) / w);
+}
+
+const STUDENTS = [];
+const CREDITS = [4, 3, 3, 2];
+const quiz = base => { const held = 4 + Math.floor(rng() * 5), att = Math.max(0, held - (rng() < .25 ? 1 + Math.floor(rng() * 2) : 0)); return { held, att, avgAtt: clamp(base + (rng() * 30 - 15)) }; };
+for (let i = 0; i < 640; i++) {
+  const college = COLLEGES[i % COLLEGES.length];
+  const sem = pick(SEMS), program = pick(PROGRAMS), section = pick(SECS);
+  const hasSA = SA_COLLEGES.has(college), hasFSA = FSA_COLLEGES.has(college) && sem === "Semester 1";
+  const base = Math.min(97, Math.max(38, 68 + (rng() + rng() + rng() - 1.5) * 32));
+  const courses = CREDITS.map(cr => ({ credits: cr, cq: quiz(base), mq: quiz(base), sa: hasSA ? r1(clamp(base + (rng() * 30 - 15))) : null, fsa: hasFSA ? r1(clamp(base + (rng() * 40 - 20))) : null }));
+  const held = k => courses.reduce((t, c) => t + c[k].held, 0);
+  const mean = k => courses.every(c => c[k] == null) ? null : r1(courses.reduce((t, c) => t + c[k], 0) / courses.length);
+  const s = { id:`${hex(8)}-${hex(4)}-${hex(4)}-${hex(4)}-${hex(12)}`, name:`${pick(FIRST)} ${pick(LAST)}`, college, program, sem, section,
+    cq: r1(courses.reduce((t, c) => t + c.cq.avgAtt * c.cq.att, 0) / held("cq")), mq: r1(courses.reduce((t, c) => t + c.mq.avgAtt * c.mq.att, 0) / held("mq")),
+    sa: mean("sa"), fsa: mean("fsa"), spi: null, grade: null, score: null };
+  if (hasFSA) {                                                    // evaluated once the Final is available
+    const scored = courses.map(c => ({ c, score: courseScore(c) }));
+    const totalCredits = scored.reduce((t, x) => t + x.c.credits, 0);
+    s.spi = r2(scored.reduce((t, x) => t + levelFor(x.score)[1] * x.c.credits, 0) / totalCredits);   // Σ(points × credits) ÷ Σ credits
+    s.score = scored.reduce((t, x) => t + x.score * x.c.credits, 0) / totalCredits;
+    s.grade = levelFor(s.score)[0];
+  }
+  STUDENTS.push(s);
+}
+
+/* ===================== state ===================== */
+const GROUPS = [["campus","Campus-wise"],["semester","Semester-wise"],["section","Section-wise"],["student","Student-wise"]];
+const NO = { college:"", program:"", sem:"", section:"", grade:"", q:"" };
+const GK = { ap:"A+", a:"A", b:"B", c:"C", d:"D", f:"F" };
+const GCLS = { "A+":"ap", "A":"a", "B":"b", "C":"c", "D":"d", "F":"f" };
+let G = "campus", F = { ...NO }, sort = null, page = 1, size = 10;
+/* columns the user may switch on/off, per view (key, label, default on) */
+const COMP = [["cq","CQ","10%"],["mq","MQ","15%"],["sa","SA","25%"],["fsa","FSA","50%"]];
+const COLDEF = {
+  campus:   [["college","College",1],["students","Students",1],["evaluated","Evaluated",1],...COMP.map(([k,l])=>["a_"+k,"Avg "+l,1]),["avgSpi","Avg SPI",1],["grade","Grade",1]],
+  semester: [["college","College",1],["sem","Semester",1],["students","Students",1],["evaluated","Evaluated",1],...COMP.map(([k,l])=>["a_"+k,"Avg "+l,1]),["avgSpi","Avg SPI",1],["grade","Grade",1]],
+  section:  [["college","College",1],["sem","Semester",1],["section","Section",1],["students","Students",1],["evaluated","Evaluated",1],...COMP.map(([k,l])=>["a_"+k,"Avg "+l,1]),["avgSpi","Avg SPI",1],["grade","Grade",1]],
+  student:  [["id","Student ID",1],["name","Student Name",1],["college","College",1],["program","Program",1],["sem","Semester",1],...COMP.map(([k,l])=>["s_"+k,l,1]),["spi","SPI",1],["grade","Grade",1]],
+};
+const SHOWN = Object.fromEntries(Object.entries(COLDEF).map(([g, cols]) => [g, new Set(cols.filter(c => c[2]).map(c => c[0]))]));
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const n0 = v => v.toLocaleString("en-IN");
+const f1 = v => v == null ? null : v.toFixed(1);
+
+/* ===================== aggregation ===================== */
+const inScope = () => {
+  const q = F.q.trim().toLowerCase();
+  return STUDENTS.filter(s => (!F.college || s.college === F.college) && (!F.program || s.program === F.program) && (!F.sem || s.sem === F.sem) && (!F.section || s.section === F.section)
+    && (!F.grade || (F.grade === "Pending" ? !s.grade : s.grade === F.grade))
+    && (!q || s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)));
+};
+const avg = (list, k) => { const v = list.map(s => s[k]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+const tally = list => { const t = {"A+":0,"A":0,"B":0,"C":0,"D":0,"F":0}; list.forEach(s => { if (s.grade) t[s.grade]++; }); return t; };
+const GKEY = { campus: s => s.college, semester: s => s.college + "|" + s.sem, section: s => s.college + "|" + s.sem + "|" + s.section };
+function rowsFor(list) {
+  if (G === "student") return list.map(s => ({ ...s, s_cq:s.cq, s_mq:s.mq, s_sa:s.sa, s_fsa:s.fsa }));
+  const m = new Map();
+  for (const s of list) { const k = GKEY[G](s); (m.get(k) ?? m.set(k, []).get(k)).push(s); }
+  return [...m.values()].map(g => {
+    const ev = g.filter(s => s.grade), t = tally(ev), first = g[0];
+    return { college:first.college, sem:first.sem, section:first.section, students:g.length, evaluated:ev.length,
+      a_cq:avg(g,"cq"), a_mq:avg(g,"mq"), a_sa:avg(g,"sa"), a_fsa:avg(g,"fsa"), avgSpi:avg(ev,"spi"),
+      grade: ev.length ? levelFor(avg(ev,"score"))[0] : null };
+  });
+}
+
+/* ===================== render ===================== */
+const opts = (list, cur, all) => `<option value="">${all}</option>` + list.map(v => `<option${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("");
+function renderFilters() {
+  const secs = SECS;
+  $("filters").innerHTML = `
+    <div class="f"><label for="fc">College</label><select class="ctl" id="fc">${opts(COLLEGES, F.college, "All colleges")}</select></div>
+    <div class="f"><label for="fp">Program</label><select class="ctl" id="fp">${opts(PROGRAMS, F.program, "All programs")}</select></div>
+    <div class="f"><label for="fs">Semester</label><select class="ctl" id="fs">${opts(SEMS, F.sem, "All semesters")}</select></div>
+    <div class="f"><label for="fx">Section</label><select class="ctl" id="fx">${opts(secs, F.section, "All sections")}</select></div>
+    <div class="f"><label for="fg">Grade</label><select class="ctl" id="fg">${opts(["A+","A","B","C","D","F","Pending"], F.grade, "All grades")}</select></div>
+    <div class="f"><label for="fq">Student search</label><div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input class="ctl" id="fq" type="search" placeholder="Name or Student ID" value="${esc(F.q)}" autocomplete="off"></div></div>`;
+  const on = (id, key, ev = "change") => $(id).addEventListener(ev, e => { F[key] = e.target.value; page = 1; renderResults(); });
+  on("fc","college"); on("fp","program"); on("fs","sem"); on("fx","section"); on("fg","grade"); on("fq","q","input");
+}
+const naCell = (what) => `<span class="na" title="${what}">N/A</span>`;
+const gradePill = g => g ? `<span class="grade ${GCLS[g]}">${g}</span>` : `<span class="grade pend" title="SPI is shown once the Final (FSA) is available">Pending</span>`;
+const compCell = (v, key) => v != null ? `${f1(v)}%` : naCell(key === "sa" || key === "fsa" ? "Coming soon: this score is not in the data yet" : "Not conducted yet");
+
+function renderResults() {
+  const list = inScope(), all = rowsFor(list);
+  let rows = all;
+
+  /* KPI cards: students of the whole scope */
+  const ev = list.filter(s => s.grade), t = tally(ev), nE = ev.length;
+  const share = v => nE ? (v / nE * 100).toFixed(1) + "%" : "–";
+  const kp = [
+    ["p","Total students evaluated", n0(nE), `of ${n0(list.length)} students` + (t["F"] ? ` · ${n0(t["F"])} F` : "")],
+    ["p","Average SPI", nE ? avg(ev,"spi").toFixed(2) : "N/A", nE ? "out of 10" : "Coming soon"],
+    ...["A+","A","B","C","D"].map(g => [GCLS[g], g + " grade", n0(t[g]), share(t[g]) + (nE ? " of evaluated" : "")]),
+  ];
+  $("kpis").innerHTML = kp.map(([c,l,v,s]) => `<div class="kpi ${c}"><span>${l}</span><b>${v}</b><small>${s}</small></div>`).join("");
+
+  /* sort + paginate */
+  const key = sort ? sort.key : null;
+  if (key) rows = rows.slice().sort((a, b) => { const x = a[key], y = b[key]; if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, {numeric:true})) * sort.dir; });
+  else rows = rows.slice().sort((a, b) => a.college.localeCompare(b.college) || String(a.sem).localeCompare(String(b.sem)) || String(a.section).localeCompare(String(b.section)) || String(a.name ?? "").localeCompare(String(b.name ?? "")));
+
+  const C = COLDEF[G].filter(c => SHOWN[G].has(c[0])), pages = Math.max(1, Math.ceil(rows.length / size)); page = Math.min(page, pages);
+  const slice = rows.slice((page - 1) * size, page * size);
+  const numeric = k => !["college","sem","section","id","name","program","grade"].includes(k);
+  const sortable = k => k !== "id";
+  const head = C.map(([k, l]) => {
+    const comp = COMP.find(c => k === "s_" + c[0] || k === "a_" + c[0]);
+    const label = comp ? `${l}${comp ? `<small>${comp[2]}</small>` : ""}` : l;
+    const aria = sort && sort.key === k ? ` aria-sort="${sort.dir > 0 ? "ascending" : "descending"}"` : "";
+    return `<th class="${numeric(k) ? "num" : ""}" scope="col"${aria}>${sortable(k) ? `<button type="button" data-sort="${k}"><span>${label}</span><span class="arr">${sort && sort.key === k && sort.dir < 0 ? "▼" : "▲"}</span></button>` : `<span class="plain">${label}</span>`}</th>`;
+  }).join("");
+  const cell = (r, k) => {
+    if (k === "college") return `<td>${esc(r.college)}</td>`;
+    if (k === "program") return `<td>${esc(r.program)}</td>`;
+    if (k === "sem") return `<td>${esc(r.sem)}</td>`;
+    if (k === "section") return `<td>${esc(r.section)}</td>`;
+    if (k === "name") return `<td class="nm">${esc(r.name)}</td>`;
+    if (k === "id") return `<td><span class="uid" title="${r.id}">${r.id.slice(0,8)}<button class="cp" type="button" data-copy="${r.id}" aria-label="Copy full Student ID" title="Copy full Student ID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button></span></td>`;
+    if (k === "students" || k === "evaluated") return `<td class="num">${n0(r[k])}</td>`;
+    if (k.startsWith("s_") || k.startsWith("a_")) return `<td class="num">${compCell(r[k], k.slice(2))}</td>`;
+    if (k === "spi") return `<td class="num">${r.spi != null ? `<span class="spi">${r.spi.toFixed(2)}</span><i class="bar"><i style="width:${r.spi * 10}%"></i></i>` : naCell("Pending: Final (FSA) not available yet")}</td>`;
+    if (k === "grade") return `<td>${gradePill(r.grade)}</td>`;
+    if (k === "avgSpi") return `<td class="num">${r.avgSpi != null ? `<span class="spi">${r.avgSpi.toFixed(2)}</span><i class="bar"><i style="width:${r.avgSpi * 10}%"></i></i>` : naCell("No student has a Final (FSA) score yet")}</td>`;
+        return `<td></td>`;
+  };
+  $("tbl").innerHTML = `<thead><tr>${head}</tr></thead><tbody>${slice.map(r => `<tr>${C.map(([k]) => cell(r, k)).join("")}</tr>`).join("") || `<tr><td colspan="${C.length}" class="empty">No rows match these filters</td></tr>`}</tbody>`;
+  $("tbl").querySelectorAll("[data-sort]").forEach(b => b.onclick = () => { const k = b.dataset.sort; sort = { key:k, dir: sort && sort.key === k ? -sort.dir : (numeric(k) ? -1 : 1) }; renderResults(); });
+  $("tbl").querySelectorAll("[data-copy]").forEach(b => b.onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(b.dataset.copy) : Promise.reject()).then(() => toast("Student ID copied"), () => toast("Student ID copied")); });
+  $("count").innerHTML = `<b>${n0(rows.length)}</b> ${{campus:"campuses",semester:"campus × semester rows",section:"campus × semester × section rows",student:"students"}[G]}`;
+  $("legend").innerHTML = [["A+","90–100"],["A","80–89"],["B","70–79"],["C","60–69"],["D","50–59"],["F","<50"]].map(([g, r]) => `<span><span class="grade ${GCLS[g]}" style="min-width:0">${g}</span>${r}%</span>`).join("");
+
+  const from = rows.length ? (page - 1) * size + 1 : 0, to = Math.min(rows.length, page * size);
+  const set = [...new Set([1, pages, page - 1, page, page + 1].filter(p => p >= 1 && p <= pages))].sort((a, b) => a - b);
+  let nums = "", last = 0; for (const p of set) { if (p - last > 1) nums += `<span aria-hidden="true">…</span>`; nums += `<button type="button" data-page="${p}"${p === page ? ' aria-current="page"' : ""}>${p}</button>`; last = p; }
+  $("foot").innerHTML = `<span>${from}–${to} of ${n0(rows.length)}</span>
+    <nav class="pg" aria-label="Pages"><button type="button" data-page="${page - 1}" ${page <= 1 ? "disabled" : ""} aria-label="Previous page">‹</button>${nums}<button type="button" data-page="${page + 1}" ${page >= pages ? "disabled" : ""} aria-label="Next page">›</button></nav>
+    <label class="rows">Rows per page<select class="ctl" id="size">${[10,25,50].map(x => `<option${x === size ? " selected" : ""}>${x}</option>`).join("")}</select></label>`;
+  $("foot").querySelectorAll("[data-page]").forEach(b => b.onclick = () => { page = Number(b.dataset.page); renderResults(); });
+  $("size").onchange = e => { size = Number(e.target.value); page = 1; renderResults(); };
+}
+
+/* ===================== columns selector ===================== */
+function renderPop() {
+  $("pop").innerHTML = `<h4>COLUMNS · ${GROUPS.find(g => g[0] === G)[1].toUpperCase()}</h4>` + COLDEF[G].map(([k, l]) => `<label><input type="checkbox" data-col="${k}" ${SHOWN[G].has(k) ? "checked" : ""}>${l}</label>`).join("")
+    + `<div class="row"><button type="button" id="colAll">Show all</button><button type="button" id="colReset">Reset</button></div>`;
+  $("pop").querySelectorAll("[data-col]").forEach(i => i.onchange = () => { const s = SHOWN[G]; i.checked ? s.add(i.dataset.col) : (s.size > 1 && s.delete(i.dataset.col)); if (!SHOWN[G].has(i.dataset.col)) i.checked = false; renderResults(); });
+  $("colAll").onclick = () => { COLDEF[G].forEach(c => SHOWN[G].add(c[0])); renderPop(); renderResults(); };
+  $("colReset").onclick = () => { SHOWN[G] = new Set(COLDEF[G].filter(c => c[2]).map(c => c[0])); renderPop(); renderResults(); };
+}
+$("colBtn").onclick = e => { e.stopPropagation(); const on = $("pop").classList.toggle("on"); $("colBtn").setAttribute("aria-expanded", on); if (on) renderPop(); };
+document.addEventListener("click", e => { if (!$("pop").contains(e.target)) { $("pop").classList.remove("on"); $("colBtn").setAttribute("aria-expanded", "false"); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") $("pop").classList.remove("on"); });
+
+/* ===================== chrome ===================== */
+function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.id); toast.id = setTimeout(() => el.classList.remove("on"), 1600); }
+const ICON = {
+  campus:"<path d=\"M3 21h18M5 21V7l7-4 7 4v14M9 9h.01M9 13h.01M9 17h.01M15 9h.01M15 13h.01M15 17h.01\"/>",
+  semester:"<rect x=\"3\" y=\"5\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M16 3v4M8 3v4M3 11h18\"/>",
+  section:"<rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/>",
+  student:"<circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M18 21a6 6 0 0 0-12 0\"/>",
+};
+function renderChips() {
+  $("chips").innerHTML = GROUPS.map(([k,l]) => `<button type="button" class="chip" data-g="${k}" aria-pressed="${k === G}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>${l}</button>`).join("");
+  $("chips").querySelectorAll("[data-g]").forEach(b => b.onclick = () => { G = b.dataset.g; sort = null; page = 1; $("pop").classList.remove("on"); renderChips(); renderResults(); });
+}
+$("clear").onclick = () => { F = { ...NO }; sort = null; page = 1; renderFilters(); renderResults(); };
+$("exView").onclick = () => toast("Mockup only: exports the table as shown");
+$("exAll").onclick = () => toast("Mockup only: exports every campus");
+$("infoX").onclick = () => $("info").style.display = "none";
+if (GROUPS.some(([k]) => k === location.hash.slice(1))) G = location.hash.slice(1);
+renderChips(); renderFilters(); renderResults();
+</script>
+</body>
+</html>

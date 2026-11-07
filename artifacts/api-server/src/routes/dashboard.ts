@@ -70,6 +70,7 @@ import {
   type AttendanceViewRow,
 } from "../lib/attendanceStatsAggregate.js";
 import { aggregateSpiRecord } from "../lib/spiRecordAggregate.js";
+import { buildSpiRecordTable, RECORD_SORT_KEYS, sortRecordRows, type RecordGrain, type RecordSortKey } from "../lib/spiRecordTable.js";
 import {
   filterSpiDetail,
   searchSpiDetailStudents,
@@ -489,6 +490,56 @@ router.get("/spi-record/rows", requireSession(), async (req, res): Promise<void>
     else res.json(body);
   } catch (err) {
     req.log.error({ err }, "Error fetching SPI record rows");
+    if (!res.headersSent && !res.destroyed) {
+      res.status(500).json({ error: "Failed to fetch SPI record" });
+    }
+  }
+});
+
+const RECORD_GRAINS = new Set<RecordGrain>(["campus", "semester", "section", "student"]);
+
+/**
+ * SPI Record Dashboard table: Campus / Semester / Section / Student-wise rows, one page at a
+ * time, with the KPI totals and filter choices. Filters: campuses, semesters, sections, grade
+ * and q (student name or id). `export=1` returns every row for CSV.
+ */
+router.get("/spi-record/table", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const q = req.query as Record<string, string | string[] | undefined>;
+  const grain = (firstQuery(q, "group") || "campus") as RecordGrain;
+  if (!RECORD_GRAINS.has(grain)) {
+    res.status(400).json({ error: "Invalid group" });
+    return;
+  }
+  const filters = spiViewFilters(q);
+  if (scope.campuses?.length && filters.campuses.some((name) => !scope.campuses!.includes(name))) {
+    res.status(403).json({ error: "Not permitted for this campus" });
+    return;
+  }
+  const sortKey = (RECORD_SORT_KEYS as readonly string[]).includes(firstQuery(q, "sort")) ? (firstQuery(q, "sort") as RecordSortKey) : "";
+  const pageRequest = readPageRequest(q);
+  try {
+    const detail = await getSpiRecordDetail(scope, {});
+    const { summary, rows } = buildSpiRecordTable(filterSpiDetail(detail, filters), grain, {
+      grade: firstQuery(q, "grade"),
+      search: firstQuery(q, "q"),
+    });
+    const page = pageOf(sortRecordRows(rows, sortKey, firstQuery(q, "dir") === "desc" ? -1 : 1), pageRequest);
+    const body = {
+      ...page,
+      rows: page.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
+      summary,
+      options: spiFilterOptions(detail, filters),
+    };
+    if (pageRequest.all) await sendLargeJson(req, res, body);
+    else res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching SPI record table");
     if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: "Failed to fetch SPI record" });
     }
