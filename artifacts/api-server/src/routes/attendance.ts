@@ -23,7 +23,7 @@ import { studentKey } from "../lib/testStudents.js";
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
 import { quizFinished } from "../lib/quizTracking.js";
 import { buildStudentReport } from "../lib/spiScorecard.js";
-import { getCachedReport, saveReport } from "../lib/spiReportSync.js";
+import { getCachedReport, getHistoryReport, saveReport } from "../lib/spiReportSync.js";
 import {
   getStudentOverview,
   getStudentSubjects,
@@ -389,8 +389,14 @@ router.get(
     const student = studentKey(studentId);
     const missingKey = `spiReportMissing:${student}`;
     try {
-      // Synced report (spiReportSync.ts); a student the last sync did not have is built live once and saved.
+      // Synced report (spiReportSync.ts). A student the live cache no longer has (their semester ended)
+      // gets their last saved report from the history, marked as ended. A student in neither is built
+      // live once and saved.
       let data = await getCachedReport(student);
+      if (!data) {
+        const saved = await getHistoryReport(student);
+        if (saved) data = { ...saved.report, semester: saved.semester, semesterStatus: "ended" };
+      }
       if (!data) {
         const built = cacheGet<boolean>(missingKey) ? null : await buildStudentReport(studentId);
         if (!built) {

@@ -160,6 +160,30 @@ export async function getCachedReport(studentKey: string): Promise<object | null
   }
 }
 
+/**
+ * The student's latest saved report from spi_report_history, for a student the live cache no longer
+ * has (their semester ended, so BigQuery has no current-semester rows for them). The semester title
+ * comes with it so the page can mark it as ended. Null when the student was never synced.
+ */
+export async function getHistoryReport(studentKey: string): Promise<{ report: object; semester: string } | null> {
+  const key = `spiReportHistory:${studentKey}`;
+  const hit = cacheGet<{ report: object; semester: string }>(key);
+  if (hit) return hit;
+  try {
+    await ensureTables();
+    const { rows } = await pool.query<{ report: object; semester: string }>(
+      "SELECT report, semester FROM spi_report_history WHERE student_id = $1 ORDER BY built_at DESC LIMIT 1",
+      [studentKey],
+    );
+    const found = rows[0] ?? null;
+    if (found) cacheSet(key, found, MEMORY_TTL_MS);
+    return found;
+  } catch (err) {
+    logger.error({ err }, "Reading spi_report_history failed");
+    return null;
+  }
+}
+
 /** College, semester, section and batch of a synced student (for the quiz tracking); null when not synced. */
 export async function getCachedPlacement(
   studentKey: string,

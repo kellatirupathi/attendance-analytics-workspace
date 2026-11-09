@@ -86,6 +86,9 @@ export interface StudentScorecard {
   skillDebt: SkillDebtCourse[];
   courses: ScorecardCourse[];
   nextSteps: NextStep[];
+  /** Set only on a saved report of a semester that has ended (the live report has neither). */
+  semester?: string;
+  semesterStatus?: "ended";
 }
 
 /* ------------------------------------------------------------------ */
@@ -757,7 +760,8 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
   const [guideOpen, setGuideOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
   const midSemester = !spiReady(data);
-  const canQuery = FEATURES.raiseQuery && Boolean(studentId) && data.courses.length > 0;
+  const ended = data.semesterStatus === "ended";
+  const canQuery = FEATURES.raiseQuery && Boolean(studentId) && data.courses.length > 0 && !ended;
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
       <main className={`mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8 ${canQuery ? "pb-24" : ""}`}>
@@ -765,9 +769,19 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
           <span className="text-[#2563EB]"><Icon d={ICONS.chart} className="!h-8 !w-8" /></span>
           <div>
             <h1 className="text-[22px] font-bold text-[#0B1F4D]">{midSemester ? "NIAT - SPI Progress Report" : "NIAT - SPI Student Report Card"}</h1>
-            <p className="mt-0.5 text-[13px]">Skill Performance Index{midSemester ? " · Semester in progress" : ""}</p>
+            <p className="mt-0.5 text-[13px]">
+              Skill Performance Index{ended ? " · Semester ended" : midSemester ? " · Semester in progress" : ""}
+            </p>
           </div>
-          <p className="ml-auto text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
+          <div className="ml-auto flex flex-col items-end gap-1.5">
+            <p className="text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
+            {ended && (
+              <p className="flex items-center gap-2 text-[12px] font-semibold text-[#0B1F4D]">
+                {data.semester}
+                <Tag tone="grey">Ended</Tag>
+              </p>
+            )}
+          </div>
         </header>
 
         {SHOW_DATA_FIX_NOTE && (
