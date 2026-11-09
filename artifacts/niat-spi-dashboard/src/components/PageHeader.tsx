@@ -1,8 +1,9 @@
 import React from "react";
-import { Info } from "lucide-react";
+import { AttendanceInfo } from "@/components/AttendanceInfo";
+import { ATTENDANCE_LABEL } from "@/lib/attendanceLabel";
 
 /** Shown on every page with attendance numbers; the server counts the same rows everywhere. */
-export const ATTENDANCE_SCOPE_NOTE = "Attendance is calculated on NIAT course sessions only.";
+export const ATTENDANCE_SCOPE_NOTE = ATTENDANCE_LABEL;
 
 export function PageHeader({
   title,
@@ -15,7 +16,7 @@ export function PageHeader({
   subtitle?: React.ReactNode;
   badge?: string;
   right?: React.ReactNode;
-  /** Adds the "Attendance is calculated on NIAT course sessions only" line. */
+  /** Adds the shared attendance label (lib/attendanceLabel.ts) with its tooltip. */
   attendanceNote?: boolean;
 }) {
   return (
@@ -37,9 +38,9 @@ export function PageHeader({
               </p>
             )}
             {attendanceNote && (
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-medium text-brand-900">
-                <Info className="h-3.5 w-3.5 shrink-0 text-brand-600" aria-hidden="true" />
-                {ATTENDANCE_SCOPE_NOTE}
+              <p className="mt-2 inline-flex max-w-full items-start gap-1.5 rounded-2xl border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-medium leading-snug text-brand-900">
+                <span className="min-w-0">{ATTENDANCE_SCOPE_NOTE}</span>
+                <AttendanceInfo className="mt-px text-brand-600 hover:text-brand-900" />
               </p>
             )}
           </div>

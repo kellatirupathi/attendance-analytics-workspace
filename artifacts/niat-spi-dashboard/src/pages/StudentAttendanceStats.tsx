@@ -30,6 +30,7 @@ import {
   type AttendanceViewRow,
 } from "@/lib/attendanceStatsAggregate";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { AttendanceCaption } from "@/components/AttendanceInfo";
 
 /** Tighter cells than the Assessments tables: up to eleven columns have to fit next to the sidebar. */
 const cell = "whitespace-nowrap px-2.5 py-2.5 text-sm text-slate-700";
@@ -809,6 +810,7 @@ export default function StudentAttendanceStats() {
             </Body>
           </table>
         </div>
+        <AttendanceCaption className="mx-3 mb-2" />
         <Pager
           page={totalRows > 0 ? { rows: [], total: totalRows, page: currentPage, pageSize, totalPages } : undefined}
           unit="rows"

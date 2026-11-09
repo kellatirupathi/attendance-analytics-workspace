@@ -8,6 +8,7 @@ import { useQueryParams } from "@/hooks/useQueryParams";
 import { fmtInt } from "@/lib/assessmentMetrics";
 import { directoryApi, NO_DIRECTORY_FILTERS, type DirectoryFilters, type DirectoryRow, type QuizTypeFilter } from "@/lib/directoryReport";
 import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/QuizTables";
+import { AttendanceCaption } from "@/components/AttendanceInfo";
 import { Pill } from "@/components/assessments/quiz/quizParts";
 import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 
@@ -337,6 +338,7 @@ export default function Students() {
             </table>
           </div>
         )}
+        <AttendanceCaption className="mx-3 mb-2" />
         <Pager page={data.data} unit="students" pageSize={pageSize} onPage={(next) => setPageState({ key: viewKey, page: next })} onPageSize={setPageSize} />
       </section>
     </div>

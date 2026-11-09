@@ -5,6 +5,7 @@
 /* ------------------------------------------------------------------ */
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "wouter";
+import { AttendanceCaption } from "@/components/AttendanceInfo";
 import { format, parseISO } from "date-fns";
 import {
   CartesianGrid,
@@ -716,6 +717,7 @@ export function Leaderboard({
           </tbody>
         </table>
       </div>
+      <AttendanceCaption className="px-3 pb-2" />
     </div>
   );
 }

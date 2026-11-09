@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { exportCsv } from "@/lib/csv";
 import { fmtInt } from "@/lib/assessmentMetrics";
+import { AttendanceCaption } from "@/components/AttendanceInfo";
 import { ATTENDANCE_TIERS, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
 import { directoryApi } from "@/lib/directoryReport";
 import { directoryHref, NO_OVERVIEW_FILTERS, overviewApi, type OverviewFilters, type OverviewRank } from "@/lib/overviewReport";
@@ -148,6 +149,7 @@ export default function Overview() {
       <Card title="Attendance distribution">
         {loading || !s ? <Skeleton className="h-40 w-full" /> : <Donut total={TIER_ITEMS.reduce((n, t) => n + s[t.field], 0)} items={TIER_ITEMS.map((t): DonutItem => ({ key: t.key, label: t.label, hint: t.hint, count: s[t.field], color: t.color }))} onSelect={(key) => go(dirHref(key))} />}
         {s && s.noSessions > 0 && <p className="mt-2 text-xs text-slate-500">{fmtInt(s.noSessions)} students have no sessions yet.</p>}
+        <AttendanceCaption />
       </Card>
     ),
     trend: () => {
@@ -159,6 +161,7 @@ export default function Overview() {
       return (
         <Card title="Attendance trend" right={<><Chip>weekly</Chip><select aria-label="Trend period" className={cn(selectClass, "h-8 py-0 text-xs")} value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}><option value="semester">Semester to date</option><option value="last30">Last 30 days</option><option value="last7">Last 7 days</option></select></>}>
           {trend.isLoading ? <Skeleton className="h-44 w-full" /> : points.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">No sessions in this period</p> : <Trend points={points} tip={tip.props as TipProps} label="Weekly attendance" format={(v) => `${v.toFixed(1)}%`} />}
+          <AttendanceCaption />
         </Card>
       );
     },
@@ -206,6 +209,7 @@ export default function Overview() {
       return (
         <Card title={title} right={<>{role === "superadmin" && <Seg label="Order" value={order} onChange={(v) => setOrder(v as "top" | "bottom")} options={[["top", "Top 5"], ["bottom", "Bottom 5"]]} />}<Seg label="Metric" value={metric} onChange={(v) => setMetric(v as "attendance" | "spi")} options={[["attendance", "Attendance"], ["spi", "SPI"]]} /></>}>
           {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={useAtt ? 100 : 10} tip={tip.props} onSelect={(i) => showColleges && change({ college: list.find((r) => r.name === rows[i]!.name)?.name ?? "" })} />}
+          {useAtt && <AttendanceCaption />}
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{bottom ? "Lowest" : "Highest"} first</span><ViewAll href={showColleges ? "/dashboard/attendance-stats" : "/dashboard/attendance-stats?group=university_section"} /></div>
         </Card>
       );
@@ -216,6 +220,7 @@ export default function Overview() {
       return (
         <Card title="Subject performance" right={<Seg label="Metric" value={subjectMetric} onChange={(v) => setSubjectMetric(v as "attendance" | "score")} options={[["attendance", "Attendance"], ["score", "Avg score"]]} />}>
           {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={100} tip={tip.props} onSelect={(i) => setFilters((f) => ({ ...f, subject: rows[i]!.name }))} />}
+          {useAtt && <AttendanceCaption />}
           <div className="mt-2 flex justify-end"><ViewAll href="/dashboard/attendance-stats?group=university_subject" /></div>
         </Card>
       );
@@ -263,6 +268,7 @@ export default function Overview() {
           ) : (
             <p className="py-8 text-center text-sm text-slate-500">No students in this group</p>
           )}
+          <AttendanceCaption />
           <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>Lowest attendance first</span>{a && <ViewAll href={dirHref(t.key)} label={`View all ${fmtInt(a.total)}`} />}</div>
         </Card>
       );

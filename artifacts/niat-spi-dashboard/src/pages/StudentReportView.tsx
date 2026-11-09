@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { RaiseQueryForm } from "@/components/RaiseQueryForm";
 import { FEATURES } from "@/lib/featureFlags";
+import { AttendanceInfo } from "@/components/AttendanceInfo";
+import { ATTENDANCE_LABEL } from "@/lib/attendanceLabel";
 
 /** Temporary note under the report header. Set to false to hide it; nothing else depends on it. */
 const SHOW_DATA_FIX_NOTE = true;
@@ -258,8 +260,8 @@ function AttendanceCard({ attendance }: { attendance: StudentScorecard["attendan
         {attendance.held > 0 ? `${attendance.present} / ${attendance.held} sessions` : "No sessions yet"}
       </p>
       <p className="mt-4 flex items-center gap-[7px] rounded-lg bg-[#EAF1FF] px-2.5 py-1.5 text-[11.5px] text-[#0B1F4D]">
-        <span className="text-[#2563EB]"><Icon d={ICONS.info} className="!h-[15px] !w-[15px]" /></span>
-        Calculated on NIAT course sessions only
+        <span className="min-w-0 flex-1">{ATTENDANCE_LABEL}</span>
+        <AttendanceInfo className="self-start text-[#2563EB] hover:text-[#1D4ED8]" />
       </p>
     </Card>
   );
@@ -428,6 +430,7 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
             {/* Name on one line, the requirement on the next, so every box breaks the same way. */}
             <span className="text-xs leading-snug">
               {title.split(" · ")[0]}
+              {title.startsWith("Attendance") && <AttendanceInfo className="ml-1 text-[#6B7280]" />}
               <span className="block text-[#6B7280]">{title.split(" · ")[1]}</span>
             </span>
             <b className="text-[15px] font-bold text-[#0B1F4D]">{value}</b>
@@ -475,7 +478,9 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
             <tr>
               <th className={th}>#</th>
               <th className={`${th} !text-left`}>Course</th>
-              <th className={th}>Attendance</th>
+              <th className={th}>
+                Attendance <AttendanceInfo className="text-[#6B7280]" />
+              </th>
               <th className={`${th} ${sep}`}>Classroom Quizzes<span className={sub}>10%</span></th>
               <th className={th}>Module Quizzes<span className={sub}>15%</span></th>
               <th className={th}>Skill Assessments<span className={sub}>25% · best score</span></th>
@@ -665,7 +670,7 @@ function GuideSectionBody({ id, data }: { id: GuideSection; data: StudentScoreca
     case "att":
       return (
         <>
-          <p className="mb-3 text-[12.5px]">Your attendance status comes from your lowest course. Attendance is calculated on NIAT course sessions only.</p>
+          <p className="mb-3 text-[12.5px]">Your attendance status comes from your lowest course. {ATTENDANCE_LABEL}.</p>
           <table className="w-full border-collapse text-[12.5px]">
             <tbody>
               {ATTENDANCE_ROWS.map(([label, tone, meaning]) => (
