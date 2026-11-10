@@ -683,6 +683,9 @@ export interface ReportIdentity {
   sectionName: string | null;
   batch: string | null;
   semester: string | null;
+  /** The semester's first and last day (YYYY-MM-DD) from the attendance rows; null when the rows carry none. */
+  semesterStart: string | null;
+  semesterEnd: string | null;
 }
 
 export async function getReportIdentities(who: ReportStudents, scope: SemesterScope = "current"): Promise<ReportIdentity[]> {
@@ -697,6 +700,8 @@ export async function getReportIdentities(who: ReportStudents, scope: SemesterSc
     batch_section_name: string | null;
     batch: string | null;
     semester: string | null;
+    semester_start: string | null;
+    semester_end: string | null;
   }>(
     `${endedCte ? `WITH ${endedCte}\n    ` : ""}SELECT
       ${studentKeySql("a.student_user_id")} AS student_key,
@@ -705,7 +710,9 @@ export async function getReportIdentities(who: ReportStudents, scope: SemesterSc
       MAX(a.institute_name) AS institute_name,
       MAX(a.batch_section_name) AS batch_section_name,
       MAX(TRIM(a.batch_name)) AS batch,
-      MAX(TRIM(CAST(a.semester_title AS STRING))) AS semester
+      MAX(TRIM(CAST(a.semester_title AS STRING))) AS semester,
+      CAST(MIN(DATE(a.semester_start_date)) AS STRING) AS semester_start,
+      CAST(MAX(DATE(a.semester_end_date)) AS STRING) AS semester_end
     FROM ${attendanceSource()} a
     WHERE ${reportStudentMatch("a.student_user_id", who, params)}
       AND ${semesterRowsSql(scope, "a")}
@@ -722,6 +729,8 @@ export async function getReportIdentities(who: ReportStudents, scope: SemesterSc
     sectionName: r.batch_section_name ?? null,
     batch: r.batch ?? null,
     semester: r.semester ?? null,
+    semesterStart: r.semester_start ?? null,
+    semesterEnd: r.semester_end ?? null,
   }));
 }
 

@@ -89,6 +89,42 @@ export interface StudentScorecard {
   /** Set only on a saved report of a semester that has ended (the live report has neither). */
   semester?: string;
   semesterStatus?: "ended";
+  /** The semester the report covers and its first / last day (YYYY-MM-DD); set by the report sync. */
+  semesterTitle?: string | null;
+  semesterStart?: string | null;
+  semesterEnd?: string | null;
+}
+
+/** "2026-08-03" -> "3 Aug 2026"; null for anything that is not a date. */
+function shortDate(iso: string | null | undefined): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * The semester the report is for: name, a status tag (words, not colour alone) and the dates. Text colours
+ * are dark enough for 4.5:1 on their tag backgrounds. Nothing is shown until the report carries a semester.
+ */
+function SemesterBadge({ data }: { data: StudentScorecard }) {
+  const title = (data.semester ?? data.semesterTitle ?? "").trim();
+  if (!title) return null;
+  const ended = data.semesterStatus === "ended";
+  const start = shortDate(data.semesterStart);
+  const end = shortDate(data.semesterEnd);
+  const dates = start && end ? `${start} – ${end}` : start ?? end;
+  return (
+    <div className="flex flex-col items-end gap-0.5 rounded-[10px] border border-[#CBD7EA] bg-white px-3 py-1.5 text-right">
+      <p className="flex items-center gap-2 text-[12.5px] font-bold text-[#0B1F4D]">
+        {title}
+        <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${ended ? "bg-[#EEF1F5] text-[#475569]" : "bg-[#E6F7EC] text-[#15803D]"}`}>
+          {ended ? "Ended" : "In progress"}
+        </span>
+      </p>
+      {dates && <p className="text-[12px] font-medium text-[#6B7280]">{dates}</p>}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -775,12 +811,7 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
           </div>
           <div className="ml-auto flex flex-col items-end gap-1.5">
             <p className="text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
-            {ended && (
-              <p className="flex items-center gap-2 text-[12px] font-semibold text-[#0B1F4D]">
-                {data.semester}
-                <Tag tone="grey">Ended</Tag>
-              </p>
-            )}
+            <SemesterBadge data={data} />
           </div>
         </header>
 

@@ -151,6 +151,10 @@ export interface StudentScorecard {
   skillDebt: SkillDebtCourse[];
   courses: ScorecardCourse[];
   nextSteps: NextStep[];
+  /** The semester the report covers (set by the report builder, not by the rules): title and first / last day (YYYY-MM-DD). */
+  semesterTitle?: string | null;
+  semesterStart?: string | null;
+  semesterEnd?: string | null;
 }
 
 /** The parts of a student's course attendance the scorecard needs. */

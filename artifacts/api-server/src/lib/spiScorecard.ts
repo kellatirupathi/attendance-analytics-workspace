@@ -52,7 +52,9 @@ function assembleScorecard(
     const course = reportCourseIn(saMap.value, sa.college, sa.batch, sa.saCourse);
     return course ? [{ course, held: sa.held, attempted: sa.attempted, scorePct: sa.scorePct }] : [];
   });
-  return buildScorecard(identity, weighted, quizRows, removedCoursesIn(removed.value, identity.instituteName), skillRows);
+  const scorecard = buildScorecard(identity, weighted, quizRows, removedCoursesIn(removed.value, identity.instituteName), skillRows);
+  // The semester the report covers, for the title tag on the student report.
+  return { ...scorecard, semesterTitle: identity.semester, semesterStart: identity.semesterStart, semesterEnd: identity.semesterEnd };
 }
 
 export interface BuiltReport {
