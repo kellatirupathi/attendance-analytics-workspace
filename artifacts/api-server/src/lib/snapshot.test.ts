@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mock, test } from "node:test";
-import { createSnapshot, SNAPSHOT_REFRESH_MS } from "./snapshot.js";
+import { createSnapshot, SNAPSHOT_REFRESH_MS, TOKEN_CHECK_MS } from "./snapshot.js";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -59,4 +59,40 @@ test("a failed first load rejects, and the next read tries again", async () => {
   });
   await assert.rejects(snapshot.get());
   assert.equal(await snapshot.get(), "ok");
+});
+
+test("a changed token refreshes the copy before the timer; the same or an unreadable token does not", async () => {
+  mock.timers.enable({ apis: ["Date"], now: 0 });
+  try {
+    let loads = 0;
+    let token: string | null = "run-1";
+    let tokenFails = false;
+    const snapshot = createSnapshot("t5", async () => ++loads, {
+      token: async () => {
+        if (tokenFails) throw new Error("db down");
+        return token;
+      },
+    });
+    assert.equal(await snapshot.get(), 1);
+
+    mock.timers.tick(TOKEN_CHECK_MS + 1);
+    assert.equal(await snapshot.get(), 1);
+    await flush();
+    assert.equal(loads, 1, "same token: no reload");
+
+    token = "run-2";
+    mock.timers.tick(TOKEN_CHECK_MS + 1);
+    assert.equal(await snapshot.get(), 1, "the old copy is served while the refresh runs");
+    await flush();
+    await flush();
+    assert.equal(await snapshot.get(), 2, "new token: reloaded long before SNAPSHOT_REFRESH_MS");
+
+    tokenFails = true;
+    mock.timers.tick(TOKEN_CHECK_MS + 1);
+    await snapshot.get();
+    await flush();
+    assert.equal(loads, 2, "an unreadable token is ignored");
+  } finally {
+    mock.timers.reset();
+  }
 });

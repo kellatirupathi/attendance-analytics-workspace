@@ -94,4 +94,13 @@ async function load(): Promise<DirectoryStudent[]> {
   return out;
 }
 
-export const directorySnapshot = createSnapshot<DirectoryStudent[]>("student-directory-reports", load);
+/**
+ * The id of the last successful report sync. The sync runs as its own scheduled job (another process), so the
+ * directory copy cannot be told directly; it compares this id instead and reloads as soon as it changes.
+ */
+async function lastSyncToken(): Promise<string | null> {
+  const { rows } = await pool.query<{ t: string | null }>("SELECT MAX(id)::text AS t FROM spi_report_sync_runs WHERE status = 'success'");
+  return rows[0]?.t ?? null;
+}
+
+export const directorySnapshot = createSnapshot<DirectoryStudent[]>("student-directory-reports", load, { token: lastSyncToken });
