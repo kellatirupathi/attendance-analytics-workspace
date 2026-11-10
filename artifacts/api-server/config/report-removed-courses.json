@@ -18,7 +18,14 @@
       "course": "Universal Human Values",
       "reason": "Removed from the report on request",
       "removedOn": "2026-10-18"
-    }
+    },
+    { "campus": "GMRIT", "course": "Engineering Physics", "reason": "Removed from the report on request", "removedOn": "2026-11-11" },
+    { "campus": "Noida International University", "course": "Engineering Physics", "reason": "Removed from the report on request", "removedOn": "2026-11-11" },
+    { "campus": "P K Das University", "course": "Engineering Physics", "reason": "Removed from the report on request", "removedOn": "2026-11-11" },
+    { "campus": "T S Mishra University", "course": "Engineering Physics", "reason": "Removed from the report on request", "removedOn": "2026-11-11" },
+    { "campus": "Joy University", "course": "Applied Physics", "reason": "Removed from the report on request", "removedOn": "2026-11-11" },
+    { "campus": "NRI", "course": "Quantum Physics", "reason": "Removed from the report on request", "removedOn": "2026-11-11" },
+    { "campus": "Malla Reddy Vishwavidyapeeth", "course": "Constitution of India", "reason": "Removed from the report on request", "removedOn": "2026-11-11" }
   ],
   "automaticRules": [
     "A course with no attendance, no classroom quiz held, no module quiz held and no instructor assigned on the schedule is hidden automatically (for example NRI's Developer Tools Tab). It appears once any of the four starts."
