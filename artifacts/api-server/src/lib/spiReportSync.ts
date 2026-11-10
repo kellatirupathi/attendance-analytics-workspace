@@ -3,6 +3,7 @@ import { logger } from "./logger.js";
 import { cacheDeletePrefix, cacheGet, cacheSet } from "./cache.js";
 import { getAttendanceExclusions } from "./attendanceExclusions.js";
 import { buildAllScorecards, reportConfigVersion, type BuiltReport } from "./spiScorecard.js";
+import { getReportEligibleKeys } from "./reportEligibility.js";
 
 /**
  * SPI report sync: BigQuery → Postgres (spi_report_cache), so a report opens in milliseconds
@@ -25,6 +26,8 @@ const CHECK_EVERY_MS = 5 * 60_000;
 const RETRY_AFTER_MS = 15 * 60_000;
 /** Refuse a run that would shrink the table below this share of its current rows. */
 const MIN_SHARE = 0.8;
+/** Most history students one run may remove (the not-eligible ones); more than this is treated as a bad read. */
+const MAX_PRUNE = 200;
 const LOCK_KEY = 735_201;
 const INSERT_BATCH = 500;
 const MEMORY_TTL_MS = 5 * 60_000;
@@ -252,7 +255,16 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
         [runId, status, students, error, Date.now() - startedAt],
       );
     try {
-      const built = await buildAllScorecards();
+      const [builtAll, eligible] = await Promise.all([buildAllScorecards(), getReportEligibleKeys()]);
+      // Only students with a real campus in the core backend belong on the dashboard (see reportEligibility.ts).
+      // A short list means a bad read: refuse the run rather than drop students.
+      if (eligible.size < builtAll.length * MIN_SHARE) {
+        const error = `Refused: core backend lists ${eligible.size} students, ${builtAll.length} reports built`;
+        await finish("failed", builtAll.length, error);
+        logger.error({ trigger, eligible: eligible.size, built: builtAll.length }, "SPI report sync refused");
+        return { status: "failed", students: builtAll.length, error };
+      }
+      const built = builtAll.filter((r) => eligible.has(r.identity.studentKey));
       // spi_report_cache holds current-semester reports only; ended-semester ones go straight to history.
       const reports = built.filter((r) => !r.ended);
       const endedReports = built.filter((r) => r.ended);
@@ -274,6 +286,20 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
       for (let i = 0; i < endedReports.length; i += INSERT_BATCH) {
         const batch = endedReports.slice(i, i + INSERT_BATCH);
         await client.query(`${UPSERT_HISTORY_HEAD} VALUES ${valuesSql(batch.length)} ${UPSERT_HISTORY_TAIL}`, batch.flatMap(rowValues));
+      }
+      // History rows of students who are no longer on the dashboard (blank institute in the core backend, moved to
+      // Training Institute, an excluded college). Locked rows stay. Capped, so a bad read can never wipe history.
+      const eligibleKeys = [...eligible];
+      const { rows: stale } = await client.query<{ n: number }>(
+        "SELECT COUNT(DISTINCT student_id)::int AS n FROM spi_report_history WHERE locked_at IS NULL AND NOT (student_id = ANY($1::text[]))",
+        [eligibleKeys],
+      );
+      const staleStudents = stale[0]?.n ?? 0;
+      if (staleStudents > MAX_PRUNE) {
+        logger.warn({ trigger, staleStudents, max: MAX_PRUNE }, "SPI report sync: too many history students to remove, left alone");
+      } else if (staleStudents > 0) {
+        await client.query("DELETE FROM spi_report_history WHERE locked_at IS NULL AND NOT (student_id = ANY($1::text[]))", [eligibleKeys]);
+        logger.info({ trigger, removed: staleStudents }, "SPI report sync removed history for students no longer on the dashboard");
       }
       await client.query("COMMIT");
       cacheDeletePrefix("spiReport:");
