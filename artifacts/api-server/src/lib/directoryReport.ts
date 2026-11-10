@@ -13,6 +13,7 @@ interface Row {
   college: string | null;
   semester: string | null;
   section: string | null;
+  ended: boolean;
   attendance_pct: string | number | null;
   spi: string | number | null;
   name: string | null;
@@ -36,19 +37,39 @@ const part = (v: unknown): DirectoryPart | null => {
   return avgPct == null || total == null ? null : { avgPct, total };
 };
 
+/**
+ * The live cache, plus students the cache no longer has: their semester ended, so the hourly sync (which only
+ * sees current-semester rows) dropped them. Their last saved report is in spi_report_history; it is shown
+ * marked as ended. A student in both places keeps the live row.
+ */
+const REPORTS_WITH_HISTORY = `(
+  SELECT student_id, college, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache
+  UNION ALL
+  SELECT h.student_id, h.college, h.semester, h.section, h.attendance_pct, h.spi, h.report, h.built_at, true AS ended
+  FROM spi_report_history h
+  WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+) r`;
+const REPORTS_CACHE_ONLY = "(SELECT student_id, college, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache) r";
+
 async function load(): Promise<DirectoryStudent[]> {
-  const { rows } = await pool.query<Row>(
+  const select = (source: string) =>
     `SELECT DISTINCT ON (r.student_id)
-        r.student_id, r.college, r.semester, r.section, r.attendance_pct, r.spi,
+        r.student_id, r.college, r.semester, r.section, r.attendance_pct, r.spi, r.ended,
         r.report->>'studentName' AS name,
         r.report->'attendance'->>'state' AS att_state,
         r.report->'attendance'->>'tier' AS att_tier,
         jsonb_array_length(COALESCE(r.report->'skillDebt', '[]'::jsonb)) AS debt,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('n', c->>'name', 'cq', c->'classroom', 'mq', c->'module', 'sa', c->'skillAssessment', 'att', c->'attendancePct', 'score', c->'courseScore', 'pts', c->'points', 'lvl', c->>'level'))
                   FROM jsonb_array_elements(COALESCE(r.report->'courses', '[]'::jsonb)) c), '[]'::jsonb) AS courses
-     FROM spi_report_cache r
-     ORDER BY r.student_id, r.built_at DESC`,
-  );
+     FROM ${source}
+     ORDER BY r.student_id, r.built_at DESC`;
+  let rows: Row[];
+  try {
+    rows = (await pool.query<Row>(select(REPORTS_WITH_HISTORY))).rows;
+  } catch {
+    // spi_report_history not created yet (fresh database): the live cache alone.
+    rows = (await pool.query<Row>(select(REPORTS_CACHE_ONLY))).rows;
+  }
   const out: DirectoryStudent[] = [];
   for (const r of rows) {
     const college = (r.college ?? "").trim();
@@ -66,6 +87,7 @@ async function load(): Promise<DirectoryStudent[]> {
       tier: (["eligible", "recovery_eligible", "at_risk", "ineligible"] as const).find((t) => t === r.att_tier) ?? null,
       spi: num(r.spi),
       skillDebt: (Number(r.debt) || 0) > 0,
+      ...(r.ended ? { ended: true } : {}),
       courses,
     });
   }

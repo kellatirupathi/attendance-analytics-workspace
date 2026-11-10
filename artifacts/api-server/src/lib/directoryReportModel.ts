@@ -48,6 +48,8 @@ export interface DirectoryStudent {
   /** Out of 10, or null when the report has none yet. */
   spi: number | null;
   skillDebt: boolean;
+  /** True when the semester has ended: the row is the last saved report from spi_report_history. */
+  ended?: boolean;
   courses: DirectoryCourse[];
 }
 
@@ -81,6 +83,7 @@ export interface DirectoryRow {
   attendancePct: number | null;
   eligible: boolean;
   skillDebt: boolean;
+  ended?: boolean;
 }
 
 export interface DirectorySummary {
@@ -163,6 +166,7 @@ function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow 
     attendancePct: s.attendancePct,
     eligible: s.attendanceState === "met",
     skillDebt: s.skillDebt,
+    ...(s.ended ? { ended: true } : {}),
   };
 }
 

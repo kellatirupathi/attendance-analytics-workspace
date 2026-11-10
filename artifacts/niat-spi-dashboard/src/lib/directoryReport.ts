@@ -40,6 +40,8 @@ export interface DirectoryRow {
   attendancePct: number | null;
   eligible: boolean;
   skillDebt: boolean;
+  /** Semester ended: the last saved report. */
+  ended?: boolean;
   reportPath: string;
 }
 

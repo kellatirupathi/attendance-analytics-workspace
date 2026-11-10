@@ -321,7 +321,7 @@ export default function Students() {
                     <td className={cn(cell, "max-w-[11rem] truncate")} title={r.college}>{r.college}</td>
                     <td className={cn(cell, "max-w-[10rem] truncate font-semibold text-slate-900")} title={r.name ?? undefined}>{r.name || "—"}</td>
                     <td className={cell}><CopyUid uid={r.studentId} /></td>
-                    <td className={cell} title={r.semester ?? undefined}>{shortSemester(r.semester)}</td>
+                    <td className={cell} title={r.semester ?? undefined}>{shortSemester(r.semester)}{r.ended && <span className="ml-1.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">Ended</span>}</td>
                     <td className={cell}>{r.section || "—"}</td>
                     <td className={cn(num, dim("classroom"))}><Score value={r.classroom} /></td>
                     <td className={cn(num, dim("module"))}><Score value={r.module} /></td>
