@@ -58,6 +58,8 @@ function assembleScorecard(
 export interface BuiltReport {
   identity: ReportIdentity;
   scorecard: StudentScorecard;
+  /** True for a student with no current-semester rows: the report covers their last, ended semester. */
+  ended?: boolean;
 }
 
 /** One student's report, live from BigQuery; null when the student has no current-semester rows. */
@@ -86,23 +88,32 @@ export async function getStudentScorecard(studentId: string): Promise<StudentSco
   return (await buildStudentReport(studentId))?.scorecard ?? null;
 }
 
-/** Every current-semester student's scorecard in one pass: the same queries as the live report, for all students. */
+/**
+ * Every student's scorecard in one pass: the same queries as the live report, for all students.
+ * Current-semester students first; then students with no current-semester rows, reported on their last
+ * ended semester (`ended: true`), so their reports keep following the data after the semester ends.
+ * The quiz and Skill Assessment queries have no semester filter, so one read serves both groups.
+ */
 export async function buildAllScorecards(): Promise<BuiltReport[]> {
-  const [identities, subjects, quizRows, skillAssessments, config] = await Promise.all([
+  const [identities, subjects, endedIdentities, endedSubjects, quizRows, skillAssessments, config] = await Promise.all([
     getReportIdentities("all"),
     getSubjectsByStudent(),
+    getReportIdentities("all", "ended"),
+    getSubjectsByStudent("ended"),
     getQuizCourseRows("all"),
     getSkillAssessmentRows("all"),
     getReportConfig(),
   ]);
-  return identities.map((identity) => ({
+  const build = (identity: ReportIdentity, bySubjects: typeof subjects, ended: boolean): BuiltReport => ({
     identity,
     scorecard: assembleScorecard(
       identity,
-      subjects.get(identity.studentKey) ?? [],
+      bySubjects.get(identity.studentKey) ?? [],
       quizRows.get(identity.studentKey) ?? [],
       skillAssessments.get(identity.studentKey) ?? [],
       config,
     ),
-  }));
+    ...(ended ? { ended: true } : {}),
+  });
+  return [...identities.map((i) => build(i, subjects, false)), ...endedIdentities.map((i) => build(i, endedSubjects, true))];
 }

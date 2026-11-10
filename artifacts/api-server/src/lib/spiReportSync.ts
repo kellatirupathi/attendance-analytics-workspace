@@ -85,6 +85,18 @@ const COPY_TO_HISTORY = `
     report = EXCLUDED.report, built_at = now()
   WHERE spi_report_history.locked_at IS NULL AND spi_report_history.report IS DISTINCT FROM EXCLUDED.report`;
 
+/**
+ * Ended-semester reports (students with no current-semester rows) are written to spi_report_history directly,
+ * so the report a student sees keeps following the data the DA / ops teams correct after the semester ends.
+ * Same row key and rules as COPY_TO_HISTORY: only a changed report is rewritten, locked semesters are never touched.
+ * Placeholders are valuesSql() rows of rowValues(): (student_id, college, semester, section, batch, ...).
+ */
+const UPSERT_HISTORY_HEAD = `INSERT INTO spi_report_history (student_id, college, semester, section, batch, attendance_pct, spi, needs_attention, report)`;
+const UPSERT_HISTORY_TAIL = `ON CONFLICT (student_id, college, semester) DO UPDATE SET section = EXCLUDED.section, batch = EXCLUDED.batch,
+    attendance_pct = EXCLUDED.attendance_pct, spi = EXCLUDED.spi, needs_attention = EXCLUDED.needs_attention,
+    report = EXCLUDED.report, built_at = now()
+  WHERE spi_report_history.locked_at IS NULL AND spi_report_history.report IS DISTINCT FROM EXCLUDED.report`;
+
 let tablesReady: Promise<void> | null = null;
 
 /**
@@ -240,7 +252,10 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
         [runId, status, students, error, Date.now() - startedAt],
       );
     try {
-      const reports = await buildAllScorecards();
+      const built = await buildAllScorecards();
+      // spi_report_cache holds current-semester reports only; ended-semester ones go straight to history.
+      const reports = built.filter((r) => !r.ended);
+      const endedReports = built.filter((r) => r.ended);
       const { rows: count } = await client.query<{ n: number }>("SELECT COUNT(*)::int AS n FROM spi_report_cache");
       const previous = count[0]?.n ?? 0;
       if (reports.length === 0 || reports.length < previous * MIN_SHARE) {
@@ -256,10 +271,15 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
         await client.query(`INSERT INTO spi_report_cache ${COLUMNS} VALUES ${valuesSql(batch.length)}`, batch.flatMap(rowValues));
       }
       await client.query(COPY_TO_HISTORY);
+      for (let i = 0; i < endedReports.length; i += INSERT_BATCH) {
+        const batch = endedReports.slice(i, i + INSERT_BATCH);
+        await client.query(`${UPSERT_HISTORY_HEAD} VALUES ${valuesSql(batch.length)} ${UPSERT_HISTORY_TAIL}`, batch.flatMap(rowValues));
+      }
       await client.query("COMMIT");
       cacheDeletePrefix("spiReport:");
+      cacheDeletePrefix("spiReportHistory:");
       await finish("success", reports.length, null);
-      logger.info({ trigger, students: reports.length, ms: Date.now() - startedAt }, "SPI report sync done");
+      logger.info({ trigger, students: reports.length, endedStudents: endedReports.length, ms: Date.now() - startedAt }, "SPI report sync done");
       return { status: "success", students: reports.length };
     } catch (err) {
       await client.query("ROLLBACK").catch(() => undefined);

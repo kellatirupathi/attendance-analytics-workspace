@@ -105,6 +105,112 @@ export type ReportStudents = { studentId: string } | "all";
 /** A student id column as the report's student key: lower-case, no hyphens. */
 const studentKeySql = (column: string) => `LOWER(REPLACE(CAST(${column} AS STRING), '-', ''))`;
 
+/**
+ * Carry-over courses on the student report (agreed 2026-11-09): a current-semester course
+ * (batch_id + semester_course_id) is a carry-over when EVERY one of its sessions also appears in an
+ * earlier semester (earlier semester_start_date) of the same batch. Such a course was already taught,
+ * so the report leaves it out: off the course list, SPI, attendance %, eligibility and Needs
+ * attention. A course where only some sessions repeat, or one with the same name but new sessions,
+ * is kept. Gives one row per carry-over course session: batch_key, course_key, session_key.
+ */
+/**
+ * Which semester a report covers. "current": the student's current semester (the report sync's main pass).
+ * "ended": a student with no current-semester rows, reported on their last semester so its report keeps
+ * following the data (the DA / ops teams keep correcting it after the semester ends).
+ */
+export type SemesterScope = "current" | "ended";
+
+/**
+ * CTE `ended_sem` (student_key, sem): each student with no current-semester attendance row, and the title of
+ * their latest semester that has ended (the one with the newest attendance date). Raw table, so it is
+ * independent of the eligibility join; callers join it to attendanceSource().
+ */
+function endedSemestersCte(who: ReportStudents, params: Record<string, unknown>): string {
+  return `ended_sem AS (
+      SELECT student_key, sem FROM (
+        SELECT student_key, sem, ROW_NUMBER() OVER (PARTITION BY student_key ORDER BY last_date DESC) AS rn
+        FROM (
+          SELECT ${studentKeySql("student_user_id")} AS student_key,
+                 TRIM(CAST(semester_title AS STRING)) AS sem,
+                 MAX(DATE(date)) AS last_date
+          FROM ${RAW_ATTENDANCE_TABLE}
+          WHERE is_current_semester = 0
+            AND student_user_id IS NOT NULL
+            AND NULLIF(TRIM(CAST(semester_title AS STRING)), '') IS NOT NULL
+            AND ${reportStudentMatch("student_user_id", who, params)}
+          GROUP BY student_key, sem
+        )
+      )
+      WHERE rn = 1
+        AND student_key NOT IN (
+          SELECT DISTINCT ${studentKeySql("student_user_id")} FROM ${RAW_ATTENDANCE_TABLE}
+          WHERE is_current_semester = 1 AND student_user_id IS NOT NULL
+        )
+    )`;
+}
+
+/** Rows of the attendance source that belong to the report's semester, over alias `a`. */
+function semesterRowsSql(scope: SemesterScope, alias: string): string {
+  if (scope === "current") return `${alias}.is_current_semester = 1`;
+  return `${alias}.is_current_semester = 0 AND EXISTS (
+          SELECT 1 FROM ended_sem e
+          WHERE e.student_key = ${studentKeySql(`${alias}.student_user_id`)}
+            AND e.sem = TRIM(CAST(${alias}.semester_title AS STRING)))`;
+}
+
+function carryOverSessionsSql(scope: SemesterScope): string {
+  // Ended: the batch's latest semester that has started and ended, taking the place of "current".
+  const latestEnded =
+    scope === "ended"
+      ? `,
+    latest_ended AS (
+      SELECT batch_key, MAX(semester_start_date) AS semester_start_date
+      FROM seq
+      WHERE is_current_semester = 0 AND semester_start_date <= CURRENT_DATE('Asia/Kolkata')
+      GROUP BY batch_key
+    )`
+      : "";
+  const sessionRows =
+    scope === "current"
+      ? "FROM seq c\n      WHERE c.is_current_semester = 1"
+      : "FROM seq c\n      JOIN latest_ended l ON l.batch_key = c.batch_key AND l.semester_start_date = c.semester_start_date\n      WHERE c.is_current_semester = 0";
+  return `(
+    WITH seq AS (
+      SELECT DISTINCT
+        ${studentKeySql("batch_id")} AS batch_key,
+        ${studentKeySql("semester_id")} AS semester_key,
+        semester_start_date,
+        is_current_semester,
+        ${studentKeySql("semester_course_id")} AS course_key,
+        ${studentKeySql("session_id")} AS session_key
+      FROM ${PROD_SEQUENCE_TABLE}
+      WHERE batch_id IS NOT NULL AND semester_course_id IS NOT NULL AND session_id IS NOT NULL
+    )${latestEnded},
+    current_sessions AS (
+      SELECT
+        c.batch_key,
+        c.course_key,
+        c.session_key,
+        EXISTS (
+          SELECT 1 FROM seq e
+          WHERE e.batch_key = c.batch_key
+            AND e.session_key = c.session_key
+            AND e.semester_key != c.semester_key
+            AND e.semester_start_date < c.semester_start_date
+        ) AS repeated
+      ${sessionRows}
+    ),
+    carry_over_courses AS (
+      SELECT batch_key, course_key FROM current_sessions GROUP BY batch_key, course_key HAVING LOGICAL_AND(repeated)
+    )
+    SELECT s.batch_key, s.course_key, s.session_key
+    FROM current_sessions s
+    JOIN carry_over_courses USING (batch_key, course_key)
+  )`;
+}
+
+const CARRY_OVER_SESSIONS_SQL = carryOverSessionsSql("current");
+
 function reportStudentMatch(column: string, who: ReportStudents, params: Record<string, unknown>): string {
   if (who === "all") return "TRUE";
   params["studentId"] = normalizeStudentId(who.studentId);
@@ -320,10 +426,28 @@ const NO_MATCH = "\u0000NONE";
  *   category and subject are not in config/attendance-exclusions.json. Every
  *   other page counts the same rows, so their numbers match this one.
  * - Current semester, dated up to today (IST).
+ * - excludeCarryOver (the student report only): leaves out the sessions of carry-over courses,
+ *   matched by batch + session_id, never by course name (see CARRY_OVER_SESSIONS_SQL).
  */
-export function courseAttendanceSql(where: string, opts: { byStudent?: boolean } = {}): string {
+export function courseAttendanceSql(
+  where: string,
+  opts: { byStudent?: boolean; excludeCarryOver?: boolean; endedSemesters?: string } = {},
+): string {
   const byStudent = opts.byStudent ? "student_key, " : "";
-  return `WITH slots AS (
+  // endedSemesters: the ended_sem CTE (endedSemestersCte); the query then reads each student's last ended semester.
+  const scope: SemesterScope = opts.endedSemesters ? "ended" : "current";
+  const ctes = [
+    opts.endedSemesters,
+    opts.excludeCarryOver ? `carry_over AS ${carryOverSessionsSql(scope)}` : undefined,
+  ].filter(Boolean);
+  const carryOver = opts.excludeCarryOver
+    ? `AND NOT EXISTS (
+          SELECT 1 FROM carry_over co
+          WHERE co.batch_key = ${studentKeySql("a.batch_id")} AND co.session_key = ${studentKeySql("a.session_id")}
+        )`
+    : "";
+  return `WITH ${ctes.map((cte) => `${cte},`).join("\n    ")}
+    slots AS (
       SELECT
         ${studentKeySql("a.student_user_id")} AS student_key,
         TRIM(a.institute_name) AS institute_name,
@@ -333,10 +457,11 @@ export function courseAttendanceSql(where: string, opts: { byStudent?: boolean }
         UPPER(a.attendance_status) = 'PRESENT' AS is_present,
         IFNULL(SAFE_CAST(a.is_attendance_submitted AS INT64), 0) = 1 AS is_submitted
       FROM ${attendanceSource()} a
-      WHERE a.is_current_semester = 1
+      WHERE ${semesterRowsSql(scope, "a")}
         AND a.is_niat_course_session
         AND DATE(a.date) <= CURRENT_DATE('Asia/Kolkata')
         AND ${where}
+        ${carryOver}
     )
     SELECT
       ${byStudent}institute_name,
@@ -373,7 +498,7 @@ export async function getCourseAttendance(opts: {
   campuses?: string[];
   subjects?: string[];
 }): Promise<CourseAttendanceRow[]> {
-  const cacheKey = `course-attendance:v1:${courseAttendanceConfigVersion()}:${JSON.stringify({
+  const cacheKey = `course-attendance:v2:${courseAttendanceConfigVersion()}:${JSON.stringify({
     studentId: opts.studentId ? normalizeStudentId(opts.studentId) : "",
     scope: opts.studentId ? null : opts.scope ?? null,
     campuses: opts.campuses ?? [],
@@ -416,7 +541,9 @@ async function loadCourseAttendance(opts: {
     params["filterSubjects"] = opts.subjects;
     clauses.push("TRIM(a.subject_title) IN UNNEST(@filterSubjects)");
   }
-  const rows = await bqQuery<RawCourseAttendanceRow>(courseAttendanceSql(clauses.join(" AND ")), params, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS);
+  // One student is the report's course list, which leaves carry-over courses out; staff views keep them.
+  const sql = courseAttendanceSql(clauses.join(" AND "), { excludeCarryOver: Boolean(opts.studentId) });
+  const rows = await bqQuery<RawCourseAttendanceRow>(sql, params, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS);
   return rows.filter((row) => !isExcludedInstitute(row.institute_name)).map(toCourseAttendanceRow);
 }
 
@@ -451,10 +578,15 @@ function toCourseAttendanceRow(row: RawCourseAttendanceRow): CourseAttendanceRow
 }
 
 /** Course attendance of every student (the report sync), merged per subject like the live report. */
-async function getCourseAttendanceByStudent(): Promise<Map<string, SubjectAttendance[]>> {
+async function getCourseAttendanceByStudent(scope: SemesterScope = "current"): Promise<Map<string, SubjectAttendance[]>> {
+  const params: Record<string, unknown> = {};
   const rows = await bqQuery<RawCourseAttendanceRow & { student_key: string }>(
-    courseAttendanceSql(excludeInstituteSql("a.institute_name"), { byStudent: true }),
-    {},
+    courseAttendanceSql(excludeInstituteSql("a.institute_name"), {
+      byStudent: true,
+      excludeCarryOver: true,
+      ...(scope === "ended" ? { endedSemesters: endedSemestersCte("all", params) } : {}),
+    }),
+    params,
     BQ_LOCATION,
     BQ_HEAVY_QUERY_TIMEOUT_MS,
   );
@@ -553,9 +685,10 @@ export interface ReportIdentity {
   semester: string | null;
 }
 
-export async function getReportIdentities(who: ReportStudents): Promise<ReportIdentity[]> {
+export async function getReportIdentities(who: ReportStudents, scope: SemesterScope = "current"): Promise<ReportIdentity[]> {
   if (who !== "all" && !validateStudentId.test(who.studentId)) return [];
   const params: Record<string, unknown> = {};
+  const endedCte = scope === "ended" ? endedSemestersCte(who, params) : "";
   const rows = await bqQuery<{
     student_key: string;
     student_user_id: string;
@@ -565,17 +698,17 @@ export async function getReportIdentities(who: ReportStudents): Promise<ReportId
     batch: string | null;
     semester: string | null;
   }>(
-    `SELECT
-      ${studentKeySql("student_user_id")} AS student_key,
-      ANY_VALUE(CAST(student_user_id AS STRING)) AS student_user_id,
-      MAX(student_name) AS student_name,
-      MAX(institute_name) AS institute_name,
-      MAX(batch_section_name) AS batch_section_name,
-      MAX(TRIM(batch_name)) AS batch,
-      MAX(TRIM(CAST(semester_title AS STRING))) AS semester
-    FROM ${attendanceSource()}
-    WHERE ${reportStudentMatch("student_user_id", who, params)}
-      AND is_current_semester = 1
+    `${endedCte ? `WITH ${endedCte}\n    ` : ""}SELECT
+      ${studentKeySql("a.student_user_id")} AS student_key,
+      ANY_VALUE(CAST(a.student_user_id AS STRING)) AS student_user_id,
+      MAX(a.student_name) AS student_name,
+      MAX(a.institute_name) AS institute_name,
+      MAX(a.batch_section_name) AS batch_section_name,
+      MAX(TRIM(a.batch_name)) AS batch,
+      MAX(TRIM(CAST(a.semester_title AS STRING))) AS semester
+    FROM ${attendanceSource()} a
+    WHERE ${reportStudentMatch("a.student_user_id", who, params)}
+      AND ${semesterRowsSql(scope, "a")}
     GROUP BY student_key`,
     params,
     BQ_LOCATION,
@@ -627,8 +760,10 @@ interface ScheduledSubject {
  * University courses aren't on the prod sequence, and the excluded categories
  * and subjects are dropped the same way as courseAttendanceSql.
  */
-async function getScheduledSubjects(who: ReportStudents): Promise<Map<string, ScheduledSubject[]>> {
+async function getScheduledSubjects(who: ReportStudents, scope: SemesterScope = "current"): Promise<Map<string, ScheduledSubject[]>> {
   const params: Record<string, unknown> = { ...exclusionParams() };
+  const ended = scope === "ended";
+  const endedCte = ended ? `${endedSemestersCte(who, params)},\n    ` : "";
   const rows = await bqQuery<{
     student_key: string;
     subject_title: string;
@@ -637,16 +772,16 @@ async function getScheduledSubjects(who: ReportStudents): Promise<Map<string, Sc
     course_ids: string | null;
     has_instructor: string | boolean | null;
   }>(
-    `WITH student_rows AS (
+    `WITH ${endedCte}student_rows AS (
       -- The raw table: the shared source relabels a mover's old rows with their current campus.
       SELECT DISTINCT
-        ${studentKeySql("student_user_id")} AS student_key,
-        TRIM(institute_name) AS campus,
-        REPLACE(CAST(section_id AS STRING), '-', '') AS section_key
-      FROM ${RAW_ATTENDANCE_TABLE}
-      WHERE ${reportStudentMatch("student_user_id", who, params)}
-        AND is_current_semester = 1
-        AND section_id IS NOT NULL
+        ${studentKeySql("a.student_user_id")} AS student_key,
+        TRIM(a.institute_name) AS campus,
+        REPLACE(CAST(a.section_id AS STRING), '-', '') AS section_key${ended ? ",\n        TRIM(CAST(a.semester_title AS STRING)) AS sem" : ""}
+      FROM ${RAW_ATTENDANCE_TABLE} a
+      WHERE ${reportStudentMatch("a.student_user_id", who, params)}
+        AND ${semesterRowsSql(scope, "a")}
+        AND a.section_id IS NOT NULL
     ),
     master_campus AS (
       SELECT DISTINCT ${studentKeySql("user_id")} AS student_key, TRIM(institute_name) AS campus
@@ -659,11 +794,15 @@ async function getScheduledSubjects(who: ReportStudents): Promise<Map<string, Sc
     ),
     -- Sections at the student's master-view campus; all their sections when none is there.
     student_sections AS (
-      SELECT DISTINCT r.student_key, r.section_key
+      SELECT DISTINCT r.student_key, r.section_key${ended ? ", r.sem" : ""}
       FROM student_rows r
       LEFT JOIN master_campus m USING (student_key, campus)
       WHERE m.student_key IS NOT NULL
          OR NOT EXISTS (SELECT 1 FROM matched x WHERE x.student_key = r.student_key)
+    ),
+    -- Carry-over courses (CARRY_OVER_SESSIONS_SQL), one row per batch + semester_course_id.
+    carry_over_courses AS (
+      SELECT DISTINCT batch_key, course_key FROM ${ended ? carryOverSessionsSql(scope) : CARRY_OVER_SESSIONS_SQL}
     )
     SELECT
       ss.student_key,
@@ -675,12 +814,16 @@ async function getScheduledSubjects(who: ReportStudents): Promise<Map<string, Sc
     FROM ${PROD_SEQUENCE_TABLE} s
     JOIN student_sections ss
       ON ss.section_key = REPLACE(CAST(s.section_id AS STRING), '-', '')
-    WHERE s.is_current_semester = 1
+    WHERE ${ended ? "s.is_current_semester = 0 AND TRIM(CAST(s.semester_title AS STRING)) = ss.sem" : "s.is_current_semester = 1"}
       AND s.course_title IS NOT NULL
       AND TRIM(s.course_title) != ''
       AND ${excludeInstituteSql("s.institute_name")}
       AND UPPER(IFNULL(TRIM(CAST(s.course_category AS STRING)), '')) NOT IN UNNEST(@excludedCategories)
       AND UPPER(TRIM(s.course_title)) NOT IN UNNEST(@excludedSubjects)
+      AND NOT EXISTS (
+        SELECT 1 FROM carry_over_courses co
+        WHERE co.batch_key = ${studentKeySql("s.batch_id")} AND co.course_key = ${studentKeySql("s.semester_course_id")}
+      )
     GROUP BY ss.student_key, subject_title, course_category`,
     params,
     BQ_LOCATION,
@@ -720,8 +863,8 @@ export async function getStudentSubjects(
 }
 
 /** Every student's course list (the report sync), built like getStudentSubjects. */
-export async function getSubjectsByStudent(): Promise<Map<string, SubjectAttendance[]>> {
-  const [attended, scheduled] = await Promise.all([getCourseAttendanceByStudent(), getScheduledSubjects("all")]);
+export async function getSubjectsByStudent(scope: SemesterScope = "current"): Promise<Map<string, SubjectAttendance[]>> {
+  const [attended, scheduled] = await Promise.all([getCourseAttendanceByStudent(scope), getScheduledSubjects("all", scope)]);
   const out = new Map<string, SubjectAttendance[]>();
   for (const key of new Set([...attended.keys(), ...scheduled.keys()])) {
     out.set(key, combineSubjects(attended.get(key) ?? [], scheduled.get(key) ?? []));

@@ -56,7 +56,8 @@ export async function loadSavedReports(): Promise<SavedReport[] | null> {
   }
   try {
     const built = await buildAllScorecards();
-    return built.map((b) => ({
+    // The Assessments tabs are current-semester: leave out the ended-semester reports.
+    return built.filter((b) => !b.ended).map((b) => ({
       studentKey: b.identity.studentKey,
       campus: b.identity.instituteName,
       section: null,
