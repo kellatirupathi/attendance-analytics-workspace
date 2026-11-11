@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ */
-/*  SPI Quiz analytics: who opened the report, took and finished the   */
+/*  SPI Quiz analytics: who opened the quiz, took and finished the   */
 /*  quick quiz, scores and times. All counts come from                 */
 /*  GET /api/dashboard/spi-quiz; this page only displays them.         */
 /* ------------------------------------------------------------------ */
@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 
 const ROLES = ["superadmin", "admin", "hod", "capability_manager"];
 
-/** not_started = never opened the report. */
+/** not_started = never opened the quiz. */
 type Status = "not_started" | "opened" | "started" | "completed";
 
 interface GroupRow {
@@ -87,11 +87,11 @@ const fmtDate = (iso: string | null) =>
 
 const STATUS: Record<Status, { label: string; className: string }> = {
   completed: { label: "Completed", className: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
-  started: { label: "Started", className: "bg-amber-50 text-amber-800 ring-amber-200" },
-  opened: { label: "Opened", className: "bg-slate-100 text-slate-700 ring-slate-200" },
-  not_started: { label: "Not started", className: "bg-rose-50 text-rose-800 ring-rose-200" },
+  started: { label: "Started, not finished", className: "bg-amber-50 text-amber-800 ring-amber-200" },
+  opened: { label: "Opened, not started", className: "bg-slate-100 text-slate-700 ring-slate-200" },
+  not_started: { label: "Not opened", className: "bg-rose-50 text-rose-800 ring-rose-200" },
 };
-const STATUS_ORDER: Status[] = ["opened", "started", "completed", "not_started"];
+const STATUS_ORDER: Status[] = ["not_started", "opened", "started", "completed"];
 
 /** "3 colleges" / the one name / nothing, for a filter chip. */
 const chipText = (values: string[], noun: string) => (values.length === 1 ? values[0]! : `${values.length} ${noun}`);
@@ -213,7 +213,7 @@ export default function SpiQuizAnalytics() {
     semesters.length > 0 && { label: chipText(semesters, "semesters"), clear: () => (setSemesters([]), setSections([])) },
     colleges.length > 0 && sections.length > 0 && { label: `Section ${chipText(sections, "sections")}`, clear: () => setSections([]) },
     statuses.length > 0 && { label: chipText(statuses.map((s) => STATUS[s].label), "statuses"), clear: () => setStatuses([]) },
-    (range.dateFrom || range.dateTo) && { label: `Opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) },
+    (range.dateFrom || range.dateTo) && { label: `Quiz opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) },
     score && { label: `Score = ${score}`, clear: () => setScoreText("") },
     includeTest && { label: "Test logins included", clear: () => setIncludeTest(false) },
   ].filter(Boolean) as { label: string; clear: () => void }[];
@@ -230,12 +230,12 @@ export default function SpiQuizAnalytics() {
   const funnel = t
     ? [
         { label: "All students", n: t.students },
-        { label: "Opened report", n: t.opened },
+        { label: "Opened quiz", n: t.opened },
         { label: "Started quiz", n: t.started },
-        { label: "Completed", n: t.completed },
+        { label: "Completed quiz", n: t.completed },
       ]
     : [];
-  // Students who never came to the quiz at all (never opened the report).
+  // Students who never came to the quiz at all (never opened the quiz).
   const notStarted = t?.notStarted ?? 0;
   const notSeen = t?.notSeen ?? 0;
   const spread = t
@@ -270,7 +270,7 @@ export default function SpiQuizAnalytics() {
       const all = await getJson<Analytics>(`/api/dashboard/spi-quiz?${p.toString()}&export=1`);
       exportCsv(
         `spi-quiz-${onlyColleges ? "colleges" : "students"}-${new Date().toISOString().slice(0, 10)}.csv`,
-        ["Student ID", "Name", "College", "Semester", "Section", "Status", "Score", "Out of", "Time (s)", "Opened", "Finished"],
+        ["Student ID", "Name", "College", "Semester", "Section", "Status", "Score", "Out of", "Time (s)", "Quiz opened", "Quiz finished"],
         all.students.rows.map((r) => [
           r.studentId,
           r.name ?? "",
@@ -297,7 +297,7 @@ export default function SpiQuizAnalytics() {
       ? `No data. No student finished the quiz with a score of ${score} for these filters.`
       : chips.length
         ? "No data for these filters."
-        : "No student has opened the report yet.";
+        : "No student has opened the quiz yet.";
 
   return (
     <div className="space-y-5 px-4 pb-10 md:px-8">
@@ -358,7 +358,7 @@ export default function SpiQuizAnalytics() {
               labelFor={(s) => STATUS[s as Status].label}
             />
           </Field>
-          <Field label="Report opened">
+          <Field label="Quiz opened on">
             <DateRangeFilter value={range} onChange={setRange} allDatesLabel="All dates" />
           </Field>
           <Field
@@ -467,8 +467,8 @@ export default function SpiQuizAnalytics() {
                 {/* Click a row to list those students (sets the Status filter). */}
                 {t &&
                   [
-                    { label: "Not started quiz", n: notStarted, statuses: ["not_started"] as Status[] },
-                    { label: "Did not see report", n: notSeen, statuses: ["not_started", "opened", "started"] as Status[] },
+                    { label: "Did not open quiz", n: notStarted, statuses: ["not_started"] as Status[] },
+                    { label: "Report not seen yet", n: notSeen, statuses: ["not_started", "opened", "started"] as Status[] },
                   ].map((r, i) => (
                     <li key={r.label} className={cn("text-sm", i === 0 && "border-t border-dashed border-slate-200 pt-4")}>
                       <button
@@ -568,7 +568,7 @@ export default function SpiQuizAnalytics() {
                       ...(data?.groupBy === "college" ? [{ key: "pick", label: "", sortable: false }] : []),
                       { key: "name", label: data?.groupBy === "section" ? "Section" : "College" },
                       { key: "students", label: "Students", align: "right" },
-                      { key: "opened", label: "Opened", align: "right" },
+                      { key: "opened", label: "Opened quiz", align: "right" },
                       { key: "completion", label: "Completed", align: "right" },
                       { key: "avgScore", label: "Avg score", align: "right" },
                     ]}
