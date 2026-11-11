@@ -312,8 +312,8 @@ export default function SpiQuizAnalytics() {
       />
 
       {/* Filters: labelled controls, active filters as removable chips. */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Field label="College">
             <MultiSelect
               compact
@@ -343,10 +343,10 @@ export default function SpiQuizAnalytics() {
               }}
             />
           </Field>
-          <Field label="Section" hint={!colleges.length ? <span className="text-[11px] text-slate-500">Choose a college first</span> : undefined}>
-            <MultiSelect compact noun="sections" placeholder="All sections" options={sectionChoices} value={sections} onChange={setSections} disabled={!colleges.length} />
+          <Field label="Section">
+            <MultiSelect compact noun="sections" placeholder={colleges.length ? "All sections" : "Pick a college first"} options={sectionChoices} value={sections} onChange={setSections} disabled={!colleges.length} />
           </Field>
-          <Field label="Status" hint={<span className="text-[11px] text-slate-500">Students table and export</span>}>
+          <Field label="Status (table and export)">
             <MultiSelect
               compact
               noun="statuses"
@@ -364,23 +364,21 @@ export default function SpiQuizAnalytics() {
             label="Quiz score"
             htmlFor={scoreId}
             hint={
-              <span
-                id={`${scoreId}-hint`}
-                className={cn("text-[11px]", scoreBad || scoreTooHigh ? "text-amber-700" : "text-slate-500")}
-                aria-live="polite"
-              >
-                {scoreBad ? "Enter a whole number" : scoreTooHigh ? `Scores go up to ${maxScore}` : `Exact score, 0–${maxScore}`}
-              </span>
+              scoreBad || scoreTooHigh ? (
+                <span id={`${scoreId}-hint`} className="text-[11px] text-amber-700" aria-live="polite">
+                  {scoreBad ? "Enter a whole number" : `Scores go up to ${maxScore}`}
+                </span>
+              ) : undefined
             }
           >
             <div className="relative">
               <Input
                 id={scoreId}
                 inputMode="numeric"
-                placeholder="Any"
+                placeholder={`Exact, 0–${maxScore}`}
                 value={scoreText}
                 onChange={(e) => setScoreText(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
-                aria-describedby={`${scoreId}-hint`}
+                aria-describedby={scoreBad || scoreTooHigh ? `${scoreId}-hint` : undefined}
                 aria-invalid={scoreBad || scoreTooHigh}
                 className="h-10 pr-8 tabular-nums"
               />
@@ -398,7 +396,7 @@ export default function SpiQuizAnalytics() {
           </Field>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5">
           {chips.length === 0 ? (
             <span className="text-xs text-slate-500">No filters · all colleges, all dates</span>
           ) : (
