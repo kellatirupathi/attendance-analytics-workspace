@@ -51,7 +51,7 @@ interface StudentRow {
 }
 
 interface Analytics {
-  totals: GroupRow & { avgSeconds: number | null; questionCount: number };
+  totals: GroupRow & { avgSeconds: number | null; questionCount: number; notStarted: number; notSeen: number };
   groupBy: "college" | "section";
   groups: GroupRow[];
   scoreSpread: { score: number; students: number }[];
@@ -236,7 +236,8 @@ export default function SpiQuizAnalytics() {
       ]
     : [];
   // Students who never came to the quiz at all (never opened the report).
-  const notStarted = t ? Math.max(0, t.students - t.opened) : 0;
+  const notStarted = t?.notStarted ?? 0;
+  const notSeen = t?.notSeen ?? 0;
   const spread = t
     ? Array.from({ length: t.questionCount + 1 }, (_, s) => ({ score: s, students: data!.scoreSpread.find((x) => x.score === s)?.students ?? 0 }))
     : [];
@@ -463,15 +464,29 @@ export default function SpiQuizAnalytics() {
                   );
                 })}
                 {/* Never came to the quiz: shown apart from the steps above, as the students lost before step 2. */}
-                {t && <li className="grid grid-cols-[110px_1fr_auto] items-center gap-3 border-t border-dashed border-slate-200 pt-4 text-sm sm:grid-cols-[130px_1fr_170px]">
-                  <span className="font-medium text-slate-800">Not started quiz</span>
-                  <span className="relative block h-7 rounded-md bg-rose-50" aria-hidden="true">
-                    <span className="absolute inset-y-0 left-0 rounded-md bg-rose-400" style={{ width: `${pct(notStarted, t!.students)}%` }} />
-                  </span>
-                  <span className="text-right tabular-nums">
-                    <b className="text-slate-900">{fmtInt(notStarted)}</b> <span className="text-xs text-slate-500">{fmtPct(notStarted, t.students)}</span>
-                  </span>
-                </li>}
+                {/* Click a row to list those students (sets the Status filter). */}
+                {t &&
+                  [
+                    { label: "Not started quiz", n: notStarted, statuses: ["not_started"] as Status[] },
+                    { label: "Did not see report", n: notSeen, statuses: ["not_started", "opened", "started"] as Status[] },
+                  ].map((r, i) => (
+                    <li key={r.label} className={cn("text-sm", i === 0 && "border-t border-dashed border-slate-200 pt-4")}>
+                      <button
+                        type="button"
+                        onClick={() => setStatuses(r.statuses)}
+                        title="Show these students in the table"
+                        className={cn("grid w-full grid-cols-[110px_1fr_auto] items-center gap-3 rounded-md text-left sm:grid-cols-[130px_1fr_170px]", FOCUS_RING)}
+                      >
+                        <span className="font-medium text-slate-800">{r.label}</span>
+                        <span className="relative block h-7 rounded-md bg-rose-50" aria-hidden="true">
+                          <span className="absolute inset-y-0 left-0 rounded-md bg-rose-400" style={{ width: `${pct(r.n, t.students)}%` }} />
+                        </span>
+                        <span className="text-right tabular-nums">
+                          <b className="text-slate-900">{fmtInt(r.n)}</b> <span className="text-xs text-slate-500">{fmtPct(r.n, t.students)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
               </ol>
             </Section>
 

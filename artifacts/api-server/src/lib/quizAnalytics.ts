@@ -62,7 +62,14 @@ export interface QuizStudentRow {
 }
 
 export interface QuizAnalytics {
-  totals: QuizGroupRow & { avgSeconds: number | null; questionCount: number };
+  totals: QuizGroupRow & {
+    avgSeconds: number | null;
+    questionCount: number;
+    /** Students who never opened the report. */
+    notStarted: number;
+    /** Students who have not seen their report: everyone who has not completed the quiz. */
+    notSeen: number;
+  };
   groupBy: "college" | "section";
   groups: QuizGroupRow[];
   scoreSpread: { score: number; students: number }[];
@@ -192,6 +199,31 @@ async function studentRowsQuery(scope: SessionScope, f: QuizAnalyticsFilters): P
 
 // A finished quiz counts as started even when its started_at is empty (23 such rows in Prod, 2026-11-11), so
 // "dropped midway" (started minus completed) is never short of the students who really stopped midway.
+/** Roster students per stage for the current filters (status and score ignored), so the funnel matches the table and export. */
+async function statusCounts(scope: SessionScope, f: QuizAnalyticsFilters): Promise<Record<QuizStatus, number>> {
+  const run = (roster: SQL) => sql`SELECT
+      COUNT(*) FILTER (WHERE ${statusTest(["not_started"])}) AS not_started,
+      COUNT(*) FILTER (WHERE ${statusTest(["opened"])}) AS opened,
+      COUNT(*) FILTER (WHERE ${statusTest(["started"])}) AS started,
+      COUNT(*) FILTER (WHERE ${statusTest(["completed"])}) AS completed
+    FROM (SELECT student_id, college, semester, section FROM ${roster}
+          WHERE ${sql.join(placementParts(scope, f), sql` AND `)}) r
+    LEFT JOIN (SELECT * FROM spi_quiz_attempts t WHERE ${whereFor(scope, { ...f, from: undefined, to: undefined, score: undefined }, "t")}) t
+      ON t.student_id = r.student_id`;
+  let row: Row | undefined;
+  try {
+    row = (await db.execute(run(ROSTER_WITH_HISTORY))).rows[0] as Row | undefined;
+  } catch {
+    row = (await db.execute(run(ROSTER_CACHE_ONLY))).rows[0] as Row | undefined;
+  }
+  return {
+    not_started: num(row?.["not_started"]),
+    opened: num(row?.["opened"]),
+    started: num(row?.["started"]),
+    completed: num(row?.["completed"]),
+  };
+}
+
 const COUNTS = sql`COUNT(*) AS opened, COUNT(*) FILTER (WHERE started_at IS NOT NULL OR finished_at IS NOT NULL) AS started,
   COUNT(finished_at) AS completed,
   AVG(score) FILTER (WHERE finished_at IS NOT NULL) AS avg_score`;
@@ -205,7 +237,7 @@ export async function getQuizAnalytics(
   // One college chosen: break it down by section; otherwise by college.
   const groupBy = f.colleges?.length === 1 ? "section" : "college";
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
-  const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions] = await Promise.all([
+  const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions, stages] = await Promise.all([
     getRosterCounts(scope, { colleges: f.colleges, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
@@ -218,6 +250,7 @@ export async function getQuizAnalytics(
       WHERE ${whereFor(scope, f, "t")} GROUP BY a.question_id`),
     studentRowsQuery(scope, f),
     getQuizQuestions(),
+    statusCounts(scope, f),
   ]);
 
   const t = totalsRows[0] ?? {};
@@ -229,6 +262,8 @@ export async function getQuizAnalytics(
     completed: num(t["completed"]),
     avgScore: numOrNull(t["avg_score"]),
     avgSeconds: numOrNull(t["avg_seconds"]),
+    notStarted: stages.not_started,
+    notSeen: stages.not_started + stages.opened + stages.started,
     questionCount: numOrNull(t["question_count"]) ?? questions.length,
   };
 
