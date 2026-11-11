@@ -5218,13 +5218,15 @@ export async function getStudentPlacement(studentId: string): Promise<{ batch: s
   return { batch: row?.batch ?? null, semester: row?.semester ?? null };
 }
 
-const SKILL_ASSESSMENT_TABLE =
+export const SKILL_ASSESSMENT_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.y_niat_students_topin_assessment_attempt_and_score_details_spi_dashboard`";
 
 /** One Skill Assessment of a student as the assessment data names it (course not yet linked to the report). */
 export interface StudentSkillAssessment {
   college: string;
   batch: string;
+  /** derived_semester_title of the assessment; with college, batch and course it finds the report course. */
+  semester: string;
   saCourse: string;
   held: boolean;
   attempted: boolean;
@@ -5248,6 +5250,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
     student_key: string;
     college: string | null;
     batch: string | null;
+    semester: string | null;
     sa_course: string | null;
     attempted: string | null;
     held: string | null;
@@ -5257,6 +5260,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
       ${studentKeySql("student_user_id")} AS student_key,
       TRIM(institute_name) AS college,
       TRIM(batch_name) AS batch,
+      TRIM(derived_semester_title) AS semester,
       TRIM(semester_course_name) AS sa_course,
       CAST(UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED' AS STRING) AS attempted,
       CAST(
@@ -5280,6 +5284,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
       list.map((r) => ({
         college: r.college ?? "",
         batch: r.batch ?? "",
+        semester: r.semester ?? "",
         saCourse: r.sa_course ?? "",
         held: r.held === "true",
         attempted: r.attempted === "true",
@@ -6111,7 +6116,7 @@ const skillSnapshot = createSnapshot<AssessmentModel>("assessment-skill", async 
   const num = (v: unknown) => Number(v) || 0;
   const subjectOf = (r: Record<string, string | null>) => {
     const saCourse = String(r["sa_course"] ?? "");
-    return reportCourseIn(saMap.value, String(r["campus"] ?? ""), String(r["batch"] ?? ""), saCourse) ?? saCourse;
+    return reportCourseIn(saMap.value, String(r["campus"] ?? ""), String(r["batch"] ?? ""), String(r["derived"] ?? ""), saCourse) ?? saCourse;
   };
   const sectionKeyOf = (r: Record<string, string | null>) => `${r["campus"]}\t${r["batch"]}\t${r["section"]}`;
   const slots = slotRows.map((r) => {

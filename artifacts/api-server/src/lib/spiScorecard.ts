@@ -49,7 +49,7 @@ function assembleScorecard(
   // Skill Assessments carry the assessment team's course codes; the skill_assessment_course_map
   // table links them to report courses. Unmapped ones stay off the report until the map has them.
   const skillRows: SkillAssessmentRow[] = skillAssessments.flatMap((sa) => {
-    const course = reportCourseIn(saMap.value, sa.college, sa.batch, sa.saCourse);
+    const course = reportCourseIn(saMap.value, sa.college, sa.batch, sa.semester, sa.saCourse);
     return course ? [{ course, held: sa.held, attempted: sa.attempted, scorePct: sa.scorePct }] : [];
   });
   const scorecard = buildScorecard(identity, weighted, quizRows, removedCoursesIn(removed.value, identity.instituteName), skillRows);

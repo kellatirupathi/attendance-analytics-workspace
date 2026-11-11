@@ -6,7 +6,12 @@ import { pgTable, text, integer, boolean, timestamp, date, jsonb, serial, primar
  * extra spaces in the API.
  */
 
-/** Skill Assessment course code (assessment team's name) → report course, per college and batch. Blank report course = not mapped yet. */
+/**
+ * Skill Assessment course code (assessment team's name) → report course, per college, batch and semester.
+ * The report uses only rows with a semester and status "Mapped"; rows without a semester (the list before
+ * 11 Nov 2026) are kept but not used. Blank report course = not mapped yet. The report sync refreshes
+ * is_current_semester, main_sa_count, students and the SA dates, and adds new SA courses as "To confirm".
+ */
 export const skillAssessmentCourseMapTable = pgTable(
   "skill_assessment_course_map",
   {
@@ -16,6 +21,15 @@ export const skillAssessmentCourseMapTable = pgTable(
     reportCourseName: text("report_course_name"),
     status: text("status"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** derived_semester_title in the Skill Assessment data, e.g. "Semester 3". */
+    semester: text("semester"),
+    /** 1 while this is the batch's current semester (attendance is_current_semester), else 0. */
+    isCurrentSemester: integer("is_current_semester"),
+    /** MAIN Skill Assessments held for this course (MOCK ones are practice). */
+    mainSaCount: integer("main_sa_count"),
+    students: integer("students"),
+    firstSaDate: date("first_sa_date"),
+    lastSaDate: date("last_sa_date"),
   },
   (t) => [primaryKey({ name: "skill_assessment_course_map_pk", columns: [t.college, t.batch, t.skillAssessmentCourseName] })],
 );

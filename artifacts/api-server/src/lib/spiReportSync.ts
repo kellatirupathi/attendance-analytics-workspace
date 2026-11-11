@@ -4,6 +4,7 @@ import { cacheDeletePrefix, cacheGet, cacheSet } from "./cache.js";
 import { getAttendanceExclusions } from "./attendanceExclusions.js";
 import { buildAllScorecards, reportConfigVersion, type BuiltReport } from "./spiScorecard.js";
 import { getReportEligibleKeys } from "./reportEligibility.js";
+import { refreshSkillAssessmentCourseMap } from "./skillAssessmentMapSync.js";
 
 /**
  * SPI report sync: BigQuery → Postgres (spi_report_cache), so a report opens in milliseconds
@@ -255,6 +256,8 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
         [runId, status, students, error, Date.now() - startedAt],
       );
     try {
+      // Counts, dates and new "To confirm" rows in skill_assessment_course_map; never changes a mapping, never fails the run.
+      await refreshSkillAssessmentCourseMap();
       const [builtAll, eligible] = await Promise.all([buildAllScorecards(), getReportEligibleKeys()]);
       // Only students with a real campus in the core backend belong on the dashboard (see reportEligibility.ts).
       // A short list means a bad read: refuse the run rather than drop students.
