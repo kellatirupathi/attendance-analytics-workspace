@@ -14,16 +14,22 @@ import { pageOf, type Page, type PageRequest } from "./pagination.js";
  * `score` keeps only students who completed the quiz with exactly that score.
  */
 export interface QuizRosterFilters {
-  college?: string;
-  semester?: string;
-  section?: string;
+  colleges?: string[];
+  semesters?: string[];
+  sections?: string[];
 }
+
+/** "not_started" = never opened the report; the other three follow the student's attempt row. */
+export type QuizStatus = "not_started" | "opened" | "started" | "completed";
+export const QUIZ_STATUSES: QuizStatus[] = ["not_started", "opened", "started", "completed"];
 
 export interface QuizAnalyticsFilters extends QuizRosterFilters {
   from?: string;
   to?: string;
   score?: number;
   includeTest: boolean;
+  /** Keeps only students at these stages (students table and export); empty = every stage. */
+  statuses?: QuizStatus[];
 }
 
 export interface QuizRosterOption {
@@ -47,11 +53,11 @@ export interface QuizStudentRow {
   college: string | null;
   semester: string | null;
   section: string | null;
-  status: "opened" | "started" | "completed";
+  status: QuizStatus;
   score: number | null;
   totalQuestions: number | null;
   seconds: number | null;
-  openedAt: string;
+  openedAt: string | null;
   finishedAt: string | null;
 }
 
@@ -110,9 +116,9 @@ function placementParts(scope: SessionScope, f: QuizRosterFilters, alias = ""): 
   const excluded = excludedInstituteNames();
   if (excluded.length) parts.push(sql`LOWER(TRIM(COALESCE(${col("college")}, ''))) NOT IN (${list(excluded)})`);
   if (scope.campuses?.length) parts.push(sql`${col("college")} IN (${list(scope.campuses)})`);
-  if (f.college) parts.push(sql`${col("college")} = ${f.college}`);
-  if (f.semester) parts.push(sql`${col("semester")} = ${f.semester}`);
-  if (f.section) parts.push(sql`${col("section")} = ${f.section}`);
+  if (f.colleges?.length) parts.push(sql`${col("college")} IN (${list(f.colleges)})`);
+  if (f.semesters?.length) parts.push(sql`${col("semester")} IN (${list(f.semesters)})`);
+  if (f.sections?.length) parts.push(sql`${col("section")} IN (${list(f.sections)})`);
   return parts;
 }
 
@@ -149,15 +155,45 @@ async function getRosterCounts(
   return { total: rows.reduce((n, r) => n + num(r["students"]), 0), groups };
 }
 
-/** Student names from the roster, for one page of students. */
-async function getNames(studentIds: string[]): Promise<Map<string, string>> {
-  if (studentIds.length === 0) return new Map();
-  const rows = await rosterRows((roster) => sql`SELECT student_id, report->>'studentName' AS name FROM ${roster}
-    WHERE student_id IN (${list(studentIds)})`);
-  return new Map(rows.filter((r) => r["name"]).map((r) => [r["student_id"] as string, r["name"] as string]));
+/** Test on the attempt row t (all its columns are null when the student never opened the report). */
+function statusTest(statuses: QuizStatus[]): SQL {
+  const tests: Record<QuizStatus, string> = {
+    not_started: "t.student_id IS NULL",
+    opened: "t.student_id IS NOT NULL AND t.started_at IS NULL AND t.finished_at IS NULL",
+    started: "t.started_at IS NOT NULL AND t.finished_at IS NULL",
+    completed: "t.finished_at IS NOT NULL",
+  };
+  return sql.raw(`(${statuses.map((x) => tests[x]).join(" OR ")})`);
 }
 
-const COUNTS = sql`COUNT(*) AS opened, COUNT(started_at) AS started, COUNT(finished_at) AS completed,
+/**
+ * The students list: every roster student with their attempt, if any. A student who never opened the report has no
+ * attempt, so they are left out when a date or score filter is set (those filters describe the attempt).
+ */
+async function studentRowsQuery(scope: SessionScope, f: QuizAnalyticsFilters): Promise<Row[]> {
+  const statuses = f.statuses?.length ? f.statuses : QUIZ_STATUSES;
+  const attemptFiltered = Boolean(f.from || f.to || f.score != null);
+  const wanted = attemptFiltered ? statuses.filter((x) => x !== "not_started") : statuses;
+  if (wanted.length === 0) return [];
+  const run = (roster: SQL) => sql`SELECT r.student_id, r.college AS roster_college, r.semester AS roster_semester,
+      r.section AS roster_section, r.name AS roster_name,
+      t.opened_at, t.started_at, t.finished_at, t.score, t.total_questions, t.total_seconds
+    FROM (SELECT student_id, college, semester, section, report->>'studentName' AS name FROM ${roster}
+          WHERE ${sql.join(placementParts(scope, f), sql` AND `)}) r
+    LEFT JOIN (SELECT * FROM spi_quiz_attempts t WHERE ${whereFor(scope, f, "t")}) t ON t.student_id = r.student_id
+    WHERE ${statusTest(wanted)}
+    ORDER BY COALESCE(t.finished_at, t.started_at, t.opened_at) DESC NULLS LAST, r.college, r.student_id`;
+  try {
+    return (await db.execute(run(ROSTER_WITH_HISTORY))).rows as Row[];
+  } catch {
+    return (await db.execute(run(ROSTER_CACHE_ONLY))).rows as Row[];
+  }
+}
+
+// A finished quiz counts as started even when its started_at is empty (23 such rows in Prod, 2026-11-11), so
+// "dropped midway" (started minus completed) is never short of the students who really stopped midway.
+const COUNTS = sql`COUNT(*) AS opened, COUNT(*) FILTER (WHERE started_at IS NOT NULL OR finished_at IS NOT NULL) AS started,
+  COUNT(finished_at) AS completed,
   AVG(score) FILTER (WHERE finished_at IS NOT NULL) AS avg_score`;
 
 export async function getQuizAnalytics(
@@ -166,10 +202,11 @@ export async function getQuizAnalytics(
   pageRequest: PageRequest,
 ): Promise<QuizAnalytics> {
   const where = whereFor(scope, f);
-  const groupBy = f.college ? "section" : "college";
+  // One college chosen: break it down by section; otherwise by college.
+  const groupBy = f.colleges?.length === 1 ? "section" : "college";
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
   const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions] = await Promise.all([
-    getRosterCounts(scope, { college: f.college, semester: f.semester, section: f.section }, groupBy),
+    getRosterCounts(scope, { colleges: f.colleges, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
     rows(sql`SELECT ${sql.raw(groupBy)} AS name, ${COUNTS} FROM spi_quiz_attempts WHERE ${where} GROUP BY 1`),
@@ -179,9 +216,7 @@ export async function getQuizAnalytics(
       AVG(a.seconds) AS avg_seconds
       FROM spi_quiz_answers a JOIN spi_quiz_attempts t ON t.student_id = a.student_id
       WHERE ${whereFor(scope, f, "t")} GROUP BY a.question_id`),
-    rows(sql`SELECT student_id, college, semester, section, opened_at, started_at, finished_at, score, total_questions, total_seconds
-      FROM spi_quiz_attempts WHERE ${where}
-      ORDER BY COALESCE(finished_at, started_at, opened_at) DESC, student_id`),
+    studentRowsQuery(scope, f),
     getQuizQuestions(),
   ]);
 
@@ -234,26 +269,22 @@ export async function getQuizAnalytics(
     .sort((a, b) => (a.correctPct ?? 101) - (b.correctPct ?? 101) || a.position - b.position);
 
   const page = pageOf(studentRows, pageRequest);
-  const names = await getNames(page.rows.map((r) => r["student_id"] as string));
   const iso = (v: unknown) => (v == null ? null : new Date(v as string).toISOString());
   const students: Page<QuizStudentRow> = {
     ...page,
-    rows: page.rows.map((r) => {
-      const id = r["student_id"] as string;
-      return {
-        studentId: id,
-        name: names.get(id) ?? null,
-        college: (r["college"] as string | null) ?? null,
-        semester: (r["semester"] as string | null) ?? null,
-        section: (r["section"] as string | null) ?? null,
-        status: r["finished_at"] ? "completed" : r["started_at"] ? "started" : "opened",
-        score: numOrNull(r["score"]),
-        totalQuestions: numOrNull(r["total_questions"]),
-        seconds: numOrNull(r["total_seconds"]),
-        openedAt: iso(r["opened_at"])!,
-        finishedAt: iso(r["finished_at"]),
-      };
-    }),
+    rows: page.rows.map((r) => ({
+      studentId: r["student_id"] as string,
+      name: (r["roster_name"] as string | null) ?? null,
+      college: (r["roster_college"] as string | null) ?? null,
+      semester: (r["roster_semester"] as string | null) ?? null,
+      section: (r["roster_section"] as string | null) ?? null,
+      status: r["finished_at"] ? "completed" : r["started_at"] ? "started" : r["opened_at"] ? "opened" : "not_started",
+      score: numOrNull(r["score"]),
+      totalQuestions: numOrNull(r["total_questions"]),
+      seconds: numOrNull(r["total_seconds"]),
+      openedAt: iso(r["opened_at"]),
+      finishedAt: iso(r["finished_at"]),
+    })),
   };
 
   return {

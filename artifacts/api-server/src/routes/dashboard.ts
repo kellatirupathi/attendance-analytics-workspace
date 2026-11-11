@@ -90,7 +90,7 @@ import {
   type SortKey,
 } from "../lib/studentDirectory.js";
 import type { Role } from "../lib/rbac.js";
-import { getQuizAnalytics, getQuizFilterOptions } from "../lib/quizAnalytics.js";
+import { getQuizAnalytics, getQuizFilterOptions, QUIZ_STATUSES, type QuizStatus } from "../lib/quizAnalytics.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 import quizCoverageRouter from "./quizCoverage.js";
 import studentDirectoryRouter from "./studentDirectory.js";
@@ -644,8 +644,13 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
   }
   const scope = scopeForSession({ role: session.role as Role, campuses: session.campuses, subjects: session.subjects });
   const q = req.query as Record<string, string | string[] | undefined>;
-  const college = firstQuery(q, "college");
-  if (college && scope.campuses?.length && !scope.campuses.includes(college)) {
+  // Repeated params (college=A&college=B); a campus name may hold a comma, so no comma splitting.
+  const multi = (key: string): string[] => {
+    const raw = q[key];
+    return [...new Set((Array.isArray(raw) ? raw : raw ? [raw] : []).map((v) => v.trim()).filter(Boolean))];
+  };
+  const colleges = multi("college");
+  if (scope.campuses?.length && colleges.some((c) => !scope.campuses!.includes(c))) {
     res.status(403).json({ error: "Not permitted for this campus" });
     return;
   }
@@ -656,9 +661,10 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
     const data = await getQuizAnalytics(
       scope,
       {
-        college: college || undefined,
-        semester: firstQuery(q, "semester") || undefined,
-        section: (college && firstQuery(q, "section")) || undefined,
+        colleges,
+        semesters: multi("semester"),
+        sections: colleges.length ? multi("section") : [],
+        statuses: multi("status").filter((s): s is QuizStatus => (QUIZ_STATUSES as string[]).includes(s)),
         from: ISO_DAY.test(from) ? from : undefined,
         to: ISO_DAY.test(to) ? to : undefined,
         score: /^\d{1,3}$/.test(score) ? Number(score) : undefined,

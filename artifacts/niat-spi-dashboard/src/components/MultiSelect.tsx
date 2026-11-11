@@ -23,6 +23,13 @@ interface MultiSelectProps {
   onChange: (value: string[]) => void;
   placeholder?: string;
   emptyText?: string;
+  /** Shows "N selected" (or the one chosen name) instead of a badge per choice; for long lists. */
+  compact?: boolean;
+  /** Label for the options, e.g. "colleges" in "3 colleges". Compact mode only. */
+  noun?: string;
+  disabled?: boolean;
+  /** Text for each option when it differs from its value. */
+  labelFor?: (option: string) => string;
 }
 
 export function MultiSelect({
@@ -31,6 +38,10 @@ export function MultiSelect({
   onChange,
   placeholder = "Select…",
   emptyText = "No options.",
+  compact = false,
+  noun = "selected",
+  disabled = false,
+  labelFor = (o) => o,
 }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
 
@@ -50,15 +61,20 @@ export function MultiSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="h-auto min-h-9 w-full justify-between border-gray-200 py-1.5"
+          disabled={disabled}
+          className={cn("h-auto min-h-9 w-full justify-between border-gray-200 py-1.5", compact && "h-10")}
         >
-          <div className="flex flex-wrap gap-1">
+          <div className={cn("flex gap-1", compact ? "min-w-0" : "flex-wrap")}>
             {value.length === 0 ? (
               <span className="font-normal text-gray-400">{placeholder}</span>
+            ) : compact ? (
+              <span className="truncate font-normal">
+                {value.length === 1 ? labelFor(value[0]!) : `${value.length} ${noun}`}
+              </span>
             ) : (
               value.map((v) => (
                 <Badge key={v} variant="secondary" className="font-normal">
-                  {v}
+                  {labelFor(v)}
                 </Badge>
               ))
             )}
@@ -78,7 +94,7 @@ export function MultiSelect({
               {options.map((opt) => (
                 <CommandItem
                   key={opt}
-                  value={opt}
+                  value={labelFor(opt)}
                   onSelect={() => toggle(opt)}
                 >
                   <Check
@@ -87,7 +103,7 @@ export function MultiSelect({
                       value.includes(opt) ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  {opt}
+                  {labelFor(opt)}
                 </CommandItem>
               ))}
             </CommandGroup>

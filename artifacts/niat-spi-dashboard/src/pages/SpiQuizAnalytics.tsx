@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/PageHeader";
-import { SearchableSelect } from "@/components/SearchableSelect";
+import { MultiSelect } from "@/components/MultiSelect";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Body, cell, Head, num, Pager } from "@/components/assessments/quiz/QuizTables";
 import { Pill } from "@/components/assessments/quiz/quizParts";
@@ -22,8 +22,10 @@ import { exportCsv } from "@/lib/csv";
 import type { DateRange } from "@/lib/dateRange";
 import { cn } from "@/lib/utils";
 
-const ALL = "__all__";
 const ROLES = ["superadmin", "admin", "hod", "capability_manager"];
+
+/** not_started = never opened the report. */
+type Status = "not_started" | "opened" | "started" | "completed";
 
 interface GroupRow {
   name: string;
@@ -40,11 +42,11 @@ interface StudentRow {
   college: string | null;
   semester: string | null;
   section: string | null;
-  status: "opened" | "started" | "completed";
+  status: Status;
   score: number | null;
   totalQuestions: number | null;
   seconds: number | null;
-  openedAt: string;
+  openedAt: string | null;
   finishedAt: string | null;
 }
 
@@ -83,11 +85,16 @@ function fmtTime(seconds: number | null): string {
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "–";
 
-const STATUS: Record<StudentRow["status"], { label: string; className: string }> = {
+const STATUS: Record<Status, { label: string; className: string }> = {
   completed: { label: "Completed", className: "bg-emerald-50 text-emerald-800 ring-emerald-200" },
   started: { label: "Started", className: "bg-amber-50 text-amber-800 ring-amber-200" },
   opened: { label: "Opened", className: "bg-slate-100 text-slate-700 ring-slate-200" },
+  not_started: { label: "Not started", className: "bg-rose-50 text-rose-800 ring-rose-200" },
 };
+const STATUS_ORDER: Status[] = ["opened", "started", "completed", "not_started"];
+
+/** "3 colleges" / the one name / nothing, for a filter chip. */
+const chipText = (values: string[], noun: string) => (values.length === 1 ? values[0]! : `${values.length} ${noun}`);
 
 /** A thin horizontal bar; `pct` is 0–100. */
 function Bar({ pct: value, tone = "bg-brand-600" }: { pct: number; tone?: string }) {
@@ -125,9 +132,12 @@ export default function SpiQuizAnalytics() {
   const { user } = useAuth();
   const allowed = ROLES.includes(user?.role ?? "");
   const scoreId = useId();
-  const [college, setCollege] = useState(ALL);
-  const [semester, setSemester] = useState(ALL);
-  const [section, setSection] = useState(ALL);
+  const [colleges, setColleges] = useState<string[]>([]);
+  const [semesters, setSemesters] = useState<string[]>([]);
+  const [sections, setSections] = useState<string[]>([]);
+  const [statuses, setStatuses] = useState<Status[]>([]);
+  /** Colleges ticked in the College-wise table, for "Export selected". */
+  const [picked, setPicked] = useState<string[]>([]);
   const [range, setRange] = useState<DateRange>({ dateFrom: "", dateTo: "" });
   const [scoreText, setScoreText] = useState("");
   const [includeTest, setIncludeTest] = useState(false);
@@ -139,15 +149,16 @@ export default function SpiQuizAnalytics() {
 
   const params = useMemo(() => {
     const p = new URLSearchParams();
-    if (college !== ALL) p.set("college", college);
-    if (semester !== ALL) p.set("semester", semester);
-    if (college !== ALL && section !== ALL) p.set("section", section);
+    colleges.forEach((c) => p.append("college", c));
+    semesters.forEach((s) => p.append("semester", s));
+    if (colleges.length) sections.forEach((s) => p.append("section", s));
+    statuses.forEach((s) => p.append("status", s));
     if (range.dateFrom) p.set("from", range.dateFrom);
     if (range.dateTo) p.set("to", range.dateTo);
     if (score) p.set("score", score);
     if (includeTest) p.set("test", "1");
     return p;
-  }, [college, semester, section, range, score, includeTest]);
+  }, [colleges, semesters, sections, statuses, range, score, includeTest]);
   const viewKey = `${params.toString()}|${pageSize}`;
   const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
   const page = pageState.key === viewKey ? pageState.page : 1;
@@ -167,11 +178,20 @@ export default function SpiQuizAnalytics() {
   });
 
   const opts = options.data?.options ?? [];
-  const colleges = [...new Set(opts.map((o) => o.college))];
-  const semesters = [...new Set(opts.filter((o) => college === ALL || o.college === college).map((o) => o.semester))].sort();
-  const sections = [
-    ...new Set(opts.filter((o) => o.college === college && (semester === ALL || o.semester === semester)).map((o) => o.section)),
+  const collegeChoices = [...new Set(opts.map((o) => o.college))];
+  const semesterChoices = [...new Set(opts.filter((o) => !colleges.length || colleges.includes(o.college)).map((o) => o.semester))].sort();
+  const sectionChoices = [
+    ...new Set(
+      opts
+        .filter((o) => colleges.includes(o.college) && (!semesters.length || semesters.includes(o.semester)))
+        .map((o) => o.section),
+    ),
   ];
+  // Changing a parent filter drops choices that no longer exist, so no hidden filter stays on.
+  const keepSections = (nextColleges: string[], nextSemesters: string[]) =>
+    sections.filter((s) =>
+      opts.some((o) => o.section === s && nextColleges.includes(o.college) && (!nextSemesters.length || nextSemesters.includes(o.semester))),
+    );
 
   if (!allowed) {
     return (
@@ -189,17 +209,19 @@ export default function SpiQuizAnalytics() {
   const scoreTooHigh = !scoreBad && scoreText.trim() !== "" && Number(scoreText) > maxScore;
 
   const chips = [
-    college !== ALL && { label: college, clear: () => (setCollege(ALL), setSection(ALL)) },
-    semester !== ALL && { label: semester, clear: () => (setSemester(ALL), setSection(ALL)) },
-    college !== ALL && section !== ALL && { label: `Section ${section}`, clear: () => setSection(ALL) },
+    colleges.length > 0 && { label: chipText(colleges, "colleges"), clear: () => (setColleges([]), setSections([])) },
+    semesters.length > 0 && { label: chipText(semesters, "semesters"), clear: () => (setSemesters([]), setSections([])) },
+    colleges.length > 0 && sections.length > 0 && { label: `Section ${chipText(sections, "sections")}`, clear: () => setSections([]) },
+    statuses.length > 0 && { label: chipText(statuses.map((s) => STATUS[s].label), "statuses"), clear: () => setStatuses([]) },
     (range.dateFrom || range.dateTo) && { label: `Opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) },
     score && { label: `Score = ${score}`, clear: () => setScoreText("") },
     includeTest && { label: "Test logins included", clear: () => setIncludeTest(false) },
   ].filter(Boolean) as { label: string; clear: () => void }[];
   const clearAll = () => {
-    setCollege(ALL);
-    setSemester(ALL);
-    setSection(ALL);
+    setColleges([]);
+    setSemesters([]);
+    setSections([]);
+    setStatuses([]);
     setRange({ dateFrom: "", dateTo: "" });
     setScoreText("");
     setIncludeTest(false);
@@ -213,6 +235,8 @@ export default function SpiQuizAnalytics() {
         { label: "Completed", n: t.completed },
       ]
     : [];
+  // Students who never came to the quiz at all (never opened the report).
+  const notStarted = t ? Math.max(0, t.students - t.opened) : 0;
   const spread = t
     ? Array.from({ length: t.questionCount + 1 }, (_, s) => ({ score: s, students: data!.scoreSpread.find((x) => x.score === s)?.students ?? 0 }))
     : [];
@@ -232,12 +256,19 @@ export default function SpiQuizAnalytics() {
   });
   const toggleSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: key !== "name" }));
 
-  const onExport = async () => {
+  /** Every student for the current filters; `onlyColleges` swaps the college filter for the ticked ones. */
+  const onExport = async (onlyColleges?: string[]) => {
     setExporting(true);
     try {
-      const all = await getJson<Analytics>(`/api/dashboard/spi-quiz?${params.toString()}&export=1`);
+      const p = new URLSearchParams(params);
+      if (onlyColleges) {
+        p.delete("college");
+        p.delete("section");
+        onlyColleges.forEach((c) => p.append("college", c));
+      }
+      const all = await getJson<Analytics>(`/api/dashboard/spi-quiz?${p.toString()}&export=1`);
       exportCsv(
-        `spi-quiz-students-${new Date().toISOString().slice(0, 10)}.csv`,
+        `spi-quiz-${onlyColleges ? "colleges" : "students"}-${new Date().toISOString().slice(0, 10)}.csv`,
         ["Student ID", "Name", "College", "Semester", "Section", "Status", "Score", "Out of", "Time (s)", "Opened", "Finished"],
         all.students.rows.map((r) => [
           r.studentId,
@@ -249,7 +280,7 @@ export default function SpiQuizAnalytics() {
           r.score ?? "",
           r.totalQuestions ?? "",
           r.seconds ?? "",
-          r.openedAt,
+          r.openedAt ?? "",
           r.finishedAt ?? "",
         ]),
       );
@@ -269,37 +300,61 @@ export default function SpiQuizAnalytics() {
 
   return (
     <div className="space-y-5 px-4 pb-10 md:px-8">
-      <PageHeader title="SPI Quiz Analytics" subtitle="SPI quick quiz before the student report" />
+      <PageHeader
+        title="SPI Quiz Analytics"
+        subtitle="SPI quick quiz before the student report"
+        right={
+          <Button onClick={() => void onExport()} disabled={exporting || !data || noMatch}>
+            <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+        }
+      />
 
       {/* Filters: labelled controls, active filters as removable chips. */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_auto_140px]">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="College">
-            <SearchableSelect
-              value={college}
-              onValueChange={(v) => {
-                setCollege(v);
-                setSection(ALL);
+            <MultiSelect
+              compact
+              noun="colleges"
+              placeholder="All colleges"
+              options={collegeChoices}
+              value={colleges}
+              onChange={(next) => {
+                setColleges(next);
+                setSections(next.length ? keepSections(next, semesters) : []);
+                setSemesters((cur) =>
+                  cur.filter((s) => !next.length || opts.some((o) => o.semester === s && next.includes(o.college))),
+                );
               }}
-              options={[{ value: ALL, label: "All colleges" }, ...colleges.map((c) => ({ value: c, label: c }))]}
             />
           </Field>
           <Field label="Semester">
-            <SearchableSelect
-              value={semester}
-              onValueChange={(v) => {
-                setSemester(v);
-                setSection(ALL);
+            <MultiSelect
+              compact
+              noun="semesters"
+              placeholder="All semesters"
+              options={semesterChoices}
+              value={semesters}
+              onChange={(next) => {
+                setSemesters(next);
+                setSections(keepSections(colleges, next));
               }}
-              options={[{ value: ALL, label: "All semesters" }, ...semesters.map((s) => ({ value: s, label: s }))]}
             />
           </Field>
-          <Field label="Section" hint={college === ALL ? <span className="text-[11px] text-slate-500">Choose a college first</span> : undefined}>
-            <SearchableSelect
-              value={section}
-              onValueChange={setSection}
-              disabled={college === ALL}
-              options={[{ value: ALL, label: "All sections" }, ...sections.map((s) => ({ value: s, label: s }))]}
+          <Field label="Section" hint={!colleges.length ? <span className="text-[11px] text-slate-500">Choose a college first</span> : undefined}>
+            <MultiSelect compact noun="sections" placeholder="All sections" options={sectionChoices} value={sections} onChange={setSections} disabled={!colleges.length} />
+          </Field>
+          <Field label="Status" hint={<span className="text-[11px] text-slate-500">Students table and export</span>}>
+            <MultiSelect
+              compact
+              noun="statuses"
+              placeholder="All statuses"
+              options={STATUS_ORDER}
+              value={statuses}
+              onChange={(next) => setStatuses(STATUS_ORDER.filter((s) => next.includes(s)))}
+              labelFor={(s) => STATUS[s as Status].label}
             />
           </Field>
           <Field label="Report opened">
@@ -365,10 +420,6 @@ export default function SpiQuizAnalytics() {
             <Switch checked={includeTest} onCheckedChange={setIncludeTest} />
             Show test logins
           </label>
-          <Button onClick={() => void onExport()} disabled={exporting || !data || noMatch}>
-            <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {exporting ? "Exporting…" : "Export CSV"}
-          </Button>
         </div>
       </div>
 
@@ -413,6 +464,16 @@ export default function SpiQuizAnalytics() {
                     </li>
                   );
                 })}
+                {/* Never came to the quiz: shown apart from the steps above, as the students lost before step 2. */}
+                <li className="grid grid-cols-[110px_1fr_auto] items-center gap-3 border-t border-dashed border-slate-200 pt-4 text-sm sm:grid-cols-[130px_1fr_170px]">
+                  <span className="font-medium text-slate-800">Not started quiz</span>
+                  <span className="relative block h-7 rounded-md bg-rose-50" aria-hidden="true">
+                    <span className="absolute inset-y-0 left-0 rounded-md bg-rose-400" style={{ width: `${pct(notStarted, t!.students)}%` }} />
+                  </span>
+                  <span className="text-right tabular-nums">
+                    <b className="text-slate-900">{fmtInt(notStarted)}</b> <span className="text-xs text-slate-500">{fmtPct(notStarted, t!.students)}</span>
+                  </span>
+                </li>
               </ol>
             </Section>
 
@@ -466,7 +527,22 @@ export default function SpiQuizAnalytics() {
           <div className="grid gap-5 xl:grid-cols-[3fr_2fr]">
             <Section
               title={data?.groupBy === "section" ? "Section-wise" : "College-wise"}
-              subtitle={data?.groupBy === "college" ? "click a college to see its sections" : undefined}
+              subtitle={data?.groupBy === "college" ? "click a college to see its sections · tick colleges to export them" : undefined}
+              action={
+                data?.groupBy === "college" ? (
+                  <div className="flex items-center gap-2">
+                    {picked.length > 0 && (
+                      <button type="button" onClick={() => setPicked([])} className={cn("text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
+                        Clear
+                      </button>
+                    )}
+                    <Button type="button" variant="outline" size="sm" disabled={picked.length === 0 || exporting} onClick={() => void onExport(picked)}>
+                      <Download className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      Export selected{picked.length ? ` (${picked.length})` : ""}
+                    </Button>
+                  </div>
+                ) : undefined
+              }
               updating={updating}
               // xl: the row is as tall as Question-wise; the table fills it and scrolls, so no empty space is left below.
               className="rounded-xl border xl:flex xl:flex-col xl:[&>div:last-child]:relative xl:[&>div:last-child]:min-h-[440px] xl:[&>div:last-child]:flex-1"
@@ -476,6 +552,7 @@ export default function SpiQuizAnalytics() {
                   <Head
                     sticky
                     columns={[
+                      ...(data?.groupBy === "college" ? [{ key: "pick", label: "", sortable: false }] : []),
                       { key: "name", label: data?.groupBy === "section" ? "Section" : "College" },
                       { key: "students", label: "Students", align: "right" },
                       { key: "opened", label: "Opened", align: "right" },
@@ -485,16 +562,27 @@ export default function SpiQuizAnalytics() {
                     sort={{ key: sort.key, dir: sort.desc ? "desc" : "asc" }}
                     onSort={(key) => toggleSort(key as SortKey)}
                   />
-                  <Body loading={!data} empty="No data" colSpan={5} rowsCount={groups.length}>
+                  <Body loading={!data} empty="No data" colSpan={6} rowsCount={groups.length}>
                     {groups.map((g) => {
                       const clickable = data?.groupBy === "college";
                       return (
                         <tr key={g.name} className="hover:bg-slate-50">
+                          {clickable && (
+                            <td className={cn(cell, "w-8 pr-0")}>
+                              <input
+                                type="checkbox"
+                                checked={picked.includes(g.name)}
+                                onChange={(e) => setPicked((cur) => (e.target.checked ? [...cur, g.name] : cur.filter((n) => n !== g.name)))}
+                                aria-label={`Select ${g.name} for export`}
+                                className="h-4 w-4 cursor-pointer accent-brand-700"
+                              />
+                            </td>
+                          )}
                           <td className={cn(cell, "max-w-[200px]")}>
                             {clickable ? (
                               <button
                                 type="button"
-                                onClick={() => (setCollege(g.name), setSection(ALL))}
+                                onClick={() => (setColleges([g.name]), setSections([]))}
                                 className={cn("block max-w-full truncate text-left font-medium text-brand-700 hover:underline", FOCUS_RING)}
                                 title={g.name}
                               >
