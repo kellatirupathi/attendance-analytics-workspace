@@ -465,15 +465,15 @@ export default function SpiQuizAnalytics() {
                   );
                 })}
                 {/* Never came to the quiz: shown apart from the steps above, as the students lost before step 2. */}
-                <li className="grid grid-cols-[110px_1fr_auto] items-center gap-3 border-t border-dashed border-slate-200 pt-4 text-sm sm:grid-cols-[130px_1fr_170px]">
+                {t && <li className="grid grid-cols-[110px_1fr_auto] items-center gap-3 border-t border-dashed border-slate-200 pt-4 text-sm sm:grid-cols-[130px_1fr_170px]">
                   <span className="font-medium text-slate-800">Not started quiz</span>
                   <span className="relative block h-7 rounded-md bg-rose-50" aria-hidden="true">
                     <span className="absolute inset-y-0 left-0 rounded-md bg-rose-400" style={{ width: `${pct(notStarted, t!.students)}%` }} />
                   </span>
                   <span className="text-right tabular-nums">
-                    <b className="text-slate-900">{fmtInt(notStarted)}</b> <span className="text-xs text-slate-500">{fmtPct(notStarted, t!.students)}</span>
+                    <b className="text-slate-900">{fmtInt(notStarted)}</b> <span className="text-xs text-slate-500">{fmtPct(notStarted, t.students)}</span>
                   </span>
-                </li>
+                </li>}
               </ol>
             </Section>
 
