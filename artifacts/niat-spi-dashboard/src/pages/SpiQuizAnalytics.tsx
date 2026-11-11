@@ -468,9 +468,10 @@ export default function SpiQuizAnalytics() {
               title={data?.groupBy === "section" ? "Section-wise" : "College-wise"}
               subtitle={data?.groupBy === "college" ? "click a college to see its sections" : undefined}
               updating={updating}
-              className="rounded-xl border"
+              // xl: the row is as tall as Question-wise; the table fills it and scrolls, so no empty space is left below.
+              className="rounded-xl border xl:flex xl:flex-col xl:[&>div:last-child]:relative xl:[&>div:last-child]:min-h-[440px] xl:[&>div:last-child]:flex-1"
             >
-              <div className="max-h-[440px] overflow-auto">
+              <div className="max-h-[440px] overflow-auto xl:absolute xl:inset-0 xl:max-h-none">
                 <table className="w-full text-left">
                   <Head
                     sticky

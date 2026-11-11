@@ -7,7 +7,8 @@ import { pageOf, type Page, type PageRequest } from "./pagination.js";
 
 /**
  * SPI quiz analytics for staff: counts, scores and times from spi_quiz_attempts / spi_quiz_answers,
- * out of the students in spi_report_cache (the synced reports: names, college, semester, section).
+ * out of the students in the synced reports (spi_report_cache plus ended-semester students from
+ * spi_report_history, as on Directory and Overview: names, college, semester, section).
  * All Postgres, aggregated in SQL; no BigQuery on this page.
  * The date range applies to when a student first opened the report (India time).
  * `score` keeps only students who completed the quiz with exactly that score.
@@ -73,6 +74,31 @@ export interface QuizAnalytics {
 
 type Row = Record<string, unknown>;
 
+/**
+ * The student roster: the live cache plus students it no longer has because their semester ended (their latest
+ * spi_report_history row), the same students as Directory and Overview. The quiz tables keep every student who
+ * opened the report, ended semesters included, so a cache-only roster gave colleges such as Chaitanya more
+ * completions than students (317%).
+ */
+const ROSTER_WITH_HISTORY = sql.raw(`(
+  SELECT student_id, college, semester, section, report FROM spi_report_cache
+  UNION ALL
+  (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.semester, h.section, h.report
+   FROM spi_report_history h
+   WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+   ORDER BY h.student_id, h.built_at DESC)
+) roster`);
+const ROSTER_CACHE_ONLY = sql.raw("spi_report_cache roster");
+
+/** Runs a roster query with history; on a database without spi_report_history yet, with the live cache alone. */
+async function rosterRows(query: (roster: SQL) => SQL): Promise<Row[]> {
+  try {
+    return (await db.execute(query(ROSTER_WITH_HISTORY))).rows as Row[];
+  } catch {
+    return (await db.execute(query(ROSTER_CACHE_ONLY))).rows as Row[];
+  }
+}
+
 const num = (v: unknown): number => Number(v ?? 0);
 const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v));
 const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
@@ -100,35 +126,35 @@ function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL
   return sql.join(parts, sql` AND `);
 }
 
-/** College × semester × section choices for the filters, from the synced reports. */
+/** College × semester × section choices for the filters, from the roster (ended semesters included). */
 export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRosterOption[]> {
-  const { rows } = await db.execute(sql`SELECT DISTINCT college, semester, section FROM spi_report_cache
+  const rows = await rosterRows((roster) => sql`SELECT DISTINCT college, semester, section FROM ${roster}
     WHERE ${sql.join(placementParts(scope, {}), sql` AND `)}
       AND college IS NOT NULL AND semester IS NOT NULL AND section IS NOT NULL
     ORDER BY college, semester, section`);
   return rows as unknown as QuizRosterOption[];
 }
 
-/** Students in the synced reports: the total and one count per college (or per section once a college is chosen). */
+/** Students in the roster: the total and one count per college (or per section once a college is chosen). */
 async function getRosterCounts(
   scope: SessionScope,
   f: QuizRosterFilters,
   groupBy: "college" | "section",
 ): Promise<{ total: number; groups: { name: string; students: number }[] }> {
-  const { rows } = await db.execute(sql`SELECT ${sql.raw(groupBy)} AS name, COUNT(*) AS students FROM spi_report_cache
+  const rows = await rosterRows((roster) => sql`SELECT ${sql.raw(groupBy)} AS name, COUNT(*) AS students FROM ${roster}
     WHERE ${sql.join(placementParts(scope, f), sql` AND `)} GROUP BY 1`);
-  const groups = (rows as Row[])
+  const groups = rows
     .filter((r) => r["name"] != null)
     .map((r) => ({ name: r["name"] as string, students: num(r["students"]) }));
-  return { total: (rows as Row[]).reduce((n, r) => n + num(r["students"]), 0), groups };
+  return { total: rows.reduce((n, r) => n + num(r["students"]), 0), groups };
 }
 
-/** Student names from the synced reports, for one page of students. */
+/** Student names from the roster, for one page of students. */
 async function getNames(studentIds: string[]): Promise<Map<string, string>> {
   if (studentIds.length === 0) return new Map();
-  const { rows } = await db.execute(sql`SELECT student_id, report->>'studentName' AS name FROM spi_report_cache
+  const rows = await rosterRows((roster) => sql`SELECT student_id, report->>'studentName' AS name FROM ${roster}
     WHERE student_id IN (${list(studentIds)})`);
-  return new Map((rows as Row[]).filter((r) => r["name"]).map((r) => [r["student_id"] as string, r["name"] as string]));
+  return new Map(rows.filter((r) => r["name"]).map((r) => [r["student_id"] as string, r["name"] as string]));
 }
 
 const COUNTS = sql`COUNT(*) AS opened, COUNT(started_at) AS started, COUNT(finished_at) AS completed,
