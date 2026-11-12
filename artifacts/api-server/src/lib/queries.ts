@@ -688,6 +688,19 @@ export interface ReportIdentity {
   semesterEnd: string | null;
 }
 
+/**
+ * A student's college, section or batch as of their latest session: the value on the newest session date
+ * up to today (IST), else the newest overall. MAX() picked the alphabetically largest value, so a student
+ * who moved from S-009 to S-008 kept showing S-009. Ties on the same date take the larger value, so the
+ * result is stable. Rows with a blank value never win (as with MAX, where '' sorted lowest).
+ */
+export function latestBySessionDate(column: string): string {
+  const value = `NULLIF(TRIM(CAST(${column} AS STRING)), '')`;
+  return `ARRAY_AGG(${value} IGNORE NULLS
+        ORDER BY (DATE(a.date) <= CURRENT_DATE('Asia/Kolkata')) DESC, DATE(a.date) DESC, ${value} DESC
+        LIMIT 1)[SAFE_OFFSET(0)]`;
+}
+
 export async function getReportIdentities(who: ReportStudents, scope: SemesterScope = "current"): Promise<ReportIdentity[]> {
   if (who !== "all" && !validateStudentId.test(who.studentId)) return [];
   const params: Record<string, unknown> = {};
@@ -707,9 +720,9 @@ export async function getReportIdentities(who: ReportStudents, scope: SemesterSc
       ${studentKeySql("a.student_user_id")} AS student_key,
       ANY_VALUE(CAST(a.student_user_id AS STRING)) AS student_user_id,
       MAX(a.student_name) AS student_name,
-      MAX(a.institute_name) AS institute_name,
-      MAX(a.batch_section_name) AS batch_section_name,
-      MAX(TRIM(a.batch_name)) AS batch,
+      ${latestBySessionDate("a.institute_name")} AS institute_name,
+      ${latestBySessionDate("a.batch_section_name")} AS batch_section_name,
+      ${latestBySessionDate("TRIM(a.batch_name)")} AS batch,
       MAX(TRIM(CAST(a.semester_title AS STRING))) AS semester,
       CAST(MIN(DATE(a.semester_start_date)) AS STRING) AS semester_start,
       CAST(MAX(DATE(a.semester_end_date)) AS STRING) AS semester_end
