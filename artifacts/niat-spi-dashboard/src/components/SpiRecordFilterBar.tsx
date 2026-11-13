@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/SearchableSelect";
 import { ColumnOrderList, moveListItem } from "@/components/ColumnOrderList";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type FilterId = "group" | "campus" | "semester" | "section" | "student" | "spi" | "attendance";
@@ -325,6 +326,7 @@ export function CheckMenu({
   selected,
   onChange,
   className,
+  chevron,
 }: {
   label: string;
   /** `hint`: muted text after the label (e.g. a batch's semester and student count). */
@@ -333,6 +335,8 @@ export function CheckMenu({
   onChange: (next: string[]) => void;
   /** Overrides the button's default width. */
   className?: string;
+  /** Shows a down arrow, so the button reads as a dropdown. */
+  chevron?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -347,7 +351,16 @@ export function CheckMenu({
   return (
     <Popover onOpenChange={(open) => { if (!open) setSearch(""); }}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className={cn("w-[180px] justify-between", className)}>{label}</Button>
+        <Button variant="outline" className={cn("w-[180px] justify-between", className)}>
+          {chevron ? (
+            <>
+              <span className="min-w-0 truncate">{label}</span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+            </>
+          ) : (
+            label
+          )}
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         className="w-72"

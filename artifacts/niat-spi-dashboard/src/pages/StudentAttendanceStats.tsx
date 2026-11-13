@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/PageStates";
 import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/QuizTables";
 import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Building2, Check, ChevronDown, ChevronRight, Download, FileText, GraduationCap, Layers, LayoutGrid, Search, SlidersHorizontal, User, X, type LucideIcon } from "lucide-react";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
 import { cn } from "@/lib/utils";
@@ -192,6 +193,19 @@ interface BatchSemester {
   withSessions: number;
 }
 
+/** The More filters panel's choices before Apply. */
+interface MoreDraft {
+  /** "college\tsection" */
+  sections: string[];
+  subjects: string[];
+  scope: "semester" | "day" | "range";
+  day: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+const EMPTY_DRAFT: MoreDraft = { sections: [], subjects: [], scope: "semester", day: "", dateFrom: "", dateTo: "" };
+
 /** "Semester 3" → "Sem 3"; other titles (e.g. "Year 2 - Term 2") as they are. */
 function shortSemester(title: string): string {
   return title.replace(/^Semester\s+/i, "Sem ");
@@ -270,7 +284,8 @@ export default function StudentAttendanceStats() {
   const dateFrom = query.get("dateFrom") || "";
   const dateTo = query.get("dateTo") || "";
 
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [draft, setDraft] = useState<MoreDraft>(EMPTY_DRAFT);
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
@@ -555,25 +570,49 @@ export default function StudentAttendanceStats() {
         : { key, dir: ["university", "batch", "semester", "subject", "section", "unit", "student"].includes(key) ? "asc" : "desc" },
     );
   };
-  /** Clears the sub-level filters (section, subject, dates, students); the College › Batch › Semester scope stays. */
-  const clearFilters = () => {
-    setSearch("");
-    writeQuery({
-      semesters: undefined,
-      sections: undefined,
-      students: undefined,
-      subjects: undefined,
-      semester: undefined,
-      scope: undefined,
-      date: undefined,
-      dateFrom: undefined,
-      dateTo: undefined,
-    });
-  };
+
   const emptyText = grain === "university_unit" && !campuses.length && !batches.length ? "Select a college or batch to see unit-wise attendance." : `No rows for ${scopeLabel}.`;
   const lockedCampus = isBoa && user?.campuses?.length === 1;
   const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 focus-visible:ring-offset-2";
-  const scopeTrigger = "h-8 w-auto max-w-[16rem] gap-1.5 rounded-lg border-slate-200 px-2.5 font-medium text-slate-900 [&>span]:truncate";
+  /** Every filter field looks like a dropdown: full width, value on the left, arrow on the right. */
+  const fieldTrigger = "h-10 w-full min-w-0 justify-between gap-2 rounded-lg border-slate-300 px-3 font-normal text-slate-900";
+  const fieldBox = "flex h-10 w-full min-w-0 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-900";
+
+  /** More filters panel: choices are a draft until Apply, so one Apply is one reload of the table. */
+  const currentDraft = (): MoreDraft => ({
+    sections: sections.map((item) => `${item.campus}\t${item.section}`),
+    subjects,
+    scope: scopeKind === "day" || scopeKind === "range" ? scopeKind : "semester",
+    day,
+    dateFrom,
+    dateTo,
+  });
+  const openMore = () => {
+    setDraft(currentDraft());
+    setMoreOpen(true);
+  };
+  const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+  const draftDateError =
+    draft.scope === "day" && !isoDate.test(draft.day)
+      ? "Pick a day."
+      : draft.scope === "range" && !(isoDate.test(draft.dateFrom) && isoDate.test(draft.dateTo))
+        ? "Pick both a From and a To date."
+        : draft.scope === "range" && draft.dateFrom > draft.dateTo
+          ? "From must be on or before To."
+          : "";
+  const applyMore = () => {
+    if (draftDateError) return;
+    writeQuery({
+      sections: draft.sections.join("||") || undefined,
+      subjects: draft.subjects.join("||") || undefined,
+      scope: draft.scope === "semester" ? undefined : draft.scope,
+      date: draft.scope === "day" ? draft.day : undefined,
+      dateFrom: draft.scope === "range" ? draft.dateFrom : undefined,
+      dateTo: draft.scope === "range" ? draft.dateTo : undefined,
+    });
+    setMoreOpen(false);
+  };
+  const moreCount = sections.length + subjects.length + (scopeKind === "day" || scopeKind === "range" ? 1 : 0);
 
   const setCampuses = (next: string[]) => {
     const keptBatches = next.length ? batches.filter((key) => next.includes(key.split("\t")[0]!)) : [];
@@ -591,7 +630,7 @@ export default function StudentAttendanceStats() {
   const setSemester = (choice: { status?: string; bsem?: string }) =>
     writeQuery({ status: choice.status, bsem: choice.bsem, sections: choice.bsem !== batchSemester ? undefined : query.get("sections") ?? undefined });
 
-  /** Sub-level filters in use, shown as chips above the table. */
+  /** Filters behind More filters (and ones that only arrive from links), shown as removable chips under the bar. */
   const chips: { key: string; label: string; clear: () => void }[] = [
     ...sections.map((item) => ({
       key: `section-${item.campus}-${item.section}`,
@@ -603,6 +642,11 @@ export default function StudentAttendanceStats() {
       label: `Subject: ${name}`,
       clear: () => writeQuery({ subjects: subjects.filter((other) => other !== name).join("||") || undefined }),
     })),
+    ...(scopeKind === "day" && day
+      ? [{ key: "date", label: `Date: ${formatDay(day)}`, clear: () => writeQuery({ scope: undefined, date: undefined }) }]
+      : scopeKind === "range" && dateFrom && dateTo
+        ? [{ key: "date", label: `Dates: ${formatDay(dateFrom)} – ${formatDay(dateTo)}`, clear: () => writeQuery({ scope: undefined, dateFrom: undefined, dateTo: undefined }) }]
+        : []),
     ...semesters.map((name) => ({
       key: `semester-${name}`,
       label: `Semester: ${name}`,
@@ -613,13 +657,30 @@ export default function StudentAttendanceStats() {
       label: `Student: ${item.studentName || item.studentId}`,
       clear: () => writeQuery({ students: students.filter((other) => other !== item).map((other) => `${other.studentId}\t${other.campus}\t${other.studentName}`).join("||") || undefined }),
     })),
-    ...(scopeKind === "day" && day
-      ? [{ key: "date", label: `Date: ${formatDay(day)}`, clear: () => writeQuery({ scope: undefined, date: undefined }) }]
-      : scopeKind === "range" && dateFrom && dateTo
-        ? [{ key: "date", label: `Dates: ${formatDay(dateFrom)} – ${formatDay(dateTo)}`, clear: () => writeQuery({ scope: undefined, dateFrom: undefined, dateTo: undefined }) }]
-        : []),
   ];
-  const subFilterCount = sections.length + subjects.length + (scopeKind !== "semester" ? 1 : 0);
+  const anyFilter =
+    (!lockedCampus && campuses.length > 0) || batches.length > 0 || Boolean(status) || sections.length > 0 || subjects.length > 0 ||
+    semesters.length > 0 || students.length > 0 || scopeKind !== "semester";
+  /** Resets every filter in the box (a single-campus user keeps their campus). */
+  const clearAll = () => {
+    setSearch("");
+    writeQuery({
+      campuses: undefined,
+      batches: undefined,
+      bsem: undefined,
+      status: undefined,
+      semesters: undefined,
+      sections: undefined,
+      students: undefined,
+      subjects: undefined,
+      campus: undefined,
+      semester: undefined,
+      scope: undefined,
+      date: undefined,
+      dateFrom: undefined,
+      dateTo: undefined,
+    });
+  };
 
   return (
     <div className="flex min-w-0 flex-col">
@@ -638,70 +699,206 @@ export default function StudentAttendanceStats() {
         }
       />
 
-      <nav aria-label="Scope" className="mb-3 flex flex-wrap items-center gap-1.5">
-        {lockedCampus ? (
-          <span className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-900">{campuses[0]}</span>
-        ) : (
-          <CheckMenu
-            className={scopeTrigger}
-            label={campuses.length === 1 ? campuses[0]! : campuses.length ? `${campuses.length} colleges` : "All colleges"}
-            options={campusOptions.map((name) => ({ id: name, label: name }))}
-            selected={campuses}
-            onChange={setCampuses}
-          />
-        )}
-        <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
-        <CheckMenu
-          className={scopeTrigger}
-          label={batches.length === 1 ? batches[0]!.split("\t")[1]! : batches.length ? `${batches.length} batches` : "All batches"}
-          options={batchChoices.map((item) => ({
-            id: `${item.campus}\t${item.batch}`,
-            label: multiCampus ? `${item.campus} — ${item.batch}` : item.batch,
-            hint: `${shortSemester(item.semester)}${item.ended ? " · Ended" : ""} · ${item.students.toLocaleString("en-IN")}`,
-          }))}
-          selected={batches}
-          onChange={setBatches}
-        />
-        <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className={scopeTrigger} disabled={scopeKind !== "semester"} title={scopeKind !== "semester" ? "Dates are picked under Filters" : undefined}>
-              <span>{scopeKind !== "semester" ? "By dates" : semesterLabel}</span>
-              {batchSemester && batchSemesters?.find((item) => item.semester === batchSemester)?.ended && <EndedTag />}
-              <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+      <section aria-label="Filters" className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-3 lg:flex-1">
+            <FilterField label="College">
+              {lockedCampus ? (
+                <div className={cn(fieldBox, "cursor-default bg-slate-50")}>
+                  <span className="min-w-0 truncate">{campuses[0]}</span>
+                </div>
+              ) : (
+                <CheckMenu
+                  chevron
+                  className={fieldTrigger}
+                  label={campuses.length === 1 ? campuses[0]! : campuses.length ? `${campuses.length} colleges` : "All colleges"}
+                  options={campusOptions.map((name) => ({ id: name, label: name }))}
+                  selected={campuses}
+                  onChange={setCampuses}
+                />
+              )}
+            </FilterField>
+            <FilterField label="Batch">
+              <CheckMenu
+                chevron
+                className={fieldTrigger}
+                label={batches.length === 1 ? batches[0]!.split("\t")[1]! : batches.length ? `${batches.length} batches` : "All batches"}
+                options={batchChoices.map((item) => ({
+                  id: `${item.campus}\t${item.batch}`,
+                  label: multiCampus ? `${item.campus} — ${item.batch}` : item.batch,
+                  hint: `${shortSemester(item.semester)}${item.ended ? " · Ended" : ""} · ${item.students.toLocaleString("en-IN")}`,
+                }))}
+                selected={batches}
+                onChange={setBatches}
+              />
+            </FilterField>
+            <FilterField label="Semester">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className={fieldTrigger}>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">{scopeKind !== "semester" ? "Custom dates" : semesterLabel}</span>
+                      {scopeKind === "semester" && batchSemester && batchSemesters?.find((item) => item.semester === batchSemester)?.ended && <EndedTag />}
+                    </span>
+                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-1.5">
+                  {scopeKind !== "semester" ? (
+                    <div className="space-y-2 p-2 text-sm text-slate-600">
+                      <p>A date filter is on, so the table shows every semester inside those dates.</p>
+                      <Button type="button" size="sm" variant="outline" onClick={() => writeQuery({ scope: undefined, date: undefined, dateFrom: undefined, dateTo: undefined })}>
+                        Remove dates
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <SemesterOption on={!batchSemester && !status} label="Latest semester" hint="per batch" onSelect={() => setSemester({})} />
+                      <SemesterOption on={!batchSemester && status === "running"} label="Running only" onSelect={() => setSemester({ status: "running" })} />
+                      <SemesterOption on={!batchSemester && status === "ended"} label="Ended only" hint={endedNote.batches ? `${endedNote.batches} batches` : undefined} onSelect={() => setSemester({ status: "ended" })} />
+                      <div className="my-1 border-t border-slate-100" />
+                      {oneBatch ? (
+                        (batchSemesters ?? []).map((item) => {
+                          const latest = item.semester === latestOfBatch?.semester;
+                          return (
+                            <SemesterOption
+                              key={item.semester}
+                              on={batchSemester ? batchSemester === item.semester : false}
+                              label={item.semester}
+                              tag={item.ended ? "ended" : "running"}
+                              hint={
+                                !item.withSessions
+                                  ? "no session data"
+                                  : item.withSessions < item.students / 2
+                                    ? `${item.withSessions.toLocaleString("en-IN")} with sessions`
+                                    : `${item.students.toLocaleString("en-IN")} students`
+                              }
+                              onSelect={() => setSemester(latest ? {} : { bsem: item.semester })}
+                            />
+                          );
+                        })
+                      ) : (
+                        <p className="px-2 py-1.5 text-xs text-slate-500">Pick one batch to see its earlier semesters.</p>
+                      )}
+                    </>
+                  )}
+                </PopoverContent>
+              </Popover>
+            </FilterField>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" className="h-10 flex-1 gap-2 border-slate-300 lg:flex-none" onClick={openMore} aria-haspopup="dialog">
+              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+              More filters
+              {moreCount > 0 && (
+                <span className="rounded-full bg-violet-600 px-1.5 text-[11px] font-semibold leading-5 text-white tabular-nums" aria-label={`${moreCount} on`}>{moreCount}</span>
+              )}
             </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-72 p-1.5">
-            <SemesterOption on={!batchSemester && !status} label="Latest semester" hint="per batch" onSelect={() => setSemester({})} />
-            <SemesterOption on={!batchSemester && status === "running"} label="Running only" onSelect={() => setSemester({ status: "running" })} />
-            <SemesterOption on={!batchSemester && status === "ended"} label="Ended only" hint={endedNote.batches ? `${endedNote.batches} batches` : undefined} onSelect={() => setSemester({ status: "ended" })} />
-            <div className="my-1 border-t border-slate-100" />
-            {oneBatch ? (
-              (batchSemesters ?? []).map((item) => {
-                const latest = item.semester === latestOfBatch?.semester;
-                return (
-                  <SemesterOption
-                    key={item.semester}
-                    on={batchSemester ? batchSemester === item.semester : false}
-                    label={item.semester}
-                    tag={item.ended ? "ended" : "running"}
-                    hint={
-                      !item.withSessions
-                        ? "no session data"
-                        : item.withSessions < item.students / 2
-                          ? `${item.withSessions.toLocaleString("en-IN")} with sessions`
-                          : `${item.students.toLocaleString("en-IN")} students`
-                    }
-                    onSelect={() => setSemester(latest ? {} : { bsem: item.semester })}
-                  />
-                );
-              })
-            ) : (
-              <p className="px-2 py-1.5 text-xs text-slate-500">Pick one batch to see its earlier semesters.</p>
+            {anyFilter && (
+              <Button type="button" variant="ghost" className="h-10 px-3 text-slate-600" onClick={clearAll}>Clear all</Button>
             )}
-          </PopoverContent>
-        </Popover>
-      </nav>
+          </div>
+        </div>
+        {chips.length > 0 && (
+          <ul aria-label="Filters in use" className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+            {chips.map((chip) => (
+              <li key={chip.key} className="inline-flex h-8 max-w-full items-center gap-1 rounded-full bg-violet-50 pl-3 pr-1 text-xs font-medium text-violet-800">
+                <span className="min-w-0 truncate" title={chip.label}>{chip.label}</span>
+                <button type="button" aria-label={`Remove ${chip.label}`} className={cn("grid h-6 w-6 shrink-0 place-items-center rounded-full hover:bg-violet-100", focusRing)} onClick={chip.clear}>
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+          <SheetHeader className="border-b border-slate-200 px-5 py-4 text-left">
+            <SheetTitle>More filters</SheetTitle>
+            <SheetDescription>Narrow the totals and the table by section, subject or dates.</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+            <FilterField label="Section">
+              <CheckMenu
+                chevron
+                className={fieldTrigger}
+                label={draft.sections.length ? `${draft.sections.length} selected` : campuses.length || batches.length ? "All sections" : "Pick a college or batch first"}
+                options={sectionChoices.map((item) => ({
+                  id: `${item.campus}\t${item.section}`,
+                  label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
+                }))}
+                selected={draft.sections}
+                onChange={(next) => setDraft((d) => ({ ...d, sections: next }))}
+              />
+            </FilterField>
+            <FilterField label="Subject">
+              <CheckMenu
+                chevron
+                className={fieldTrigger}
+                label={draft.subjects.length === 1 ? draft.subjects[0]! : draft.subjects.length ? `${draft.subjects.length} subjects` : "All subjects"}
+                options={subjectOptions.map((name) => ({ id: name, label: name }))}
+                selected={draft.subjects}
+                onChange={(next) => setDraft((d) => ({ ...d, subjects: next }))}
+              />
+            </FilterField>
+            <fieldset className="space-y-2">
+              <legend className="text-xs font-medium text-slate-600">Dates</legend>
+              <div role="radiogroup" aria-label="Dates" className="grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1">
+                {([
+                  ["semester", "Semester"],
+                  ["day", "One day"],
+                  ["range", "Date range"],
+                ] as const).map(([value, label]) => {
+                  const on = draft.scope === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      className={cn("h-9 rounded-md text-sm font-medium transition-colors motion-reduce:transition-none", focusRing, on ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900")}
+                      onClick={() => setDraft((d) => ({ ...d, scope: value }))}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {draft.scope === "day" && (
+                <FilterField label="Day">
+                  <Input type="date" value={draft.day} className="h-10" onChange={(e) => setDraft((d) => ({ ...d, day: e.target.value }))} />
+                </FilterField>
+              )}
+              {draft.scope === "range" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <FilterField label="From">
+                    <Input type="date" value={draft.dateFrom} className="h-10" onChange={(e) => setDraft((d) => ({ ...d, dateFrom: e.target.value }))} />
+                  </FilterField>
+                  <FilterField label="To">
+                    <Input type="date" value={draft.dateTo} className="h-10" onChange={(e) => setDraft((d) => ({ ...d, dateTo: e.target.value }))} />
+                  </FilterField>
+                </div>
+              )}
+              {draftDateError ? (
+                <p className="text-xs font-medium text-red-700" role="alert">{draftDateError}</p>
+              ) : draft.scope !== "semester" ? (
+                <p className="text-xs text-slate-500">Dates show every semester inside them, so the Semester filter is set aside.</p>
+              ) : null}
+            </fieldset>
+          </div>
+          <SheetFooter className="flex-row justify-between gap-2 border-t border-slate-200 px-5 py-4 sm:justify-between">
+            <Button type="button" variant="ghost" onClick={() => setDraft(EMPTY_DRAFT)}>Reset</Button>
+            <div className="flex gap-2">
+              <SheetClose asChild>
+                <Button type="button" variant="outline">Cancel</Button>
+              </SheetClose>
+              <Button type="button" disabled={Boolean(draftDateError)} onClick={applyMore}>Apply</Button>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
         <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} />
@@ -764,82 +961,7 @@ export default function StudentAttendanceStats() {
               className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600"
             />
           </label>
-          <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="h-9 gap-1.5">
-                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-                Filters
-                {subFilterCount > 0 && (
-                  <span className="rounded-full bg-violet-600 px-1.5 text-[11px] font-semibold leading-5 text-white tabular-nums">{subFilterCount}</span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-80 space-y-3">
-              <FilterField label="Section">
-                <CheckMenu
-                  className="h-9 w-full min-w-0 justify-between font-normal"
-                  label={sections.length ? `${sections.length} selected` : campuses.length || batches.length ? "All sections" : "Pick a college or batch first"}
-                  options={sectionChoices.map((item) => ({
-                    id: `${item.campus}\t${item.section}`,
-                    label: multiCampus ? `${item.campus} — ${item.section}` : item.section,
-                  }))}
-                  selected={sections.map((item) => `${item.campus}\t${item.section}`)}
-                  onChange={(ids) => writeQuery({ sections: ids.join("||") || undefined })}
-                />
-              </FilterField>
-              <FilterField label="Subject">
-                <CheckMenu
-                  className="h-9 w-full min-w-0 justify-between font-normal"
-                  label={subjects.length ? `${subjects.length} selected` : "All subjects"}
-                  options={subjectOptions.map((name) => ({ id: name, label: name }))}
-                  selected={subjects}
-                  onChange={(next) => writeQuery({ subjects: next.join("||") || undefined })}
-                />
-              </FilterField>
-              <div className="flex flex-col gap-1.5 text-xs font-medium text-slate-600">
-                Dates
-                <div role="radiogroup" aria-label="Dates" className="grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1">
-                  {([
-                    ["semester", "Semester"],
-                    ["day", "One day"],
-                    ["range", "Range"],
-                  ] as const).map(([value, label]) => {
-                    const on = (scopeKind === "day" || scopeKind === "range" ? scopeKind : "semester") === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        role="radio"
-                        aria-checked={on}
-                        className={cn("h-8 rounded-md text-xs font-semibold", focusRing, on ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900")}
-                        onClick={() => {
-                          if (value === "day") writeQuery({ scope: "day", dateFrom: undefined, dateTo: undefined });
-                          else if (value === "range") writeQuery({ scope: "range", date: undefined });
-                          else writeQuery({ scope: undefined, date: undefined, dateFrom: undefined, dateTo: undefined });
-                        }}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {scopeKind === "day" && (
-                  <Input type="date" aria-label="Day" value={day} className="h-9" onChange={(e) => writeQuery({ scope: "day", date: e.target.value })} />
-                )}
-                {scopeKind === "range" && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input type="date" aria-label="From" value={dateFrom} className="h-9" onChange={(e) => writeQuery({ scope: "range", dateFrom: e.target.value })} />
-                    <Input type="date" aria-label="To" value={dateTo} className="h-9" onChange={(e) => writeQuery({ scope: "range", dateTo: e.target.value })} />
-                  </div>
-                )}
-                {scopeKind !== "semester" && <p className="font-normal text-slate-500">Dates cover every semester in that window.</p>}
-              </div>
-              <div className="flex justify-between border-t border-slate-100 pt-3">
-                <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>Clear all</Button>
-                <Button type="button" size="sm" onClick={() => setFiltersOpen(false)}>Done</Button>
-              </div>
-            </PopoverContent>
-          </Popover>
+
           <p className="min-w-0 truncate text-sm text-slate-500 tabular-nums" title={scopeLabel}>
             <span className="font-semibold text-slate-900">{totalRows.toLocaleString("en-IN")}</span> rows
             {scopeKind === "semester" && !batchSemester && status !== "ended" && endedNote.batches > 0 && (
@@ -887,19 +1009,7 @@ export default function StudentAttendanceStats() {
             </Popover>
           </div>
         </div>
-        {chips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-200 px-3 py-2">
-            {chips.map((chip) => (
-              <span key={chip.key} className="inline-flex h-7 items-center gap-1 rounded-full bg-violet-50 pl-2.5 pr-1 text-xs font-medium text-violet-800">
-                {chip.label}
-                <button type="button" aria-label={`Remove ${chip.label}`} className={cn("rounded-full p-0.5 hover:bg-violet-100", focusRing)} onClick={chip.clear}>
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-            <button type="button" className={cn("ml-1 rounded text-xs font-medium text-slate-500 hover:text-slate-900", focusRing)} onClick={clearFilters}>Clear all</button>
-          </div>
-        )}
+
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[48rem] text-left">
