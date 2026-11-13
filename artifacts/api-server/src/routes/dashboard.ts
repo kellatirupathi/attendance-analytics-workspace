@@ -669,6 +669,7 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
         to: ISO_DAY.test(to) ? to : undefined,
         score: /^\d{1,3}$/.test(score) ? Number(score) : undefined,
         includeTest: firstQuery(q, "test") === "1",
+        student: firstQuery(q, "student").trim().slice(0, 100) || undefined,
       },
       readPageRequest(q),
     );

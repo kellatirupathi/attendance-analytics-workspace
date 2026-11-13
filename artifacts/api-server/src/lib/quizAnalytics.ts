@@ -30,6 +30,8 @@ export interface QuizAnalyticsFilters extends QuizRosterFilters {
   includeTest: boolean;
   /** Keeps only students at these stages (students table and export); empty = every stage. */
   statuses?: QuizStatus[];
+  /** Student search (students table and export): part of the name, or the start of the student ID (hyphens optional). */
+  student?: string;
 }
 
 export interface QuizRosterOption {
@@ -174,6 +176,17 @@ function statusTest(statuses: QuizStatus[]): SQL {
 }
 
 /**
+ * LIKE patterns for the student search: anywhere in the name (case ignored), or the start of the student ID
+ * (stored lower-case without hyphens). Null when the search is empty.
+ */
+function studentSearch(text: string | undefined): { name: string; id: string } | null {
+  const q = (text ?? "").trim().slice(0, 100);
+  if (!q) return null;
+  const escape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+  return { name: `%${escape(q)}%`, id: `${escape(q.toLowerCase().replaceAll("-", ""))}%` };
+}
+
+/**
  * The students list: every roster student with their attempt, if any. A student who never opened the report has no
  * attempt, so they are left out when a date or score filter is set (those filters describe the attempt).
  */
@@ -182,13 +195,14 @@ async function studentRowsQuery(scope: SessionScope, f: QuizAnalyticsFilters): P
   const attemptFiltered = Boolean(f.from || f.to || f.score != null);
   const wanted = attemptFiltered ? statuses.filter((x) => x !== "not_started") : statuses;
   if (wanted.length === 0) return [];
+  const search = studentSearch(f.student);
   const run = (roster: SQL) => sql`SELECT r.student_id, r.college AS roster_college, r.semester AS roster_semester,
       r.section AS roster_section, r.name AS roster_name,
       t.opened_at, t.started_at, t.finished_at, t.score, t.total_questions, t.total_seconds
     FROM (SELECT student_id, college, semester, section, report->>'studentName' AS name FROM ${roster}
           WHERE ${sql.join(placementParts(scope, f), sql` AND `)}) r
     LEFT JOIN (SELECT * FROM spi_quiz_attempts t WHERE ${whereFor(scope, f, "t")}) t ON t.student_id = r.student_id
-    WHERE ${statusTest(wanted)}
+    WHERE ${statusTest(wanted)}${search ? sql` AND (r.name ILIKE ${search.name} ESCAPE '\\' OR r.student_id LIKE ${search.id} ESCAPE '\\')` : sql``}
     ORDER BY COALESCE(t.finished_at, t.started_at, t.opened_at) DESC NULLS LAST, r.college, r.student_id`;
   try {
     return (await db.execute(run(ROSTER_WITH_HISTORY))).rows as Row[];

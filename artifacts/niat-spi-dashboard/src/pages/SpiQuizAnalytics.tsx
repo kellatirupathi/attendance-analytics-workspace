@@ -5,7 +5,7 @@
 /* ------------------------------------------------------------------ */
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Download, SearchX, X } from "lucide-react";
+import { Download, Search, SearchX, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -140,12 +140,15 @@ export default function SpiQuizAnalytics() {
   const [picked, setPicked] = useState<string[]>([]);
   const [range, setRange] = useState<DateRange>({ dateFrom: "", dateTo: "" });
   const [scoreText, setScoreText] = useState("");
+  const [studentText, setStudentText] = useState("");
   const [includeTest, setIncludeTest] = useState(false);
   const [pageSize, setPageSize] = useState(50);
   const [exporting, setExporting] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "completion", desc: true });
 
   const score = useDebounced(scoreText.trim(), 400);
+  const student = useDebounced(studentText.trim(), 400);
+  const studentId = useId();
 
   const params = useMemo(() => {
     const p = new URLSearchParams();
@@ -156,9 +159,10 @@ export default function SpiQuizAnalytics() {
     if (range.dateFrom) p.set("from", range.dateFrom);
     if (range.dateTo) p.set("to", range.dateTo);
     if (score) p.set("score", score);
+    if (student) p.set("student", student);
     if (includeTest) p.set("test", "1");
     return p;
-  }, [colleges, semesters, sections, statuses, range, score, includeTest]);
+  }, [colleges, semesters, sections, statuses, range, score, student, includeTest]);
   const viewKey = `${params.toString()}|${pageSize}`;
   const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
   const page = pageState.key === viewKey ? pageState.page : 1;
@@ -202,7 +206,7 @@ export default function SpiQuizAnalytics() {
   }
 
   const data = analytics.data ?? null;
-  const updating = analytics.isPlaceholderData || (scoreText.trim() !== score);
+  const updating = analytics.isPlaceholderData || scoreText.trim() !== score || studentText.trim() !== student;
   const t = data?.totals;
   const maxScore = t?.questionCount ?? 10;
   const scoreBad = scoreText.trim() !== "" && !/^\d{1,3}$/.test(scoreText.trim());
@@ -215,6 +219,7 @@ export default function SpiQuizAnalytics() {
     statuses.length > 0 && { label: chipText(statuses.map((s) => STATUS[s].label), "statuses"), clear: () => setStatuses([]) },
     (range.dateFrom || range.dateTo) && { label: `Quiz opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) },
     score && { label: `Score = ${score}`, clear: () => setScoreText("") },
+    student && { label: `Student "${student}"`, clear: () => setStudentText("") },
     includeTest && { label: "Test logins included", clear: () => setIncludeTest(false) },
   ].filter(Boolean) as { label: string; clear: () => void }[];
   const clearAll = () => {
@@ -224,6 +229,7 @@ export default function SpiQuizAnalytics() {
     setStatuses([]);
     setRange({ dateFrom: "", dateTo: "" });
     setScoreText("");
+    setStudentText("");
     setIncludeTest(false);
   };
 
@@ -293,7 +299,9 @@ export default function SpiQuizAnalytics() {
   const noMatch = data != null && data.students.total === 0;
   const emptyMessage = scoreTooHigh
     ? `No data. Scores go from 0 to ${maxScore}, so no student has ${scoreText.trim()}.`
-    : score
+    : student
+      ? `No student matches "${student}" for these filters.`
+      : score
       ? `No data. No student finished the quiz with a score of ${score} for these filters.`
       : chips.length
         ? "No data for these filters."
@@ -314,7 +322,7 @@ export default function SpiQuizAnalytics() {
 
       {/* Filters: labelled controls, active filters as removable chips. */}
       <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <Field label="College">
             <MultiSelect
               compact
@@ -388,6 +396,29 @@ export default function SpiQuizAnalytics() {
                   type="button"
                   onClick={() => setScoreText("")}
                   aria-label="Clear quiz score"
+                  className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </Field>
+          <Field label="Student (table and export)" htmlFor={studentId}>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                id={studentId}
+                type="search"
+                placeholder="Name or ID"
+                value={studentText}
+                onChange={(e) => setStudentText(e.target.value.slice(0, 100))}
+                className="h-10 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
+              />
+              {studentText && (
+                <button
+                  type="button"
+                  onClick={() => setStudentText("")}
+                  aria-label="Clear student search"
                   className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
                 >
                   <X className="h-3.5 w-3.5" />
