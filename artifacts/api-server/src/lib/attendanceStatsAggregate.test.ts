@@ -288,3 +288,19 @@ test("rows sort by college, then batch and section in number order, then name", 
   assert.deepEqual(opts.campuses, ["A College", "B College"]);
   assert.deepEqual(opts.batches.map((b) => b.batch), ["Batch-2", "Batch-10", "Batch-1"]);
 });
+
+test("a student who did not move up with a running batch: counted under the batch, and in Ended", () => {
+  const rows = latest([
+    ...["a", "b", "c"].map((id) => row({ studentId: id, university: "Chevella", batch: "B-1", semester: "Semester 2" })),
+    row({ studentId: "x", university: "Chevella", batch: "B-1", semester: "Semester 1", ended: true }),
+  ]);
+  const batch = aggregateAttendanceStats(rows, NO_CLASSES, "university_batch", NO_FILTERS).rows;
+  assert.equal(batch.length, 1);
+  assert.equal(batch[0]!.students, 4);
+  assert.equal(batch[0]!.semester, "Semester 2");
+  assert.equal(batch[0]!.ended, false);
+  const opts = attendanceFilterOptions(rows, { campuses: [], semesters: [] });
+  const endedOnly = aggregateAttendanceStats(rows, NO_CLASSES, "university", { ...NO_FILTERS, status: "ended" }).summary.students;
+  assert.deepEqual(opts.ended, { batches: 0, students: 1 });
+  assert.equal(endedOnly, opts.ended.students);
+});

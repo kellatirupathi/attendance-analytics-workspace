@@ -42,6 +42,7 @@ import {
   isExcludedInstitute,
 } from "./excludedInstitutes.js";
 import { onePlacePerStudent } from "./attendanceStatsAggregate.js";
+import { reportEligibleKeysSql } from "./reportEligibility.js";
 
 import {
   ATTENDANCE_TABLE as RAW_ATTENDANCE_TABLE,
@@ -127,7 +128,12 @@ export type SemesterScope = "current" | "ended";
  * independent of the eligibility join; callers join it to attendanceSource().
  */
 function endedSemestersCte(who: ReportStudents, params: Record<string, unknown>): string {
-  return `ended_sem AS (
+  return `ended_sem AS (${endedSemestersSelect(who, params)})`;
+}
+
+/** The ended_sem rows (student_key, sem) as a SELECT; see endedSemestersCte. */
+function endedSemestersSelect(who: ReportStudents, params: Record<string, unknown>): string {
+  return `
       SELECT student_key, sem FROM (
         SELECT student_key, sem, ROW_NUMBER() OVER (PARTITION BY student_key ORDER BY last_date DESC) AS rn
         FROM (
@@ -147,7 +153,7 @@ function endedSemestersCte(who: ReportStudents, params: Record<string, unknown>)
           SELECT DISTINCT ${studentKeySql("student_user_id")} FROM ${RAW_ATTENDANCE_TABLE}
           WHERE is_current_semester = 1 AND student_user_id IS NOT NULL
         )
-    )`;
+    `;
 }
 
 /** Rows of the attendance source that belong to the report's semester, over alias `a`. */
@@ -5716,34 +5722,23 @@ async function getReportLowest(): Promise<Record<string, ReportLowest>> {
 
 const attendanceStatsDetailInFlight = new Map<string, Promise<AttendanceStatsDetail>>();
 
-/** College + batch as one key ("college\tbatch"), the same text the page sends back as a Batch filter. */
-const BATCH_KEY_SQL = "CONCAT(TRIM(institute_name), CHR(9), COALESCE(NULLIF(TRIM(batch_name), ''), 'Unknown'))";
+/**
+ * Each student's semester, exactly as the student report picks it (semesterRowsSql): current-semester rows, or
+ * for a student with no current rows at all, their last ended semester (ended_sem). So a batch whose semester
+ * ended stays on the page, marked Ended, and so does a student who did not move up with their batch.
+ */
+const LATEST_SEMESTER_SQL = `(
+    is_current_semester = 1
+    OR (is_current_semester = 0 AND CONCAT(${studentKeySql("student_user_id")}, CHR(9), TRIM(CAST(semester_title AS STRING))) IN (
+      SELECT CONCAT(student_key, CHR(9), sem) FROM (${endedSemestersSelect("all", {})})
+    ))
+  )`;
 
 /**
- * The semester each batch is in now: its current semester, or for a batch between semesters (no current
- * rows at all) its last ended semester, the one with the newest attendance date. Semesters run per batch,
- * so a batch whose semester ended stays on the page, marked Ended, instead of disappearing.
+ * The report's roster (reportEligibility.ts): students with a real campus in the core backend master. Students
+ * who left (blank institute there) still have attendance rows, but no report, so they are not counted here either.
  */
-const LATEST_PER_BATCH_SQL = `(
-    is_current_semester = 1
-    OR CONCAT(${BATCH_KEY_SQL}, CHR(9), TRIM(CAST(semester_title AS STRING))) IN (
-      SELECT k FROM (
-        SELECT CONCAT(${BATCH_KEY_SQL}, CHR(9), TRIM(CAST(semester_title AS STRING))) AS k,
-               ${BATCH_KEY_SQL} AS b,
-               MAX(DATE(date)) AS last_date
-        FROM ${RAW_ATTENDANCE_TABLE}
-        WHERE is_current_semester = 0
-          AND NULLIF(TRIM(CAST(semester_title AS STRING)), '') IS NOT NULL
-          AND institute_name IS NOT NULL
-        GROUP BY k, b
-      )
-      WHERE b NOT IN (
-        SELECT DISTINCT ${BATCH_KEY_SQL} FROM ${RAW_ATTENDANCE_TABLE}
-        WHERE is_current_semester = 1 AND institute_name IS NOT NULL
-      )
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY b ORDER BY last_date DESC) = 1
-    )
-  )`;
+const REPORT_ROSTER_SQL = `${studentKeySql("student_user_id")} IN (${reportEligibleKeysSql()})`;
 
 function attendanceStatsWhere(
   scope: SessionScope,
@@ -5755,10 +5750,8 @@ function attendanceStatsWhere(
 ): { where: string; params: Record<string, unknown> } {
   const params: Record<string, unknown> = {};
   const hasDates = Boolean(opts.dateFrom && opts.dateTo);
-  const clauses = [excludeInstituteSql()];
-  if (!hasDates) {
-    clauses.push(LATEST_PER_BATCH_SQL);
-  }
+  const clauses = [excludeInstituteSql(), REPORT_ROSTER_SQL];
+  if (!hasDates) clauses.push(LATEST_SEMESTER_SQL);
   if (hasDates) {
     params["dateFrom"] = opts.dateFrom;
     params["dateTo"] = opts.dateTo;

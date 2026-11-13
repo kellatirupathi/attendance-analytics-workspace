@@ -449,11 +449,19 @@ export function attendanceFilterOptions(
   }));
   const picked = filters.batches?.length ? batchList.filter((b) => filters.batches!.includes(`${b.campus}\t${b.batch}`)) : batchList;
   const endedBatches = picked.filter((b) => b.ended);
+  // Students on an ended semester: whole batches between semesters, plus a few who did not move up with a
+  // running batch. The same students the Ended filter shows.
+  const pickedKeys = new Set(picked.map((b) => `${b.campus}\t${b.batch}`));
+  const endedStudents = new Set<string>();
+  for (const { campus, batch, rows } of batches.values()) {
+    if (!pickedKeys.has(`${campus}\t${batch}`)) continue;
+    for (const row of rows) if (row.ended) endedStudents.add(row.studentId);
+  }
   return {
     campuses: [...campuses].sort(text),
     batches: batchList.sort((left, right) =>
       text(left.campus, right.campus) || numeric(left.batch, right.batch)),
-    ended: { batches: endedBatches.length, students: endedBatches.reduce((sum, b) => sum + b.students, 0) },
+    ended: { batches: endedBatches.length, students: endedStudents.size },
     semesters: [...semesters].sort(numeric),
     sections: [...sections.values()].sort((left, right) =>
       numeric(left.section, right.section)),
