@@ -664,8 +664,10 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
       scope,
       {
         colleges,
+        batches: multi("batch").filter((v) => v.includes("\t")),
+        term: firstQuery(q, "term") === "running" ? "running" : firstQuery(q, "term") === "ended" ? "ended" : undefined,
         semesters: multi("semester"),
-        sections: colleges.length ? multi("section") : [],
+        sections: colleges.length || multi("batch").length ? multi("section") : [],
         statuses: multi("status").filter((s): s is QuizStatus => (QUIZ_STATUSES as string[]).includes(s)),
         from: ISO_DAY.test(from) ? from : undefined,
         to: ISO_DAY.test(to) ? to : undefined,

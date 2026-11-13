@@ -170,3 +170,60 @@ test("student panel lists the report's other courses as Awaited; the full downlo
   assert.equal(one.find((s) => s.subject === "Constitution of India")?.scheduled, 0);
   assert.equal(studentSubjectRows(withReport, {}).length, 4); // no uid: only real rows
 });
+
+// --- Batch, running / ended and batch-scoped sections (College › Batch › Semester filters) ---------
+
+const b = (r: QuizRow, batch: string, semester: string, ended = false): QuizRow => ({ ...r, batch, semester, ended });
+const batchModel: QuizCoverageModel = {
+  rows: [
+    b(row("CDU", "S-001", "u1", "A", "Maths", "MATH", 10, 8, 70), "CDU Batch -1", "Semester 3", true),
+    b(row("CDU", "S-001", "u2", "B", "Maths", "MATH", 10, 5, 60), "CDU Batch -1", "Semester 3", true),
+    b(row("CDU", "S-001", "u3", "C", "Maths", "MATH", 10, 9, 90), "CDU Batch -2", "Semester 1"),
+    b(row("ADYPU", "S-01", "u4", "D", "Maths", "MATH", 10, 10, 80), "ADYPU Batch-2", "Semester 1"),
+  ],
+  plan: [
+    { ...plan("CDU", "sec-b1", "q1", "2026-07-01"), section: "S-001", batch: "CDU Batch -1", semester: "Semester 3", ended: true },
+    { ...plan("CDU", "sec-b2", "q2", "2026-09-01"), section: "S-001", batch: "CDU Batch -2", semester: "Semester 1" },
+  ],
+};
+
+test("batch filter keeps that college's batch, in rows and plan", () => {
+  const f = { batches: ["CDU\tCDU Batch -1"] };
+  assert.deepEqual(filterRows(batchModel, f).map((r) => r.studentId), ["u1", "u2"]);
+  const k = quizKpis(batchModel, f, "2026-11-14");
+  assert.equal(k.available, 1);
+});
+
+test("running + ended = all students, in rows and plan", () => {
+  const count = (term?: "running" | "ended") => filterRows(batchModel, { term }).length;
+  assert.equal(count("running") + count("ended"), count());
+  assert.equal(count("ended"), 2);
+  const avail = (term?: "running" | "ended") => quizKpis(batchModel, { term }, "2026-11-14").available;
+  assert.equal(avail("running") + avail("ended"), avail());
+});
+
+test("the same section name in two batches: a batch-scoped section keeps them apart", () => {
+  assert.deepEqual(filterRows(batchModel, { sections: ["CDU Batch -2\tS-001"] }).map((r) => r.studentId), ["u3"]);
+  // A plain name (old links) still matches every batch's S-001.
+  assert.equal(filterRows(batchModel, { sections: ["S-001"] }).length, 3);
+});
+
+test("several colleges at once", () => {
+  assert.equal(filterRows(batchModel, { colleges: ["CDU", "ADYPU"] }).length, 4);
+  assert.equal(filterRows(batchModel, { colleges: ["ADYPU"] }).length, 1);
+});
+
+test("batch menu: main semester, ended only when every student's semester ended, unique students", () => {
+  const opts = quizFilterOptions(batchModel, {});
+  assert.deepEqual(opts.batches.map((x) => `${x.campus}|${x.batch}|${x.semester}|${x.ended}|${x.students}`), [
+    "ADYPU|ADYPU Batch-2|Semester 1|false|1",
+    "CDU|CDU Batch -1|Semester 3|true|2",
+    "CDU|CDU Batch -2|Semester 1|false|1",
+  ]);
+  assert.deepEqual(opts.sections.filter((s) => s.college === "CDU").map((s) => `${s.batch}|${s.section}`), ["CDU Batch -1|S-001", "CDU Batch -2|S-001"]);
+});
+
+test("rows with no batch read as Unknown and still match an Unknown batch", () => {
+  const m: QuizCoverageModel = { rows: [row("X", "S-1", "u9", "Z", "Maths", "MATH", 1, 1, 100)], plan: [] };
+  assert.equal(filterRows(m, { batches: ["X\tUnknown"] }).length, 1);
+});

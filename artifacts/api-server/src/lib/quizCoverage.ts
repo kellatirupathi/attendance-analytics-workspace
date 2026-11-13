@@ -1,6 +1,6 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION, PROD_SEQUENCE_TABLE } from "./bigquery.js";
 import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
-import { attendanceSource } from "./queries.js";
+import { attendanceSource, LATEST_SEMESTER_SQL, REPORT_ROSTER_SQL } from "./queries.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
 import { restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
@@ -30,7 +30,10 @@ const text = (v: unknown) => (v == null ? null : String(v));
 
 async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
   const t = tables();
-  const attWhere = `${excludeInstituteSql()} AND is_current_semester = 1`;
+  // The report's students and semester: current, or a batch between semesters on its last ended one (as Attendance Stats).
+  const attWhere = `${excludeInstituteSql()} AND ${REPORT_ROSTER_SQL} AND ${LATEST_SEMESTER_SQL}`;
+  const endedSections = `SELECT DISTINCT CONCAT(LOWER(REPLACE(CAST(section_id AS STRING), '-', '')), CHR(9), TRIM(CAST(semester_title AS STRING)))
+    FROM ${t.attendance} WHERE is_current_semester = 0 AND ${attWhere}`;
   const [rows, plan] = await Promise.all([
     bqQuery<Record<string, unknown>>(
       buildQuizCoverageRowsSql(t, type, attWhere, excludeInstituteSql("q.institute_name")),
@@ -39,7 +42,7 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     bqQuery<Record<string, unknown>>(
-      buildQuizCoveragePlanSql(t, type, excludeInstituteSql("p.institute_name")),
+      buildQuizCoveragePlanSql(t, type, excludeInstituteSql("p.institute_name"), endedSections),
       {},
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
@@ -49,6 +52,8 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
     campus: String(r["campus"]),
     section: String(r["section"] ?? ""),
     semester: text(r["semester"])?.trim() || null,
+    batch: text(r["batch"])?.trim() || null,
+    ended: r["ended"] === true || r["ended"] === "true",
     studentId: String(r["student_id"]),
     studentName: text(r["student_name"])?.trim() || null,
     subject: String(r["subject"]),
@@ -61,6 +66,8 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
     campus: String(r["campus"]),
     section: String(r["section"] ?? ""),
     semester: text(r["semester"])?.trim() || null,
+    batch: text(r["batch"])?.trim() || null,
+    ended: r["ended"] === true || r["ended"] === "true",
     sectionId: String(r["section_id"] ?? ""),
     subject: String(r["subject"]),
     category: text(r["category"]),
@@ -99,8 +106,11 @@ async function loadSkill(): Promise<QuizCoverageModel> {
   ]);
   if (!reports) throw new Error("The saved student reports could not be loaded for the Skill Assessment tab");
   const categoryOf = new Map(categories.map((c) => [`${c.campus}\t${plainCourseName(c.subject)}`, c.category]));
-  const sectionOf = new Map<string, { section: string; name: string | null; semester: string | null }>();
-  for (const r of classroom.rows) if (!sectionOf.has(r.studentId)) sectionOf.set(r.studentId, { section: r.section, name: r.studentName, semester: r.semester ?? null });
+  const sectionOf = new Map<string, { section: string; name: string | null; semester: string | null; batch: string | null; ended: boolean }>();
+  for (const r of classroom.rows) {
+    const key = r.studentId.toLowerCase().replace(/-/g, "");
+    if (!sectionOf.has(key)) sectionOf.set(key, { section: r.section, name: r.studentName, semester: r.semester ?? null, batch: r.batch ?? null, ended: !!r.ended });
+  }
   const rows: QuizRow[] = [];
   for (const report of reports) {
     const campus = (report.campus ?? "").trim();
@@ -112,7 +122,9 @@ async function loadSkill(): Promise<QuizCoverageModel> {
       rows.push({
         campus,
         section: known?.section || shortSection(report.section),
-        semester: known?.semester ?? null,
+        semester: known?.semester ?? report.semester ?? null,
+        batch: known?.batch ?? report.batch ?? null,
+        ended: known?.ended ?? report.ended,
         studentId: report.studentKey,
         studentName: known?.name || report.name?.trim() || null,
         subject: course.name.trim(),

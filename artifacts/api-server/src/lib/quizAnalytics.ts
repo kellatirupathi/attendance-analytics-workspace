@@ -15,6 +15,10 @@ import { pageOf, type Page, type PageRequest } from "./pagination.js";
  */
 export interface QuizRosterFilters {
   colleges?: string[];
+  /** "college\tbatch", as on Student Attendance Stats. */
+  batches?: string[];
+  /** Running: students on a current-semester report; ended: their semester ended (last report in history). */
+  term?: "running" | "ended";
   semesters?: string[];
   sections?: string[];
 }
@@ -36,8 +40,11 @@ export interface QuizAnalyticsFilters extends QuizRosterFilters {
 
 export interface QuizRosterOption {
   college: string;
+  batch: string;
   semester: string;
   section: string;
+  ended: boolean;
+  students: number;
 }
 
 export interface QuizGroupRow {
@@ -96,14 +103,26 @@ type Row = Record<string, unknown>;
  * completions than students (317%).
  */
 const ROSTER_WITH_HISTORY = sql.raw(`(
-  SELECT student_id, college, semester, section, report FROM spi_report_cache
+  SELECT student_id, college, semester, section, batch, false AS ended, report FROM spi_report_cache
   UNION ALL
-  (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.semester, h.section, h.report
+  (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.semester, h.section, h.batch, true AS ended, h.report
    FROM spi_report_history h
    WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
    ORDER BY h.student_id, h.built_at DESC)
 ) roster`);
-const ROSTER_CACHE_ONLY = sql.raw("spi_report_cache roster");
+const ROSTER_CACHE_ONLY = sql.raw("(SELECT student_id, college, semester, section, batch, false AS ended, report FROM spi_report_cache) roster");
+
+/** The roster's batch as one key, the same text the page sends ("college\tbatch"). */
+const BATCH_KEY = sql.raw(`CONCAT(college, E'\\t', COALESCE(NULLIF(TRIM(batch), ''), 'Unknown'))`);
+
+/** Batch and running / ended tests on roster columns. */
+function batchParts(f: QuizRosterFilters): SQL[] {
+  const parts: SQL[] = [];
+  if (f.batches?.length) parts.push(sql`${BATCH_KEY} IN (${list(f.batches)})`);
+  if (f.term === "running") parts.push(sql`NOT ended`);
+  if (f.term === "ended") parts.push(sql`ended`);
+  return parts;
+}
 
 /** Runs a roster query with history; on a database without spi_report_history yet, with the live cache alone. */
 async function rosterRows(query: (roster: SQL) => SQL): Promise<Row[]> {
@@ -118,8 +137,18 @@ const num = (v: unknown): number => Number(v ?? 0);
 const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v));
 const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
 
-/** College / semester / section filters and the user's campuses; shared by the quiz tables and spi_report_cache. */
-function placementParts(scope: SessionScope, f: QuizRosterFilters, alias = ""): SQL[] {
+/**
+ * College / batch / semester / section filters and the user's campuses; shared by the roster and the quiz tables.
+ * `on`: "roster" rows carry batch and ended; attempt rows do not, so they keep the students of those roster rows.
+ */
+function placementParts(
+  scope: SessionScope,
+  f: QuizRosterFilters,
+  alias = "",
+  on: "roster" | "attempts" = "roster",
+  /** Attempts only: keep roster students alone (an attempt by a student with no report is not counted). */
+  rosterOnly = false,
+): SQL[] {
   const col = (name: string) => sql.raw(alias ? `${alias}.${name}` : name);
   const parts: SQL[] = [sql`TRUE`];
   const excluded = excludedInstituteNames();
@@ -128,12 +157,20 @@ function placementParts(scope: SessionScope, f: QuizRosterFilters, alias = ""): 
   if (f.colleges?.length) parts.push(sql`${col("college")} IN (${list(f.colleges)})`);
   if (f.semesters?.length) parts.push(sql`${col("semester")} IN (${list(f.semesters)})`);
   if (f.sections?.length) parts.push(sql`${col("section")} IN (${list(f.sections)})`);
+  const batch = batchParts(f);
+  if (on === "roster") {
+    if (batch.length) parts.push(sql.join(batch, sql` AND `));
+  } else if (batch.length || rosterOnly) {
+    parts.push(sql`${col("student_id")} IN (SELECT student_id FROM ${ROSTER_WITH_HISTORY} WHERE ${batch.length ? sql.join(batch, sql` AND `) : sql`TRUE`})`);
+  }
   return parts;
 }
 
 function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL {
   const col = (name: string) => sql.raw(alias ? `${alias}.${name}` : name);
-  const parts = placementParts(scope, f, alias);
+  // Test logins have no report, so they are kept only when asked for; everyone else must be a roster student,
+  // so the counts never include someone outside "All students" (1 such attempt in Prod, 2026-11-14).
+  const parts = placementParts(scope, f, alias, "attempts", !f.includeTest);
   if (!f.includeTest) parts.push(sql`NOT ${col("is_test")}`);
   if (f.from) parts.push(sql`(${col("opened_at")} AT TIME ZONE 'Asia/Kolkata')::date >= ${f.from}::date`);
   if (f.to) parts.push(sql`(${col("opened_at")} AT TIME ZONE 'Asia/Kolkata')::date <= ${f.to}::date`);
@@ -141,13 +178,22 @@ function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL
   return sql.join(parts, sql` AND `);
 }
 
-/** College × semester × section choices for the filters, from the roster (ended semesters included). */
+/** College × batch × semester × section choices for the filters, from the roster (ended semesters included). */
 export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRosterOption[]> {
-  const rows = await rosterRows((roster) => sql`SELECT DISTINCT college, semester, section FROM ${roster}
+  const rows = await rosterRows((roster) => sql`SELECT college, COALESCE(NULLIF(TRIM(batch), ''), 'Unknown') AS batch, semester, section,
+      BOOL_AND(ended) AS ended, COUNT(*) AS students FROM ${roster}
     WHERE ${sql.join(placementParts(scope, {}), sql` AND `)}
       AND college IS NOT NULL AND semester IS NOT NULL AND section IS NOT NULL
-    ORDER BY college, semester, section`);
-  return rows as unknown as QuizRosterOption[];
+    GROUP BY 1, 2, 3, 4
+    ORDER BY college, batch, semester, section`);
+  return rows.map((r) => ({
+    college: String(r["college"]),
+    batch: String(r["batch"]),
+    semester: String(r["semester"]),
+    section: String(r["section"]),
+    ended: r["ended"] === true || r["ended"] === "t" || r["ended"] === "true",
+    students: num(r["students"]),
+  }));
 }
 
 /** Students in the roster: the total and one count per college (or per section once a college is chosen). */
@@ -252,7 +298,7 @@ export async function getQuizAnalytics(
   const groupBy = f.colleges?.length === 1 ? "section" : "college";
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
   const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions, stages] = await Promise.all([
-    getRosterCounts(scope, { colleges: f.colleges, semesters: f.semesters, sections: f.sections }, groupBy),
+    getRosterCounts(scope, { colleges: f.colleges, batches: f.batches, term: f.term, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
     rows(sql`SELECT ${sql.raw(groupBy)} AS name, ${COUNTS} FROM spi_quiz_attempts WHERE ${where} GROUP BY 1`),

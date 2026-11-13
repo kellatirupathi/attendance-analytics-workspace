@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { fmtInt } from "@/lib/assessmentMetrics";
 import { quizApi, type DownloadView, type QuizFilters, type QuizKpis, type QuizType } from "@/lib/quizCoverage";
 
@@ -11,7 +12,7 @@ const OPTIONS: { view: DownloadView; label: string; count: (c: QuizKpis["counts"
   { view: "student-subject", label: "Student × subject", count: (c) => c.studentSubject },
 ];
 
-/** One Download button: pick a file, pick Excel or CSV. The server writes every row for the filters above. */
+/** One Export button (as on the other pages): pick a file, pick Excel or CSV. The server writes every row for the filters above. */
 export function QuizDownload({ quizType, filters, counts }: { quizType: QuizType; filters: QuizFilters; counts: QuizKpis["counts"] | undefined }) {
   const [view, setView] = useState<DownloadView>("campus");
   const [format, setFormat] = useState<"xlsx" | "csv">("xlsx");
@@ -19,9 +20,9 @@ export function QuizDownload({ quizType, filters, counts }: { quizType: QuizType
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">
-          <Download className="h-4 w-4" aria-hidden="true" /> Download <ChevronDown className="h-4 w-4 text-slate-400" aria-hidden="true" />
-        </button>
+        <Button type="button" className="h-10 gap-2">
+          <Download className="h-4 w-4" aria-hidden="true" /> Export <ChevronDown className="h-4 w-4" aria-hidden="true" />
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-3">
         <fieldset>
@@ -58,7 +59,7 @@ export function QuizDownload({ quizType, filters, counts }: { quizType: QuizType
         >
           Download
         </a>
-        <p className="mt-2 text-center text-xs text-slate-500">Uses the filters above</p>
+        <p className="mt-2 text-center text-xs text-slate-500">Uses the filters on the page</p>
       </PopoverContent>
     </Popover>
   );

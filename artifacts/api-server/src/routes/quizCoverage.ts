@@ -39,7 +39,12 @@ interface QuizRequest {
 /** Reads quizType and the filters; sends the error response itself and returns null when the request is not allowed. */
 function readRequest(req: Request, res: Response): QuizRequest | null {
   const session = req.session!;
-  const q = req.query as Record<string, string | undefined>;
+  const raw = req.query as Record<string, string | string[] | undefined>;
+  const one = (key: string) => { const v = raw[key]; return Array.isArray(v) ? v[0] : v; };
+  /** Repeated params (college=A&college=B); a name may hold a comma, so no comma splitting. */
+  const many = (key: string) => { const v = raw[key]; return [...new Set((Array.isArray(v) ? v : v ? [v] : []).map((x) => x.trim()).filter(Boolean))]; };
+  const q: Record<string, string | undefined> = { quizType: one("quizType"), college: one("college"), semester: one("semester"), section: one("section"), category: one("category"), subject: one("subject") };
+  const term = one("term");
   const type = (q["quizType"] ?? "CLASSROOM_QUIZ") as CoverageType;
   if (!TYPES.includes(type)) {
     res.status(400).json({ error: "Invalid quizType" });
@@ -49,13 +54,15 @@ function readRequest(req: Request, res: Response): QuizRequest | null {
   const filter: QuizFilter = {
     scopeCampuses: scope.campuses,
     scopeSubjects: scope.subjects,
-    college: q["college"],
+    colleges: many("college"),
+    batches: many("batch").filter((v) => v.includes("	")),
+    term: term === "running" || term === "ended" ? term : undefined,
     semester: q["semester"],
-    section: q["section"],
+    sections: many("section"),
     category: q["category"],
     subject: q["subject"],
   };
-  if (filter.college && scope.campuses?.length && !scope.campuses.includes(filter.college.trim())) {
+  if (scope.campuses?.length && filter.colleges!.some((c) => !scope.campuses!.includes(c))) {
     res.status(403).json({ error: "Not permitted for this campus" });
     return null;
   }
@@ -221,7 +228,7 @@ router.get("/download", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Invalid view" });
       return;
     }
-    const college = (r.filter.college ?? "").trim().replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "All";
+    const college = (r.filter.colleges?.length === 1 ? r.filter.colleges[0]! : r.filter.colleges?.length ? `${r.filter.colleges.length}-colleges` : "").trim().replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "All";
     const name = `SPI_${LABEL[r.type]}_${sheet.view}_${college}_${todayIst()}.${format}`;
     res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
     res.setHeader("Cache-Control", "no-store");

@@ -32,13 +32,17 @@ export function bandOf(metric: BandMetric, value: number | null): Band {
 }
 
 export interface QuizFilters {
-  college: string;
-  semester: string;
-  section: string;
+  colleges: string[];
+  /** "college	batch" keys. */
+  batches: string[];
+  /** "": this semester (every batch); running / ended: batches whose semester is in progress / over. */
+  term: "" | "running" | "ended";
+  /** "batch	section" keys: a section name repeats across the batches of a college. */
+  sections: string[];
   category: string;
   subject: string;
 }
-export const NO_FILTERS: QuizFilters = { college: "", semester: "", section: "", category: "", subject: "" };
+export const NO_FILTERS: QuizFilters = { colleges: [], batches: [], term: "", sections: [], category: "", subject: "" };
 
 export interface QuizKpis {
   available: number;
@@ -54,8 +58,9 @@ export interface QuizKpis {
 
 export interface QuizOptions {
   colleges: string[];
+  batches: { campus: string; batch: string; semester: string; ended: boolean; students: number }[];
   semesters: string[];
-  sections: { college: string; semester?: string; section: string }[];
+  sections: { college: string; batch: string; semester?: string; section: string }[];
   categories: string[];
   subjects: { college: string; subject: string; category: string | null }[];
   /** Skill Assessment only: colleges in the user's scope that have no Skill Assessment data. */
@@ -104,9 +109,13 @@ export interface StudentPanel {
 
 export type DownloadView = "campus" | "student" | "student-subject";
 
+/** The filters as the server reads them; lists repeat their key (college=A&college=B). */
 function query(type: QuizType, f: Partial<QuizFilters>, extra: Record<string, string | number | undefined> = {}): string {
   const p = new URLSearchParams({ quizType: type });
-  for (const [k, v] of Object.entries({ ...f, ...extra })) if (v !== undefined && v !== "") p.set(k, String(v));
+  const lists: [string, string[] | undefined][] = [["college", f.colleges], ["batch", f.batches], ["section", f.sections]];
+  for (const [k, values] of lists) for (const v of values ?? []) p.append(k, v);
+  const single: Record<string, string | number | undefined> = { term: f.term, category: f.category, subject: f.subject, ...extra };
+  for (const [k, v] of Object.entries(single)) if (v !== undefined && v !== "") p.set(k, String(v));
   return p.toString();
 }
 

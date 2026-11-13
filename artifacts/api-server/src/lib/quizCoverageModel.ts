@@ -17,8 +17,12 @@
 export interface QuizRow {
   campus: string;
   section: string;
-  /** The section's current semester, e.g. "Semester 3". */
+  /** The student's semester, e.g. "Semester 3" (current, or the last ended one for a batch between semesters). */
   semester?: string | null;
+  /** The batch of the student's latest session. */
+  batch?: string | null;
+  /** The semester has ended (the batch is between semesters). */
+  ended?: boolean;
   studentId: string;
   studentName: string | null;
   subject: string;
@@ -35,6 +39,8 @@ export interface PlanRow {
   campus: string;
   section: string;
   semester?: string | null;
+  batch?: string | null;
+  ended?: boolean;
   sectionId: string;
   subject: string;
   category: string | null;
@@ -58,13 +64,22 @@ export interface QuizFilter {
   /** Subjects the user may see (empty or missing: all). */
   scopeSubjects?: string[];
   college?: string;
+  /** Several colleges (the page's College menu); `college` still works for one. */
+  colleges?: string[];
+  /** "college\tbatch" keys. */
+  batches?: string[];
+  /** Running: semester in progress; ended: batches between semesters. */
+  term?: "running" | "ended";
   semester?: string;
   section?: string;
+  /** "batch\tsection" keys (a section name repeats across batches of a college), or plain section names. */
+  sections?: string[];
   category?: string;
   subject?: string;
 }
 
 const clean = (v: string | undefined) => (v ?? "").trim();
+const batchName = (b: string | null | undefined) => (b ?? "").trim() || "Unknown";
 
 /** One predicate for quiz rows and plan rows: both carry campus, section, subject and category. */
 function matcher(f: QuizFilter) {
@@ -75,10 +90,18 @@ function matcher(f: QuizFilter) {
   const section = clean(f.section);
   const category = clean(f.category).toUpperCase();
   const subject = clean(f.subject);
-  return (r: { campus: string; section: string; semester?: string | null; subject: string; category: string | null }) =>
+  const colleges = new Set((f.colleges ?? []).map(clean).filter(Boolean));
+  const batches = new Set((f.batches ?? []).map(clean).filter(Boolean));
+  const sections = new Set((f.sections ?? []).map(clean).filter(Boolean));
+  return (r: { campus: string; section: string; semester?: string | null; batch?: string | null; ended?: boolean; subject: string; category: string | null }) =>
     (scopeCampuses.size === 0 || scopeCampuses.has(r.campus)) &&
     (scopeSubjects.size === 0 || scopeSubjects.has(r.subject)) &&
     (!college || r.campus === college) &&
+    (colleges.size === 0 || colleges.has(r.campus)) &&
+    (batches.size === 0 || batches.has(`${r.campus}\t${batchName(r.batch)}`)) &&
+    (f.term !== "running" || !r.ended) &&
+    (f.term !== "ended" || !!r.ended) &&
+    (sections.size === 0 || sections.has(`${batchName(r.batch)}\t${r.section}`) || sections.has(r.section)) &&
     (!semester || (r.semester ?? "") === semester) &&
     (!section || r.section === section) &&
     (!category || (r.category ?? "") === category) &&
@@ -339,10 +362,20 @@ export function studentSubjectRows(model: QuizCoverageModel, f: QuizFilter, uid?
   return out;
 }
 
+/** A batch for the Batch menu: the semester most of its students are on, whether it ended, and its students. */
+export interface QuizBatchOption {
+  campus: string;
+  batch: string;
+  semester: string;
+  ended: boolean;
+  students: number;
+}
+
 export interface QuizFilterOptions {
   colleges: string[];
+  batches: QuizBatchOption[];
   semesters: string[];
-  sections: { college: string; semester?: string; section: string }[];
+  sections: { college: string; batch: string; semester?: string; section: string }[];
   categories: string[];
   subjects: { college: string; subject: string; category: string | null }[];
 }
@@ -354,21 +387,38 @@ export function quizFilterOptions(model: QuizCoverageModel, f: Pick<QuizFilter, 
   const rows = filterRows(model, f);
   const colleges = new Set<string>();
   const semesters = new Set<string>();
-  const sections = new Map<string, { college: string; semester?: string; section: string }>();
+  const sections = new Map<string, { college: string; batch: string; semester?: string; section: string }>();
+  const batches = new Map<string, { campus: string; batch: string; students: Set<string>; bySemester: Map<string, Set<string>>; ended: boolean }>();
   const categories = new Set<string>(NIAT_CATEGORIES);
   const subjects = new Map<string, { college: string; subject: string; category: string | null }>();
   for (const r of rows) {
     colleges.add(r.campus);
     if (r.semester) semesters.add(r.semester);
-    sections.set(`${r.campus}\t${r.section}`, { college: r.campus, ...(r.semester ? { semester: r.semester } : {}), section: r.section });
+    const batch = batchName(r.batch);
+    sections.set(`${r.campus}\t${batch}\t${r.section}`, { college: r.campus, batch, ...(r.semester ? { semester: r.semester } : {}), section: r.section });
+    const b = batches.get(`${r.campus}\t${batch}`) ?? { campus: r.campus, batch, students: new Set<string>(), bySemester: new Map<string, Set<string>>(), ended: true };
+    b.students.add(r.studentId);
+    const sem = r.semester ?? "";
+    b.bySemester.set(sem, (b.bySemester.get(sem) ?? new Set<string>()).add(r.studentId));
+    if (!r.ended) b.ended = false;
+    batches.set(`${r.campus}\t${batch}`, b);
     if (r.category) categories.add(r.category);
     subjects.set(`${r.campus}\t${r.subject}`, { college: r.campus, subject: r.subject, category: r.category });
   }
   const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
   return {
     colleges: [...colleges].sort(byText),
+    batches: [...batches.values()]
+      .map((b) => ({
+        campus: b.campus,
+        batch: b.batch,
+        semester: [...b.bySemester.entries()].sort((x, y) => y[1].size - x[1].size || byText(y[0], x[0]))[0]?.[0] ?? "",
+        ended: b.ended,
+        students: b.students.size,
+      }))
+      .sort((a, b) => byText(a.campus, b.campus) || byText(a.batch, b.batch)),
     semesters: [...semesters].sort(byText),
-    sections: [...sections.values()].sort((a, b) => byText(a.college, b.college) || byText(a.section, b.section)),
+    sections: [...sections.values()].sort((a, b) => byText(a.college, b.college) || byText(a.batch, b.batch) || byText(a.section, b.section)),
     categories: [...categories].sort(byText),
     subjects: [...subjects.values()].sort((a, b) => byText(a.subject, b.subject) || byText(a.college, b.college)),
   };

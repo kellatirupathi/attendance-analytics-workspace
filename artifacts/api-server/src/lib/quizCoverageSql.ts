@@ -4,11 +4,12 @@
  * Two result sets, loaded once into a shared snapshot (quizCoverage.ts) and filtered in memory:
  *   rows  one row per student × subject × quiz type, from the quiz table (z_niat_students_classroom_and_module_quiz_details):
  *         scheduled / completed quizzes and the best-attempt average score.
- *         Only the student's own current-semester subjects are kept: a student's quiz rows for a course
- *         that is not in their section's current semester (e.g. Semester 1 courses of a Semester 3
- *         student) are dropped: the student's section comes from the attendance view and its current
- *         semester's courses from the prod sequence. Students who are not in a current semester at all
- *         (earlier batches) drop out with their rows.
+ *         Only the student's own semester's subjects are kept: a student's quiz rows for a course
+ *         that is not in their section's semester (e.g. Semester 1 courses of a Semester 3 student) are
+ *         dropped: the student's section comes from the attendance view and its courses from the prod
+ *         sequence. The student's semester is the report's (attWhere): the current one, or for a student
+ *         with no current rows (a batch between semesters) their last ended semester, whose courses are
+ *         that semester's in the prod sequence (matched by title, since it is no longer current).
  *   plan  the quizzes planned in the prod sequence, one row per section × quiz (so the Available and
  *         Scheduled so far cards count a quiz once for every section that has it).
  */
@@ -44,7 +45,10 @@ export function buildQuizCoverageRowsSql(
       ${KEY("a.student_user_id")} AS student_key,
       ${KEY("a.section_id")} AS section_key,
       ANY_VALUE(a.student_name) AS student_name,
-      ANY_VALUE(TRIM(a.semester_title)) AS semester
+      ANY_VALUE(TRIM(a.semester_title)) AS semester,
+      -- The batch of the student's latest session (a transferred student's old rows keep the old college's batch).
+      ARRAY_AGG(COALESCE(NULLIF(TRIM(a.batch_name), ''), 'Unknown') ORDER BY DATE(a.date) DESC LIMIT 1)[OFFSET(0)] AS batch,
+      LOGICAL_AND(a.is_current_semester = 0) AS ended
     FROM ${t.attendance} a
     WHERE ${attWhere}
       AND a.institute_name IS NOT NULL AND TRIM(a.institute_name) != ''
@@ -52,23 +56,27 @@ export function buildQuizCoverageRowsSql(
     GROUP BY campus, student_key, section_key
   ),
   courses AS (
-    SELECT DISTINCT ${KEY("section_id")} AS section_key, LOWER(TRIM(course_title)) AS subject_key
+    SELECT DISTINCT ${KEY("section_id")} AS section_key, LOWER(TRIM(course_title)) AS subject_key,
+           is_current_semester = 1 AS is_cur, TRIM(CAST(semester_title AS STRING)) AS sem
     FROM ${t.prodSequence}
-    WHERE is_current_semester = 1 AND course_title IS NOT NULL AND TRIM(course_title) != ''
+    WHERE course_title IS NOT NULL AND TRIM(course_title) != ''
   ),
   enrol AS (
-    -- The student's own section's current-semester courses.
+    -- The student's own section's courses: the current semester's, or for an ended student that ended semester's.
     SELECT DISTINCT s.campus, s.student_key, c.subject_key
     FROM stu s JOIN courses c ON c.section_key = s.section_key
+     AND ((NOT s.ended AND c.is_cur) OR (s.ended AND NOT c.is_cur AND c.sem = s.semester))
   ),
   student_names AS (
-    SELECT campus, student_key, ANY_VALUE(student_name) AS student_name, ANY_VALUE(semester) AS semester FROM stu GROUP BY campus, student_key
+    SELECT campus, student_key, ANY_VALUE(student_name) AS student_name, ANY_VALUE(semester) AS semester,
+           ANY_VALUE(batch) AS batch, LOGICAL_AND(ended) AS ended
+    FROM stu GROUP BY campus, student_key
   ),
   cat AS (
+    -- The current semester's category first; an ended semester's course keeps its own.
     SELECT TRIM(institute_name) AS campus, LOWER(TRIM(course_title)) AS subject_key,
-           ANY_VALUE(UPPER(TRIM(CAST(category AS STRING)))) AS category
+           ARRAY_AGG(UPPER(TRIM(CAST(category AS STRING))) IGNORE NULLS ORDER BY is_current_semester DESC LIMIT 1)[SAFE_OFFSET(0)] AS category
     FROM ${t.prodSequence}
-    WHERE is_current_semester = 1
     GROUP BY campus, subject_key
   ),
   z AS (
@@ -88,7 +96,7 @@ export function buildQuizCoverageRowsSql(
       AND q.semester_course_title IS NOT NULL AND TRIM(q.semester_course_title) != ''
     GROUP BY campus, section, student_key, subject
   )
-  SELECT z.campus, z.section, z.student_id, z.subject, c.category, n.student_name, n.semester,
+  SELECT z.campus, z.section, z.student_id, z.subject, c.category, n.student_name, n.semester, n.batch, n.ended,
          z.scheduled, z.completed, z.avg_score
   FROM z
   ${restrictToSemester ? "JOIN" : "LEFT JOIN"} enrol e
@@ -98,11 +106,12 @@ export function buildQuizCoverageRowsSql(
 }
 
 /**
- * Planned quizzes of the current semester, one row per section × quiz, with the date of its first session.
+ * Planned quizzes of the current semester (and, with `endedSectionsSql`, of each ended section's last semester:
+ * "section_key\tsemester title" keys), one row per section × quiz, with the date of its first session.
  * The prod sequence also holds colleges that are not NIAT campuses (the Intensive Offline ones, Training
  * Institute); quizCoverage.ts keeps only the colleges that have student rows (scopePlanToStudentColleges).
  */
-export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, planWhere: string): string {
+export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, planWhere: string, endedSectionsSql?: string): string {
   const moduleOnly = type === "MODULE_QUIZ" ? "AND rt.unit_type IN ('ASSESSMENT', 'EXAM')" : "";
   return `WITH quiz AS (
     SELECT DISTINCT rt.session_id, rt.resource_id
@@ -113,6 +122,8 @@ export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, 
     TRIM(p.institute_name) AS campus,
     TRIM(p.section_name) AS section,
     ANY_VALUE(TRIM(p.semester_title)) AS semester,
+    COALESCE(NULLIF(TRIM(p.batch_name), ''), 'Unknown') AS batch,
+    LOGICAL_AND(p.is_current_semester = 0) AS ended,
     ${KEY("p.section_id")} AS section_id,
     TRIM(p.course_title) AS subject,
     UPPER(TRIM(CAST(p.category AS STRING))) AS category,
@@ -120,6 +131,8 @@ export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, 
     CAST(MIN(DATE(p.session_start_datetime)) AS STRING) AS first_date
   FROM ${t.prodSequence} p
   JOIN quiz q ON q.session_id = p.session_id
-  WHERE p.is_current_semester = 1 AND ${planWhere}
-  GROUP BY campus, section, section_id, subject, category, resource_id`;
+  WHERE ${endedSectionsSql
+    ? `(p.is_current_semester = 1 OR CONCAT(${KEY("p.section_id")}, CHR(9), TRIM(CAST(p.semester_title AS STRING))) IN (${endedSectionsSql}))`
+    : "p.is_current_semester = 1"} AND ${planWhere}
+  GROUP BY campus, section, batch, section_id, subject, category, resource_id`;
 }

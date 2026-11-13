@@ -5727,7 +5727,7 @@ const attendanceStatsDetailInFlight = new Map<string, Promise<AttendanceStatsDet
  * for a student with no current rows at all, their last ended semester (ended_sem). So a batch whose semester
  * ended stays on the page, marked Ended, and so does a student who did not move up with their batch.
  */
-const LATEST_SEMESTER_SQL = `(
+export const LATEST_SEMESTER_SQL = `(
     is_current_semester = 1
     OR (is_current_semester = 0 AND CONCAT(${studentKeySql("student_user_id")}, CHR(9), TRIM(CAST(semester_title AS STRING))) IN (
       SELECT CONCAT(student_key, CHR(9), sem) FROM (${endedSemestersSelect("all", {})})
@@ -5738,7 +5738,7 @@ const LATEST_SEMESTER_SQL = `(
  * The report's roster (reportEligibility.ts): students with a real campus in the core backend master. Students
  * who left (blank institute there) still have attendance rows, but no report, so they are not counted here either.
  */
-const REPORT_ROSTER_SQL = `${studentKeySql("student_user_id")} IN (${reportEligibleKeysSql()})`;
+export const REPORT_ROSTER_SQL = `${studentKeySql("student_user_id")} IN (${reportEligibleKeysSql()})`;
 
 function attendanceStatsWhere(
   scope: SessionScope,

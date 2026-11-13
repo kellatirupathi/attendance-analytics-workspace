@@ -6,11 +6,12 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Download, Search, SearchX, X } from "lucide-react";
+import { CheckMenu } from "@/components/SpiRecordFilterBar";
+import { ExportMenu, FilterField, fieldTrigger, MoreFiltersSheet, ScopeFilterBar, type FilterChip, type ScopeBatch, type Term } from "@/components/ScopeFilters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/PageHeader";
-import { MultiSelect } from "@/components/MultiSelect";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 import { Body, cell, Head, num, Pager } from "@/components/assessments/quiz/QuizTables";
 import { Pill } from "@/components/assessments/quiz/quizParts";
@@ -61,8 +62,20 @@ interface Analytics {
 
 interface Option {
   college: string;
+  batch: string;
   semester: string;
   section: string;
+  ended: boolean;
+  students: number;
+}
+
+/** More filters before Apply. */
+interface Draft {
+  sections: string[];
+  statuses: Status[];
+  range: DateRange;
+  score: string;
+  includeTest: boolean;
 }
 
 type SortKey = "name" | "students" | "opened" | "completion" | "avgScore";
@@ -105,19 +118,6 @@ function Bar({ pct: value, tone = "bg-brand-600" }: { pct: number; tone?: string
   );
 }
 
-/** A visible label above a filter control. */
-function Field({ label, htmlFor, hint, children, className }: { label: string; htmlFor?: string; hint?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <label htmlFor={htmlFor} className="text-xs font-medium text-slate-600">
-        {label}
-      </label>
-      {children}
-      {hint}
-    </div>
-  );
-}
-
 /** Waits until typing stops before the value is used in a query. */
 function useDebounced<T>(value: T, ms: number): T {
   const [settled, setSettled] = useState(value);
@@ -133,7 +133,11 @@ export default function SpiQuizAnalytics() {
   const allowed = ROLES.includes(user?.role ?? "");
   const scoreId = useId();
   const [colleges, setColleges] = useState<string[]>([]);
-  const [semesters, setSemesters] = useState<string[]>([]);
+  /** "college\tbatch" keys. */
+  const [batches, setBatches] = useState<string[]>([]);
+  const [term, setTerm] = useState<Term>("");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [draft, setDraft] = useState<Draft>({ sections: [], statuses: [], range: { dateFrom: "", dateTo: "" }, score: "", includeTest: false });
   const [sections, setSections] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<Status[]>([]);
   /** Colleges ticked in the College-wise table, for "Export selected". */
@@ -153,8 +157,9 @@ export default function SpiQuizAnalytics() {
   const params = useMemo(() => {
     const p = new URLSearchParams();
     colleges.forEach((c) => p.append("college", c));
-    semesters.forEach((s) => p.append("semester", s));
-    if (colleges.length) sections.forEach((s) => p.append("section", s));
+    batches.forEach((b) => p.append("batch", b));
+    if (term) p.set("term", term);
+    if (colleges.length || batches.length) sections.forEach((s) => p.append("section", s));
     statuses.forEach((s) => p.append("status", s));
     if (range.dateFrom) p.set("from", range.dateFrom);
     if (range.dateTo) p.set("to", range.dateTo);
@@ -162,7 +167,7 @@ export default function SpiQuizAnalytics() {
     if (student) p.set("student", student);
     if (includeTest) p.set("test", "1");
     return p;
-  }, [colleges, semesters, sections, statuses, range, score, student, includeTest]);
+  }, [colleges, batches, term, sections, statuses, range, score, student, includeTest]);
   const viewKey = `${params.toString()}|${pageSize}`;
   const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
   const page = pageState.key === viewKey ? pageState.page : 1;
@@ -183,19 +188,23 @@ export default function SpiQuizAnalytics() {
 
   const opts = options.data?.options ?? [];
   const collegeChoices = [...new Set(opts.map((o) => o.college))];
-  const semesterChoices = [...new Set(opts.filter((o) => !colleges.length || colleges.includes(o.college)).map((o) => o.semester))].sort();
-  const sectionChoices = [
-    ...new Set(
-      opts
-        .filter((o) => colleges.includes(o.college) && (!semesters.length || semesters.includes(o.semester)))
-        .map((o) => o.section),
-    ),
-  ];
-  // Changing a parent filter drops choices that no longer exist, so no hidden filter stays on.
-  const keepSections = (nextColleges: string[], nextSemesters: string[]) =>
-    sections.filter((s) =>
-      opts.some((o) => o.section === s && nextColleges.includes(o.college) && (!nextSemesters.length || nextSemesters.includes(o.semester))),
-    );
+  /** One entry per batch: its students, and the semester most of them are on (ended when every one of them ended). */
+  const batchChoices = useMemo<ScopeBatch[]>(() => {
+    const byBatch = new Map<string, { campus: string; batch: string; ended: boolean; students: number; bySemester: Map<string, number> }>();
+    for (const o of opts) {
+      const key = `${o.college}\t${o.batch}`;
+      const b = byBatch.get(key) ?? { campus: o.college, batch: o.batch, ended: true, students: 0, bySemester: new Map<string, number>() };
+      b.students += o.students;
+      if (!o.ended) b.ended = false;
+      b.bySemester.set(o.semester, (b.bySemester.get(o.semester) ?? 0) + o.students);
+      byBatch.set(key, b);
+    }
+    return [...byBatch.values()].map(({ bySemester, ...b }) => ({ ...b, semester: [...bySemester.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? "" }));
+  }, [opts]);
+  /** Sections of the colleges / batches picked (none until one is picked: a section name means little across colleges). */
+  const sectionChoicesFor = (cols: string[], bats: string[]) =>
+    [...new Set(opts.filter((o) => (cols.length || bats.length) && (!cols.length || cols.includes(o.college)) && (!bats.length || bats.includes(`${o.college}\t${o.batch}`))).map((o) => o.section))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const sectionChoices = sectionChoicesFor(colleges, batches);
 
   if (!allowed) {
     return (
@@ -212,19 +221,20 @@ export default function SpiQuizAnalytics() {
   const scoreBad = scoreText.trim() !== "" && !/^\d{1,3}$/.test(scoreText.trim());
   const scoreTooHigh = !scoreBad && scoreText.trim() !== "" && Number(scoreText) > maxScore;
 
-  const chips = [
-    colleges.length > 0 && { label: chipText(colleges, "colleges"), clear: () => (setColleges([]), setSections([])) },
-    semesters.length > 0 && { label: chipText(semesters, "semesters"), clear: () => (setSemesters([]), setSections([])) },
-    colleges.length > 0 && sections.length > 0 && { label: `Section ${chipText(sections, "sections")}`, clear: () => setSections([]) },
-    statuses.length > 0 && { label: chipText(statuses.map((s) => STATUS[s].label), "statuses"), clear: () => setStatuses([]) },
-    (range.dateFrom || range.dateTo) && { label: `Quiz opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) },
-    score && { label: `Score = ${score}`, clear: () => setScoreText("") },
-    student && { label: `Student "${student}"`, clear: () => setStudentText("") },
-    includeTest && { label: "Test logins included", clear: () => setIncludeTest(false) },
-  ].filter(Boolean) as { label: string; clear: () => void }[];
+  const chips: FilterChip[] = [
+    ...(sections.length ? [{ key: "section", label: `Section: ${chipText(sections, "sections")}`, clear: () => setSections([]) }] : []),
+    ...(statuses.length ? [{ key: "status", label: `Status: ${chipText(statuses.map((s) => STATUS[s].label), "statuses")}`, clear: () => setStatuses([]) }] : []),
+    ...(range.dateFrom || range.dateTo ? [{ key: "dates", label: `Quiz opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) }] : []),
+    ...(score ? [{ key: "score", label: `Score = ${score}`, clear: () => setScoreText("") }] : []),
+    ...(student ? [{ key: "student", label: `Student "${student}"`, clear: () => setStudentText("") }] : []),
+    ...(includeTest ? [{ key: "test", label: "Test logins included", clear: () => setIncludeTest(false) }] : []),
+  ];
+  const moreCount = (sections.length ? 1 : 0) + (statuses.length ? 1 : 0) + (range.dateFrom || range.dateTo ? 1 : 0) + (score ? 1 : 0) + (includeTest ? 1 : 0);
+  const anyFilter = colleges.length > 0 || batches.length > 0 || term !== "" || chips.length > 0;
   const clearAll = () => {
     setColleges([]);
-    setSemesters([]);
+    setBatches([]);
+    setTerm("");
     setSections([]);
     setStatuses([]);
     setRange({ dateFrom: "", dateTo: "" });
@@ -232,7 +242,29 @@ export default function SpiQuizAnalytics() {
     setStudentText("");
     setIncludeTest(false);
   };
-
+  const openMore = () => {
+    setDraft({ sections, statuses, range, score: scoreText.trim(), includeTest });
+    setMoreOpen(true);
+  };
+  const draftScoreError = draft.score && !/^\d{1,3}$/.test(draft.score) ? "Enter a whole number." : draft.score && Number(draft.score) > maxScore ? `Scores go up to ${maxScore}.` : "";
+  const draftDateError = draft.range.dateFrom && draft.range.dateTo && draft.range.dateFrom > draft.range.dateTo ? "From must be on or before To." : "";
+  const applyMore = () => {
+    if (draftScoreError || draftDateError) return;
+    setSections(draft.sections);
+    setStatuses(draft.statuses);
+    setRange(draft.range);
+    setScoreText(draft.score);
+    setIncludeTest(draft.includeTest);
+    setMoreOpen(false);
+  };
+  const exportGroups = async () => {
+    const label = data?.groupBy === "section" ? "Section" : "College";
+    exportCsv(
+      `spi-quiz-${label.toLowerCase()}-wise-${new Date().toISOString().slice(0, 10)}.csv`,
+      [label, "Students", "Opened quiz", "Started", "Completed", "Completed %", "Avg score"],
+      groups.map((g) => [g.name, g.students, g.opened, g.started, g.completed, g.students ? Math.round(pct(g.completed, g.students) * 10) / 10 : "", g.avgScore == null ? "" : Math.round(g.avgScore * 10) / 10]),
+    );
+  };
   const funnel = t
     ? [
         { label: "All students", n: t.students },
@@ -313,145 +345,100 @@ export default function SpiQuizAnalytics() {
         title="SPI Quiz Analytics"
         subtitle="SPI quick quiz before the student report"
         right={
-          <Button onClick={() => void onExport()} disabled={exporting || !data || noMatch}>
-            <Download className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            {exporting ? "Exporting…" : "Export CSV"}
-          </Button>
+          <ExportMenu
+            disabled={!data}
+            choices={[
+              {
+                title: "Students in these filters",
+                detail: `One row per student (${data ? fmtInt(data.students.total) : "…"}): status, score, time, dates`,
+                disabled: noMatch,
+                run: () => onExport(),
+              },
+              {
+                title: data?.groupBy === "section" ? "Section-wise table" : "College-wise table",
+                detail: `${fmtInt(groups.length)} rows: students, opened, completed, average score`,
+                disabled: groups.length === 0,
+                run: exportGroups,
+              },
+            ]}
+          />
         }
       />
 
-      {/* Filters: labelled controls, active filters as removable chips. */}
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          <Field label="College">
-            <MultiSelect
-              compact
-              noun="colleges"
-              placeholder="All colleges"
-              options={collegeChoices}
-              value={colleges}
-              onChange={(next) => {
-                setColleges(next);
-                setSections(next.length ? keepSections(next, semesters) : []);
-                setSemesters((cur) =>
-                  cur.filter((s) => !next.length || opts.some((o) => o.semester === s && next.includes(o.college))),
-                );
-              }}
-            />
-          </Field>
-          <Field label="Semester">
-            <MultiSelect
-              compact
-              noun="semesters"
-              placeholder="All semesters"
-              options={semesterChoices}
-              value={semesters}
-              onChange={(next) => {
-                setSemesters(next);
-                setSections(keepSections(colleges, next));
-              }}
-            />
-          </Field>
-          <Field label="Section">
-            <MultiSelect compact noun="sections" placeholder={colleges.length ? "All sections" : "Pick a college first"} options={sectionChoices} value={sections} onChange={setSections} disabled={!colleges.length} />
-          </Field>
-          <Field label="Status (table and export)">
-            <MultiSelect
-              compact
-              noun="statuses"
-              placeholder="All statuses"
-              options={STATUS_ORDER}
-              value={statuses}
-              onChange={(next) => setStatuses(STATUS_ORDER.filter((s) => next.includes(s)))}
-              labelFor={(s) => STATUS[s as Status].label}
-            />
-          </Field>
-          <Field label="Quiz opened on">
-            <DateRangeFilter value={range} onChange={setRange} allDatesLabel="All dates" />
-          </Field>
-          <Field
-            label="Quiz score"
-            htmlFor={scoreId}
-            hint={
-              scoreBad || scoreTooHigh ? (
-                <span id={`${scoreId}-hint`} className="text-[11px] text-amber-700" aria-live="polite">
-                  {scoreBad ? "Enter a whole number" : `Scores go up to ${maxScore}`}
-                </span>
-              ) : undefined
-            }
-          >
-            <div className="relative">
-              <Input
-                id={scoreId}
-                inputMode="numeric"
-                placeholder={`Exact, 0–${maxScore}`}
-                value={scoreText}
-                onChange={(e) => setScoreText(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
-                aria-describedby={scoreBad || scoreTooHigh ? `${scoreId}-hint` : undefined}
-                aria-invalid={scoreBad || scoreTooHigh}
-                className="h-10 pr-8 tabular-nums"
-              />
-              {scoreText && (
-                <button
-                  type="button"
-                  onClick={() => setScoreText("")}
-                  aria-label="Clear quiz score"
-                  className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          </Field>
-          <Field label="Student (table and export)" htmlFor={studentId}>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <Input
-                id={studentId}
-                type="search"
-                placeholder="Name or ID"
-                value={studentText}
-                onChange={(e) => setStudentText(e.target.value.slice(0, 100))}
-                className="h-10 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
-              />
-              {studentText && (
-                <button
-                  type="button"
-                  onClick={() => setStudentText("")}
-                  aria-label="Clear student search"
-                  className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-          </Field>
-        </div>
+      <ScopeFilterBar
+        campusOptions={collegeChoices}
+        campuses={colleges}
+        onCampuses={(next) => {
+          setColleges(next);
+          const keptBatches = next.length ? batches.filter((b) => next.includes(b.split("\t")[0]!)) : batches;
+          setBatches(keptBatches);
+          setSections((cur) => cur.filter((x) => sectionChoicesFor(next, keptBatches).includes(x)));
+        }}
+        batchOptions={batchChoices}
+        batches={batches}
+        onBatches={(next) => {
+          setBatches(next);
+          setSections((cur) => cur.filter((x) => sectionChoicesFor(colleges, next).includes(x)));
+        }}
+        term={term}
+        onTerm={setTerm}
+        moreCount={moreCount}
+        onMore={openMore}
+        chips={chips}
+        anyFilter={anyFilter}
+        onClearAll={clearAll}
+      />
 
-        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5">
-          {chips.length === 0 ? (
-            <span className="text-xs text-slate-500">No filters · all colleges, all dates</span>
-          ) : (
-            <>
-              {chips.map((c) => (
-                <span key={c.label} className="inline-flex items-center gap-1 rounded-full bg-brand-50 py-1 pl-3 pr-1 text-xs font-medium text-brand-900 ring-1 ring-brand-100">
-                  {c.label}
-                  <button type="button" onClick={c.clear} aria-label={`Remove filter ${c.label}`} className={cn("rounded-full p-0.5 hover:bg-brand-100", FOCUS_RING)}>
-                    <X className="h-3 w-3" />
-                  </button>
-                </span>
-              ))}
-              <button type="button" onClick={clearAll} className={cn("text-xs font-medium text-brand-800 hover:underline", FOCUS_RING)}>
-                Clear all
-              </button>
-            </>
-          )}
-          <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-            <Switch checked={includeTest} onCheckedChange={setIncludeTest} />
-            Show test logins
-          </label>
+      <MoreFiltersSheet
+        open={moreOpen}
+        onOpenChange={setMoreOpen}
+        description="Narrow the counts, charts and table by section, quiz status, the day the quiz was opened, or score."
+        onReset={() => setDraft({ sections: [], statuses: [], range: { dateFrom: "", dateTo: "" }, score: "", includeTest: false })}
+        onApply={applyMore}
+        applyDisabled={Boolean(draftScoreError || draftDateError)}
+      >
+        <FilterField label="Section">
+          <CheckMenu
+            chevron
+            className={fieldTrigger}
+            label={draft.sections.length ? `${draft.sections.length} selected` : sectionChoices.length ? "All sections" : "Pick a college or batch first"}
+            options={sectionChoices.map((name) => ({ id: name, label: name }))}
+            selected={draft.sections}
+            onChange={(next) => setDraft((d) => ({ ...d, sections: next }))}
+          />
+        </FilterField>
+        <FilterField label="Status (table and export)">
+          <CheckMenu
+            chevron
+            className={fieldTrigger}
+            label={draft.statuses.length ? chipText(draft.statuses.map((x) => STATUS[x].label), "statuses") : "All statuses"}
+            options={STATUS_ORDER.map((x) => ({ id: x, label: STATUS[x].label }))}
+            selected={draft.statuses}
+            onChange={(next) => setDraft((d) => ({ ...d, statuses: STATUS_ORDER.filter((x) => next.includes(x)) }))}
+          />
+        </FilterField>
+        <div className="flex flex-col gap-1.5 text-xs font-medium text-slate-600">
+          Quiz opened on
+          <DateRangeFilter value={draft.range} onChange={(next) => setDraft((d) => ({ ...d, range: next }))} allDatesLabel="All dates" />
+          {draftDateError && <p className="font-medium text-red-700" role="alert">{draftDateError}</p>}
         </div>
-      </div>
+        <FilterField label="Quiz score (exact)">
+          <Input
+            id={scoreId}
+            inputMode="numeric"
+            placeholder={`0–${maxScore}`}
+            value={draft.score}
+            onChange={(e) => setDraft((d) => ({ ...d, score: e.target.value.replace(/[^\d]/g, "").slice(0, 3) }))}
+            aria-invalid={Boolean(draftScoreError)}
+            className="h-10 tabular-nums"
+          />
+          {draftScoreError && <span className="font-medium text-red-700" role="alert">{draftScoreError}</span>}
+        </FilterField>
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-sm text-slate-700">
+          Show test logins
+          <Switch checked={draft.includeTest} onCheckedChange={(on) => setDraft((d) => ({ ...d, includeTest: on }))} />
+        </label>
+      </MoreFiltersSheet>
 
       {analytics.isError && !data ? (
         <ErrorState onRetry={() => void analytics.refetch()} />
@@ -677,6 +664,30 @@ export default function SpiQuizAnalytics() {
           <Section
             title="Students"
             subtitle={data ? `${fmtInt(data.students.total)} students${score ? ` with score ${score}` : ""}` : undefined}
+            action={
+              <label className="relative w-64 max-w-full">
+                <span className="sr-only">Search students by name or ID</span>
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input
+                  id={studentId}
+                  type="search"
+                  placeholder="Search name or ID"
+                  value={studentText}
+                  onChange={(e) => setStudentText(e.target.value.slice(0, 100))}
+                  className="h-10 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
+                />
+                {studentText && (
+                  <button
+                    type="button"
+                    onClick={() => setStudentText("")}
+                    aria-label="Clear student search"
+                    className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </label>
+            }
             updating={updating}
             className="rounded-xl border"
           >
