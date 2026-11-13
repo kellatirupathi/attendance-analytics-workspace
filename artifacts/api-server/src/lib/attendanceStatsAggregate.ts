@@ -166,6 +166,29 @@ export interface AttendanceFilters {
 
 export const batchOf = (row: { batch?: string }) => row.batch || "Unknown";
 
+/**
+ * The semester a group of rows is in: the one most of its students have (ties: the later title). A batch has
+ * one semester, but a few students carry rows from a second one (a repeated course), and that must not split
+ * the batch into two rows or move its label.
+ */
+function mainSemester(rows: { studentId: string; semester: string; ended?: boolean }[]): { semester: string; ended: boolean } {
+  const bySemester = new Map<string, { students: Set<string>; ended: boolean }>();
+  for (const row of rows) {
+    const entry = bySemester.get(row.semester) ?? { students: new Set<string>(), ended: true };
+    entry.students.add(row.studentId);
+    if (!row.ended) entry.ended = false;
+    bySemester.set(row.semester, entry);
+  }
+  let best: { semester: string; ended: boolean; n: number } | null = null;
+  for (const [semester, entry] of bySemester) {
+    const n = entry.students.size;
+    if (!best || n > best.n || (n === best.n && semester.localeCompare(best.semester, undefined, { numeric: true }) > 0)) {
+      best = { semester, ended: entry.ended, n };
+    }
+  }
+  return best ? { semester: best.semester, ended: best.ended } : { semester: "", ended: false };
+}
+
 /** One class; the batch keeps the same section name in two batches apart. */
 const stampOf = (row: { university: string; batch?: string; semester: string; section: string; subject: string | null; unit: string }) =>
   `${row.university}\t${batchOf(row)}\t${row.semester}\t${row.section}\t${row.subject ?? ""}\t${row.unit}`;
@@ -257,7 +280,7 @@ export function aggregateAttendanceStats(
     const key = grain === "university_subject"
       ? `${row.university}\t${row.subject ?? ""}`
       : grain === "university_batch"
-        ? `${row.university}\t${batchOf(row)}\t${row.semester}`
+        ? `${row.university}\t${batchOf(row)}`
       : grain === "university_section"
         ? `${row.university}\t${batchOf(row)}\t${row.section}`
         : grain === "university_unit"
@@ -293,11 +316,12 @@ export function aggregateAttendanceStats(
     const student = [...members.values()][0];
     const lowest = grain === "university_student" && student ? tierOf(first.studentId, student, true) : null;
     const withBatch = grain === "university_batch" || grain === "university_section" || grain === "university_student";
+    const term = withBatch ? mainSemester(bucket) : null;
     return {
       university: first.university,
       batch: withBatch ? batchOf(first) : null,
-      semester: withBatch ? first.semester : null,
-      ended: withBatch ? bucket.some((row) => row.ended) : false,
+      semester: term?.semester ?? null,
+      ended: term?.ended ?? false,
       subject: grain === "university_subject" || grain === "university_unit" ? first.subject : null,
       section: grain === "university_section" ? first.section : grain === "university_student" ? first.section : null,
       unit: grain === "university_unit" ? first.unit : null,
@@ -325,6 +349,45 @@ export function aggregateAttendanceStats(
   );
 
   return { summary, rows };
+}
+
+/** The newest of two values by session date, then the larger value, as latestBySessionDate in queries.ts. */
+function newer(a: { date: string; value: string } | undefined, date: string, value: string): boolean {
+  return !a || date > a.date || (date === a.date && value > a.value);
+}
+
+/**
+ * Puts each student in one place, as the student report does (college, section and batch of the latest
+ * session; see latestBySessionDate):
+ * - A student with any current-semester row is reported on it, so their ended-semester rows are dropped
+ *   (e.g. moved from a batch whose semester ended to a new college's running batch).
+ * - Within one college, every row takes the batch and the section of the student's latest session. Old rows
+ *   of a transferred student keep the old college's batch_name (one-student batches like "AURORA Batch -2"
+ *   under A Dy Patil University), and a few sessions taken with another section (6 classes in S-004 for an
+ *   S-001 student) put the student in two sections. Their sessions still count, under that one place.
+ * `lastDate` sorts like latestBySessionDate ("1|2026-11-05": a session up to today; "0|…": only later ones),
+ * so the result does not depend on row order.
+ */
+export function onePlacePerStudent<T extends AttendanceDetailRow & { lastDate: string | null }>(
+  rows: T[],
+  /** Latest-semester view only. With a date range or one earlier semester picked, every row in it counts. */
+  opts: { dropEndedWhenCurrent: boolean },
+): AttendanceDetailRow[] {
+  const hasCurrent = new Set<string>();
+  if (opts.dropEndedWhenCurrent) for (const row of rows) if (!row.ended) hasCurrent.add(row.studentId);
+  const kept = rows.filter((row) => !(row.ended && hasCurrent.has(row.studentId)));
+  const batch = new Map<string, { date: string; value: string }>();
+  const section = new Map<string, { date: string; value: string }>();
+  for (const row of kept) {
+    const key = `${row.university}\t${row.studentId}`;
+    const date = row.lastDate ?? "";
+    if (newer(batch.get(key), date, batchOf(row))) batch.set(key, { date, value: batchOf(row) });
+    if (newer(section.get(key), date, row.section)) section.set(key, { date, value: row.section });
+  }
+  return kept.map(({ lastDate: _lastDate, ...row }) => {
+    const key = `${row.university}\t${row.studentId}`;
+    return { ...row, batch: batch.get(key)!.value, section: section.get(key)!.value };
+  });
 }
 
 /** A batch for the Batch menu: the semester it is in on this view and its student count. */
@@ -357,14 +420,13 @@ export function attendanceFilterOptions(
   const semesters = new Set<string>();
   const subjects = new Set<string>();
   const sections = new Map<string, { campus: string; section: string }>();
-  const batches = new Map<string, BatchOption & { ids: Set<string> }>();
+  const batches = new Map<string, { campus: string; batch: string; rows: AttendanceDetailRow[] }>();
   for (const row of students) {
     campuses.add(row.university);
     if (campusSet.size && !campusSet.has(row.university)) continue;
     const batchKey = `${row.university}\t${batchOf(row)}`;
-    const batch = batches.get(batchKey) ?? { campus: row.university, batch: batchOf(row), semester: row.semester, ended: false, students: 0, ids: new Set() };
-    batch.ids.add(row.studentId);
-    if (row.ended) batch.ended = true;
+    const batch = batches.get(batchKey) ?? { campus: row.university, batch: batchOf(row), rows: [] };
+    batch.rows.push(row);
     batches.set(batchKey, batch);
     if (!passesBatch(row, filters)) continue;
     semesters.add(row.semester);
@@ -375,7 +437,12 @@ export function attendanceFilterOptions(
       if (!sections.has(key)) sections.set(key, { campus: row.university, section: row.section });
     }
   }
-  const batchList = [...batches.values()].map(({ ids, ...batch }) => ({ ...batch, students: ids.size }));
+  const batchList: BatchOption[] = [...batches.values()].map(({ campus, batch, rows }) => ({
+    campus,
+    batch,
+    ...mainSemester(rows),
+    students: new Set(rows.map((row) => row.studentId)).size,
+  }));
   const picked = filters.batches?.length ? batchList.filter((b) => filters.batches!.includes(`${b.campus}\t${b.batch}`)) : batchList;
   const endedBatches = picked.filter((b) => b.ended);
   return {

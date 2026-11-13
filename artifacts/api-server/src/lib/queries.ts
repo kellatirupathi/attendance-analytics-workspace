@@ -41,6 +41,7 @@ import {
   excludeInstituteSql,
   isExcludedInstitute,
 } from "./excludedInstitutes.js";
+import { onePlacePerStudent } from "./attendanceStatsAggregate.js";
 
 import {
   ATTENDANCE_TABLE as RAW_ATTENDANCE_TABLE,
@@ -5809,6 +5810,8 @@ async function loadAttendanceStatsDetail(
   where: string,
   params: Record<string, unknown>,
   withUnit: boolean,
+  /** The latest-semester view (no date range, no earlier semester): a student with current rows drops ended ones. */
+  latestView: boolean,
 ): Promise<AttendanceStatsDetail> {
   const unitSelect = withUnit ? `,\n          ${SESSION_TITLE_SQL} AS unit` : "";
   const unitGroup = withUnit ? ", unit" : "";
@@ -5825,13 +5828,19 @@ async function loadAttendanceStatsDetail(
       student_name: string | null;
       present_n: string;
       scheduled_n: string;
+      last_date: string | null;
     }>(
       `SELECT
           ${ATTENDANCE_STATS_DIMS}${unitSelect},
           student_user_id AS student_id,
           MAX(student_name) AS student_name,
           COUNTIF(${ATTENDED_SQL}) AS present_n,
-          COUNTIF(${SCHEDULED_SQL}) AS scheduled_n
+          COUNTIF(${SCHEDULED_SQL}) AS scheduled_n,
+          -- Sorts like latestBySessionDate: sessions up to today first ("1|"), then the newest date.
+          CONCAT(
+            IF(LOGICAL_OR(DATE(date) <= CURRENT_DATE('Asia/Kolkata')), '1|', '0|'),
+            IFNULL(CAST(COALESCE(MAX(IF(DATE(date) <= CURRENT_DATE('Asia/Kolkata'), DATE(date), NULL)), MAX(DATE(date))) AS STRING), '')
+          ) AS last_date
         FROM ${attendanceSource()}
         WHERE ${where}
           AND student_user_id IS NOT NULL
@@ -5862,10 +5871,11 @@ async function loadAttendanceStatsDetail(
     ),
   ]);
 
-  const students: AttendanceStatsStudentRow[] = [];
+  const raw: (AttendanceStatsStudentRow & { lastDate: string | null })[] = [];
   for (const row of studentRows) {
     if (!row.university || isExcludedInstitute(row.university) || !row.student_id) continue;
-    students.push({
+    raw.push({
+      lastDate: row.last_date ?? null,
       university: row.university,
       batch: row.batch,
       semester: row.semester,
@@ -5879,6 +5889,8 @@ async function loadAttendanceStatsDetail(
       scheduled: Number(row.scheduled_n) || 0,
     });
   }
+  // Each student in one place (see onePlacePerStudent): one batch per college, current semester over ended.
+  const students = onePlacePerStudent(raw, { dropEndedWhenCurrent: latestView }) as AttendanceStatsStudentRow[];
   const classes: AttendanceStatsClassRow[] = [];
   for (const row of classRows) {
     if (!row.university || isExcludedInstitute(row.university)) continue;
@@ -5899,7 +5911,7 @@ async function loadAttendanceStatsDetail(
 /** Current-semester attendance for every campus, shared by all users and refreshed in the background. */
 const attendanceStatsSnapshot = createSnapshot("attendance-stats-detail", () => {
   const { where, params } = attendanceStatsWhere({}, {});
-  return loadAttendanceStatsDetail(where, params, false);
+  return loadAttendanceStatsDetail(where, params, false, true);
 });
 
 /** Changes whenever the shared attendance snapshot refreshes; part of route cache keys. */
@@ -5952,7 +5964,7 @@ export async function getAttendanceStatsDetail(
   const existing = attendanceStatsDetailInFlight.get(detailKey);
   if (existing) return existing;
 
-  const pending = loadAttendanceStatsDetail(where, params, false).then((payload) => {
+  const pending = loadAttendanceStatsDetail(where, params, false, false).then((payload) => {
     cacheSet(detailKey, payload, 15 * 60 * 1000);
     return payload;
   });
@@ -6022,7 +6034,7 @@ export async function getAttendanceStatsUnits(
   const existing = attendanceStatsDetailInFlight.get(detailKey);
   if (existing) return existing;
 
-  const pending = loadAttendanceStatsDetail(where, params, true).then((payload) => {
+  const pending = loadAttendanceStatsDetail(where, params, true, !opts.dateFrom && !opts.dateTo && !batchSemester).then((payload) => {
     cacheSet(detailKey, payload, 15 * 60 * 1000);
     return payload;
   });

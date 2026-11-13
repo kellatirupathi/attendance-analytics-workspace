@@ -151,6 +151,29 @@ export interface AttendanceFilters {
 
 export const batchOf = (row: { batch?: string }) => row.batch || "Unknown";
 
+/**
+ * The semester a group of rows is in: the one most of its students have (ties: the later title). A batch has
+ * one semester, but a few students carry rows from a second one (a repeated course), and that must not split
+ * the batch into two rows or move its label.
+ */
+function mainSemester(rows: { studentId: string; semester: string; ended?: boolean }[]): { semester: string; ended: boolean } {
+  const bySemester = new Map<string, { students: Set<string>; ended: boolean }>();
+  for (const row of rows) {
+    const entry = bySemester.get(row.semester) ?? { students: new Set<string>(), ended: true };
+    entry.students.add(row.studentId);
+    if (!row.ended) entry.ended = false;
+    bySemester.set(row.semester, entry);
+  }
+  let best: { semester: string; ended: boolean; n: number } | null = null;
+  for (const [semester, entry] of bySemester) {
+    const n = entry.students.size;
+    if (!best || n > best.n || (n === best.n && semester.localeCompare(best.semester, undefined, { numeric: true }) > 0)) {
+      best = { semester, ended: entry.ended, n };
+    }
+  }
+  return best ? { semester: best.semester, ended: best.ended } : { semester: "", ended: false };
+}
+
 /** One class; the batch keeps the same section name in two batches apart. */
 const stampOf = (row: { university: string; batch?: string; semester: string; section: string; subject: string | null; unit: string }) =>
   `${row.university}\t${batchOf(row)}\t${row.semester}\t${row.section}\t${row.subject ?? ""}\t${row.unit}`;
@@ -242,7 +265,7 @@ export function aggregateAttendanceStats(
     const key = grain === "university_subject"
       ? `${row.university}\t${row.subject ?? ""}`
       : grain === "university_batch"
-        ? `${row.university}\t${batchOf(row)}\t${row.semester}`
+        ? `${row.university}\t${batchOf(row)}`
       : grain === "university_section"
         ? `${row.university}\t${batchOf(row)}\t${row.section}`
         : grain === "university_unit"
@@ -278,11 +301,12 @@ export function aggregateAttendanceStats(
     const student = [...members.values()][0];
     const lowest = grain === "university_student" && student ? tierOf(first.studentId, student, true) : null;
     const withBatch = grain === "university_batch" || grain === "university_section" || grain === "university_student";
+    const term = withBatch ? mainSemester(bucket) : null;
     return {
       university: first.university,
       batch: withBatch ? batchOf(first) : null,
-      semester: withBatch ? first.semester : null,
-      ended: withBatch ? bucket.some((row) => row.ended) : false,
+      semester: term?.semester ?? null,
+      ended: term?.ended ?? false,
       subject: grain === "university_subject" || grain === "university_unit" ? first.subject : null,
       section: grain === "university_section" ? first.section : grain === "university_student" ? first.section : null,
       unit: grain === "university_unit" ? first.unit : null,
@@ -311,3 +335,4 @@ export function aggregateAttendanceStats(
 
   return { summary, rows };
 }
+
