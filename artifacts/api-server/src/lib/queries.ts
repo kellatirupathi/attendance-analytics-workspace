@@ -5633,7 +5633,10 @@ export async function getAttendanceGroupStats(
 
 export interface AttendanceStatsStudentRow {
   university: string;
+  batch: string;
   semester: string;
+  /** The row's semester has ended (is_current_semester = 0). */
+  ended: boolean;
   subject: string | null;
   section: string;
   unit: string;
@@ -5645,28 +5648,132 @@ export interface AttendanceStatsStudentRow {
 
 export interface AttendanceStatsClassRow {
   university: string;
+  batch: string;
   semester: string;
+  ended: boolean;
   subject: string | null;
   section: string;
   unit: string;
   sessions: number;
 }
 
+/** One semester of a batch, for the Semester menu once a batch is picked. */
+export interface BatchSemester {
+  semester: string;
+  ended: boolean;
+  students: number;
+  /** Students with at least one session slot that counts; 0 means the semester has no attendance to show. */
+  withSessions: number;
+  firstDate: string | null;
+  lastDate: string | null;
+}
+
+/** A student's lowest course attendance as their saved report shows it; it sets the attendance tier. */
+export interface ReportLowest {
+  pct: number | null;
+  subject: string | null;
+}
+
 type AttendanceStatsDetail = {
   students: AttendanceStatsStudentRow[];
   classes: AttendanceStatsClassRow[];
+  /**
+   * Semester view only (no date range): each student's lowest course attendance from
+   * spi_report_cache, keyed by id without hyphens, so tiers match the student report.
+   */
+  reportLowest?: Record<string, ReportLowest>;
 };
+
+/**
+ * Lowest course attendance from every saved report, refreshed every 10 minutes: the live cache, plus the last
+ * saved report (spi_report_history) of students whose semester ended, as Directory reads them.
+ */
+async function getReportLowest(): Promise<Record<string, ReportLowest>> {
+  const key = "attendance-report-lowest:v2";
+  const cached = cacheGet<Record<string, ReportLowest>>(key);
+  if (cached) return cached;
+  type Row = { student_id: string; pct: number | null; course: string | null };
+  let rows: Row[];
+  try {
+    rows = (await db.execute(sql`
+      SELECT DISTINCT ON (student_id) student_id, pct, course FROM (
+        SELECT student_id, built_at,
+               (report->'attendance'->>'lowestPct')::float8 AS pct,
+               report->'attendance'->>'lowestCourse' AS course
+          FROM spi_report_cache
+        UNION ALL
+        SELECT h.student_id, h.built_at,
+               (h.report->'attendance'->>'lowestPct')::float8,
+               h.report->'attendance'->>'lowestCourse'
+          FROM spi_report_history h
+         WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+      ) r
+      ORDER BY student_id, built_at DESC`)).rows as Row[];
+  } catch {
+    // spi_report_history not created yet (fresh database): the live cache alone.
+    rows = (await db.execute(sql`
+      SELECT student_id,
+             (report->'attendance'->>'lowestPct')::float8 AS pct,
+             report->'attendance'->>'lowestCourse' AS course
+        FROM spi_report_cache`)).rows as Row[];
+  }
+  const out: Record<string, ReportLowest> = {};
+  for (const row of rows) out[row.student_id] = { pct: row.pct == null ? null : Number(row.pct), subject: row.course };
+  cacheSet(key, out, 10 * 60 * 1000);
+  return out;
+}
 
 const attendanceStatsDetailInFlight = new Map<string, Promise<AttendanceStatsDetail>>();
 
+/** College + batch as one key ("college\tbatch"), the same text the page sends back as a Batch filter. */
+const BATCH_KEY_SQL = "CONCAT(TRIM(institute_name), CHR(9), COALESCE(NULLIF(TRIM(batch_name), ''), 'Unknown'))";
+
+/**
+ * The semester each batch is in now: its current semester, or for a batch between semesters (no current
+ * rows at all) its last ended semester, the one with the newest attendance date. Semesters run per batch,
+ * so a batch whose semester ended stays on the page, marked Ended, instead of disappearing.
+ */
+const LATEST_PER_BATCH_SQL = `(
+    is_current_semester = 1
+    OR CONCAT(${BATCH_KEY_SQL}, CHR(9), TRIM(CAST(semester_title AS STRING))) IN (
+      SELECT k FROM (
+        SELECT CONCAT(${BATCH_KEY_SQL}, CHR(9), TRIM(CAST(semester_title AS STRING))) AS k,
+               ${BATCH_KEY_SQL} AS b,
+               MAX(DATE(date)) AS last_date
+        FROM ${RAW_ATTENDANCE_TABLE}
+        WHERE is_current_semester = 0
+          AND NULLIF(TRIM(CAST(semester_title AS STRING)), '') IS NOT NULL
+          AND institute_name IS NOT NULL
+        GROUP BY k, b
+      )
+      WHERE b NOT IN (
+        SELECT DISTINCT ${BATCH_KEY_SQL} FROM ${RAW_ATTENDANCE_TABLE}
+        WHERE is_current_semester = 1 AND institute_name IS NOT NULL
+      )
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY b ORDER BY last_date DESC) = 1
+    )
+  )`;
+
 function attendanceStatsWhere(
   scope: SessionScope,
-  opts: { dateFrom?: string; dateTo?: string; campuses?: string[] },
+  opts: {
+    dateFrom?: string;
+    dateTo?: string;
+    campuses?: string[];
+    /** One semester of one batch, any semester (current or ended). */
+    batchSemester?: { batchKey: string; semester: string };
+  },
 ): { where: string; params: Record<string, unknown> } {
   const params: Record<string, unknown> = {};
   const hasDates = Boolean(opts.dateFrom && opts.dateTo);
   const clauses = [excludeInstituteSql()];
-  if (!hasDates) clauses.push("is_current_semester = 1");
+  if (opts.batchSemester) {
+    params["batchKey"] = opts.batchSemester.batchKey;
+    params["batchSemester"] = opts.batchSemester.semester;
+    clauses.push(`${BATCH_KEY_SQL} = @batchKey AND TRIM(CAST(semester_title AS STRING)) = @batchSemester`);
+  } else if (!hasDates) {
+    clauses.push(LATEST_PER_BATCH_SQL);
+  }
   if (hasDates) {
     params["dateFrom"] = opts.dateFrom;
     params["dateTo"] = opts.dateTo;
@@ -5692,7 +5799,9 @@ function attendanceStatsWhere(
 
 const ATTENDANCE_STATS_DIMS = `
   TRIM(institute_name) AS university,
+  COALESCE(NULLIF(TRIM(batch_name), ''), 'Unknown') AS batch,
   COALESCE(NULLIF(TRIM(semester_title), ''), 'Unknown') AS semester,
+  is_current_semester = 0 AS ended,
   NULLIF(TRIM(subject_title), '') AS subject,
   COALESCE(NULLIF(TRIM(batch_section_name), ''), 'Unknown') AS section`;
 
@@ -5706,7 +5815,9 @@ async function loadAttendanceStatsDetail(
   const [studentRows, classRows] = await Promise.all([
     bqQuery<{
       university: string;
+      batch: string;
       semester: string;
+      ended: boolean | string;
       subject: string | null;
       section: string;
       unit: string | null;
@@ -5724,14 +5835,16 @@ async function loadAttendanceStatsDetail(
         FROM ${attendanceSource()}
         WHERE ${where}
           AND student_user_id IS NOT NULL
-        GROUP BY university, semester, subject, section${unitGroup}, student_id`,
+        GROUP BY university, batch, semester, ended, subject, section${unitGroup}, student_id`,
       params,
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     bqQuery<{
       university: string;
+      batch: string;
       semester: string;
+      ended: boolean | string;
       subject: string | null;
       section: string;
       unit: string | null;
@@ -5742,7 +5855,7 @@ async function loadAttendanceStatsDetail(
           COUNT(DISTINCT IF(${SCHEDULED_SQL}, ${SESSION_IDENTITY_SQL}, NULL)) AS sessions_n
         FROM ${attendanceSource()}
         WHERE ${where}
-        GROUP BY university, semester, subject, section${unitGroup}`,
+        GROUP BY university, batch, semester, ended, subject, section${unitGroup}`,
       params,
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
@@ -5754,7 +5867,9 @@ async function loadAttendanceStatsDetail(
     if (!row.university || isExcludedInstitute(row.university) || !row.student_id) continue;
     students.push({
       university: row.university,
+      batch: row.batch,
       semester: row.semester,
+      ended: row.ended === true || row.ended === "true",
       subject: row.subject,
       section: row.section,
       unit: row.unit ?? "",
@@ -5769,7 +5884,9 @@ async function loadAttendanceStatsDetail(
     if (!row.university || isExcludedInstitute(row.university)) continue;
     classes.push({
       university: row.university,
+      batch: row.batch,
       semester: row.semester,
+      ended: row.ended === true || row.ended === "true",
       subject: row.subject,
       section: row.section,
       unit: row.unit ?? "",
@@ -5801,20 +5918,35 @@ function scopeAttendanceDetail(detail: AttendanceStatsDetail, scope: SessionScop
   if (!campuses && !subjects) return detail;
   const keep = (row: { university: string; subject: string | null }) =>
     (!campuses || campuses.has(row.university)) && (!subjects || subjects.has((row.subject ?? "").trim()));
-  return { students: detail.students.filter(keep), classes: detail.classes.filter(keep) };
+  // A subject-scoped user sees tiers from their own subjects only, not the whole report.
+  return {
+    students: detail.students.filter(keep),
+    classes: detail.classes.filter(keep),
+    reportLowest: subjects ? undefined : detail.reportLowest,
+  };
 }
 
-/** Current-semester attendance at student × subject × section. Unit rows stay on the unit endpoint. */
+/**
+ * Attendance at student × subject × section, each batch in its latest semester (current, or the last ended
+ * one for a batch between semesters). `batchSemester` reads one earlier semester of one batch instead.
+ * Unit rows stay on the unit endpoint.
+ */
 export async function getAttendanceStatsDetail(
   scope: SessionScope,
-  opts: { dateFrom?: string; dateTo?: string } = {},
+  opts: { dateFrom?: string; dateTo?: string; batchSemester?: { batchKey: string; semester: string } } = {},
 ): Promise<AttendanceStatsDetail> {
   // The default view (no date range) reads the shared snapshot; date ranges still query BigQuery.
-  if (!opts.dateFrom && !opts.dateTo) {
-    return scopeAttendanceDetail(await attendanceStatsSnapshot.get(), scope);
+  if (!opts.dateFrom && !opts.dateTo && !opts.batchSemester) {
+    const [snapshot, reportLowest] = await Promise.all([
+      attendanceStatsSnapshot.get(),
+      getReportLowest().catch(() => undefined),
+    ]);
+    return scopeAttendanceDetail({ ...snapshot, reportLowest }, scope);
   }
-  const { where, params } = attendanceStatsWhere(scope, opts);
-  const detailKey = `attendance-stats-detail:v4:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "" })}`;
+  // An earlier semester has no saved report, so its tiers come from the attendance rows themselves.
+  const batchSemester = opts.dateFrom || opts.dateTo ? undefined : opts.batchSemester;
+  const { where, params } = attendanceStatsWhere(scope, { ...opts, batchSemester });
+  const detailKey = `attendance-stats-detail:v5:${JSON.stringify({ scope, dateFrom: opts.dateFrom ?? "", dateTo: opts.dateTo ?? "", batchSemester: batchSemester ?? null })}`;
   const cached = cacheGet<AttendanceStatsDetail>(detailKey);
   if (cached) return cached;
   const existing = attendanceStatsDetailInFlight.get(detailKey);
@@ -5832,18 +5964,58 @@ export async function getAttendanceStatsDetail(
   }
 }
 
+/** Every semester of one batch ("college\tbatch"), newest first, for the Semester menu. */
+export async function getBatchSemesters(scope: SessionScope, batchKey: string): Promise<BatchSemester[]> {
+  const [campus] = batchKey.split("\t");
+  if (!campus || (scope.campuses?.length && !scope.campuses.includes(campus))) return [];
+  const key = `attendance-batch-semesters:v2:${batchKey}`;
+  const cached = cacheGet<BatchSemester[]>(key);
+  if (cached) return cached;
+  const rows = await bqQuery<{ semester: string; is_current: string; students: string; with_sessions: string; first_date: string | null; last_date: string | null }>(
+    `SELECT
+        TRIM(CAST(semester_title AS STRING)) AS semester,
+        CAST(MAX(is_current_semester) AS INT64) AS is_current,
+        COUNT(DISTINCT student_user_id) AS students,
+        COUNT(DISTINCT IF(${SCHEDULED_SQL}, student_user_id, NULL)) AS with_sessions,
+        CAST(MIN(DATE(date)) AS STRING) AS first_date,
+        CAST(MAX(DATE(date)) AS STRING) AS last_date
+      FROM ${attendanceSource()}
+      WHERE ${BATCH_KEY_SQL} = @batchKey
+        AND NULLIF(TRIM(CAST(semester_title AS STRING)), '') IS NOT NULL
+        AND student_user_id IS NOT NULL
+      GROUP BY semester`,
+    { batchKey },
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
+  const out = rows
+    .map((row) => ({
+      semester: row.semester,
+      ended: Number(row.is_current) !== 1,
+      students: Number(row.students) || 0,
+      withSessions: Number(row.with_sessions) || 0,
+      firstDate: row.first_date ?? null,
+      lastDate: row.last_date ?? null,
+    }))
+    .sort((a, b) => (b.lastDate ?? "").localeCompare(a.lastDate ?? ""));
+  cacheSet(key, out, 30 * 60 * 1000);
+  return out;
+}
+
 /** Unit rows for the campuses the user picked. Not used by the default page load. */
 export async function getAttendanceStatsUnits(
   scope: SessionScope,
-  opts: { dateFrom?: string; dateTo?: string; campuses: string[] },
+  opts: { dateFrom?: string; dateTo?: string; campuses: string[]; batchSemester?: { batchKey: string; semester: string } },
 ): Promise<AttendanceStatsDetail> {
   const campuses = [...new Set(opts.campuses.map((name) => name.trim()).filter(Boolean))];
-  const { where, params } = attendanceStatsWhere(scope, { ...opts, campuses });
-  const detailKey = `attendance-stats-units:v2:${JSON.stringify({
+  const batchSemester = opts.dateFrom || opts.dateTo ? undefined : opts.batchSemester;
+  const { where, params } = attendanceStatsWhere(scope, { ...opts, campuses, batchSemester });
+  const detailKey = `attendance-stats-units:v3:${JSON.stringify({
     scope,
     campuses,
     dateFrom: opts.dateFrom ?? "",
     dateTo: opts.dateTo ?? "",
+    batchSemester: batchSemester ?? null,
   })}`;
   const cached = cacheGet<AttendanceStatsDetail>(detailKey);
   if (cached) return cached;

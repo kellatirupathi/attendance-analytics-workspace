@@ -45,6 +45,7 @@ import {
   assessmentSummaryVersion,
   spiRecordVersion,
   getAttendanceStatsUnits,
+  getBatchSemesters,
   getAttendanceTrend,
   getSubjectOptions,
   type AttendanceGrain,
@@ -1769,7 +1770,7 @@ router.get("/attendance-stats/detail", requireSession(), async (req, res): Promi
   });
   const q = req.query as Record<string, string | undefined>;
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-stats-detail-http:v5:${attendanceStatsVersion()}:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-stats-detail-http:v7:${attendanceStatsVersion()}:${session.role}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   try {
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
@@ -1813,7 +1814,7 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
     return;
   }
   const dates = closedDateScope(q);
-  const cacheKey = `attendance-stats-units-http:v2:${session.role}:${JSON.stringify(scope)}:${requested.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
+  const cacheKey = `attendance-stats-units-http:v3:${session.role}:${JSON.stringify(scope)}:${requested.slice().sort().join("||")}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}`;
   try {
     const cached = cacheGet<object>(cacheKey);
     if (cached) {
@@ -1837,16 +1838,23 @@ router.get("/attendance-stats/units", requireSession(), async (req, res): Promis
 
 const ATTENDANCE_VIEW_GRAINS = new Set<AttendanceViewGrain>([
   "university",
+  "university_batch",
   "university_subject",
   "university_section",
   "university_unit",
   "university_student",
 ]);
 
-/** Campus, semester, section ("campus\tsection"), student ("campus\tstudentId") and subject filters from the query. */
+/**
+ * Campus, batch ("campus\tbatch"), semester status (running / ended), semester, section ("campus\tsection"),
+ * student ("campus\tstudentId") and subject filters from the query.
+ */
 function attendanceViewFilters(q: Record<string, string | string[] | undefined>): AttendanceFilters {
+  const status = firstQuery(q, "status");
   return {
     campuses: queryList(q, "campuses"),
+    batches: queryList(q, "batches").filter((value) => value.includes("\t")),
+    status: status === "running" || status === "ended" ? status : undefined,
     semesters: queryList(q, "semesters"),
     sections: queryList(q, "sections").filter((value) => value.includes("\t")),
     students: queryList(q, "students").filter((value) => value.includes("\t")),
@@ -1854,8 +1862,17 @@ function attendanceViewFilters(q: Record<string, string | string[] | undefined>)
   };
 }
 
+/** `bsem`: an earlier semester of the one batch picked; read on demand instead of the latest-semester snapshot. */
+function batchSemesterOf(q: Record<string, string | string[] | undefined>, filters: AttendanceFilters) {
+  const semester = firstQuery(q, "bsem").trim().slice(0, 100);
+  if (!semester || filters.batches?.length !== 1) return undefined;
+  return { batchKey: filters.batches[0]!, semester };
+}
+
 const ATTENDANCE_SORTERS: Record<string, (row: AttendanceViewRow) => string | number | null> = {
   university: (r) => r.university,
+  batch: (r) => r.batch,
+  semester: (r) => r.semester,
   subject: (r) => r.subject,
   section: (r) => r.section,
   unit: (r) => r.unit,
@@ -1878,7 +1895,7 @@ function searchAndSortAttendanceRows(rows: AttendanceViewRow[], search: string, 
   const needle = search.trim().toLowerCase();
   let out = rows;
   if (needle) {
-    out = rows.filter((r) => [r.university, r.subject, r.section, r.unit, r.studentName, r.studentId].some((v) => (v ?? "").toLowerCase().includes(needle)));
+    out = rows.filter((r) => [r.university, r.batch, r.subject, r.section, r.unit, r.studentName, r.studentId].some((v) => (v ?? "").toLowerCase().includes(needle)));
   }
   const get = ATTENDANCE_SORTERS[sortKey];
   if (!get) return out;
@@ -1918,17 +1935,24 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
   }
   const dates = closedDateScope(q as Record<string, string | undefined>);
   const pageRequest = readPageRequest(q);
+  const batchSemester = dates.dateFrom ? undefined : batchSemesterOf(q, filters);
   try {
-    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
-    const summary = aggregateAttendanceStats(detail.students, detail.classes, "university", filters).summary;
+    // The menus always list every batch in its latest semester; an earlier semester only changes the rows.
+    const latest = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+    const detail = batchSemester ? await getAttendanceStatsDetail(scope, { batchSemester }) : latest;
+    const summary = aggregateAttendanceStats(detail.students, detail.classes, "university", filters, detail.reportLowest).summary;
     let rows: AttendanceViewRow[] = [];
     if (grain !== "university_unit") {
-      rows = aggregateAttendanceStats(detail.students, detail.classes, grain, filters).rows;
-    } else if (filters.campuses.length) {
+      rows = aggregateAttendanceStats(detail.students, detail.classes, grain, filters, detail.reportLowest).rows;
+    } else if (filters.campuses.length || filters.batches?.length) {
+      const unitCampuses = filters.campuses.length
+        ? filters.campuses
+        : [...new Set(filters.batches!.map((key) => key.split("\t")[0]!))];
       const units = await getAttendanceStatsUnits(scope, {
-        campuses: filters.campuses,
+        campuses: unitCampuses,
         dateFrom: dates.dateFrom,
         dateTo: dates.dateTo,
+        batchSemester,
       });
       rows = aggregateAttendanceStats(units.students, units.classes, grain, filters).rows;
     }
@@ -1938,7 +1962,14 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
       ...page,
       rows: page.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
       summary,
-      options: attendanceFilterOptions(detail.students, filters),
+      options: batchSemester
+        ? {
+            ...attendanceFilterOptions(latest.students, filters),
+            // Sections and subjects of the earlier semester picked, not the latest one.
+            sections: attendanceFilterOptions(detail.students, filters).sections,
+            subjects: attendanceFilterOptions(detail.students, filters).subjects,
+          }
+        : attendanceFilterOptions(latest.students, filters),
     };
     if (pageRequest.all) await sendLargeJson(req, res, body);
     else res.json(body);
@@ -1947,6 +1978,27 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
     if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: "Failed to fetch attendance stats" });
     }
+  }
+});
+
+/** Every semester of one batch (`batch` = "college\tbatch"), newest first, for the Semester menu. */
+router.get("/attendance-stats/batch-semesters", requireSession(), async (req, res): Promise<void> => {
+  const session = req.session!;
+  const scope = scopeForSession({
+    role: session.role as Role,
+    campuses: session.campuses,
+    subjects: session.subjects,
+  });
+  const batchKey = firstQuery(req.query as Record<string, string | string[] | undefined>, "batch").slice(0, 300);
+  if (!batchKey.includes("\t")) {
+    res.status(400).json({ error: "Pick a batch" });
+    return;
+  }
+  try {
+    res.json({ semesters: await getBatchSemesters(scope, batchKey) });
+  } catch (err) {
+    req.log.error({ err }, "Error fetching batch semesters");
+    res.status(500).json({ error: "Failed to fetch semesters" });
   }
 });
 
@@ -1961,8 +2013,9 @@ router.get("/attendance-stats/student-search", requireSession(), async (req, res
   const q = req.query as Record<string, string | string[] | undefined>;
   const dates = closedDateScope(q as Record<string, string | undefined>);
   const filters = attendanceViewFilters(q);
+  const batchSemester = dates.dateFrom ? undefined : batchSemesterOf(q, filters);
   try {
-    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo, batchSemester });
     res.json({ students: searchAttendanceStudents(detail.students, filters, firstQuery(q, "q")) });
   } catch (err) {
     req.log.error({ err }, "Error searching attendance students");

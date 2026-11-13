@@ -10,6 +10,7 @@ import {
   type AttendanceDetailRow,
   type AttendanceHeader,
   type AttendanceViewRow,
+  type ReportLowest,
 } from "./attendanceStatsAggregate";
 import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate";
 import { TIER_RECOVERY, attendancePct } from "./attendanceTiers";
@@ -59,9 +60,11 @@ export function attendanceOverview(
   students: AttendanceDetailRow[],
   classes: AttendanceClassRow[],
   filters: OverviewFilters,
+  /** Semester view only: report tiers, so the Overview matches the student report. */
+  reportLowest?: Record<string, ReportLowest>,
 ): AttendanceOverview {
   const f = { ...filters, students: [] };
-  const campus = aggregateAttendanceStats(students, classes, "university", f);
+  const campus = aggregateAttendanceStats(students, classes, "university", f, reportLowest);
   const bySubjectCampus = aggregateAttendanceStats(students, classes, "university_subject", f).rows;
   const merged = new Map<string, SubjectAttendance>();
   for (const row of bySubjectCampus) {
@@ -79,8 +82,8 @@ export function attendanceOverview(
   return {
     header: campus.summary,
     byCampus: campus.rows,
-    bySection: aggregateAttendanceStats(students, classes, "university_section", f).rows,
-    byStudent: aggregateAttendanceStats(students, classes, "university_student", f).rows,
+    bySection: aggregateAttendanceStats(students, classes, "university_section", f, reportLowest).rows,
+    byStudent: aggregateAttendanceStats(students, classes, "university_student", f, reportLowest).rows,
     subjects,
   };
 }

@@ -327,7 +327,8 @@ export function CheckMenu({
   className,
 }: {
   label: string;
-  options: { id: string; label: string }[];
+  /** `hint`: muted text after the label (e.g. a batch's semester and student count). */
+  options: { id: string; label: string; hint?: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
   /** Overrides the button's default width. */
@@ -401,7 +402,8 @@ export function CheckMenu({
                   )
                 }
               />
-              {option.label}
+              <span className="min-w-0 flex-1">{option.label}</span>
+              {option.hint && <span className="shrink-0 text-xs text-gray-500 tabular-nums">{option.hint}</span>}
             </label>
           ))}
           {options.length > 0 && !shown.length && <p className="py-2 text-center text-sm text-gray-500">No matches</p>}

@@ -36,7 +36,7 @@ import {
 } from "@/lib/dateRange";
 import { roleLabel } from "@/lib/roleLabels";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
-import type { AttendanceClassRow, AttendanceDetailRow } from "@/lib/attendanceStatsAggregate";
+import type { AttendanceClassRow, AttendanceDetailRow, ReportLowest } from "@/lib/attendanceStatsAggregate";
 import type { SpiDetailRow } from "@/lib/spiRecordAggregate";
 import type { AssessmentRosterRow, AssessmentSlot } from "@/lib/assessmentAggregate";
 import {
@@ -92,6 +92,8 @@ interface AttendancePayload {
   students: AttendanceDetailRow[];
   classes: AttendanceClassRow[];
   spiPaths: Record<string, string>;
+  /** Semester view only: lowest course attendance from each saved report, so tiers match it. */
+  reportLowest?: Record<string, ReportLowest>;
 }
 
 interface SpiPayload {
@@ -461,7 +463,7 @@ export default function Dashboard() {
     [campusKey, semesterKey, sections.join("||"), subjectKey],
   );
   const att = useMemo(
-    () => (attQuery.data ? attendanceOverview(attQuery.data.students, attQuery.data.classes, filters) : null),
+    () => (attQuery.data ? attendanceOverview(attQuery.data.students, attQuery.data.classes, filters, attQuery.data.reportLowest) : null),
     [attQuery.data, filters],
   );
   const spi = useMemo(() => (spiQuery.data ? spiOverview(spiQuery.data.rows, filters) : null), [spiQuery.data, filters]);
