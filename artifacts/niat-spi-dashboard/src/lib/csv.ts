@@ -131,7 +131,8 @@ export function exportCsv(
   const csv = [headers, ...rows]
     .map((row) => row.map(escape).join(","))
     .join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  // BOM: without it Excel reads the file as ANSI and shows ≥ / – / names as garbage (e.g. "â‰¥").
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

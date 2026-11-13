@@ -9,7 +9,7 @@ import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/Quiz
 import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Building2, Check, ChevronDown, Loader2, ChevronRight, Download, FileText, GraduationCap, Layers, LayoutGrid, Search, SlidersHorizontal, User, X, type LucideIcon } from "lucide-react";
+import { Building2, Check, ChevronDown, Loader2, Download, FileText, GraduationCap, Layers, LayoutGrid, Search, SlidersHorizontal, User, X, type LucideIcon } from "lucide-react";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
 import { cn } from "@/lib/utils";
 import { ATTENDANCE_TIERS, getTier, NO_SESSIONS_LABEL, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
@@ -19,7 +19,6 @@ import { exportCsv } from "@/lib/csv";
 import { useAuth } from "@/contexts/AuthContext";
 import { omitExcludedInstitutes } from "@/lib/excludedInstitutes";
 import {
-  campusWisePath,
   subjectAttendanceStudentsPath,
   type DateRange,
 } from "@/lib/dateRange";
@@ -222,13 +221,14 @@ function columnLabel(id: ColumnId, grain: Grain): string {
   return COLUMN_LABEL[id];
 }
 
-function cellValue(row: StatsRow, id: ColumnId): string | number {
+/** `csv`: plain numbers (no "1,350"), so Excel reads them as numbers. */
+function cellValue(row: StatsRow, id: ColumnId, csv = false): string | number {
   if (id === "overallPct" || id === "grainPct") {
     const scheduled = id === "grainPct" ? row.scheduled : row.campusScheduled;
     return scheduled > 0 ? `${row[id]}%` : NO_SESSIONS_LABEL;
   }
   if (TIER_COLUMNS.has(id)) return Number(row[id]);
-  return Number(row[id]).toLocaleString();
+  return csv ? Number(row[id]) : Number(row[id]).toLocaleString();
 }
 
 /** Share of the row's students in a tier, as a whole %. */
@@ -440,11 +440,6 @@ export default function StudentAttendanceStats() {
         ? { dateFrom, dateTo }
         : {};
 
-  const openUniversity = (name: string) => {
-    const range = drillRange();
-    setLocation(campusWisePath(range, name, scopeKind === "semester" ? drillSemester : undefined));
-  };
-
   const openSubject = (row: StatsRow) => {
     if (!row.subject) return;
     const range = drillRange();
@@ -462,15 +457,15 @@ export default function StudentAttendanceStats() {
       [
         "College",
         ...identity,
-        ...(isStudent ? ["UUID"] : []),
+        ...(isStudent ? ["Section", "UUID"] : []),
         ...shownColumns.map((id) => columnLabel(id, grain)),
         ...(studentExtras ? ["Lowest subject %", "Lowest subject", "Tier"] : []),
       ],
       data.map((row) => [
         row.university,
         ...identityValues(row, grain),
-        ...(isStudent ? [row.studentId ?? ""] : []),
-        ...shownColumns.map((id) => cellValue(row, id)),
+        ...(isStudent ? [row.section ?? "", row.studentId ?? ""] : []),
+        ...shownColumns.map((id) => cellValue(row, id, true)),
         ...(studentExtras
           ? [
               row.lowestPct == null ? NO_SESSIONS_LABEL : `${row.lowestPct}%`,
@@ -482,19 +477,61 @@ export default function StudentAttendanceStats() {
     );
   };
 
-  /** CSV needs every row, not the page on screen, so exports ask the server for the whole view. */
-  const exportView = async () => {
-    const params = viewParams();
-    params.set("export", "1");
-    exportRows((await fetchRows(params)).rows, "attendance-stats-view.csv");
+  /** File names say what is in them: the view and the college / batch picked. */
+  const fileStem = () => {
+    const parts = ["attendance", campuses.length === 1 ? campuses[0]! : campuses.length ? `${campuses.length}-colleges` : "all-colleges"];
+    if (batches.length === 1) parts.push(batches[0]!.split("\t")[1]!);
+    else if (batches.length) parts.push(`${batches.length}-batches`);
+    if (status) parts.push(status);
+    return parts.join("_").replace(/[^\w.-]+/g, "-");
   };
-
-  const exportAll = async () => {
-    const params = viewParams({ campuses: [], batches: [], sections: [], students: [] });
-    params.delete("q");
-    params.set("export", "1");
-    exportRows((await fetchRows(params)).rows, "attendance-stats-all-campuses.csv");
+  const [exporting, setExporting] = useState<"" | "table" | "students">("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const runExport = async (kind: "table" | "students") => {
+    setExportOpen(false);
+    setExporting(kind);
+    setExportError("");
+    try {
+      if (kind === "table") {
+        // The table as on screen, every page: this view, its filters, search and sort.
+        const params = viewParams();
+        params.set("export", "1");
+        exportRows((await fetchRows(params)).rows, `${fileStem()}_${grain.replace("university_", "") || "campus"}.csv`);
+      } else {
+        // One row per student under the same filters (not the search box).
+        const params = viewParams();
+        params.set("group", "university_student");
+        params.delete("q");
+        params.delete("sort");
+        params.delete("dir");
+        params.set("export", "1");
+        const rows = (await fetchRows(params)).rows;
+        exportCsv(
+          `${fileStem()}_students.csv`,
+          ["College", "Batch", "Section", "Student", "UUID", "Attendance %", "Present", "Scheduled", "Lowest subject %", "Lowest subject", "Tier"],
+          rows.map((row) => [
+            row.university,
+            row.batch ?? "",
+            row.section ?? "",
+            row.studentName ?? "",
+            row.studentId ?? "",
+            row.scheduled > 0 ? `${row.grainPct}%` : NO_SESSIONS_LABEL,
+            row.present,
+            row.scheduled,
+            row.lowestPct == null ? NO_SESSIONS_LABEL : `${row.lowestPct}%`,
+            row.lowestSubject ?? "",
+            row.lowestPct == null ? "" : getTier(row.lowestPct).label,
+          ]),
+        );
+      }
+    } catch {
+      setExportError("Export failed. Try again.");
+    } finally {
+      setExporting("");
+    }
   };
+  const viewName = VIEWS.find((v) => v.value === grain)?.label ?? "Campus-wise";
 
   const applyColumns = async (asDefault: boolean) => {
     if (asDefault) {
@@ -665,13 +702,31 @@ export default function StudentAttendanceStats() {
         attendanceNote
         title="Student Attendance Stats"
         right={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" disabled={totalRows === 0 || tableLoading} onClick={() => void exportView()}>
-              <Download className="mr-1 h-4 w-4" aria-hidden="true" /> Export this view
-            </Button>
-            <Button type="button" size="sm" disabled={isLoading || !scopeReady || grain === "university_unit"} onClick={() => void exportAll()}>
-              <Download className="mr-1 h-4 w-4" aria-hidden="true" /> Export all campuses
-            </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Popover open={exportOpen} onOpenChange={setExportOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" className="h-10 gap-2" disabled={Boolean(exporting) || isLoading || !scopeReady}>
+                  {exporting ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+                  {exporting ? "Preparing CSV…" : "Export"}
+                  {!exporting && <ChevronDown className="h-4 w-4" aria-hidden="true" />}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 p-1.5">
+                <ExportOption
+                  title="This table"
+                  detail={`${viewName}, ${totalRows.toLocaleString("en-IN")} rows, with your filters, search and sort`}
+                  disabled={totalRows === 0 || tableLoading}
+                  onSelect={() => void runExport("table")}
+                />
+                <ExportOption
+                  title="Students in these filters"
+                  detail={`One row per student (${summary.students.toLocaleString("en-IN")}): batch, section, attendance, lowest subject, tier`}
+                  disabled={summary.students === 0}
+                  onSelect={() => void runExport("students")}
+                />
+              </PopoverContent>
+            </Popover>
+            {exportError && <p role="alert" className="text-xs font-medium text-red-700">{exportError}</p>}
           </div>
         }
       />
@@ -991,15 +1046,11 @@ export default function StudentAttendanceStats() {
         ) : (
         <div className={cn("overflow-x-auto transition-opacity duration-200 motion-reduce:transition-none", updating && "opacity-60")}>
           <table className="w-full min-w-[48rem] text-left">
-            <Head columns={tableColumns} sort={sort ?? { key: "", dir: "asc" }} onSort={onSort} extra dense />
-            <Body loading={tableLoading} empty={emptyText} colSpan={tableColumns.length + 1} rowsCount={paged.length}>
+            <Head columns={tableColumns} sort={sort ?? { key: "", dir: "asc" }} onSort={onSort} dense />
+            <Body loading={tableLoading} empty={emptyText} colSpan={tableColumns.length} rowsCount={paged.length}>
               {paged.map((row) => (
                 <tr key={rowKey(row, grain)} className="hover:bg-slate-50">
-                  <td className={cn(cell, "font-medium text-slate-900")}>
-                    <button type="button" className={cn("rounded text-left hover:underline", focusRing)} onClick={() => openUniversity(row.university)}>
-                      {row.university}
-                    </button>
-                  </td>
+                  <td className={cn(cell, "font-medium text-slate-900")}>{row.university}</td>
                   {identity.map((header, index) => (
                     <td key={header} className={cell}>
                       {header === "Subject" && row.subject ? (
@@ -1062,18 +1113,6 @@ export default function StudentAttendanceStats() {
                       </td>
                     </>
                   )}
-                  <td className="px-2 py-3 text-right">
-                    {grain === "university" && (
-                      <button
-                        type="button"
-                        aria-label={`Open sessions for ${row.university}`}
-                        onClick={() => openUniversity(row.university)}
-                        className={cn("rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100", focusRing)}
-                      >
-                        <ChevronRight className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    )}
-                  </td>
                 </tr>
               ))}
             </Body>
@@ -1116,6 +1155,20 @@ function identityValues(row: StatsRow, grain: Grain): string[] {
 
 function rowKey(row: StatsRow, grain: Grain): string {
   return [row.university, row.batch ?? "", row.semester ?? "", row.subject ?? "", row.section ?? "", row.unit ?? "", row.studentId ?? "", grain].join("|");
+}
+
+function ExportOption({ title, detail, disabled, onSelect }: { title: string; detail: string; disabled?: boolean; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onSelect}
+      className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span className="text-sm font-semibold text-slate-900">{title}</span>
+      <span className="text-xs text-slate-500">{detail}</span>
+    </button>
+  );
 }
 
 /** Marks a semester that has ended (the batch is between semesters, or an earlier semester is picked). */
