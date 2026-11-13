@@ -45,7 +45,6 @@ import {
   assessmentSummaryVersion,
   spiRecordVersion,
   getAttendanceStatsUnits,
-  getBatchSemesters,
   getAttendanceTrend,
   getSubjectOptions,
   type AttendanceGrain,
@@ -66,7 +65,9 @@ import {
   aggregateAttendanceStats,
   attendanceFilterOptions,
   searchAttendanceStudents,
+  type AttendanceFilterOptions,
   type AttendanceFilters,
+  type AttendanceHeader,
   type AttendanceViewGrain,
   type AttendanceViewRow,
 } from "../lib/attendanceStatsAggregate.js";
@@ -1862,12 +1863,6 @@ function attendanceViewFilters(q: Record<string, string | string[] | undefined>)
   };
 }
 
-/** `bsem`: an earlier semester of the one batch picked; read on demand instead of the latest-semester snapshot. */
-function batchSemesterOf(q: Record<string, string | string[] | undefined>, filters: AttendanceFilters) {
-  const semester = firstQuery(q, "bsem").trim().slice(0, 100);
-  if (!semester || filters.batches?.length !== 1) return undefined;
-  return { batchKey: filters.batches[0]!, semester };
-}
 
 const ATTENDANCE_SORTERS: Record<string, (row: AttendanceViewRow) => string | number | null> = {
   university: (r) => r.university,
@@ -1914,6 +1909,9 @@ function searchAndSortAttendanceRows(rows: AttendanceViewRow[], search: string, 
  * the header totals and the filter choices. Aggregates the cached
  * attendance-stats detail on the server, so the browser gets 50 rows instead
  * of every student × subject row. `export=1` returns every row for CSV.
+ *
+ * The aggregate for one set of filters (0.2–1 s over every college) is kept for
+ * a few minutes, so paging, sorting and searching the same view only slice it.
  */
 router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise<void> => {
   const session = req.session!;
@@ -1935,41 +1933,32 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
   }
   const dates = closedDateScope(q as Record<string, string | undefined>);
   const pageRequest = readPageRequest(q);
-  const batchSemester = dates.dateFrom ? undefined : batchSemesterOf(q, filters);
+  const viewKey = `attendance-view:v1:${attendanceStatsVersion()}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}:${grain}:${JSON.stringify(filters)}`;
   try {
-    // The menus always list every batch in its latest semester; an earlier semester only changes the rows.
-    const latest = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
-    const detail = batchSemester ? await getAttendanceStatsDetail(scope, { batchSemester }) : latest;
-    const summary = aggregateAttendanceStats(detail.students, detail.classes, "university", filters, detail.reportLowest).summary;
-    let rows: AttendanceViewRow[] = [];
-    if (grain !== "university_unit") {
-      rows = aggregateAttendanceStats(detail.students, detail.classes, grain, filters, detail.reportLowest).rows;
-    } else if (filters.campuses.length || filters.batches?.length) {
-      const unitCampuses = filters.campuses.length
-        ? filters.campuses
-        : [...new Set(filters.batches!.map((key) => key.split("\t")[0]!))];
-      const units = await getAttendanceStatsUnits(scope, {
-        campuses: unitCampuses,
-        dateFrom: dates.dateFrom,
-        dateTo: dates.dateTo,
-        batchSemester,
-      });
-      rows = aggregateAttendanceStats(units.students, units.classes, grain, filters).rows;
+    let view = cacheGet<{ rows: AttendanceViewRow[]; summary: AttendanceHeader; options: AttendanceFilterOptions }>(viewKey);
+    if (!view) {
+      const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+      const summary = aggregateAttendanceStats(detail.students, detail.classes, "university", filters, detail.reportLowest).summary;
+      let rows: AttendanceViewRow[] = [];
+      if (grain !== "university_unit") {
+        rows = aggregateAttendanceStats(detail.students, detail.classes, grain, filters, detail.reportLowest).rows;
+      } else if (filters.campuses.length || filters.batches?.length) {
+        const unitCampuses = filters.campuses.length
+          ? filters.campuses
+          : [...new Set(filters.batches!.map((key) => key.split("\t")[0]!))];
+        const units = await getAttendanceStatsUnits(scope, { campuses: unitCampuses, dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+        rows = aggregateAttendanceStats(units.students, units.classes, grain, filters).rows;
+      }
+      view = { rows, summary, options: attendanceFilterOptions(detail.students, filters) };
+      cacheSet(viewKey, view, 5 * 60 * 1000);
     }
-    rows = searchAndSortAttendanceRows(rows, firstQuery(q, "q").slice(0, 100), firstQuery(q, "sort"), firstQuery(q, "dir") === "desc" ? -1 : 1);
+    const rows = searchAndSortAttendanceRows(view.rows, firstQuery(q, "q").slice(0, 100), firstQuery(q, "sort"), firstQuery(q, "dir") === "desc" ? -1 : 1);
     const page = pageOf(rows, pageRequest);
     const body = {
       ...page,
       rows: page.rows.map((row) => ({ ...row, spiPath: row.studentId ? spiSharePath(row.studentId) : null })),
-      summary,
-      options: batchSemester
-        ? {
-            ...attendanceFilterOptions(latest.students, filters),
-            // Sections and subjects of the earlier semester picked, not the latest one.
-            sections: attendanceFilterOptions(detail.students, filters).sections,
-            subjects: attendanceFilterOptions(detail.students, filters).subjects,
-          }
-        : attendanceFilterOptions(latest.students, filters),
+      summary: view.summary,
+      options: view.options,
     };
     if (pageRequest.all) await sendLargeJson(req, res, body);
     else res.json(body);
@@ -1978,27 +1967,6 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
     if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: "Failed to fetch attendance stats" });
     }
-  }
-});
-
-/** Every semester of one batch (`batch` = "college\tbatch"), newest first, for the Semester menu. */
-router.get("/attendance-stats/batch-semesters", requireSession(), async (req, res): Promise<void> => {
-  const session = req.session!;
-  const scope = scopeForSession({
-    role: session.role as Role,
-    campuses: session.campuses,
-    subjects: session.subjects,
-  });
-  const batchKey = firstQuery(req.query as Record<string, string | string[] | undefined>, "batch").slice(0, 300);
-  if (!batchKey.includes("\t")) {
-    res.status(400).json({ error: "Pick a batch" });
-    return;
-  }
-  try {
-    res.json({ semesters: await getBatchSemesters(scope, batchKey) });
-  } catch (err) {
-    req.log.error({ err }, "Error fetching batch semesters");
-    res.status(500).json({ error: "Failed to fetch semesters" });
   }
 });
 
@@ -2013,9 +1981,8 @@ router.get("/attendance-stats/student-search", requireSession(), async (req, res
   const q = req.query as Record<string, string | string[] | undefined>;
   const dates = closedDateScope(q as Record<string, string | undefined>);
   const filters = attendanceViewFilters(q);
-  const batchSemester = dates.dateFrom ? undefined : batchSemesterOf(q, filters);
   try {
-    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo, batchSemester });
+    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
     res.json({ students: searchAttendanceStudents(detail.students, filters, firstQuery(q, "q")) });
   } catch (err) {
     req.log.error({ err }, "Error searching attendance students");

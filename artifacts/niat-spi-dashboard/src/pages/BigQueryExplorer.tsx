@@ -189,7 +189,7 @@ function TableListView({ onOpen }: { onOpen: (t: CatalogTable) => void }) {
 
   return (
     <div className="flex flex-col">
-      <PageHeader
+      <PageHeader semesterNote={false}
         badge="Superadmin"
         title="Data Explorer"
         subtitle="Read-only access to every table and column in the BigQuery dataset."
@@ -535,7 +535,7 @@ function TableDataView({
         ]}
       />
 
-      <PageHeader
+      <PageHeader semesterNote={false}
         title={label}
         subtitle={`${table.columns.length} column${table.columns.length === 1 ? "" : "s"} · ${table.tableId} · filters and export apply to the full table`}
         right={

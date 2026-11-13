@@ -151,6 +151,10 @@ export interface AttendanceFilters {
 
 export const batchOf = (row: { batch?: string }) => row.batch || "Unknown";
 
+/** Built once: String.localeCompare builds a collator per call, which made sorting 16k student rows take ~1 s. */
+const text = new Intl.Collator(undefined).compare;
+const numeric = new Intl.Collator(undefined, { numeric: true }).compare;
+
 /**
  * The semester a group of rows is in: the one most of its students have (ties: the later title). A batch has
  * one semester, but a few students carry rows from a second one (a repeated course), and that must not split
@@ -167,7 +171,7 @@ function mainSemester(rows: { studentId: string; semester: string; ended?: boole
   let best: { semester: string; ended: boolean; n: number } | null = null;
   for (const [semester, entry] of bySemester) {
     const n = entry.students.size;
-    if (!best || n > best.n || (n === best.n && semester.localeCompare(best.semester, undefined, { numeric: true }) > 0)) {
+    if (!best || n > best.n || (n === best.n && numeric(semester, best.semester) > 0)) {
       best = { semester, ended: entry.ended, n };
     }
   }
@@ -325,14 +329,13 @@ export function aggregateAttendanceStats(
       lowestSubject: lowest?.subject ?? null,
     };
   }).sort((left, right) =>
-    left.university.localeCompare(right.university)
-    || (left.batch ?? "").localeCompare(right.batch ?? "", undefined, { numeric: true })
-    || (left.subject ?? "").localeCompare(right.subject ?? "")
-    || (left.section ?? "").localeCompare(right.section ?? "", undefined, { numeric: true })
-    || (left.unit ?? "").localeCompare(right.unit ?? "")
-    || (left.studentName ?? "").localeCompare(right.studentName ?? ""),
+    text(left.university, right.university)
+    || numeric(left.batch ?? "", right.batch ?? "")
+    || text(left.subject ?? "", right.subject ?? "")
+    || numeric(left.section ?? "", right.section ?? "")
+    || text(left.unit ?? "", right.unit ?? "")
+    || text(left.studentName ?? "", right.studentName ?? ""),
   );
 
   return { summary, rows };
 }
-

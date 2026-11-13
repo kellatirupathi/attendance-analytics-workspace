@@ -117,7 +117,7 @@ export default function AdminUsers() {
 
   return (
     <div className="flex flex-col">
-      <PageHeader
+      <PageHeader semesterNote={false}
         title="User Access"
         subtitle="Add, update, and manage access for staff members. Use Bulk import to create many campus logins at once."
         right={

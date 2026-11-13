@@ -66,7 +66,7 @@ export default function AdminCampuses() {
 
   return (
     <div className="flex flex-col">
-      <PageHeader
+      <PageHeader semesterNote={false}
         badge="Administration"
         title="Campus Setup"
         subtitle="Add and maintain campus records used for staff scope assignment."

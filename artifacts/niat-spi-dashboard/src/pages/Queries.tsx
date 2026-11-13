@@ -394,7 +394,7 @@ export default function Queries() {
 
   return (
     <div className="flex flex-col">
-      <PageHeader
+      <PageHeader semesterNote={false}
         title="Student queries"
         subtitle="Replies appear in the student's SPI report."
       />

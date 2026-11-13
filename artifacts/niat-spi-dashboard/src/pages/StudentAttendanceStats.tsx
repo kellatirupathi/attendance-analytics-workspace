@@ -9,7 +9,7 @@ import { Body, Head, Pager, type Sort } from "@/components/assessments/quiz/Quiz
 import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Building2, Check, ChevronDown, ChevronRight, Download, FileText, GraduationCap, Layers, LayoutGrid, Search, SlidersHorizontal, User, X, type LucideIcon } from "lucide-react";
+import { Building2, Check, ChevronDown, Loader2, ChevronRight, Download, FileText, GraduationCap, Layers, LayoutGrid, Search, SlidersHorizontal, User, X, type LucideIcon } from "lucide-react";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
 import { cn } from "@/lib/utils";
 import { ATTENDANCE_TIERS, getTier, NO_SESSIONS_LABEL, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
@@ -186,13 +186,6 @@ interface BatchOption {
   students: number;
 }
 
-interface BatchSemester {
-  semester: string;
-  ended: boolean;
-  students: number;
-  withSessions: number;
-}
-
 /** The More filters panel's choices before Apply. */
 interface MoreDraft {
   /** "college\tsection" */
@@ -274,7 +267,6 @@ export default function StudentAttendanceStats() {
   /** Main level: "college\tbatch" keys, then the semester (latest per batch, running / ended only, or one earlier semester). */
   const batches = splitList(query.get("batches")).filter((value) => value.includes("\t"));
   const status = query.get("status") === "running" || query.get("status") === "ended" ? query.get("status")! : "";
-  const batchSemester = batches.length === 1 ? query.get("bsem") || "" : "";
   const students = splitList(query.get("students")).map((value) => {
     const [studentId, studentCampus, studentName] = value.split("\t");
     return { studentId: studentId ?? "", campus: studentCampus ?? "", studentName: studentName ?? "" };
@@ -356,8 +348,7 @@ export default function StudentAttendanceStats() {
     list("campuses", overrides.campuses ?? campuses);
     const batchList = overrides.batches ?? batches;
     list("batches", batchList);
-    if (batchList.length === 1 && batchSemester && scopeKind === "semester") params.set("bsem", batchSemester);
-    else if (status) params.set("status", status);
+    if (status) params.set("status", status);
     list("semesters", semesters);
     list("sections", overrides.sections ?? sections.map((item) => `${item.campus}\t${item.section}`));
     list("students", overrides.students ?? students.map((item) => `${item.campus}\t${item.studentId}`));
@@ -379,7 +370,7 @@ export default function StudentAttendanceStats() {
     return res.json() as Promise<RowsPayload>;
   };
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ["attendance-stats-rows", viewKey, page, pageSize],
     enabled: scopeReady,
     queryFn: () => {
@@ -401,21 +392,10 @@ export default function StudentAttendanceStats() {
   const subjectOptions = useMemo(() => subjectOptionList(data?.options.subjects ?? []), [data]);
   const endedNote = data?.options.ended ?? { batches: 0, students: 0 };
 
-  /** Every semester of the one batch picked, for the Semester menu. */
-  const oneBatch = batches.length === 1 ? batches[0]! : "";
-  const { data: batchSemesters } = useQuery({
-    queryKey: ["attendance-batch-semesters", oneBatch],
-    enabled: Boolean(oneBatch),
-    queryFn: async () => {
-      const res = await fetch(`/api/dashboard/attendance-stats/batch-semesters?batch=${encodeURIComponent(oneBatch)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load semesters");
-      return ((await res.json()) as { semesters: BatchSemester[] }).semesters;
-    },
-    staleTime: 30 * 60_000,
-  });
-  const latestOfBatch = batchChoices.find((item) => `${item.campus}\t${item.batch}` === oneBatch);
 
   const summary: AttendanceHeader = data?.summary ?? EMPTY_SUMMARY;
+  /** Old numbers are on screen while the new filters load. */
+  const updating = isFetching && !isLoading;
   const tableLoading = grain === "university_unit"
     ? (campuses.length > 0 || batches.length > 0) && isLoading
     : isLoading;
@@ -431,13 +411,11 @@ export default function StudentAttendanceStats() {
   );
   const tierShown = COLUMN_ORDER.some((id) => TIER_COLUMNS.has(id) && columns.includes(id));
 
-  const semesterLabel = batchSemester
-    ? batchSemester
-    : status === "running"
-      ? "Running semesters"
+  const semesterLabel = status === "running"
+      ? "Running"
       : status === "ended"
-        ? "Ended semesters"
-        : "Latest semester";
+        ? "Ended"
+        : "This semester";
   const scopeLabel = [
     campusScopeLabel(campuses, campusOptions),
     batches.length === 1 ? batches[0]!.split("\t")[1] : batches.length > 1 ? `${batches.length} batches` : "",
@@ -453,7 +431,7 @@ export default function StudentAttendanceStats() {
         : "",
   ].filter(Boolean).join(" · ");
 
-  const drillSemester = semesters.length === 1 ? semesters[0] : batchSemester || undefined;
+  const drillSemester = semesters.length === 1 ? semesters[0] : undefined;
 
   const drillRange = (): DateRange =>
     scopeKind === "day" && day
@@ -571,7 +549,9 @@ export default function StudentAttendanceStats() {
     );
   };
 
-  const emptyText = grain === "university_unit" && !campuses.length && !batches.length ? "Select a college or batch to see unit-wise attendance." : `No rows for ${scopeLabel}.`;
+  /** Unit-wise reads BigQuery per college, so it needs a college (or batch) first. */
+  const needCollege = grain === "university_unit" && !campuses.length && !batches.length;
+  const emptyText = `No rows for ${scopeLabel}.`;
   const lockedCampus = isBoa && user?.campuses?.length === 1;
   const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 focus-visible:ring-offset-2";
   /** Every filter field looks like a dropdown: full width, value on the left, arrow on the right. */
@@ -621,14 +601,12 @@ export default function StudentAttendanceStats() {
     writeQuery({
       campuses: next.join("||") || undefined,
       batches: keptBatches.join("||") || undefined,
-      bsem: keptBatches.length === 1 ? batchSemester || undefined : undefined,
       sections: keptSections.map((item) => `${item.campus}\t${item.section}`).join("||") || undefined,
       students: keptStudents.map((item) => `${item.studentId}\t${item.campus}\t${item.studentName}`).join("||") || undefined,
     });
   };
-  const setBatches = (next: string[]) => writeQuery({ batches: next.join("||") || undefined, bsem: undefined, sections: undefined });
-  const setSemester = (choice: { status?: string; bsem?: string }) =>
-    writeQuery({ status: choice.status, bsem: choice.bsem, sections: choice.bsem !== batchSemester ? undefined : query.get("sections") ?? undefined });
+  const setBatches = (next: string[]) => writeQuery({ batches: next.join("||") || undefined, sections: undefined });
+  const setSemester = (choice: { status?: string }) => writeQuery({ status: choice.status });
 
   /** Filters behind More filters (and ones that only arrive from links), shown as removable chips under the bar. */
   const chips: { key: string; label: string; clear: () => void }[] = [
@@ -667,7 +645,6 @@ export default function StudentAttendanceStats() {
     writeQuery({
       campuses: undefined,
       batches: undefined,
-      bsem: undefined,
       status: undefined,
       semesters: undefined,
       sections: undefined,
@@ -738,7 +715,6 @@ export default function StudentAttendanceStats() {
                   <Button variant="outline" className={fieldTrigger}>
                     <span className="flex min-w-0 items-center gap-1.5">
                       <span className="truncate">{scopeKind !== "semester" ? "Custom dates" : semesterLabel}</span>
-                      {scopeKind === "semester" && batchSemester && batchSemesters?.find((item) => item.semester === batchSemester)?.ended && <EndedTag />}
                     </span>
                     <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                   </Button>
@@ -753,33 +729,9 @@ export default function StudentAttendanceStats() {
                     </div>
                   ) : (
                     <>
-                      <SemesterOption on={!batchSemester && !status} label="Latest semester" hint="per batch" onSelect={() => setSemester({})} />
-                      <SemesterOption on={!batchSemester && status === "running"} label="Running only" onSelect={() => setSemester({ status: "running" })} />
-                      <SemesterOption on={!batchSemester && status === "ended"} label="Ended only" hint={endedNote.batches ? `${endedNote.batches} batches` : undefined} onSelect={() => setSemester({ status: "ended" })} />
-                      <div className="my-1 border-t border-slate-100" />
-                      {oneBatch ? (
-                        (batchSemesters ?? []).map((item) => {
-                          const latest = item.semester === latestOfBatch?.semester;
-                          return (
-                            <SemesterOption
-                              key={item.semester}
-                              on={batchSemester ? batchSemester === item.semester : false}
-                              label={item.semester}
-                              tag={item.ended ? "ended" : "running"}
-                              hint={
-                                !item.withSessions
-                                  ? "no session data"
-                                  : item.withSessions < item.students / 2
-                                    ? `${item.withSessions.toLocaleString("en-IN")} with sessions`
-                                    : `${item.students.toLocaleString("en-IN")} students`
-                              }
-                              onSelect={() => setSemester(latest ? {} : { bsem: item.semester })}
-                            />
-                          );
-                        })
-                      ) : (
-                        <p className="px-2 py-1.5 text-xs text-slate-500">Pick one batch to see its earlier semesters.</p>
-                      )}
+                      <SemesterOption on={!status} label="This semester" hint="all batches" onSelect={() => setSemester({})} />
+                      <SemesterOption on={status === "running"} label="Running" hint="semester in progress" onSelect={() => setSemester({ status: "running" })} />
+                      <SemesterOption on={status === "ended"} label="Ended" hint={endedNote.batches ? `${endedNote.batches} batches` : undefined} onSelect={() => setSemester({ status: "ended" })} />
                     </>
                   )}
                 </PopoverContent>
@@ -900,7 +852,10 @@ export default function StudentAttendanceStats() {
         </SheetContent>
       </Sheet>
 
-      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-6">
+      <div
+        aria-busy={updating}
+        className={cn("grid grid-cols-2 gap-2.5 transition-opacity duration-200 motion-reduce:transition-none md:grid-cols-3 xl:grid-cols-6", updating && "opacity-50")}
+      >
         <StatTile label="Students" value={isLoading ? null : summary.students.toLocaleString("en-IN")} />
         <StatTile label="Overall attendance" value={isLoading ? null : summary.overallPct == null ? "—" : `${summary.overallPct.toFixed(1)}%`} />
         <StatTile label="Eligible" tier={ATTENDANCE_TIERS[0]} value={isLoading ? null : summary.eligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.eligible)} · ≥${TIER_ELIGIBLE}%`} />
@@ -908,9 +863,6 @@ export default function StudentAttendanceStats() {
         <StatTile label="At risk" tier={ATTENDANCE_TIERS[2]} value={isLoading ? null : summary.atRisk.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.atRisk)} · ${TIER_AT_RISK}–${TIER_RECOVERY - 1}%`} />
         <StatTile label="Ineligible" tier={ATTENDANCE_TIERS[3]} value={isLoading ? null : summary.ineligible.toLocaleString("en-IN")} hint={isLoading ? "" : `${share(summary.ineligible)} · below ${TIER_AT_RISK}%`} />
       </div>
-      <p className="mt-1.5 text-xs text-slate-500">
-        Tiers use each student's lowest subject attendance, the same as the student report.
-      </p>
 
       <div role="group" aria-label="View by" className="mt-3 flex flex-wrap items-center gap-3">
         <span className="text-sm font-bold text-slate-900">View by</span>
@@ -948,7 +900,8 @@ export default function StudentAttendanceStats() {
         </div>
       )}
 
-      <section className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Attendance">
+      <section className="relative mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Attendance" aria-busy={updating}>
+        {updating && <div className="absolute inset-x-0 top-0 h-1 animate-pulse bg-violet-600 motion-reduce:animate-none" aria-hidden="true" />}
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 p-3">
           <label className="relative min-w-[14rem] flex-1 sm:max-w-xs">
             <span className="sr-only">Search this view</span>
@@ -962,14 +915,23 @@ export default function StudentAttendanceStats() {
             />
           </label>
 
-          <p className="min-w-0 truncate text-sm text-slate-500 tabular-nums" title={scopeLabel}>
+          <p hidden={needCollege} className="min-w-0 truncate text-sm text-slate-500 tabular-nums" title={scopeLabel} role="status" aria-live="polite">
+            {updating ? (
+              <span className="inline-flex items-center gap-1.5 font-medium text-violet-700">
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                Updating for your filters…
+              </span>
+            ) : (
+              <>
             <span className="font-semibold text-slate-900">{totalRows.toLocaleString("en-IN")}</span> rows
-            {scopeKind === "semester" && !batchSemester && status !== "ended" && endedNote.batches > 0 && (
+            {scopeKind === "semester" && status !== "ended" && endedNote.batches > 0 && (
               <>
                 {" · "}
                 <button type="button" className={cn("rounded font-medium text-amber-700 hover:underline", focusRing)} onClick={() => setSemester({ status: "ended" })}>
                   {endedNote.batches} {endedNote.batches === 1 ? "batch" : "batches"} ended
                 </button>
+              </>
+            )}
               </>
             )}
           </p>
@@ -1011,7 +973,23 @@ export default function StudentAttendanceStats() {
         </div>
 
 
-        <div className="overflow-x-auto">
+        {needCollege ? (
+          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+            <Layers className="h-6 w-6 text-violet-600" aria-hidden="true" />
+            <p className="max-w-md text-sm text-slate-600">Unit-wise shows one college's units at a time. Pick a college:</p>
+            <div className="w-full max-w-xs">
+              <CheckMenu
+                chevron
+                className={fieldTrigger}
+                label="Pick a college"
+                options={campusOptions.map((name) => ({ id: name, label: name }))}
+                selected={[]}
+                onChange={(next) => next.length && setCampuses([next[next.length - 1]!])}
+              />
+            </div>
+          </div>
+        ) : (
+        <div className={cn("overflow-x-auto transition-opacity duration-200 motion-reduce:transition-none", updating && "opacity-60")}>
           <table className="w-full min-w-[48rem] text-left">
             <Head columns={tableColumns} sort={sort ?? { key: "", dir: "asc" }} onSort={onSort} extra dense />
             <Body loading={tableLoading} empty={emptyText} colSpan={tableColumns.length + 1} rowsCount={paged.length}>
@@ -1101,8 +1079,9 @@ export default function StudentAttendanceStats() {
             </Body>
           </table>
         </div>
+        )}
         <AttendanceCaption className="mx-3 mb-2" />
-        <Pager
+        {!needCollege && <Pager
           page={totalRows > 0 ? { rows: [], total: totalRows, page: currentPage, pageSize, totalPages } : undefined}
           unit="rows"
           pageSize={pageSize}
@@ -1111,7 +1090,7 @@ export default function StudentAttendanceStats() {
             setPageSize(size);
             setPage(1);
           }}
-        />
+        />}
       </section>
     </div>
   );

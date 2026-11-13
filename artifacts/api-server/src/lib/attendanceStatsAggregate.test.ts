@@ -267,3 +267,24 @@ test("section filter after the move: the section's own students only, with all t
   const secSum = aggregateAttendanceStats(out, NO_CLASSES, "university_section", NO_FILTERS).rows.reduce((n, r) => n + r.students, 0);
   assert.equal(secSum, 2);
 });
+
+// --- Sort order ----------------------------------------------------------------------------
+
+test("rows sort by college, then batch and section in number order, then name", () => {
+  const rows = latest([
+    row({ studentId: "z", university: "B College", batch: "Batch-1", section: "S-1" }),
+    row({ studentId: "c", university: "A College", batch: "Batch-10", section: "S-1" }),
+    row({ studentId: "b", university: "A College", batch: "Batch-2", section: "S-10" }),
+    row({ studentId: "a", university: "A College", batch: "Batch-2", section: "S-2" }),
+  ]);
+  const sections = aggregateAttendanceStats(rows, NO_CLASSES, "university_section", NO_FILTERS).rows;
+  assert.deepEqual(sections.map((r) => `${r.university}|${r.batch}|${r.section}`), [
+    "A College|Batch-2|S-2",
+    "A College|Batch-2|S-10",
+    "A College|Batch-10|S-1",
+    "B College|Batch-1|S-1",
+  ]);
+  const opts = attendanceFilterOptions(rows, { campuses: [], semesters: [] });
+  assert.deepEqual(opts.campuses, ["A College", "B College"]);
+  assert.deepEqual(opts.batches.map((b) => b.batch), ["Batch-2", "Batch-10", "Batch-1"]);
+});

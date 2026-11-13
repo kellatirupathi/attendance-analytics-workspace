@@ -216,7 +216,7 @@ export default function AttendanceRequests() {
 
   return (
     <div className="flex flex-col">
-      <PageHeader
+      <PageHeader semesterNote={false}
         title="Request Inbox"
         subtitle="Review and act on attendance-correction requests from students."
       />
