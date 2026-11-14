@@ -81,6 +81,16 @@ function Kpi({ label, value, tone = "plain", loading, onClick, pressed }: { labe
   );
 }
 
+/** A card whose number needs the Final Skill Assessment (FSA): shown as Coming soon until FSA results are in. */
+function SoonKpi({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <span className="inline-flex w-fit items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">Coming soon</span>
+    </div>
+  );
+}
+
 /** A quiz average as a coloured pill; "Awaited" when no quiz of that type is held yet. */
 function Score({ value }: { value: number | null }) {
   if (value == null) return <span className="inline-block min-w-[3.5rem] rounded-full bg-slate-100 px-2.5 py-0.5 text-center text-xs font-semibold text-slate-500">Awaited</span>;
@@ -398,20 +408,14 @@ export default function Students() {
         </FilterField>
       </MoreFiltersSheet>
 
-      <div aria-busy={updating} className={cn("grid grid-cols-2 gap-2.5 transition-opacity duration-200 motion-reduce:transition-none md:grid-cols-3 xl:grid-cols-6", updating && "opacity-50")}>
+      <div aria-busy={updating} className={cn("grid grid-cols-2 gap-2.5 transition-opacity duration-200 motion-reduce:transition-none md:grid-cols-4 xl:grid-cols-7", updating && "opacity-50")}>
         <Kpi label="Students" value={fmtInt(summary?.students ?? 0)} tone="main" loading={loading} />
         <Kpi label="Overall attendance" value={pctText(summary?.avgAttendance)} loading={loading} />
-        <Kpi
-          label="Attendance eligible (≥80%)"
-          value={fmtInt(summary?.eligible ?? 0)}
-          tone="good"
-          loading={loading}
-          pressed={filters.tier === "eligible"}
-          onClick={() => change({ tier: filters.tier === "eligible" ? "" : "eligible" })}
-        />
         <Kpi label="Classroom Quiz avg" value={pctText(summary?.classroomAvg)} loading={loading} />
         <Kpi label="Module Quiz avg" value={pctText(summary?.moduleAvg)} loading={loading} />
         <Kpi label="Skill Assessment avg" value={pctText(summary?.skillAvg)} loading={loading} />
+        <SoonKpi label="FSA avg" />
+        <SoonKpi label="SPI" />
       </div>
 
       <section className="relative mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Students" aria-busy={updating}>
