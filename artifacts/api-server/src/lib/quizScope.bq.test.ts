@@ -8,24 +8,29 @@ import { scopedQuizRowsSql } from "./quizScoreSql.js";
 
 const hasBq = Boolean(process.env["BIGQUERY_SERVICE_ACCOUNT_JSON"]);
 
-type QuizFixture = [user: string, course: string, semesterTitle: string, isCurrent: 0 | 1, held: number, courseTitle?: string];
-type RosterFixture = [user: string, semesterTitle: string, isCurrent: 0 | 1];
+type QuizFixture = [user: string, course: string, semesterTitle: string, isCurrent: 0 | 1, held: number, courseTitle?: string, college?: string];
+type RosterFixture = [user: string, semesterTitle: string, isCurrent: 0 | 1, date?: string, section?: string, college?: string];
 
 const s = (v: string) => `'${v.replace(/'/g, "\\'")}'`;
 const quizTable = (rows: QuizFixture[]) =>
   `(SELECT * FROM UNNEST([${rows
     .map(
-      ([u, course, sem, cur, held, title], i) =>
-        `STRUCT(${s(u)} AS user_id, 'College' AS institute_name, 'S-01' AS section_name, ${s(course)} AS course_id, 'MODULE_QUIZ' AS derived_unit_type, ${s(title ?? `Course ${course}`)} AS semester_course_title, ${s(sem)} AS semester_title, ${cur} AS is_current_semester, ${held} AS total_scheduled_quizes, ${i} AS row_no)`,
+      ([u, course, sem, cur, held, title, college], i) =>
+        `STRUCT(${s(u)} AS user_id, ${s(college ?? "College")} AS institute_name, 'S-01' AS section_name, ${s(course)} AS course_id, 'MODULE_QUIZ' AS derived_unit_type, ${s(title ?? `Course ${course}`)} AS semester_course_title, ${s(sem)} AS semester_title, ${cur} AS is_current_semester, ${held} AS total_scheduled_quizes, ${i} AS row_no)`,
     )
     .join(", ")}]))`;
 const roster = (rows: RosterFixture[]) =>
-  `(SELECT * FROM UNNEST([${rows.map(([u, sem, cur]) => `STRUCT(${s(u)} AS student_user_id, ${s(sem)} AS semester_title, ${cur} AS is_current_semester)`).join(", ")}]))`;
+  `(SELECT * FROM UNNEST([${rows
+    .map(
+      ([u, sem, cur, date, section, college]) =>
+        `STRUCT(${s(u)} AS student_user_id, ${s(sem)} AS semester_title, ${cur} AS is_current_semester, DATE ${s(date ?? "2026-11-01")} AS date, ${s(section ?? "Batch-1-S-01")} AS batch_section_name, ${s(college ?? "College")} AS institute_name)`,
+    )
+    .join(", ")}]))`;
 
 async function kept(quiz: QuizFixture[], people: RosterFixture[]): Promise<string[]> {
   const { bqQuery } = await import("./bigquery.js");
   const rows = await bqQuery<{ k: string }>(
-    `SELECT CONCAT(user_id, ':', course_id, ':', semester_title, ':', CAST(is_current_semester AS STRING)) AS k FROM ${scopedQuizRowsSql(quizTable(quiz), roster(people), "TRUE")} ORDER BY k`,
+    `SELECT CONCAT(user_id, ':', IF(institute_name = 'College', '', CONCAT(institute_name, ':')), course_id, ':', semester_title, ':', CAST(is_current_semester AS STRING)) AS k FROM ${scopedQuizRowsSql(quizTable(quiz), roster(people), "TRUE")} ORDER BY k`,
     {},
   );
   return rows.map((r) => r.k);
@@ -91,4 +96,70 @@ test("same course_id under two course names in the semester → one row; student
     [["d", "Semester 3", 1]],
   );
   assert.deepEqual(rows, ["d:X:Semester 3:1"]);
+});
+
+// One place per student: the roster lists a transferred student in two sections.
+const twoSectionQuiz: QuizFixture[] = [
+  ["t", "OLD", "Semester 5", 1, 30], // Batch-1 section's current Semester 5
+  ["t", "NEW", "Semester 1", 1, 20], // Batch-2 section's current Semester 1
+];
+
+test("two current sections → only the latest section's semester (newest session wins)", { skip: !hasBq }, async () => {
+  const rows = await kept(twoSectionQuiz, [
+    ["t", "Semester 5", 1, "2026-10-01", "AURORA Batch -1-S-002"],
+    ["t", "Semester 1", 1, "2026-11-10", "AURORA Batch -2-S-02"],
+  ]);
+  assert.deepEqual(rows, ["t:NEW:Semester 1:1"]);
+});
+
+test("two current sections, the other one newer → that section's semester instead", { skip: !hasBq }, async () => {
+  const rows = await kept(twoSectionQuiz, [
+    ["t", "Semester 5", 1, "2026-11-12", "AURORA Batch -1-S-002"],
+    ["t", "Semester 1", 1, "2026-11-10", "AURORA Batch -2-S-02"],
+  ]);
+  assert.deepEqual(rows, ["t:OLD:Semester 5:1"]);
+});
+
+test("same last date in both sections → the larger section name (as Attendance Stats)", { skip: !hasBq }, async () => {
+  const rows = await kept(twoSectionQuiz, [
+    ["t", "Semester 5", 1, "2026-11-10", "AURORA Batch -1-S-002"],
+    ["t", "Semester 1", 1, "2026-11-10", "AURORA Batch -2-S-02"],
+  ]);
+  assert.deepEqual(rows, ["t:NEW:Semester 1:1"]);
+});
+
+test("sessions up to today beat a section with only future sessions", { skip: !hasBq }, async () => {
+  const rows = await kept(twoSectionQuiz, [
+    ["t", "Semester 5", 1, "2026-11-01", "AURORA Batch -1-S-002"],
+    ["t", "Semester 1", 1, "2099-01-01", "AURORA Batch -2-S-02"],
+  ]);
+  assert.deepEqual(rows, ["t:OLD:Semester 5:1"]);
+});
+
+test("a current place beats a newer ended place", { skip: !hasBq }, async () => {
+  const rows = await kept(
+    [
+      ["e", "CUR", "Semester 2", 1, 10],
+      ["e", "END", "Semester 3", 0, 10],
+    ],
+    [
+      ["e", "Semester 2", 1, "2026-10-01", "B-2-S-01"],
+      ["e", "Semester 3", 0, "2026-11-05", "B-1-S-01"],
+    ],
+  );
+  assert.deepEqual(rows, ["e:CUR:Semester 2:1"]);
+});
+
+test("moved to another college in the same semester → only the latest college's rows", { skip: !hasBq }, async () => {
+  const rows = await kept(
+    [
+      ["m", "A", "Semester 3", 1, 10, undefined, "Old College"],
+      ["m", "B", "Semester 3", 1, 12, undefined, "New College"],
+    ],
+    [
+      ["m", "Semester 3", 1, "2026-09-01", "S-01", "Old College"],
+      ["m", "Semester 3", 1, "2026-11-01", "S-04", "New College"],
+    ],
+  );
+  assert.deepEqual(rows, ["m:New College:B:Semester 3:1"]);
 });

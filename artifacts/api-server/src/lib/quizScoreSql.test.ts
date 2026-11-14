@@ -84,12 +84,16 @@ test("scoped rows: current students use only current rows; ended students only t
   assert.ok(flat.includes("FROM ATT WHERE LATEST"));
   assert.ok(
     flat.includes(
-      "WHERE IF(sem.is_current, SAFE_CAST(q.is_current_semester AS INT64) = 1 AND TRIM(CAST(q.semester_title AS STRING)) IN UNNEST(sem.current_semesters), SAFE_CAST(q.is_current_semester AS INT64) = 0 AND TRIM(CAST(q.semester_title AS STRING)) = sem.ended_semester)",
+      "WHERE TRIM(CAST(q.institute_name AS STRING)) = sem.place.college AND TRIM(CAST(q.semester_title AS STRING)) = sem.place.semester AND (SAFE_CAST(q.is_current_semester AS INT64) = 1) = sem.place.is_current",
     ),
   );
-  // The ended semester comes from the roster (non-current rows only), never the quiz table's own latest semester,
-  // so a current student whose current semester has no quiz rows yet gets none.
-  assert.ok(flat.includes("MAX(IF(is_current_semester = 1, NULL, TRIM(CAST(semester_title AS STRING)))) AS ended_semester"));
+  // The semester comes from the roster's latest place, never the quiz table's own latest semester, so a current
+  // student whose current semester has no quiz rows yet gets none.
+  assert.ok(
+    flat.includes(
+      "ORDER BY is_current_semester = 1 DESC, DATE(date) <= CURRENT_DATE('Asia/Kolkata') DESC, DATE(date) DESC, TRIM(CAST(batch_section_name AS STRING)) DESC LIMIT 1)[OFFSET(0)] AS place",
+    ),
+  );
   // Inner join: students outside the dashboard roster have no quiz rows.
   assert.ok(flat.includes("INNER JOIN ("));
 });

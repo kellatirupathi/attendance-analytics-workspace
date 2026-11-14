@@ -27,23 +27,33 @@ const key = (column: string) => `LOWER(REPLACE(CAST(${column} AS STRING), '-', '
  * then one row per student + college + section + course_id + quiz type.
  * The semester_title match matters: the table joins semesters without the batch, so a Batch-1 student also gets
  * is_current_semester = 1 rows labelled with Batch-2's current semester (e.g. "Semester 1"), holding last year's work.
+ *
+ * One place per student, as Attendance Stats and the report: a student the roster lists in two sections (a
+ * transfer) is taken at the section of their latest session — a current semester first, then sessions up to
+ * today first, then the newest date, then the larger section name — and only that college and semester count.
+ * (Quiz section names are short, e.g. "S-02", and do not always match the roster's, so the college and semester
+ * pick the rows.)
  */
 export function scopedQuizRowsSql(quizTable: string, attendanceSql: string, latestSemesterWhere: string): string {
+  const today = "CURRENT_DATE('Asia/Kolkata')";
   return `(
     SELECT q.*
     FROM ${quizTable} q
     INNER JOIN (
       SELECT ${key("student_user_id")} AS sk,
-        LOGICAL_OR(is_current_semester = 1) AS is_current,
-        ARRAY_AGG(DISTINCT IF(is_current_semester = 1, TRIM(CAST(semester_title AS STRING)), NULL) IGNORE NULLS) AS current_semesters,
-        MAX(IF(is_current_semester = 1, NULL, TRIM(CAST(semester_title AS STRING)))) AS ended_semester
+        ARRAY_AGG(STRUCT(
+            TRIM(CAST(institute_name AS STRING)) AS college,
+            TRIM(CAST(semester_title AS STRING)) AS semester,
+            is_current_semester = 1 AS is_current)
+          ORDER BY is_current_semester = 1 DESC, DATE(date) <= ${today} DESC, DATE(date) DESC, TRIM(CAST(batch_section_name AS STRING)) DESC
+          LIMIT 1)[OFFSET(0)] AS place
       FROM ${attendanceSql}
       WHERE ${latestSemesterWhere}
       GROUP BY sk
     ) sem ON sem.sk = ${key("q.user_id")}
-    WHERE IF(sem.is_current,
-      SAFE_CAST(q.is_current_semester AS INT64) = 1 AND TRIM(CAST(q.semester_title AS STRING)) IN UNNEST(sem.current_semesters),
-      SAFE_CAST(q.is_current_semester AS INT64) = 0 AND TRIM(CAST(q.semester_title AS STRING)) = sem.ended_semester)
+    WHERE TRIM(CAST(q.institute_name AS STRING)) = sem.place.college
+      AND TRIM(CAST(q.semester_title AS STRING)) = sem.place.semester
+      AND (SAFE_CAST(q.is_current_semester AS INT64) = 1) = sem.place.is_current
     QUALIFY ROW_NUMBER() OVER (
       PARTITION BY ${key("q.user_id")}, TRIM(q.institute_name), TRIM(q.section_name), CAST(q.course_id AS STRING), UPPER(CAST(q.derived_unit_type AS STRING))
       ORDER BY TRIM(CAST(q.semester_course_title AS STRING))) = 1
