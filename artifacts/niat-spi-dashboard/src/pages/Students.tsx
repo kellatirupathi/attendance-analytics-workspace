@@ -390,7 +390,7 @@ export default function Students() {
 
       <div aria-busy={updating} className={cn("grid grid-cols-2 gap-2.5 transition-opacity duration-200 motion-reduce:transition-none md:grid-cols-3 xl:grid-cols-6", updating && "opacity-50")}>
         <Kpi label="Total students" value={fmtInt(summary?.students ?? 0)} tone="main" loading={loading} />
-        <Kpi label="Average attendance" value={summary?.avgAttendance == null ? "–" : `${summary.avgAttendance.toFixed(1)}%`} loading={loading} />
+        <Kpi label="Overall attendance" value={summary?.avgAttendance == null ? "–" : `${summary.avgAttendance.toFixed(1)}%`} loading={loading} />
         <Kpi label="Eligible students" value={fmtInt(summary?.eligible ?? 0)} tone="good" loading={loading} />
         <Kpi label="Not eligible" value={fmtInt(summary?.notEligible ?? 0)} tone="bad" loading={loading} />
         <Kpi label="Average SPI" value={summary?.avgSpi == null ? "–" : summary.avgSpi.toFixed(2)} loading={loading} />

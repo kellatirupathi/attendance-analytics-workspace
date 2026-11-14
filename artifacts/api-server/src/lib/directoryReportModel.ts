@@ -3,7 +3,9 @@
  * student's report shows, so the directory and the report always agree.
  *
  *  - Eligible: the report's attendance criterion is met (at least 80% in every course).
- *  - Attendance: the report's overall attendance (present ÷ held, all courses together).
+ *  - Attendance: the report's overall attendance (present ÷ held, all courses together). For a group of students
+ *    the cards use Σ present ÷ Σ held (overallAttendance), as Student Attendance Stats does, not the mean of
+ *    the students' percentages.
  *  - Expected SPI: the report's SPI out of 10 (provisional until the Final Skill Assessment is in).
  *  - Skill debt: the report lists at least one skill-debt course.
  *  - Classroom / Module quiz average: best scores of the quizzes held ÷ quizzes held over the student's courses
@@ -24,6 +26,9 @@ export interface DirectoryCourse {
   skill: DirectoryPart | null;
   /** The course's own attendance %, its score out of 100, its level points (0–10) and whether it is level F (skill debt). */
   attendancePct?: number | null;
+  /** The course's sessions attended and held. */
+  present?: number;
+  held?: number;
   score?: number | null;
   points?: number | null;
   levelF?: boolean;
@@ -44,6 +49,9 @@ export interface DirectoryStudent {
   /** Short section, e.g. "S-005" (the same name repeats across the batches of a college). */
   section: string;
   attendancePct: number | null;
+  /** Sessions attended and held, all courses together (the report's attendance.present / held). */
+  attPresent?: number;
+  attHeld?: number;
   attendanceState: AttendanceState;
   /** null when the student has no sessions yet. */
   tier?: ReportTier | null;
@@ -92,6 +100,8 @@ export interface DirectoryRow {
   skill: number | null;
   spi: number | null;
   attendancePct: number | null;
+  attPresent: number;
+  attHeld: number;
   eligible: boolean;
   skillDebt: boolean;
   ended?: boolean;
@@ -111,6 +121,20 @@ export const batchOf = (s: { batch?: string | null }) => (s.batch ?? "").trim() 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const mean = (values: number[], round: (n: number) => number): number | null => (values.length ? round(values.reduce((s, v) => s + v, 0) / values.length) : null);
+
+/**
+ * Attendance of a group: Σ present ÷ Σ held, cut (not rounded) to one decimal like each report's own %; null when no
+ * session is held. A student with more sessions weighs more, as on Student Attendance Stats.
+ */
+export function overallAttendance(students: { attPresent?: number; attHeld?: number }[]): number | null {
+  let present = 0;
+  let held = 0;
+  for (const s of students) {
+    present += s.attPresent ?? 0;
+    held += s.attHeld ?? 0;
+  }
+  return held > 0 ? Math.floor((present * 1000) / held) / 10 : null;
+}
 
 /** "Takshasila University Batch 1-S-003" → "S-003". */
 export function shortSection(section: string | null | undefined): string {
@@ -182,6 +206,8 @@ function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow 
     skill: mean(skills, r1),
     spi: s.spi,
     attendancePct: s.attendancePct,
+    attPresent: s.attPresent ?? 0,
+    attHeld: s.attHeld ?? 0,
     eligible: s.attendanceState === "met",
     skillDebt: s.skillDebt,
     ...(s.ended ? { ended: true } : {}),
@@ -198,7 +224,7 @@ export function summarize(rows: DirectoryRow[]): DirectorySummary {
   const eligible = rows.filter((r) => r.eligible).length;
   return {
     students: rows.length,
-    avgAttendance: mean(rows.map((r) => r.attendancePct).filter((v): v is number => v != null), r1),
+    avgAttendance: overallAttendance(rows),
     eligible,
     notEligible: rows.length - eligible,
     avgSpi: mean(rows.map((r) => r.spi).filter((v): v is number => v != null), r2),

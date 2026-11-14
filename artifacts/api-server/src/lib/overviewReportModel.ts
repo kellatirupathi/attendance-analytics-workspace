@@ -7,7 +7,7 @@
  *  - Subject figures: the course's own attendance %, its course score and its level points on the report.
  * Pure functions; the route filters by the user's scope and sends the result.
  */
-import { matches, plain, subjectSet, type DirectoryFilter, type DirectoryStudent, type ReportTier } from "./directoryReportModel.js";
+import { matches, overallAttendance, plain, subjectSet, type DirectoryFilter, type DirectoryStudent, type ReportTier } from "./directoryReportModel.js";
 
 export interface OverviewRank {
   name: string;
@@ -99,19 +99,20 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
       name,
       ...(extra ? { college: extra(list[0]!) } : {}),
       students: list.length,
-      attendance: mean(nums(list.map((s) => s.attendancePct)), r1),
+      attendance: overallAttendance(list),
       spi: mean(nums(list.map((s) => s.spi)), r2),
       score: null,
       debt: list.filter((s) => courseOf(s).some((c) => c.levelF)).length,
     }));
   };
 
-  const bySubject = new Map<string, { name: string; att: number[]; score: number[]; pts: number[]; debt: number; students: number }>();
+  const bySubject = new Map<string, { name: string; present: number; held: number; score: number[]; pts: number[]; debt: number; students: number }>();
   for (const s of mine) for (const c of courseOf(s)) {
     const key = plain(c.name);
-    const g = bySubject.get(key) ?? { name: c.name, att: [], score: [], pts: [], debt: 0, students: 0 };
+    const g = bySubject.get(key) ?? { name: c.name, present: 0, held: 0, score: [], pts: [], debt: 0, students: 0 };
     g.students++;
-    if (c.attendancePct != null) g.att.push(c.attendancePct);
+    g.present += c.present ?? 0;
+    g.held += c.held ?? 0;
     if (c.score != null) g.score.push(c.score);
     if (c.points != null) g.pts.push(c.points);
     if (c.levelF) g.debt++;
@@ -126,7 +127,8 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
   return {
     summary: {
       students: mine.length,
-      avgAttendance: mean(nums(mine.map((s) => s.attendancePct)), r1),
+      // Σ present ÷ Σ held, as Student Attendance Stats and the Student Directory.
+      avgAttendance: overallAttendance(mine),
       avgSpi: mean(nums(mine.map((s) => s.spi)), r2),
       ...tiers,
       noSessions,
@@ -136,7 +138,7 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
     spiBins,
     colleges: group((s) => s.college),
     sections: group((s) => s.section, (s) => s.college),
-    subjects: [...bySubject.values()].map((g) => ({ name: g.name, students: g.students, attendance: mean(g.att, r1), spi: mean(g.pts, r2), score: mean(g.score, r1), debt: g.debt })),
+    subjects: [...bySubject.values()].map((g) => ({ name: g.name, students: g.students, attendance: overallAttendance([{ attPresent: g.present, attHeld: g.held }]), spi: mean(g.pts, r2), score: mean(g.score, r1), debt: g.debt })),
     attention: { atRisk: attention("at_risk"), ineligible: attention("ineligible") },
   };
 }

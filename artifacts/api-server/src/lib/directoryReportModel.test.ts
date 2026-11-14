@@ -8,6 +8,8 @@ const student = (over: Partial<DirectoryStudent> & Pick<DirectoryStudent, "stude
   semester: "Semester 3",
   section: "S-001",
   attendancePct: 90,
+  attPresent: 90,
+  attHeld: 100,
   attendanceState: "met",
   spi: 7,
   skillDebt: false,
@@ -25,8 +27,8 @@ const students: DirectoryStudent[] = [
       { name: "Python", classroom: part(40, 30), module: null, skill: null },
     ],
   }),
-  student({ studentId: "bbbbbbbb-0000-0000-0000-000000000002", college: "Alpha", name: "Bala", section: "S-002", attendancePct: 55, attendanceState: "not_met", spi: 3, skillDebt: true, courses: [{ name: "Maths", classroom: null, module: null, skill: null }] }),
-  student({ studentId: "cccccccc-0000-0000-0000-000000000003", college: "Beta", name: "Chitra", semester: "Semester 1", attendancePct: null, attendanceState: "not_available", spi: null, courses: [{ name: "Python", classroom: part(50, 2), module: part(90, 2), skill: part(30, 1) }] }),
+  student({ studentId: "bbbbbbbb-0000-0000-0000-000000000002", college: "Alpha", name: "Bala", section: "S-002", attendancePct: 55, attPresent: 11, attHeld: 20, attendanceState: "not_met", spi: 3, skillDebt: true, courses: [{ name: "Maths", classroom: null, module: null, skill: null }] }),
+  student({ studentId: "cccccccc-0000-0000-0000-000000000003", college: "Beta", name: "Chitra", semester: "Semester 1", attendancePct: null, attPresent: 0, attHeld: 0, attendanceState: "not_available", spi: null, courses: [{ name: "Python", classroom: part(50, 2), module: part(90, 2), skill: part(30, 1) }] }),
 ];
 
 test("averages are quizzes held weighted, skill is the mean of course scores; no quiz held is null", () => {
@@ -45,7 +47,8 @@ test("eligible is the report's attendance criterion; summary counts match", () =
   assert.equal(s.students, 3);
   assert.equal(s.eligible, 1);
   assert.equal(s.notEligible, 2);
-  assert.equal(s.avgAttendance, 72.5); // (90 + 55) ÷ 2, students without sessions left out
+  // Σ present ÷ Σ held = (90 + 11) ÷ (100 + 20), cut to one decimal; the old mean of percentages gave 72.5.
+  assert.equal(s.avgAttendance, 84.1);
   assert.equal(s.avgSpi, 5); // (7 + 3) ÷ 2
   assert.equal(s.skillDebt, 1);
 });
@@ -144,4 +147,18 @@ test("scope: a user limited to one college never sees another college's batches"
 test("batch sorts like the other text columns", () => {
   const sorted = sortRows(directoryRows(roster, {}), "batch", 1).map((r) => r.batch);
   assert.deepEqual(sorted, ["ADYPU Batch-2", "CDU Batch -1", "CDU Batch -1", "CDU Batch -2", "Unknown"]);
+});
+
+test("group attendance is Σ present ÷ Σ held, cut to one decimal; no sessions at all gives null", () => {
+  // One student 90 of 100, one 1 of 10: the mean of percentages would be 50, the sessions say 82.7.
+  const two = [
+    student({ studentId: "p1", college: "C", attPresent: 90, attHeld: 100 }),
+    student({ studentId: "p2", college: "C", attendancePct: 10, attPresent: 1, attHeld: 10 }),
+  ];
+  assert.equal(summarize(directoryRows(two, {})).avgAttendance, 82.7);
+  const none = [student({ studentId: "p3", college: "C", attendancePct: null, attPresent: 0, attHeld: 0 })];
+  assert.equal(summarize(directoryRows(none, {})).avgAttendance, null);
+  // 2 of 3 = 66.666…: cut, not rounded, as on each report.
+  const third = [student({ studentId: "p4", college: "C", attPresent: 2, attHeld: 3 })];
+  assert.equal(summarize(directoryRows(third, {})).avgAttendance, 66.6);
 });

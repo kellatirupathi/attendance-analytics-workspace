@@ -125,7 +125,7 @@ export default function Overview() {
   /* ---- KPI cards ---- */
   const kpis: { label: string; value: string; color?: string; href: string }[] = [
     { label: "Total students", value: s ? fmtInt(s.students) : "", href: dirHref() },
-    { label: "Average attendance", value: s ? pct(s.avgAttendance) : "", href: "/dashboard/attendance-stats" },
+    { label: "Overall attendance", value: s ? pct(s.avgAttendance) : "", href: "/dashboard/attendance-stats" },
     { label: "Average SPI", value: s ? (s.avgSpi == null ? "–" : s.avgSpi.toFixed(2)) : "", href: dirHref() },
     ...TIER_ITEMS.map((t) => ({ label: t.label, value: s ? fmtInt(s[t.field]) : "", color: t.color, href: dirHref(t.key) })),
   ];
@@ -279,7 +279,7 @@ export default function Overview() {
     if (!o) return;
     const rows: (string | number)[][] = [
       ["Total students", o.summary.students],
-      ["Average attendance %", o.summary.avgAttendance ?? ""],
+      ["Overall attendance % (present ÷ held)", o.summary.avgAttendance ?? ""],
       ["Average SPI", o.summary.avgSpi ?? ""],
       ["Eligible", o.summary.eligible],
       ["Recovery", o.summary.recovery],
