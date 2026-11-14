@@ -23,21 +23,31 @@ const bound = (v: unknown, fallback: number): number => {
 /** Reads the filters; sends the error response itself and returns null when the request is not allowed. */
 function readFilter(req: Request, res: Response): DirectoryFilter | null {
   const session = req.session!;
-  const q = req.query as Record<string, string | undefined>;
+  const raw = req.query as Record<string, string | string[] | undefined>;
+  const one = (key: string) => { const v = raw[key]; return Array.isArray(v) ? v[0] : v; };
+  /** Repeated params (college=A&college=B); a name may hold a comma, so no comma splitting. */
+  const many = (key: string) => { const v = raw[key]; return [...new Set((Array.isArray(v) ? v : v ? [v] : []).map((x) => x.trim()).filter(Boolean))]; };
+  const q: Record<string, string | undefined> = { semester: one("semester"), section: one("section"), subject: one("subject"), tier: one("tier"), attMin: one("attMin"), attMax: one("attMax"), q: one("q") };
+  const term = one("term");
   const scope = scopeForSession({ role: session.role as Role, campuses: session.campuses, subjects: session.subjects });
+  // Overview sends one college as college=…; the directory may send several.
+  const colleges = many("college");
   const filter: DirectoryFilter = {
     scopeCampuses: scope.campuses,
     scopeSubjects: scope.subjects,
-    college: q["college"],
+    colleges,
+    batches: many("batch").filter((v) => v.includes("\t")),
+    term: term === "running" || term === "ended" ? term : undefined,
     semester: q["semester"],
     section: q["section"],
+    sections: many("sections"),
     subject: q["subject"],
     tier: (["eligible", "recovery_eligible", "at_risk", "ineligible"] as const).find((t) => t === q["tier"]) as ReportTier | undefined,
     attMin: bound(q["attMin"], 0),
     attMax: bound(q["attMax"], 100),
     q: String(q["q"] ?? "").slice(0, 100),
   };
-  if (filter.college && scope.campuses?.length && !scope.campuses.includes(filter.college.trim())) {
+  if (scope.campuses?.length && colleges.some((c) => !scope.campuses!.includes(c))) {
     res.status(403).json({ error: "Not permitted for this campus" });
     return null;
   }
@@ -95,8 +105,8 @@ router.get("/export", async (req, res): Promise<void> => {
   if (!filter) return;
   try {
     const rows = sortRows(directoryRows(await directorySnapshot.get(), filter), String(req.query["sort"] ?? "college"), req.query["dir"] === "desc" ? -1 : 1);
-    const header = ["College", "Student name", "UUID", "Semester", "Section", "Attendance %", "Classroom Quiz avg %", "Module Quiz avg %", "Skill Assessment avg %", "Expected SPI", "Eligible", "Skill debt"];
-    const lines = rows.map((r) => [r.college, r.name, r.studentId, r.semester, r.section, r.attendancePct, r.classroom, r.module, r.skill, r.spi, r.eligible ? "Yes" : "No", r.skillDebt ? "Yes" : "No"].map(csv).join(","));
+    const header = ["College", "Batch", "Student name", "UUID", "Semester", "Semester status", "Section", "Attendance %", "Classroom Quiz avg %", "Module Quiz avg %", "Skill Assessment avg %", "Expected SPI", "Eligible", "Skill debt"];
+    const lines = rows.map((r) => [r.college, r.batch, r.name, r.studentId, r.semester, r.ended ? "Ended" : "Running", r.section, r.attendancePct, r.classroom, r.module, r.skill, r.spi, r.eligible ? "Yes" : "No", r.skillDebt ? "Yes" : "No"].map(csv).join(","));
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="student-directory.csv"');
     res.send(`﻿${[header.join(","), ...lines].join("\r\n")}`);

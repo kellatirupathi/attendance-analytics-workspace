@@ -11,6 +11,7 @@ import { hyphenate, shortSection, type AttendanceState, type DirectoryCourse, ty
 interface Row {
   student_id: string;
   college: string | null;
+  batch: string | null;
   semester: string | null;
   section: string | null;
   ended: boolean;
@@ -43,18 +44,18 @@ const part = (v: unknown): DirectoryPart | null => {
  * marked as ended. A student in both places keeps the live row.
  */
 const REPORTS_WITH_HISTORY = `(
-  SELECT student_id, college, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache
+  SELECT student_id, college, batch, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache
   UNION ALL
-  SELECT h.student_id, h.college, h.semester, h.section, h.attendance_pct, h.spi, h.report, h.built_at, true AS ended
+  SELECT h.student_id, h.college, h.batch, h.semester, h.section, h.attendance_pct, h.spi, h.report, h.built_at, true AS ended
   FROM spi_report_history h
   WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
 ) r`;
-const REPORTS_CACHE_ONLY = "(SELECT student_id, college, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache) r";
+const REPORTS_CACHE_ONLY = "(SELECT student_id, college, batch, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache) r";
 
 async function load(): Promise<DirectoryStudent[]> {
   const select = (source: string) =>
     `SELECT DISTINCT ON (r.student_id)
-        r.student_id, r.college, r.semester, r.section, r.attendance_pct, r.spi, r.ended,
+        r.student_id, r.college, r.batch, r.semester, r.section, r.attendance_pct, r.spi, r.ended,
         r.report->>'studentName' AS name,
         r.report->'attendance'->>'state' AS att_state,
         r.report->'attendance'->>'tier' AS att_tier,
@@ -80,6 +81,7 @@ async function load(): Promise<DirectoryStudent[]> {
       studentId: hyphenate(r.student_id),
       name: r.name?.trim() || null,
       college,
+      batch: r.batch?.trim() || "Unknown",
       semester: r.semester?.trim() || null,
       section: shortSection(r.section),
       attendancePct: num(r.attendance_pct),

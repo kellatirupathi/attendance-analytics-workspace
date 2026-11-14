@@ -38,8 +38,10 @@ export interface DirectoryStudent {
   studentId: string;
   name: string | null;
   college: string;
+  /** The batch on the report (the batch of the student's latest session); "Unknown" when the report has none. */
+  batch?: string;
   semester: string | null;
-  /** Short section, e.g. "S-005". */
+  /** Short section, e.g. "S-005" (the same name repeats across the batches of a college). */
   section: string;
   attendancePct: number | null;
   attendanceState: AttendanceState;
@@ -58,8 +60,16 @@ export interface DirectoryFilter {
   scopeCampuses?: string[];
   scopeSubjects?: string[];
   college?: string;
+  /** Several colleges (the page's College menu); `college` still works for one (Overview). */
+  colleges?: string[];
+  /** "college\tbatch" keys. */
+  batches?: string[];
+  /** Running: a current-semester report; ended: the last report of a semester that ended. */
+  term?: "running" | "ended";
   semester?: string;
   section?: string;
+  /** "batch\tsection" keys (a section name repeats across batches), or plain section names. */
+  sections?: string[];
   subject?: string;
   /** The report's attendance tier. */
   tier?: ReportTier;
@@ -74,6 +84,7 @@ export interface DirectoryRow {
   studentId: string;
   name: string | null;
   college: string;
+  batch: string;
   semester: string | null;
   section: string;
   classroom: number | null;
@@ -96,6 +107,7 @@ export interface DirectorySummary {
 }
 
 export const plain = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+export const batchOf = (s: { batch?: string | null }) => (s.batch ?? "").trim() || "Unknown";
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const mean = (values: number[], round: (n: number) => number): number | null => (values.length ? round(values.reduce((s, v) => s + v, 0) / values.length) : null);
@@ -125,8 +137,13 @@ export function matches(s: DirectoryStudent, f: DirectoryFilter, subjects: Set<s
   const campuses = f.scopeCampuses ?? [];
   if (campuses.length && !campuses.some((c) => c.trim() === s.college)) return false;
   if (f.college && s.college !== f.college.trim()) return false;
+  if (f.colleges?.length && !f.colleges.some((c) => c.trim() === s.college)) return false;
+  if (f.batches?.length && !f.batches.includes(`${s.college}\t${batchOf(s)}`)) return false;
+  if (f.term === "running" && s.ended) return false;
+  if (f.term === "ended" && !s.ended) return false;
   if (f.semester && (s.semester ?? "") !== f.semester.trim()) return false;
   if (f.section && s.section !== f.section.trim()) return false;
+  if (f.sections?.length && !f.sections.includes(`${batchOf(s)}\t${s.section}`) && !f.sections.includes(s.section)) return false;
   if (subjects && !s.courses.some((c) => subjects.has(plain(c.name)))) return false;
   if (f.tier && s.tier !== f.tier) return false;
   const min = f.attMin ?? 0;
@@ -157,6 +174,7 @@ function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow 
     studentId: s.studentId,
     name: s.name,
     college: s.college,
+    batch: batchOf(s),
     semester: s.semester,
     section: s.section,
     classroom: weighted((c) => c.classroom),
@@ -188,10 +206,20 @@ export function summarize(rows: DirectoryRow[]): DirectorySummary {
   };
 }
 
+/** A batch for the Batch menu: the semester most of its students are on, whether it ended, and its students. */
+export interface DirectoryBatchOption {
+  campus: string;
+  batch: string;
+  semester: string;
+  ended: boolean;
+  students: number;
+}
+
 export interface DirectoryOptions {
   colleges: string[];
+  batches: DirectoryBatchOption[];
   semesters: string[];
-  sections: { college: string; semester: string | null; section: string }[];
+  sections: { college: string; batch: string; semester: string | null; section: string }[];
   subjects: string[];
 }
 
@@ -201,13 +229,20 @@ export function directoryOptions(students: DirectoryStudent[], f: Pick<Directory
   const inScope = students.filter((s) => matches(s, { scopeCampuses: f.scopeCampuses }, null));
   const colleges = new Set<string>();
   const semesters = new Set<string>();
-  const sections = new Map<string, { college: string; semester: string | null; section: string }>();
+  const sections = new Map<string, { college: string; batch: string; semester: string | null; section: string }>();
+  const batches = new Map<string, { campus: string; batch: string; students: number; ended: boolean; bySemester: Map<string, number> }>();
   const names = new Map<string, string>();
   for (const s of inScope) {
     if (subjects && !s.courses.some((c) => subjects.has(plain(c.name)))) continue;
     colleges.add(s.college);
     if (s.semester) semesters.add(s.semester);
-    sections.set(`${s.college}\t${s.semester}\t${s.section}`, { college: s.college, semester: s.semester, section: s.section });
+    const batch = batchOf(s);
+    sections.set(`${s.college}\t${batch}\t${s.section}`, { college: s.college, batch, semester: s.semester, section: s.section });
+    const b = batches.get(`${s.college}\t${batch}`) ?? { campus: s.college, batch, students: 0, ended: true, bySemester: new Map<string, number>() };
+    b.students += 1;
+    if (!s.ended) b.ended = false;
+    b.bySemester.set(s.semester ?? "", (b.bySemester.get(s.semester ?? "") ?? 0) + 1);
+    batches.set(`${s.college}\t${batch}`, b);
     for (const c of s.courses) {
       const key = plain(c.name);
       if (!subjects || subjects.has(key)) if (!names.has(key)) names.set(key, c.name.trim());
@@ -216,8 +251,17 @@ export function directoryOptions(students: DirectoryStudent[], f: Pick<Directory
   const byText = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
   return {
     colleges: [...colleges].sort(byText),
+    batches: [...batches.values()]
+      .map((b) => ({
+        campus: b.campus,
+        batch: b.batch,
+        semester: [...b.bySemester.entries()].sort((x, y) => y[1] - x[1] || byText(y[0], x[0]))[0]?.[0] ?? "",
+        ended: b.ended,
+        students: b.students,
+      }))
+      .sort((a, b) => byText(a.campus, b.campus) || byText(a.batch, b.batch)),
     semesters: [...semesters].sort(byText),
-    sections: [...sections.values()].sort((a, b) => byText(a.college, b.college) || byText(a.section, b.section)),
+    sections: [...sections.values()].sort((a, b) => byText(a.college, b.college) || byText(a.batch, b.batch) || byText(a.section, b.section)),
     subjects: [...names.values()].sort(byText),
   };
 }
@@ -225,6 +269,7 @@ export function directoryOptions(students: DirectoryStudent[], f: Pick<Directory
 type SortValue = string | number | null;
 export const DIRECTORY_SORT: Record<string, (r: DirectoryRow) => SortValue> = {
   college: (r) => r.college,
+  batch: (r) => r.batch,
   name: (r) => r.name?.trim() || null,
   semester: (r) => r.semester,
   section: (r) => r.section,
