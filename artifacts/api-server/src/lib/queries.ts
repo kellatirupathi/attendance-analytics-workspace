@@ -70,7 +70,7 @@ import {
   buildAssessmentUnitsSnapshotSql,
   type SummaryGroupBy,
 } from "./assessmentSummarySql.js";
-import { classroomQuizScoreSql, isModuleQuizSql, moduleQuizScoreSql, quizAttemptedSql, quizHeldSql, quizScore } from "./quizScoreSql.js";
+import { classroomQuizScoreSql, isModuleQuizSql, moduleQuizScoreSql, quizAttemptedSql, quizHeldSql, quizScore, scopedQuizRowsSql } from "./quizScoreSql.js";
 
 /**
  * Every attendance query reads eligible students only (see eligibleStudents.ts),
@@ -237,6 +237,10 @@ function groupByStudent<T>(rows: T[], key: (row: T) => string): Map<string, T[]>
 }
 const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
+/** The quiz rows that count: each student's dashboard semester only, one row per course (quizScoreSql.ts). */
+export function quizSource(): string {
+  return scopedQuizRowsSql(QUIZ_TABLE, attendanceSource(), LATEST_SEMESTER_SQL);
+}
 interface AttendanceRollupRow {
   student_count: string;
   present_student_count: string;
@@ -1283,7 +1287,7 @@ export async function getStudentsList(
         ${classroomQuizScoreSql("q")} AS classroom_avg,
         ${moduleQuizScoreSql("q")} AS module_avg
       FROM att
-      INNER JOIN ${QUIZ_TABLE} q
+      INNER JOIN ${quizSource()} q
         ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
          = LOWER(REPLACE(CAST(att.student_user_id AS STRING), '-', ''))
       GROUP BY att.student_user_id
@@ -1381,7 +1385,7 @@ export async function getSpiAveragesByCampus(
         ${classroomQuizScoreSql("q")} AS classroom_avg,
         ${moduleQuizScoreSql("q")} AS module_avg
       FROM students
-      INNER JOIN ${QUIZ_TABLE} q
+      INNER JOIN ${quizSource()} q
         ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
          = LOWER(REPLACE(CAST(students.student_user_id AS STRING), '-', ''))
       GROUP BY students.student_user_id
@@ -1453,7 +1457,7 @@ export async function getSpiAveragesBySection(
         ${classroomQuizScoreSql("q")} AS classroom_avg,
         ${moduleQuizScoreSql("q")} AS module_avg
       FROM roster
-      INNER JOIN ${QUIZ_TABLE} q
+      INNER JOIN ${quizSource()} q
         ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
          = LOWER(REPLACE(CAST(roster.student_user_id AS STRING), '-', ''))
       GROUP BY roster.student_user_id
@@ -1839,7 +1843,7 @@ async function querySpiRecordDetail(
           ${classroomQuizScoreSql("q")} AS classroom_avg,
           ${moduleQuizScoreSql("q")} AS module_avg
         FROM student_keys
-        INNER JOIN ${QUIZ_TABLE} q
+        INNER JOIN ${quizSource()} q
           ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', '')) = student_keys.student_key
         GROUP BY student_keys.student_user_id
       )
@@ -2765,7 +2769,7 @@ function assessmentQuizStudentSubjectSql(quizWhere: string): string {
         ${quizSubjectTitleSql("q")} AS subject_title,
         q.user_id,
         ${quizPivotSelect("q")}
-      FROM ${QUIZ_TABLE} q
+      FROM ${quizSource()} q
       INNER JOIN enrolled e
         ON e.institute_name = q.institute_name
        AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
@@ -2979,7 +2983,7 @@ export async function getAssessmentStudents(
         q.user_id,
         ANY_VALUE(q.institute_name) AS institute_name,
         ${quizPivotSelect("q")}
-      FROM ${QUIZ_TABLE} q
+      FROM ${quizSource()} q
       INNER JOIN enrolled e
         ON e.institute_name = q.institute_name
        AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
@@ -3127,7 +3131,7 @@ export async function getAssessmentDetail(
           e.subject_title,
           e.student_key,
           ${quizPivotSelect("q")}
-        FROM ${QUIZ_TABLE} q
+        FROM ${quizSource()} q
         INNER JOIN enrolled e
           ON e.institute_name = q.institute_name
          AND e.student_key = LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
@@ -3314,7 +3318,7 @@ export async function getAssessmentStudentRows(
         e.student_key,
         e.subject_title,
         ${quizPivotSelect("q")}
-      FROM ${QUIZ_TABLE} q
+      FROM ${quizSource()} q
       INNER JOIN (
         SELECT DISTINCT institute_name, student_key, subject_title FROM enrolled
       ) e
@@ -3474,7 +3478,7 @@ export async function getCampusQuizRecovery(
         ${quizSubjectTitleSql("q")} AS subject_title,
         q.user_id,
         ${quizPivotSelect("q")}
-      FROM ${QUIZ_TABLE} q
+      FROM ${quizSource()} q
       WHERE (q.institute_name = @campus OR q.institute_name IS NULL)
         AND ${quizWhere}
       GROUP BY 1, q.user_id
@@ -3584,7 +3588,7 @@ export async function getQuizRecoveryStudents(
       SELECT
         user_id,
         ${quizPivotSelect()}
-      FROM ${QUIZ_TABLE}
+      FROM ${quizSource()}
       WHERE (institute_name = @campus OR institute_name IS NULL)
         AND ${quizMatchesSubjectSql("@subject")}
         AND ${quizWhere}
@@ -5203,7 +5207,7 @@ export async function getQuizCourseRows(who: ReportStudents): Promise<Map<string
       IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0) AS conducted,
       ${quizAttemptedSql()} AS attempted,
       SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64) AS avg_attempted
-    FROM ${QUIZ_TABLE}
+    FROM ${quizSource()}
     WHERE ${reportStudentMatch("user_id", who, params)}`,
     params,
     BQ_LOCATION,
@@ -5353,7 +5357,7 @@ export async function getStudentQuizzes(
       ${quizHeldSql()} AS held,
       ${quizAttemptedSql()} AS attempted,
       avg_best_attempt_percentage_score
-    FROM ${QUIZ_TABLE}
+    FROM ${quizSource()}
     WHERE ${studentIdMatch("user_id")}
     ORDER BY semester_course_title, course_title`,
     { studentId: normalizeStudentId(studentId) },
@@ -6045,7 +6049,9 @@ const SUMMARY_TABLES = {
   get attendance() {
     return attendanceSource();
   },
-  quiz: QUIZ_TABLE,
+  get quiz() {
+    return quizSource();
+  },
   semesterDetails: `\`${WORKSPACE}.niat_institute_batch_section_semester_details\``,
   sessionResources: `\`${WORKSPACE}.niat_scheduled_session_wise_resource_details\``,
   resourceTypes: `\`${WORKSPACE}.niat_session_wise_resource_details\``,

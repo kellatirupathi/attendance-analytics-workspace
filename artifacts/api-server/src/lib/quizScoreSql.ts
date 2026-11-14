@@ -14,6 +14,41 @@
  */
 
 const col = (alias: string, name: string) => (alias ? `${alias}.${name}` : name);
+const key = (column: string) => `LOWER(REPLACE(CAST(${column} AS STRING), '-', ''))`;
+
+/**
+ * The quiz rows that count, as a subquery to use in place of the quiz table (agreed 2026-11-14).
+ * The quiz table repeats a course once per semester it is mapped to, and semester_title has no year, so last
+ * year's work (is_current_semester = 0) sat next to this semester's and was added twice. Each student's
+ * semester comes from the dashboard roster (`attendanceSql` filtered by `latestSemesterWhere`), like every page:
+ *   - in a current semester → only is_current_semester = 1 rows of that same semester_title
+ *   - semester ended        → only the rows of that ended semester (is_current_semester = 0, same semester_title)
+ *   - no rows for the roster semester yet → no quiz score (never an older semester's)
+ * then one row per student + college + section + course_id + quiz type.
+ * The semester_title match matters: the table joins semesters without the batch, so a Batch-1 student also gets
+ * is_current_semester = 1 rows labelled with Batch-2's current semester (e.g. "Semester 1"), holding last year's work.
+ */
+export function scopedQuizRowsSql(quizTable: string, attendanceSql: string, latestSemesterWhere: string): string {
+  return `(
+    SELECT q.*
+    FROM ${quizTable} q
+    INNER JOIN (
+      SELECT ${key("student_user_id")} AS sk,
+        LOGICAL_OR(is_current_semester = 1) AS is_current,
+        ARRAY_AGG(DISTINCT IF(is_current_semester = 1, TRIM(CAST(semester_title AS STRING)), NULL) IGNORE NULLS) AS current_semesters,
+        MAX(IF(is_current_semester = 1, NULL, TRIM(CAST(semester_title AS STRING)))) AS ended_semester
+      FROM ${attendanceSql}
+      WHERE ${latestSemesterWhere}
+      GROUP BY sk
+    ) sem ON sem.sk = ${key("q.user_id")}
+    WHERE IF(sem.is_current,
+      SAFE_CAST(q.is_current_semester AS INT64) = 1 AND TRIM(CAST(q.semester_title AS STRING)) IN UNNEST(sem.current_semesters),
+      SAFE_CAST(q.is_current_semester AS INT64) = 0 AND TRIM(CAST(q.semester_title AS STRING)) = sem.ended_semester)
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY ${key("q.user_id")}, TRIM(q.institute_name), TRIM(q.section_name), CAST(q.course_id AS STRING), UPPER(CAST(q.derived_unit_type AS STRING))
+      ORDER BY TRIM(CAST(q.semester_course_title AS STRING))) = 1
+  )`;
+}
 
 /** Quizzes held so far. */
 export const quizHeldSql = (alias = "") => `IFNULL(SAFE_CAST(${col(alias, "total_scheduled_quizes")} AS INT64), 0)`;

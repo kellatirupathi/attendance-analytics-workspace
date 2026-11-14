@@ -32,7 +32,7 @@ async function getReportConfig(): Promise<ReportConfig> {
 }
 
 /** Bump when a report rule changes in code, so saved reports are rebuilt on the next sync check. */
-const REPORT_RULES_VERSION = "quiz-attempted-2026-11-14";
+const REPORT_RULES_VERSION = "quiz-semester-rows-2026-11-14";
 
 /** Changes when the report rules, course credits, the SA map or removed courses change; reports built before are out of date. */
 export async function reportConfigVersion(): Promise<string> {

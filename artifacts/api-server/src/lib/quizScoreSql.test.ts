@@ -9,7 +9,8 @@ import {
   quizHeldSql,
   quizPointsSql,
   quizScore,
-} from "./quizScoreSql.ts";
+  scopedQuizRowsSql,
+} from "./quizScoreSql.js";
 
 test("example: 10 held, 4 attempted, best 80 → 32%", () => {
   assert.deepEqual(quizScore([{ held: 10, attempted: 4, best: 80 }]), { attempted: 4, held: 10, scorePct: 32 });
@@ -74,4 +75,32 @@ test("SQL: Module = unit type containing MODULE; everything else (null too) is C
   assert.equal(isModuleQuizSql("q"), "IFNULL(UPPER(CAST(q.derived_unit_type AS STRING)), '') LIKE '%MODULE%'");
   assert.match(moduleQuizScoreSql("q"), /SUM\(IF\(IFNULL\(UPPER/);
   assert.match(classroomQuizScoreSql("q"), /SUM\(IF\(NOT \(IFNULL\(UPPER/);
+});
+
+test("scoped rows: current students use only current rows; ended students only their ended semester", () => {
+  const sql = scopedQuizRowsSql("QUIZ", "ATT", "LATEST");
+  const flat = sql.replace(/\s+/g, " ");
+  assert.ok(flat.includes("FROM QUIZ q"));
+  assert.ok(flat.includes("FROM ATT WHERE LATEST"));
+  assert.ok(
+    flat.includes(
+      "WHERE IF(sem.is_current, SAFE_CAST(q.is_current_semester AS INT64) = 1 AND TRIM(CAST(q.semester_title AS STRING)) IN UNNEST(sem.current_semesters), SAFE_CAST(q.is_current_semester AS INT64) = 0 AND TRIM(CAST(q.semester_title AS STRING)) = sem.ended_semester)",
+    ),
+  );
+  // The ended semester comes from the roster (non-current rows only), never the quiz table's own latest semester,
+  // so a current student whose current semester has no quiz rows yet gets none.
+  assert.ok(flat.includes("MAX(IF(is_current_semester = 1, NULL, TRIM(CAST(semester_title AS STRING)))) AS ended_semester"));
+  // Inner join: students outside the dashboard roster have no quiz rows.
+  assert.ok(flat.includes("INNER JOIN ("));
+});
+
+test("scoped rows: one row per student + college + section + course_id + quiz type; usable as a table", () => {
+  const sql = scopedQuizRowsSql("QUIZ", "ATT", "LATEST");
+  const flat = sql.replace(/\s+/g, " ");
+  assert.ok(
+    flat.includes(
+      "QUALIFY ROW_NUMBER() OVER ( PARTITION BY LOWER(REPLACE(CAST(q.user_id AS STRING), '-', '')), TRIM(q.institute_name), TRIM(q.section_name), CAST(q.course_id AS STRING), UPPER(CAST(q.derived_unit_type AS STRING))",
+    ),
+  );
+  assert.ok(sql.trim().startsWith("(") && sql.trim().endsWith(")"));
 });

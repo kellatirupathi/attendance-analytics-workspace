@@ -1,6 +1,6 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION, PROD_SEQUENCE_TABLE } from "./bigquery.js";
 import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
-import { attendanceSource, LATEST_SEMESTER_SQL, REPORT_ROSTER_SQL } from "./queries.js";
+import { attendanceSource, LATEST_SEMESTER_SQL, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
 import { restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
@@ -15,12 +15,11 @@ import { plainCourseName } from "./reportRemovedCourses.js";
 export type CoverageType = QuizType | "SKILL_ASSESSMENT";
 
 const WORKSPACE = "kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace";
-const QUIZ_TABLE = `\`${WORKSPACE}.z_niat_students_classroom_and_module_quiz_details\``;
 const RESOURCE_TYPES = `\`${WORKSPACE}.niat_session_wise_resource_details\``;
 
 const tables = (): QuizCoverageTables => ({
   attendance: attendanceSource(),
-  quiz: QUIZ_TABLE,
+  quiz: quizSource(),
   prodSequence: PROD_SEQUENCE_TABLE,
   resourceTypes: RESOURCE_TYPES,
 });
