@@ -166,6 +166,22 @@ export interface AttendanceFilters {
 
 export const batchOf = (row: { batch?: string }) => row.batch || "Unknown";
 
+/**
+ * Drops the sessions of courses left off the student report (Campus Setup → removed courses, per college or "*"),
+ * so Attendance Stats counts the same sessions as the report, the Student Directory and the Overview.
+ * `removedIn(college)` returns plain course names (lower-case, single spaces), as the report compares them.
+ */
+export function dropRemovedCourses<T extends { university: string; subject: string | null }>(rows: T[], removedIn: (college: string) => ReadonlySet<string>): T[] {
+  const cache = new Map<string, ReadonlySet<string>>();
+  return rows.filter((row) => {
+    let removed = cache.get(row.university);
+    if (!removed) cache.set(row.university, (removed = removedIn(row.university)));
+    if (removed.size === 0) return true;
+    const name = (row.subject ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    return !removed.has(name);
+  });
+}
+
 /** Built once: String.localeCompare builds a collator per call, which made sorting 16k student rows take ~1 s. */
 const text = new Intl.Collator(undefined).compare;
 const numeric = new Intl.Collator(undefined, { numeric: true }).compare;

@@ -41,7 +41,8 @@ import {
   excludeInstituteSql,
   isExcludedInstitute,
 } from "./excludedInstitutes.js";
-import { onePlacePerStudent } from "./attendanceStatsAggregate.js";
+import { dropRemovedCourses, onePlacePerStudent } from "./attendanceStatsAggregate.js";
+import { getRemovedCourses, removedCoursesIn } from "./reportRemovedCourses.js";
 import { reportEligibleKeysSql } from "./reportEligibility.js";
 
 import {
@@ -5762,7 +5763,7 @@ async function loadAttendanceStatsDetail(
 ): Promise<AttendanceStatsDetail> {
   const unitSelect = withUnit ? `,\n          ${SESSION_TITLE_SQL} AS unit` : "";
   const unitGroup = withUnit ? ", unit" : "";
-  const [studentRows, classRows] = await Promise.all([
+  const [studentRows, classRows, removed] = await Promise.all([
     bqQuery<{
       university: string;
       batch: string;
@@ -5816,7 +5817,9 @@ async function loadAttendanceStatsDetail(
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
+    getRemovedCourses(),
   ]);
+  const removedIn = (college: string) => removedCoursesIn(removed.value, college);
 
   const raw: (AttendanceStatsStudentRow & { lastDate: string | null })[] = [];
   for (const row of studentRows) {
@@ -5837,7 +5840,8 @@ async function loadAttendanceStatsDetail(
     });
   }
   // Each student in one place (see onePlacePerStudent): one batch per college, current semester over ended.
-  const students = onePlacePerStudent(raw, { dropEndedWhenCurrent: latestView }) as AttendanceStatsStudentRow[];
+  // The place is picked on every session (as the report), then the report's removed courses are dropped.
+  const students = dropRemovedCourses(onePlacePerStudent(raw, { dropEndedWhenCurrent: latestView }) as AttendanceStatsStudentRow[], removedIn);
   const classes: AttendanceStatsClassRow[] = [];
   for (const row of classRows) {
     if (!row.university || isExcludedInstitute(row.university)) continue;
@@ -5852,7 +5856,7 @@ async function loadAttendanceStatsDetail(
       sessions: Number(row.sessions_n) || 0,
     });
   }
-  return { students, classes };
+  return { students, classes: dropRemovedCourses(classes, removedIn) };
 }
 
 /** Current-semester attendance for every campus, shared by all users and refreshed in the background. */

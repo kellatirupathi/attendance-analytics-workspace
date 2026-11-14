@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   aggregateAttendanceStats,
   attendanceFilterOptions,
+  dropRemovedCourses,
   onePlacePerStudent,
   type AttendanceClassRow,
   type AttendanceDetailRow,
@@ -303,4 +304,39 @@ test("a student who did not move up with a running batch: counted under the batc
   const endedOnly = aggregateAttendanceStats(rows, NO_CLASSES, "university", { ...NO_FILTERS, status: "ended" }).summary.students;
   assert.deepEqual(opts.ended, { batches: 0, students: 1 });
   assert.equal(endedOnly, opts.ended.students);
+});
+
+test("removed report courses: dropped per college and for every college, names match ignoring case and spaces", () => {
+  const rows = [
+    { university: "Aurora", subject: "Intro To NIAT", present: 9, scheduled: 10 },
+    { university: "Aurora", subject: "  intro  to niat ", present: 1, scheduled: 1 },
+    { university: "Aurora", subject: "Engineering Physics", present: 5, scheduled: 10 },
+    { university: "Aurora", subject: "DSA", present: 6, scheduled: 10 },
+    { university: "MRV", subject: "Engineering Physics", present: 7, scheduled: 10 },
+    { university: "MRV", subject: null, present: 0, scheduled: 0 },
+  ];
+  // "intro to niat" for every college ("*"); "engineering physics" for Aurora only.
+  const removedIn = (college: string) => new Set(["intro to niat", ...(college === "Aurora" ? ["engineering physics"] : [])]);
+  const kept = dropRemovedCourses(rows, removedIn);
+  assert.deepEqual(kept.map((r) => `${r.university}:${r.subject}`), ["Aurora:DSA", "MRV:Engineering Physics", "MRV:null"]);
+});
+
+test("removed report courses: nothing removed keeps every row", () => {
+  const rows = [{ university: "A", subject: "X" }, { university: "B", subject: null }];
+  const kept = dropRemovedCourses(rows, () => new Set());
+  assert.equal(kept.length, 2);
+  assert.equal(kept[0], rows[0]);
+});
+
+test("removed report courses: the overall % becomes present / held of the kept subjects (as the report)", () => {
+  const students = dropRemovedCourses(
+    [
+      { university: "C", batch: "B1", semester: "Semester 1", subject: "Intro To NIAT", section: "S-01", unit: "", studentId: "s1", studentName: "S", present: 10, scheduled: 10 },
+      { university: "C", batch: "B1", semester: "Semester 1", subject: "Maths", section: "S-01", unit: "", studentId: "s1", studentName: "S", present: 6, scheduled: 10 },
+    ],
+    () => new Set(["intro to niat"]),
+  );
+  const { summary } = aggregateAttendanceStats(students, [], "university", { campuses: [], semesters: [], sections: [], students: [] });
+  assert.equal(summary.overallPct, 60);
+  assert.equal(summary.students, 1);
 });
