@@ -3,7 +3,7 @@
  *
  * Slot model, built from the quiz summary table (one row per student × course × quiz type):
  *   expected attempts = Σ total_scheduled_quizes        (one slot per student per conducted quiz)
- *   attempted         = Σ LEAST(total_completed_quizzes, total_scheduled_quizes)
+ *   attempted         = Σ LEAST(total_attempted_quizzes, total_scheduled_quizes)   (same rule as quizScoreSql.ts)
  *   score sum         = Σ avg_best_attempt_percentage_score × attempted   (best attempt, already a %)
  * Rates are derived from these sums afterwards: sum first, divide last.
  *
@@ -152,11 +152,11 @@ export function buildAssessmentSummarySql(
       ${g} AS row_key,
       SUM(IFNULL(SAFE_CAST(q.total_quizzes AS INT64), 0)) AS q_total,
       SUM(IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)) AS q_expected,
-      SUM(LEAST(IFNULL(SAFE_CAST(q.total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))) AS q_attempted,
+      SUM(LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))) AS q_attempted,
       SUM(IF(
-        LEAST(IFNULL(SAFE_CAST(q.total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)) > 0,
+        LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)) > 0,
         IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0)
-          * LEAST(IFNULL(SAFE_CAST(q.total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)),
+          * LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)),
         0)) AS q_score
     FROM roster r
     LEFT JOIN ${t.quiz} q
@@ -241,7 +241,7 @@ const SNAPSHOT_TYPES = ["CLASSROOM_QUIZ", "MODULE_QUIZ"];
  * side by side. Summing one type's columns gives exactly that type's slots; adding both gives "all".
  */
 export function buildAssessmentSlotsSnapshotSql(t: SummarySqlTables, attWhere: string, quizWhere: string): string {
-  const completed = "LEAST(IFNULL(SAFE_CAST(q.total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))";
+  const completed = "LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))";
   const sums = (prefix: string, type: string) => {
     const is = `UPPER(q.derived_unit_type) = '${type}'`;
     return `

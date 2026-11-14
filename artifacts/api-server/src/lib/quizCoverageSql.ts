@@ -87,7 +87,10 @@ export function buildQuizCoverageRowsSql(
       ANY_VALUE(CAST(q.user_id AS STRING)) AS student_id,
       TRIM(q.semester_course_title) AS subject,
       SUM(IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)) AS scheduled,
-      SUM(IFNULL(SAFE_CAST(q.total_completed_quizzes AS INT64), 0)) AS completed,
+      -- Shared quiz rule (quizScoreSql.ts): attempted capped at held, points = best × attempted.
+      SUM(LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))) AS attempted,
+      SUM(IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0)
+        * LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))) AS points,
       AVG(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64)) AS avg_score
     FROM ${t.quiz} q
     WHERE ${quizWhere}
@@ -97,7 +100,7 @@ export function buildQuizCoverageRowsSql(
     GROUP BY campus, section, student_key, subject
   )
   SELECT z.campus, z.section, z.student_id, z.subject, c.category, n.student_name, n.semester, n.batch, n.ended,
-         z.scheduled, z.completed, z.avg_score
+         z.scheduled, z.attempted, z.points, z.avg_score
   FROM z
   ${restrictToSemester ? "JOIN" : "LEFT JOIN"} enrol e
     ON e.campus = z.campus AND e.student_key = z.student_key AND e.subject_key = LOWER(z.subject)

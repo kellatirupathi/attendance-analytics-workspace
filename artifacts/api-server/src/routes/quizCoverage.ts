@@ -184,18 +184,18 @@ interface Sheet {
 function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, uid: string): Sheet | null {
   const skill = model.mode === "skill";
   const held = skill ? "Held" : "Scheduled";
-  const done = skill ? "Attempted" : "Completed";
+  const done = "Attempted";
   if (view === "campus") {
     return {
       view: "CampusSummary",
-      headers: ["College", "Sections", "Students", ...(skill ? [] : ["Available (prod sequence)"]), held, "Completion rate %", "Overall score % (missed = 0)", "Semester"],
+      headers: ["College", "Sections", "Students", ...(skill ? [] : ["Available (prod sequence)"]), held, "Attempt rate %", "Overall score % (missed = 0)", "Semester"],
       rows: sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college).map((r) => [r.college, r.sections, r.students, ...(skill ? [] : [r.available]), r.scheduled, r.completionPct, r.avgScore, r.ended ? "Ended" : r.endedStudents ? `Running (${r.endedStudents} ended)` : "Running"]),
     };
   }
   if (view === "student") {
     return {
       view: "StudentSummary",
-      headers: ["Student", "UID", "College", "Batch", "Section", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Completion rate %", "Overall score % (missed = 0)", "Semester"],
+      headers: ["Student", "UID", "College", "Batch", "Section", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Attempt rate %", "Overall score % (missed = 0)", "Semester"],
       rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.batch, r.section, ...(skill ? [] : [r.available]), r.scheduled, r.completed, r.completionPct, r.avgScore, r.ended ? "Ended" : "Running"]),
     };
   }
@@ -207,7 +207,7 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
     );
     return {
       view: uid ? "StudentReport" : "StudentBySubject",
-      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Completion rate %", "Overall score % (missed = 0)", "Status"],
+      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Attempt rate %", "Overall score % (missed = 0)", "Status"],
       rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, ...(skill ? [] : [r.available]), r.scheduled, r.completed, r.completionPct, r.avgScore, r.awaited ? "Awaited" : "Held"]),
     };
   }

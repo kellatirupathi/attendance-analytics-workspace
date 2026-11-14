@@ -70,6 +70,7 @@ import {
   buildAssessmentUnitsSnapshotSql,
   type SummaryGroupBy,
 } from "./assessmentSummarySql.js";
+import { classroomQuizScoreSql, isModuleQuizSql, moduleQuizScoreSql, quizAttemptedSql, quizHeldSql, quizScore } from "./quizScoreSql.js";
 
 /**
  * Every attendance query reads eligible students only (see eligibleStudents.ts),
@@ -1279,10 +1280,8 @@ export async function getStudentsList(
     quiz AS (
       SELECT
         att.student_user_id,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+        ${classroomQuizScoreSql("q")} AS classroom_avg,
+        ${moduleQuizScoreSql("q")} AS module_avg
       FROM att
       INNER JOIN ${QUIZ_TABLE} q
         ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
@@ -1379,10 +1378,8 @@ export async function getSpiAveragesByCampus(
     quiz AS (
       SELECT
         students.student_user_id,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+        ${classroomQuizScoreSql("q")} AS classroom_avg,
+        ${moduleQuizScoreSql("q")} AS module_avg
       FROM students
       INNER JOIN ${QUIZ_TABLE} q
         ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
@@ -1453,10 +1450,8 @@ export async function getSpiAveragesBySection(
     quiz AS (
       SELECT
         roster.student_user_id,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-        AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+        ${classroomQuizScoreSql("q")} AS classroom_avg,
+        ${moduleQuizScoreSql("q")} AS module_avg
       FROM roster
       INNER JOIN ${QUIZ_TABLE} q
         ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', ''))
@@ -1841,10 +1836,8 @@ async function querySpiRecordDetail(
       quiz AS (
         SELECT
           student_keys.student_user_id,
-          AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%', NULL,
-            IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0))) AS classroom_avg,
-          AVG(IF(UPPER(q.derived_unit_type) LIKE '%MODULE%',
-            IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0), NULL)) AS module_avg
+          ${classroomQuizScoreSql("q")} AS classroom_avg,
+          ${moduleQuizScoreSql("q")} AS module_avg
         FROM student_keys
         INNER JOIN ${QUIZ_TABLE} q
           ON LOWER(REPLACE(CAST(q.user_id AS STRING), '-', '')) = student_keys.student_key
@@ -2610,22 +2603,16 @@ function quizSubjectTitleSql(quizAlias = ""): string {
   )`;
 }
 
-const QUIZ_PIVOT_SELECT = `SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', 0,
-          IFNULL(SAFE_CAST({a}total_quizzes AS INT64), 0))) AS cq_total,
-        SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', 0,
-          IFNULL(SAFE_CAST({a}total_completed_quizzes AS INT64), 0))) AS cq_completed,
-        AVG(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%', NULL,
-          SAFE_CAST({a}avg_best_attempt_percentage_score AS FLOAT64))) AS cq_avg,
-        SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST({a}total_quizzes AS INT64), 0), 0)) AS mq_total,
-        SUM(IF(UPPER({a}derived_unit_type) LIKE '%MODULE%',
-          IFNULL(SAFE_CAST({a}total_completed_quizzes AS INT64), 0), 0)) AS mq_completed,
-        AVG(IF(UPPER({a}derived_unit_type) NOT LIKE '%MODULE%', NULL,
-          SAFE_CAST({a}avg_best_attempt_percentage_score AS FLOAT64))) AS mq_avg`;
-
+/** Per-student quiz columns: quizzes held (cq_total / mq_total), attempted (cq_completed / mq_completed) and score (cq_avg / mq_avg). */
 function quizPivotSelect(quizAlias = ""): string {
-  const prefix = quizAlias ? `${quizAlias}.` : "";
-  return QUIZ_PIVOT_SELECT.replaceAll("{a}", prefix);
+  const a = quizAlias;
+  const mod = isModuleQuizSql(a);
+  return `SUM(IF(${mod}, 0, ${quizHeldSql(a)})) AS cq_total,
+        SUM(IF(${mod}, 0, ${quizAttemptedSql(a)})) AS cq_completed,
+        ${classroomQuizScoreSql(a)} AS cq_avg,
+        SUM(IF(${mod}, ${quizHeldSql(a)}, 0)) AS mq_total,
+        SUM(IF(${mod}, ${quizAttemptedSql(a)}, 0)) AS mq_completed,
+        ${moduleQuizScoreSql(a)} AS mq_avg`;
 }
 
 /**
@@ -5214,7 +5201,7 @@ export async function getQuizCourseRows(who: ReportStudents): Promise<Map<string
       NULLIF(TRIM(CAST(course_title AS STRING)), '') AS course_title,
       UPPER(TRIM(IFNULL(derived_unit_type, ''))) AS unit_type,
       IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0) AS conducted,
-      LEAST(IFNULL(SAFE_CAST(total_completed_quizzes AS INT64), 0), IFNULL(SAFE_CAST(total_scheduled_quizes AS INT64), 0)) AS attempted,
+      ${quizAttemptedSql()} AS attempted,
       SAFE_CAST(avg_best_attempt_percentage_score AS FLOAT64) AS avg_attempted
     FROM ${QUIZ_TABLE}
     WHERE ${reportStudentMatch("user_id", who, params)}`,
@@ -5337,11 +5324,8 @@ export interface StudentQuizzes {
   moduleSummary: QuizSummary;
 }
 
-// Real quiz table schema (z_niat_students_classroom_and_module_quiz_details):
-//   institute_name, section_name, user_id, course_id, course_title,
-//   derived_unit_type (CLASSROOM_QUIZ | MODULE_QUIZ), total_quizzes,
-//   total_completed_quizzes, avg_best_attempt_percentage_score, semester_course_title
-// This is an aggregated table: one row per (student, course, unit_type).
+// Quiz summary table (z_niat_students_classroom_and_module_quiz_details): one row per student × course × quiz type.
+// Scores use the shared quiz rule (quizScoreSql.ts): best-attempt average × quizzes attempted (capped at held) ÷ held.
 export async function getStudentQuizzes(
   studentId: string,
 ): Promise<StudentQuizzes> {
@@ -5358,72 +5342,54 @@ export async function getStudentQuizzes(
     semester_course_title: string | null;
     course_title: string | null;
     derived_unit_type: string | null;
-    total_quizzes: string | null;
-    total_completed_quizzes: string | null;
+    held: string | null;
+    attempted: string | null;
     avg_best_attempt_percentage_score: string | null;
   }>(
     `SELECT
       semester_course_title,
       course_title,
       derived_unit_type,
-      total_quizzes,
-      total_completed_quizzes,
+      ${quizHeldSql()} AS held,
+      ${quizAttemptedSql()} AS attempted,
       avg_best_attempt_percentage_score
     FROM ${QUIZ_TABLE}
-    WHERE ${studentIdMatch('user_id')}
+    WHERE ${studentIdMatch("user_id")}
     ORDER BY semester_course_title, course_title`,
     { studentId: normalizeStudentId(studentId) },
   );
 
-  const classroomQuizzes: QuizItem[] = [];
-  const moduleQuizzes: QuizItem[] = [];
+  const classroom: { item: QuizItem; best: number | null }[] = [];
+  const module: { item: QuizItem; best: number | null }[] = [];
 
   for (const r of rows) {
-    const completed = Number(r.total_completed_quizzes ?? 0);
-    const total = Number(r.total_quizzes ?? 0);
-    const rawPct =
-      r.avg_best_attempt_percentage_score === null ||
-      r.avg_best_attempt_percentage_score === undefined
-        ? null
-        : Number(r.avg_best_attempt_percentage_score);
-    const percentage = rawPct === null ? 0 : Math.round(rawPct * 10) / 10;
-
+    const held = Number(r.held ?? 0);
+    const attempted = Number(r.attempted ?? 0);
+    const best =
+      r.avg_best_attempt_percentage_score == null ? null : Number(r.avg_best_attempt_percentage_score);
     const item: QuizItem = {
       subjectTitle: r.semester_course_title ?? "",
       title: r.course_title ?? "",
-      score: completed,
-      maxScore: total,
-      percentage,
-      status: completed > 0 ? "Attempted" : "Pending",
+      score: attempted,
+      maxScore: held,
+      // The course score by the same rule (attempt-weighted, missed quizzes = 0).
+      percentage: quizScore([{ held, attempted, best }]).scorePct ?? 0,
+      status: attempted > 0 ? "Attempted" : "Pending",
       date: null,
     };
-
-    const unitType = String(r.derived_unit_type ?? "").toUpperCase();
-    if (unitType.includes("MODULE")) {
-      moduleQuizzes.push(item);
-    } else {
-      classroomQuizzes.push(item);
-    }
+    (String(r.derived_unit_type ?? "").toUpperCase().includes("MODULE") ? module : classroom).push({ item, best });
   }
 
-  const calcSummary = (items: QuizItem[]): QuizSummary => {
-    const attempted = items.reduce((s, q) => s + q.score, 0);
-    const total = items.reduce((s, q) => s + q.maxScore, 0);
-    // Average all course rows. Unattempted (Pending) courses count as 0% (Ab).
-    const avgPct =
-      items.length > 0
-        ? Math.round(
-            (items.reduce((s, q) => s + q.percentage, 0) / items.length) * 10,
-          ) / 10
-        : 0;
-    return { attempted, total, avgPct };
+  const calcSummary = (list: { item: QuizItem; best: number | null }[]): QuizSummary => {
+    const s = quizScore(list.map(({ item, best }) => ({ held: item.maxScore, attempted: item.score, best })));
+    return { attempted: s.attempted, total: s.held, avgPct: s.scorePct ?? 0 };
   };
 
   return {
-    classroomQuizzes,
-    moduleQuizzes,
-    classroomSummary: calcSummary(classroomQuizzes),
-    moduleSummary: calcSummary(moduleQuizzes),
+    classroomQuizzes: classroom.map((x) => x.item),
+    moduleQuizzes: module.map((x) => x.item),
+    classroomSummary: calcSummary(classroom),
+    moduleSummary: calcSummary(module),
   };
 }
 

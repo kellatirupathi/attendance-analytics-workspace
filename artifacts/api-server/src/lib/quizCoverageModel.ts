@@ -2,10 +2,11 @@
  * In-memory model for the Assessments tabs: Classroom Quiz, Module Quiz and Skill Assessment (one snapshot each).
  * Pure functions over the two result sets of quizCoverageSql.ts; no imports, so it can be tested on its own.
  *
- *   Completion rate  Σ completed ÷ Σ scheduled (the quiz table counts quizzes with status COMPLETED)
- *   Avg score        over ALL scheduled quizzes: Σ (best-attempt score × quizzes completed) ÷ Σ scheduled, so a quiz
- *                    the student did not complete counts as 0 (the Hex "absent as zero" figure)
- *   Participation    students with at least one completed quiz ÷ students
+ *   Attempt rate     Σ attempted ÷ Σ scheduled. `completed` on a row holds quizzes ATTEMPTED (IN_PROGRESS or COMPLETED),
+ *                    capped at scheduled: the shared quiz rule in quizScoreSql.ts (the cut-off based completed count is not used)
+ *   Avg score        over ALL scheduled quizzes: Σ (best-attempt score × quizzes attempted) ÷ Σ scheduled, so a quiz
+ *                    the student did not attempt counts as 0 (the Hex "absent as zero" figure)
+ *   Participation    students with at least one attempted quiz ÷ students
  *   Available        quizzes planned in the prod sequence, counted once per section
  *   Scheduled so far the same, for quizzes whose first session is on or before today (IST)
  *
@@ -152,7 +153,7 @@ export const filterPlan = (model: QuizCoverageModel, f: QuizFilter): PlanRow[] =
 const r1 = (n: number) => Math.round(n * 10) / 10;
 /** Percent with one decimal, or null when the base is 0. */
 const pct = (part: number, whole: number): number | null => (whole > 0 ? r1((100 * part) / whole) : null);
-/** Score points earned in a row: the best-attempt average × completed quizzes (never more than scheduled). */
+/** Score points earned in a row: the best-attempt average × quizzes attempted (never more than scheduled). */
 const scorePoints = (r: { scheduled: number; completed: number; avgScore: number | null }) => (r.avgScore ?? 0) * Math.min(r.completed, r.scheduled);
 /** Average score over all scheduled quizzes (missed quizzes count as 0); null when nothing is scheduled. */
 const overall = (points: number, scheduled: number): number | null => (scheduled > 0 ? r1(points / scheduled) : null);
@@ -218,7 +219,7 @@ export interface QuizKpis {
   available: number;
   scheduledSoFar: number;
   completionRate: number | null;
-  /** Overall score: best scores of completed quizzes ÷ quizzes scheduled (missed = 0). */
+  /** Overall score: best scores of attempted quizzes ÷ quizzes scheduled (missed = 0). */
   avgScore: number | null;
   /** Average best score of the student × course rows with at least one completed quiz. */
   avgBestScore: number | null;

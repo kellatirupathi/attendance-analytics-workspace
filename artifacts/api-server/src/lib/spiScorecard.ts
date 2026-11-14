@@ -31,10 +31,13 @@ async function getReportConfig(): Promise<ReportConfig> {
   return { credits, saMap, removed };
 }
 
-/** Changes when course credits, the SA map or removed courses change; reports built before are out of date. */
+/** Bump when a report rule changes in code, so saved reports are rebuilt on the next sync check. */
+const REPORT_RULES_VERSION = "quiz-attempted-2026-11-14";
+
+/** Changes when the report rules, course credits, the SA map or removed courses change; reports built before are out of date. */
 export async function reportConfigVersion(): Promise<string> {
   const { credits, saMap, removed } = await getReportConfig();
-  return `${credits.version}:${saMap.version}:${removed.version}`;
+  return `${REPORT_RULES_VERSION}:${credits.version}:${saMap.version}:${removed.version}`;
 }
 
 /** One student's report from their loaded data: applies the rules in spiScorecardRules.ts. */

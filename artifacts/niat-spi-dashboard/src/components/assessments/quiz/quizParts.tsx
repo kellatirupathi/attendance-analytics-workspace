@@ -59,7 +59,7 @@ function Card({ label, tip, value, children, loading }: { label: string; tip: Re
 
 const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
 
-/** The four cards: Available, Scheduled so far, Overall score (with the average best score), Student participation (completed ÷ scheduled). */
+/** The four cards: Available, Scheduled so far, Overall score (with the average best score), Student participation (attempted ÷ scheduled). */
 export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpis: QuizKpis | undefined; loading: boolean; quizType: QuizType; onRetry: () => void; failed: boolean }) {
   const skill = isSkill(quizType);
   const Quizzes = `${QUIZ_LABEL[quizType].name.split(" ")[0]} quizzes`;
@@ -90,7 +90,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
       />
       <Card
         label="Overall score"
-        tip={skill ? "Best score of attempted assessments, divided by assessments held. Assessments not attempted count as 0" : "Best score of completed quizzes, divided by quizzes scheduled. Quizzes not completed count as 0."}
+        tip={skill ? "Best score of attempted assessments, divided by assessments held. Assessments not attempted count as 0" : "Best score × quizzes attempted, divided by quizzes scheduled. Quizzes not attempted count as 0."}
         value={pctText(k?.avgScore ?? null)}
         loading={loading || !k}
       >
@@ -100,12 +100,12 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
       </Card>
       <Card
         label="Student participation"
-        tip={skill ? "Assessments attempted by all students / assessments held for all students" : "Quizzes completed by all students / quizzes scheduled for all students. Completed = crossed the cutoff on the Learning Portal."}
+        tip={skill ? "Assessments attempted by all students / assessments held for all students" : "Quizzes attempted by all students / quizzes scheduled for all students. Attempted = started or completed on the Learning Portal."}
         value={pctText(k?.completionRate ?? null)}
         loading={loading || !k}
       >
         <p className="text-xs tabular-nums text-slate-500">
-          {fmtInt(k?.quizzesCompleted ?? 0)} of {fmtInt(k?.quizzesScheduled ?? 0)} {skill ? "assessments attempted" : "quizzes completed"}
+          {fmtInt(k?.quizzesCompleted ?? 0)} of {fmtInt(k?.quizzesScheduled ?? 0)} {skill ? "assessments attempted" : "quizzes attempted"}
         </p>
         <Bar pct={k?.completionRate ?? null} />
       </Card>

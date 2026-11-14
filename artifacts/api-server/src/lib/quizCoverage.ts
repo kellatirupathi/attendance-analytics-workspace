@@ -59,8 +59,11 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
     subject: String(r["subject"]),
     category: text(r["category"]),
     scheduled: num(r["scheduled"]),
-    completed: num(r["completed"]),
+    // "completed" holds quizzes attempted (capped at held): the shared quiz rule, see quizScoreSql.ts.
+    completed: num(r["attempted"]),
     avgScore: r["avg_score"] == null ? null : Number(r["avg_score"]),
+    points: Number(r["points"] ?? 0) || 0,
+    weight: num(r["scheduled"]),
   }));
   const planRows = plan.map((r) => ({
     campus: String(r["campus"]),
