@@ -62,6 +62,11 @@ export interface DirectorySummary {
   avgAttendance: number | null;
   eligible: number;
   notEligible: number;
+  /** Quizzes held weighted, a missed quiz = 0 (the Assessments "Overall score"). */
+  classroomAvg: number | null;
+  moduleAvg: number | null;
+  /** Mean of the course best scores. */
+  skillAvg: number | null;
   avgSpi: number | null;
   skillDebt: number;
 }

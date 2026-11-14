@@ -162,3 +162,34 @@ test("group attendance is Σ present ÷ Σ held, cut to one decimal; no sessions
   const third = [student({ studentId: "p4", college: "C", attPresent: 2, attHeld: 3 })];
   assert.equal(summarize(directoryRows(third, {})).avgAttendance, 66.6);
 });
+
+test("quiz cards: quizzes held weighted across students, Skill Assessment = mean of course scores", () => {
+  const group = [
+    student({ studentId: "q1", college: "C", courses: [{ name: "Maths", classroom: part(80, 10), module: part(60, 4), skill: part(70, 1) }] }),
+    student({ studentId: "q2", college: "C", courses: [{ name: "Maths", classroom: part(40, 30), module: null, skill: part(30, 1) }, { name: "Python", classroom: null, module: part(90, 2), skill: null }] }),
+  ];
+  const s = summarize(directoryRows(group, {}));
+  assert.equal(s.classroomAvg, 50); // (80×10 + 40×30) ÷ 40, not the mean of 80 and 40
+  assert.equal(s.moduleAvg, 70); // (60×4 + 90×2) ÷ 6
+  assert.equal(s.skillAvg, 50); // mean of 70 and 30
+  // With a subject chosen, only that subject's quizzes count (as in the rows).
+  const maths = summarize(directoryRows(group, { subject: "Maths" }));
+  assert.equal(maths.moduleAvg, 60);
+});
+
+test("quiz cards: no quiz held anywhere gives null, not 0", () => {
+  const s = summarize(directoryRows([student({ studentId: "q3", college: "C", courses: [{ name: "Maths", classroom: null, module: null, skill: null }] })], {}));
+  assert.equal(s.classroomAvg, null);
+  assert.equal(s.moduleAvg, null);
+  assert.equal(s.skillAvg, null);
+});
+
+test("attendance sort: blanks last in both directions", () => {
+  const g = [
+    student({ studentId: "s1", college: "C", attendancePct: 70 }),
+    student({ studentId: "s2", college: "C", attendancePct: null }),
+    student({ studentId: "s3", college: "C", attendancePct: 90 }),
+  ];
+  assert.deepEqual(sortRows(directoryRows(g, {}), "attendance", 1).map((r) => r.attendancePct), [70, 90, null]);
+  assert.deepEqual(sortRows(directoryRows(g, {}), "attendance", -1).map((r) => r.attendancePct), [90, 70, null]);
+});

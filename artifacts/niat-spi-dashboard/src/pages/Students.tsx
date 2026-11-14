@@ -49,12 +49,12 @@ const TIERS: { value: string; label: string }[] = [
 const TIER_LABEL: Record<string, string> = { eligible: "Eligible", recovery_eligible: "Recovery", at_risk: "At risk", ineligible: "Ineligible" };
 
 const COLUMNS: { key: string; label: string; align?: "right"; sortable?: boolean }[] = [
-  { key: "college", label: "College" },
   { key: "batch", label: "Batch" },
   { key: "name", label: "Student name" },
   { key: "uuid", label: "UUID", sortable: false },
   { key: "semester", label: "Semester" },
   { key: "section", label: "Section" },
+  { key: "attendance", label: "Attendance %", align: "right" },
   { key: "classroom", label: "Classroom Quiz avg", align: "right" },
   { key: "module", label: "Module Quiz avg", align: "right" },
   { key: "skill", label: "Skill Assessment avg", align: "right" },
@@ -64,12 +64,20 @@ const COLUMNS: { key: string; label: string; align?: "right"; sortable?: boolean
 
 const TONE = { main: "text-violet-700", good: "text-emerald-700", bad: "text-red-700", warn: "text-amber-700", plain: "text-slate-900" } as const;
 
-function Kpi({ label, value, tone = "plain", loading }: { label: string; value: string; tone?: keyof typeof TONE; loading: boolean }) {
-  return (
-    <div className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-sm">
+function Kpi({ label, value, tone = "plain", loading, onClick, pressed }: { label: string; value: string; tone?: keyof typeof TONE; loading: boolean; onClick?: () => void; pressed?: boolean }) {
+  const body = (
+    <>
       <span className="text-xs font-medium text-slate-500">{label}</span>
       {loading ? <span className="h-7 w-16 animate-pulse rounded bg-slate-100" /> : <span className={cn("text-xl font-bold tracking-tight tabular-nums", TONE[tone])}>{value}</span>}
-    </div>
+    </>
+  );
+  const box = "flex flex-col gap-0.5 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm";
+  if (!onClick) return <div className={cn(box, "border-slate-200")}>{body}</div>;
+  // A card that filters the table: pressed while its filter is on.
+  return (
+    <button type="button" aria-pressed={pressed} onClick={onClick} title={pressed ? "Show all students" : "Show these students"} className={cn(box, "transition-colors hover:border-violet-300", focusRing, pressed ? "border-violet-500 ring-1 ring-violet-500" : "border-slate-200")}>
+      {body}
+    </button>
   );
 }
 
@@ -88,6 +96,8 @@ function Spi({ value }: { value: number | null }) {
 /** Tighter cells: eleven columns have to fit next to the sidebar. */
 const cell = "whitespace-nowrap px-2.5 py-2.5 text-sm text-slate-700";
 const num = `${cell} text-right tabular-nums`;
+/** A % with one decimal, or "–" when there is nothing to average. */
+const pctText = (v: number | null | undefined) => (v == null ? "–" : `${v.toFixed(1)}%`);
 const shortSemester = (s: string | null) => (s ? s.replace(/^Semester\s+/i, "Sem ") : "—");
 
 type AttendanceOp = "any" | "gte" | "lte" | "between";
@@ -143,7 +153,7 @@ export default function Students() {
   }));
   const [debouncedQ, setDebouncedQ] = useState(filters.q);
   const [quiz, setQuiz] = useState<QuizTypeFilter>("");
-  const [sort, setSort] = useState<Sort>({ key: "college", dir: "asc" });
+  const [sort, setSort] = useState<Sort>({ key: "batch", dir: "asc" });
   const [pageSize, setPageSize] = useState(25);
   const [moreOpen, setMoreOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>({ sections: [], subject: "", tier: "", quiz: "", attOp: "any", attA: "80", attB: "100" });
@@ -389,12 +399,19 @@ export default function Students() {
       </MoreFiltersSheet>
 
       <div aria-busy={updating} className={cn("grid grid-cols-2 gap-2.5 transition-opacity duration-200 motion-reduce:transition-none md:grid-cols-3 xl:grid-cols-6", updating && "opacity-50")}>
-        <Kpi label="Total students" value={fmtInt(summary?.students ?? 0)} tone="main" loading={loading} />
-        <Kpi label="Overall attendance" value={summary?.avgAttendance == null ? "–" : `${summary.avgAttendance.toFixed(1)}%`} loading={loading} />
-        <Kpi label="Eligible students" value={fmtInt(summary?.eligible ?? 0)} tone="good" loading={loading} />
-        <Kpi label="Not eligible" value={fmtInt(summary?.notEligible ?? 0)} tone="bad" loading={loading} />
-        <Kpi label="Average SPI" value={summary?.avgSpi == null ? "–" : summary.avgSpi.toFixed(2)} loading={loading} />
-        <Kpi label="Skill debt" value={fmtInt(summary?.skillDebt ?? 0)} tone="warn" loading={loading} />
+        <Kpi label="Students" value={fmtInt(summary?.students ?? 0)} tone="main" loading={loading} />
+        <Kpi label="Overall attendance" value={pctText(summary?.avgAttendance)} loading={loading} />
+        <Kpi
+          label="Attendance eligible (≥80%)"
+          value={fmtInt(summary?.eligible ?? 0)}
+          tone="good"
+          loading={loading}
+          pressed={filters.tier === "eligible"}
+          onClick={() => change({ tier: filters.tier === "eligible" ? "" : "eligible" })}
+        />
+        <Kpi label="Classroom Quiz avg" value={pctText(summary?.classroomAvg)} loading={loading} />
+        <Kpi label="Module Quiz avg" value={pctText(summary?.moduleAvg)} loading={loading} />
+        <Kpi label="Skill Assessment avg" value={pctText(summary?.skillAvg)} loading={loading} />
       </div>
 
       <section className="relative mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Students" aria-busy={updating}>
@@ -420,8 +437,7 @@ export default function Students() {
               <Body loading={loading} empty="No students match these filters" colSpan={COLUMNS.length} rowsCount={rows.length}>
                 {rows.map((r: DirectoryRow) => (
                   <tr key={r.studentId} className="hover:bg-slate-50">
-                    <td className={cn(cell, "max-w-[11rem] truncate")} title={r.college}>{r.college}</td>
-                    <td className={cn(cell, "max-w-[11rem] truncate")} title={r.batch}>{r.batch}</td>
+                    <td className={cn(cell, "max-w-[11rem] truncate")} title={`${r.batch} · ${r.college}`}>{r.batch}</td>
                     <td className={cn(cell, "max-w-[10rem] truncate font-semibold text-slate-900")} title={r.name ?? undefined}>{r.name || "—"}</td>
                     <td className={cell}><CopyUid uid={r.studentId} /></td>
                     <td className={cell} title={r.semester ?? undefined}>
@@ -431,6 +447,7 @@ export default function Students() {
                       </span>
                     </td>
                     <td className={cell}>{r.section || "—"}</td>
+                    <td className={num}>{r.attendancePct == null ? <span className="text-slate-400">–</span> : `${r.attendancePct.toFixed(1)}%`}</td>
                     <td className={cn(num, dim("classroom"))}><Score value={r.classroom} /></td>
                     <td className={cn(num, dim("module"))}><Score value={r.module} /></td>
                     <td className={cn(num, dim("skill"))}><Score value={r.skill} /></td>

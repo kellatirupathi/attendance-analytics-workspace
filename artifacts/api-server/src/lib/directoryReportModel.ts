@@ -102,6 +102,8 @@ export interface DirectoryRow {
   attendancePct: number | null;
   attPresent: number;
   attHeld: number;
+  /** The sums behind the quiz averages, so the cards add students up the way each row adds courses. */
+  parts: { cqPoints: number; cqHeld: number; mqPoints: number; mqHeld: number; saSum: number; saCount: number };
   eligible: boolean;
   skillDebt: boolean;
   ended?: boolean;
@@ -112,6 +114,11 @@ export interface DirectorySummary {
   avgAttendance: number | null;
   eligible: number;
   notEligible: number;
+  /** Quiz averages of the group, as the Assessments "Overall score": quizzes held weighted (a missed quiz = 0). */
+  classroomAvg: number | null;
+  moduleAvg: number | null;
+  /** Skill Assessment: the mean of the course best scores, as on Overview. */
+  skillAvg: number | null;
   avgSpi: number | null;
   skillDebt: number;
 }
@@ -182,7 +189,7 @@ export function matches(s: DirectoryStudent, f: DirectoryFilter, subjects: Set<s
 
 function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow {
   const courses = subjects ? s.courses.filter((c) => subjects.has(plain(c.name))) : s.courses;
-  const weighted = (pick: (c: DirectoryCourse) => DirectoryPart | null): number | null => {
+  const sums = (pick: (c: DirectoryCourse) => DirectoryPart | null) => {
     let points = 0;
     let held = 0;
     for (const c of courses) {
@@ -191,8 +198,10 @@ function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow 
       points += p.avgPct * p.total;
       held += p.total;
     }
-    return held > 0 ? r1(points / held) : null;
+    return { points, held };
   };
+  const cq = sums((c) => c.classroom);
+  const mq = sums((c) => c.module);
   const skills = courses.map((c) => c.skill).filter((p): p is DirectoryPart => p != null && p.total > 0).map((p) => p.avgPct);
   return {
     studentId: s.studentId,
@@ -201,9 +210,10 @@ function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow 
     batch: batchOf(s),
     semester: s.semester,
     section: s.section,
-    classroom: weighted((c) => c.classroom),
-    module: weighted((c) => c.module),
+    classroom: cq.held > 0 ? r1(cq.points / cq.held) : null,
+    module: mq.held > 0 ? r1(mq.points / mq.held) : null,
     skill: mean(skills, r1),
+    parts: { cqPoints: cq.points, cqHeld: cq.held, mqPoints: mq.points, mqHeld: mq.held, saSum: skills.reduce((a, v) => a + v, 0), saCount: skills.length },
     spi: s.spi,
     attendancePct: s.attendancePct,
     attPresent: s.attPresent ?? 0,
@@ -220,6 +230,16 @@ export function directoryRows(students: DirectoryStudent[], f: DirectoryFilter):
   return students.filter((s) => matches(s, f, subjects)).map((s) => rowOf(s, subjects));
 }
 
+function groupQuizAverages(rows: DirectoryRow[]): Pick<DirectorySummary, "classroomAvg" | "moduleAvg" | "skillAvg"> {
+  const t = { cqPoints: 0, cqHeld: 0, mqPoints: 0, mqHeld: 0, saSum: 0, saCount: 0 };
+  for (const r of rows) for (const k of Object.keys(t) as (keyof typeof t)[]) t[k] += r.parts[k];
+  return {
+    classroomAvg: t.cqHeld > 0 ? r1(t.cqPoints / t.cqHeld) : null,
+    moduleAvg: t.mqHeld > 0 ? r1(t.mqPoints / t.mqHeld) : null,
+    skillAvg: t.saCount > 0 ? r1(t.saSum / t.saCount) : null,
+  };
+}
+
 export function summarize(rows: DirectoryRow[]): DirectorySummary {
   const eligible = rows.filter((r) => r.eligible).length;
   return {
@@ -227,6 +247,7 @@ export function summarize(rows: DirectoryRow[]): DirectorySummary {
     avgAttendance: overallAttendance(rows),
     eligible,
     notEligible: rows.length - eligible,
+    ...groupQuizAverages(rows),
     avgSpi: mean(rows.map((r) => r.spi).filter((v): v is number => v != null), r2),
     skillDebt: rows.filter((r) => r.skillDebt).length,
   };
