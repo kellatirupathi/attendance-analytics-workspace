@@ -58,6 +58,7 @@ const COLUMNS: { key: string; label: string; align?: "right"; sortable?: boolean
   { key: "classroom", label: "Classroom Quiz avg", align: "right" },
   { key: "module", label: "Module Quiz avg", align: "right" },
   { key: "skill", label: "Skill Assessment avg", align: "right" },
+  { key: "fsa", label: "Final Skill Assessment", align: "right", sortable: false },
   { key: "spi", label: "Expected SPI", align: "right" },
   { key: "report", label: "Report", sortable: false },
 ];
@@ -68,10 +69,11 @@ function Kpi({ label, value, tone = "plain", loading, onClick, pressed }: { labe
   const body = (
     <>
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      {loading ? <span className="h-7 w-16 animate-pulse rounded bg-slate-100" /> : <span className={cn("text-xl font-bold tracking-tight tabular-nums", TONE[tone])}>{value}</span>}
+      {/* mt-auto: every value sits on the card's bottom line, so values stay level when a label wraps to two lines. */}
+      {loading ? <span className="mt-auto h-7 w-16 animate-pulse rounded bg-slate-100" /> : <span className={cn("mt-auto text-xl font-bold tracking-tight tabular-nums", TONE[tone])}>{value}</span>}
     </>
   );
-  const box = "flex flex-col gap-0.5 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm";
+  const box = "flex h-full flex-col gap-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm";
   if (!onClick) return <div className={cn(box, "border-slate-200")}>{body}</div>;
   // A card that filters the table: pressed while its filter is on.
   return (
@@ -84,9 +86,9 @@ function Kpi({ label, value, tone = "plain", loading, onClick, pressed }: { labe
 /** A card whose number needs the Final Skill Assessment (FSA): shown as Coming soon until FSA results are in. */
 function SoonKpi({ label }: { label: string }) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
+    <div className="flex h-full flex-col gap-1 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-2.5 shadow-sm">
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <span className="inline-flex w-fit items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">Coming soon</span>
+      <span className="mt-auto inline-flex w-fit items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">Coming soon</span>
     </div>
   );
 }
@@ -436,7 +438,7 @@ export default function Students() {
           </div>
         ) : (
           <div className={cn("overflow-x-auto transition-opacity duration-200 motion-reduce:transition-none", updating && "opacity-60")}>
-            <table className="w-full min-w-[62rem] text-left">
+            <table className="w-full min-w-[68rem] text-left">
               <Head columns={COLUMNS} sort={sort} onSort={onSort} highlight={highlight} dense />
               <Body loading={loading} empty="No students match these filters" colSpan={COLUMNS.length} rowsCount={rows.length}>
                 {rows.map((r: DirectoryRow) => (
@@ -455,6 +457,7 @@ export default function Students() {
                     <td className={cn(num, dim("classroom"))}><Score value={r.classroom} /></td>
                     <td className={cn(num, dim("module"))}><Score value={r.module} /></td>
                     <td className={cn(num, dim("skill"))}><Score value={r.skill} /></td>
+                    <td className={num}><span className="text-xs font-medium text-slate-400">Coming soon</span></td>
                     <td className={num}><Spi value={r.spi} /></td>
                     <td className={cell}>
                       <a href={r.reportPath} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-violet-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">
