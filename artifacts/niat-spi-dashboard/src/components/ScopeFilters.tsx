@@ -116,6 +116,7 @@ export function ScopeFilterBar({
   chips,
   anyFilter,
   onClearAll,
+  extra,
 }: {
   campusOptions: string[];
   campuses: string[];
@@ -135,6 +136,8 @@ export function ScopeFilterBar({
   chips: FilterChip[];
   anyFilter: boolean;
   onClearAll: () => void;
+  /** One more field after Semester, always in view (e.g. SPI Quiz: Student search). */
+  extra?: ReactNode;
 }) {
   const multiCampus = campuses.length !== 1;
   const shownBatches = campuses.length ? batchOptions.filter((b) => campuses.includes(b.campus)) : batchOptions;
@@ -142,7 +145,7 @@ export function ScopeFilterBar({
   return (
     <section aria-label="Filters" className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-        <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-3 lg:flex-1">
+        <div className={cn("grid w-full min-w-0 grid-cols-1 gap-3 lg:flex-1", extra ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3")}>
           <FilterField label="College">
             {lockedCampus ? (
               <div className={cn(fieldBox, "cursor-default bg-slate-50")}>
@@ -197,6 +200,7 @@ export function ScopeFilterBar({
               </PopoverContent>
             </Popover>
           </FilterField>
+          {extra}
         </div>
         <div className="flex items-center gap-2">
           {onMore && (

@@ -226,11 +226,10 @@ export default function SpiQuizAnalytics() {
     ...(statuses.length ? [{ key: "status", label: `Status: ${chipText(statuses.map((s) => STATUS[s].label), "statuses")}`, clear: () => setStatuses([]) }] : []),
     ...(range.dateFrom || range.dateTo ? [{ key: "dates", label: `Quiz opened ${range.dateFrom || "…"} to ${range.dateTo || "…"}`, clear: () => setRange({ dateFrom: "", dateTo: "" }) }] : []),
     ...(score ? [{ key: "score", label: `Score = ${score}`, clear: () => setScoreText("") }] : []),
-    ...(student ? [{ key: "student", label: `Student "${student}"`, clear: () => setStudentText("") }] : []),
     ...(includeTest ? [{ key: "test", label: "Test logins included", clear: () => setIncludeTest(false) }] : []),
   ];
   const moreCount = (sections.length ? 1 : 0) + (statuses.length ? 1 : 0) + (range.dateFrom || range.dateTo ? 1 : 0) + (score ? 1 : 0) + (includeTest ? 1 : 0);
-  const anyFilter = colleges.length > 0 || batches.length > 0 || term !== "" || chips.length > 0;
+  const anyFilter = colleges.length > 0 || batches.length > 0 || term !== "" || studentText.trim() !== "" || chips.length > 0;
   const clearAll = () => {
     setColleges([]);
     setBatches([]);
@@ -387,6 +386,31 @@ export default function SpiQuizAnalytics() {
         chips={chips}
         anyFilter={anyFilter}
         onClearAll={clearAll}
+        extra={
+          <FilterField label="Student (table and export)">
+            <span className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                id={studentId}
+                type="search"
+                placeholder="Name or ID"
+                value={studentText}
+                onChange={(e) => setStudentText(e.target.value.slice(0, 100))}
+                className="h-10 border-slate-300 pl-9 pr-8 [&::-webkit-search-cancel-button]:hidden"
+              />
+              {studentText && (
+                <button
+                  type="button"
+                  onClick={() => setStudentText("")}
+                  aria-label="Clear student search"
+                  className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </span>
+          </FilterField>
+        }
       />
 
       <MoreFiltersSheet
@@ -664,30 +688,6 @@ export default function SpiQuizAnalytics() {
           <Section
             title="Students"
             subtitle={data ? `${fmtInt(data.students.total)} students${score ? ` with score ${score}` : ""}` : undefined}
-            action={
-              <label className="relative w-64 max-w-full">
-                <span className="sr-only">Search students by name or ID</span>
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-                <Input
-                  id={studentId}
-                  type="search"
-                  placeholder="Search name or ID"
-                  value={studentText}
-                  onChange={(e) => setStudentText(e.target.value.slice(0, 100))}
-                  className="h-10 pl-8 pr-8 [&::-webkit-search-cancel-button]:hidden"
-                />
-                {studentText && (
-                  <button
-                    type="button"
-                    onClick={() => setStudentText("")}
-                    aria-label="Clear student search"
-                    className={cn("absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700", FOCUS_RING)}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </label>
-            }
             updating={updating}
             className="rounded-xl border"
           >

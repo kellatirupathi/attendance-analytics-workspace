@@ -4,6 +4,7 @@ import { excludedInstituteNames } from "./excludedInstitutes.js";
 import { getQuizQuestions } from "./spiQuiz.js";
 import type { SessionScope } from "./rbac.js";
 import { pageOf, type Page, type PageRequest } from "./pagination.js";
+import { cacheGet, cacheSet } from "./cache.js";
 
 /**
  * SPI quiz analytics for staff: counts, scores and times from spi_quiz_attempts / spi_quiz_answers,
@@ -97,20 +98,21 @@ export interface QuizAnalytics {
 type Row = Record<string, unknown>;
 
 /**
- * The student roster: the live cache plus students it no longer has because their semester ended (their latest
+ * The student roster (name only from the report, not the whole report JSON, so the 8 queries of a request stay light):
+ * the live cache plus students it no longer has because their semester ended (their latest
  * spi_report_history row), the same students as Directory and Overview. The quiz tables keep every student who
  * opened the report, ended semesters included, so a cache-only roster gave colleges such as Chaitanya more
  * completions than students (317%).
  */
 const ROSTER_WITH_HISTORY = sql.raw(`(
-  SELECT student_id, college, semester, section, batch, false AS ended, report FROM spi_report_cache
+  SELECT student_id, college, semester, section, batch, false AS ended, report->>'studentName' AS name FROM spi_report_cache
   UNION ALL
-  (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.semester, h.section, h.batch, true AS ended, h.report
+  (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.semester, h.section, h.batch, true AS ended, h.report->>'studentName' AS name
    FROM spi_report_history h
    WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
    ORDER BY h.student_id, h.built_at DESC)
 ) roster`);
-const ROSTER_CACHE_ONLY = sql.raw("(SELECT student_id, college, semester, section, batch, false AS ended, report FROM spi_report_cache) roster");
+const ROSTER_CACHE_ONLY = sql.raw("(SELECT student_id, college, semester, section, batch, false AS ended, report->>'studentName' AS name FROM spi_report_cache) roster");
 
 /** The roster's batch as one key, the same text the page sends ("college\tbatch"). */
 const BATCH_KEY = sql.raw(`CONCAT(college, E'\\t', COALESCE(NULLIF(TRIM(batch), ''), 'Unknown'))`);
@@ -180,13 +182,16 @@ function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL
 
 /** College × batch × semester × section choices for the filters, from the roster (ended semesters included). */
 export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRosterOption[]> {
+  const key = `spi-quiz-options:v1:${JSON.stringify(scope)}`;
+  const cached = cacheGet<QuizRosterOption[]>(key);
+  if (cached) return cached;
   const rows = await rosterRows((roster) => sql`SELECT college, COALESCE(NULLIF(TRIM(batch), ''), 'Unknown') AS batch, semester, section,
       BOOL_AND(ended) AS ended, COUNT(*) AS students FROM ${roster}
     WHERE ${sql.join(placementParts(scope, {}), sql` AND `)}
       AND college IS NOT NULL AND semester IS NOT NULL AND section IS NOT NULL
     GROUP BY 1, 2, 3, 4
     ORDER BY college, batch, semester, section`);
-  return rows.map((r) => ({
+  const out = rows.map((r) => ({
     college: String(r["college"]),
     batch: String(r["batch"]),
     semester: String(r["semester"]),
@@ -194,6 +199,8 @@ export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRos
     ended: r["ended"] === true || r["ended"] === "t" || r["ended"] === "true",
     students: num(r["students"]),
   }));
+  cacheSet(key, out, 5 * 60 * 1000);
+  return out;
 }
 
 /** Students in the roster: the total and one count per college (or per section once a college is chosen). */
@@ -245,7 +252,7 @@ async function studentRowsQuery(scope: SessionScope, f: QuizAnalyticsFilters): P
   const run = (roster: SQL) => sql`SELECT r.student_id, r.college AS roster_college, r.semester AS roster_semester,
       r.section AS roster_section, r.name AS roster_name,
       t.opened_at, t.started_at, t.finished_at, t.score, t.total_questions, t.total_seconds
-    FROM (SELECT student_id, college, semester, section, report->>'studentName' AS name FROM ${roster}
+    FROM (SELECT student_id, college, semester, section, name FROM ${roster}
           WHERE ${sql.join(placementParts(scope, f), sql` AND `)}) r
     LEFT JOIN (SELECT * FROM spi_quiz_attempts t WHERE ${whereFor(scope, f, "t")}) t ON t.student_id = r.student_id
     WHERE ${statusTest(wanted)}${search ? sql` AND (r.name ILIKE ${search.name} ESCAPE '\\' OR r.student_id LIKE ${search.id} ESCAPE '\\')` : sql``}
@@ -297,7 +304,10 @@ export async function getQuizAnalytics(
   // One college chosen: break it down by section; otherwise by college.
   const groupBy = f.colleges?.length === 1 ? "section" : "college";
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
-  const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions, stages] = await Promise.all([
+  // One set of filters is read once every 30 s: paging, page size and the CSV reuse it instead of running the
+  // 8 queries again (0.6–1.7 s each time). Quiz progress is live, so the window stays short.
+  const cacheKey = `spi-quiz-analytics:v1:${JSON.stringify({ scope, f })}`;
+  const load = () => Promise.all([
     getRosterCounts(scope, { colleges: f.colleges, batches: f.batches, term: f.term, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
@@ -312,6 +322,13 @@ export async function getQuizAnalytics(
     getQuizQuestions(),
     statusCounts(scope, f),
   ]);
+  type Loaded = Awaited<ReturnType<typeof load>>;
+  let loaded = cacheGet<Loaded>(cacheKey);
+  if (!loaded) {
+    loaded = await load();
+    cacheSet(cacheKey, loaded, 30 * 1000);
+  }
+  const [roster, totalsRows, groupRows, spreadRows, questionStatRows, studentRows, questions, stages] = loaded;
 
   const t = totalsRows[0] ?? {};
   const totals = {
