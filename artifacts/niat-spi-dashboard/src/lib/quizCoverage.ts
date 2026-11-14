@@ -71,7 +71,11 @@ export interface CampusRow {
   college: string;
   sections: number;
   students: number;
+  /** Planned in the prod sequence; null on Skill Assessment. */
+  available: number | null;
   scheduled: number;
+  endedStudents: number;
+  ended: boolean;
   completionPct: number | null;
   avgScore: number | null;
 }
@@ -80,8 +84,11 @@ export interface StudentRow {
   uid: string;
   name: string | null;
   college: string;
+  batch: string;
   section: string;
+  available: number | null;
   scheduled: number;
+  ended: boolean;
   completed: number;
   completionPct: number | null;
   avgScore: number | null;
@@ -99,12 +106,16 @@ export interface StudentPanel {
   uid: string;
   name: string | null;
   college: string;
+  batch: string | null;
   section: string;
+  ended: boolean;
+  /** Quizzes planned for the student (prod sequence); null on Skill Assessment. */
+  available: number | null;
   scheduled: number;
   completed: number;
   completionPct: number | null;
   avgScore: number | null;
-  subjects: { subject: string; category: string | null; scheduled: number; completed: number; completionPct: number | null; avgScore: number | null; awaited?: boolean }[];
+  subjects: { subject: string; category: string | null; available: number | null; scheduled: number; completed: number; completionPct: number | null; avgScore: number | null; awaited?: boolean }[];
 }
 
 export type DownloadView = "campus" | "student" | "student-subject";

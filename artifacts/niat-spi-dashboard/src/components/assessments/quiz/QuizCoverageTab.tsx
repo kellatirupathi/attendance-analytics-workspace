@@ -172,6 +172,7 @@ export function QuizCoverageTab({ quizType, tabs, filters, onFiltersChange }: { 
         chips={chips}
         anyFilter={anyFilter}
         onClearAll={clearAll}
+        updating={updating}
       />
 
       <MoreFiltersSheet

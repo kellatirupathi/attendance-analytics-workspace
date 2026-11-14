@@ -51,9 +51,13 @@ export function FilterField({ label, children, className }: { label: string; chi
   );
 }
 
-/** Marks a semester that has ended (the batch is between semesters). */
-export function EndedTag() {
-  return <span className="inline-flex h-5 items-center rounded-full bg-amber-50 px-2 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">Ended</span>;
+/** Marks a semester that has ended (the batch is between semesters); `label` e.g. "12 ended" for a mixed group. */
+export function EndedTag({ label = "Ended", title }: { label?: string; title?: string }) {
+  return (
+    <span title={title} className="inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-full bg-amber-50 px-2 text-[11px] font-semibold text-amber-800 ring-1 ring-inset ring-amber-200">
+      {label}
+    </span>
+  );
 }
 
 /** One choice in a single-choice menu (Semester, Dates): a tick on the chosen one, an optional hint on the right. */
@@ -117,6 +121,7 @@ export function ScopeFilterBar({
   anyFilter,
   onClearAll,
   extra,
+  updating = false,
 }: {
   campusOptions: string[];
   campuses: string[];
@@ -138,12 +143,14 @@ export function ScopeFilterBar({
   onClearAll: () => void;
   /** One more field after Semester, always in view (e.g. SPI Quiz: Student search). */
   extra?: ReactNode;
+  /** New numbers are loading for the filters just set: shown next to the buttons (no layout shift). */
+  updating?: boolean;
 }) {
   const multiCampus = campuses.length !== 1;
   const shownBatches = campuses.length ? batchOptions.filter((b) => campuses.includes(b.campus)) : batchOptions;
   const endedBatches = shownBatches.filter((b) => b.ended).length;
   return (
-    <section aria-label="Filters" className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+    <section aria-label="Filters" aria-busy={updating} className="relative mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
         <div className={cn("grid w-full min-w-0 grid-cols-1 gap-3 lg:flex-1", extra ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-3")}>
           <FilterField label="College">
@@ -170,7 +177,8 @@ export function ScopeFilterBar({
               options={shownBatches.map((item) => ({
                 id: `${item.campus}\t${item.batch}`,
                 label: multiCampus ? `${item.campus} — ${item.batch}` : item.batch,
-                hint: `${shortSemester(item.semester)}${item.ended ? " · Ended" : ""} · ${item.students.toLocaleString("en-IN")}`,
+                badge: item.ended ? "Ended" : undefined,
+                hint: `${shortSemester(item.semester)} · ${item.students.toLocaleString("en-IN")}`,
               }))}
               selected={batches}
               onChange={onBatches}
@@ -217,6 +225,15 @@ export function ScopeFilterBar({
           )}
         </div>
       </div>
+      {/* Top right, over the empty space beside the labels, so the page does not move when it shows. */}
+      <p role="status" aria-live="polite" className="pointer-events-none absolute right-3 top-2.5 flex items-center gap-1.5 text-xs font-medium text-violet-700">
+        {updating && (
+          <>
+            <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            Updating for your filters…
+          </>
+        )}
+      </p>
       {chips.length > 0 && (
         <ul aria-label="Filters in use" className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
           {chips.map((chip) => (

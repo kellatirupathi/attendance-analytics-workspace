@@ -728,6 +728,7 @@ export default function StudentAttendanceStats() {
         chips={chips}
         anyFilter={anyFilter}
         onClearAll={clearAll}
+        updating={updating}
       />
 
       <MoreFiltersSheet
@@ -953,6 +954,11 @@ export default function StudentAttendanceStats() {
                         ) : (
                           row.studentName || row.studentId
                         )
+                      ) : header === "Batch" && row.ended && grain !== "university_batch" ? (
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {identityValues(row, grain)[index]}
+                          <EndedTag />
+                        </span>
                       ) : (
                         identityValues(row, grain)[index]
                       )}

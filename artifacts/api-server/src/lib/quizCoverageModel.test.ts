@@ -227,3 +227,52 @@ test("rows with no batch read as Unknown and still match an Unknown batch", () =
   const m: QuizCoverageModel = { rows: [row("X", "S-1", "u9", "Z", "Maths", "MATH", 1, 1, 100)], plan: [] };
   assert.equal(filterRows(m, { batches: ["X\tUnknown"] }).length, 1);
 });
+
+// --- Available (prod sequence) per college / student / subject, and ended flags --------------------
+
+test("college Available = its planned quizzes (once per section); colleges add up to the card", () => {
+  const rows = campusRows(batchModel, {}, "2026-11-14");
+  const cdu = rows.find((r) => r.college === "CDU")!;
+  assert.equal(cdu.available, 2);
+  const sum = rows.reduce((n, r) => n + (r.available ?? 0), 0);
+  assert.equal(sum, quizKpis(batchModel, {}, "2026-11-14").available);
+});
+
+test("college ended: only when every student's semester ended; count of ended students", () => {
+  const cdu = campusRows(batchModel, {}, "2026-11-14").find((r) => r.college === "CDU")!;
+  assert.equal(cdu.ended, false);
+  assert.equal(cdu.endedStudents, 2);
+  const only = campusRows(batchModel, { term: "ended" }, "2026-11-14").find((r) => r.college === "CDU")!;
+  assert.equal(only.ended, true);
+});
+
+test("student Available = their own batch's section plan, not the same-named section of another batch", () => {
+  const rows = studentRows(batchModel, {});
+  const u1 = rows.find((r) => r.uid === "u1")!;
+  const u3 = rows.find((r) => r.uid === "u3")!;
+  assert.equal(u1.available, 1, "CDU Batch -1 S-001 has q1 only");
+  assert.equal(u3.available, 1, "CDU Batch -2 S-001 has q2 only");
+  assert.equal(u1.ended, true);
+  assert.equal(u3.ended, false);
+  assert.equal(u1.batch, "CDU Batch -1");
+});
+
+test("student Available counts only courses on the student's report", () => {
+  const m: QuizCoverageModel = {
+    rows: [{ ...row("C", "S-1", "s1", "A", "Maths", "MATH", 5, 5, 90), batch: "B" }],
+    plan: [
+      { ...plan("C", "sec", "q1", "2026-07-01", "Maths"), section: "S-1", batch: "B" },
+      { ...plan("C", "sec", "q2", "2026-07-01", "Physics"), section: "S-1", batch: "B" },
+    ],
+    reportCourses: new Map([["s1", ["Maths"]]]),
+  };
+  assert.equal(studentRows(m, {})[0]!.available, 1);
+  const subj = studentSubjectRows(m, {}, "s1");
+  assert.deepEqual(subj.map((x) => `${x.subject}:${x.available}`), ["Maths:1"]);
+});
+
+test("Skill Assessment has no plan: Available is null, not 0", () => {
+  const m: QuizCoverageModel = { rows: [row("C", "S-1", "s1", "A", "Maths", "MATH", 2, 1, 50)], plan: [], mode: "skill" };
+  assert.equal(campusRows(m, {})[0]!.available, null);
+  assert.equal(studentRows(m, {})[0]!.available, null);
+});

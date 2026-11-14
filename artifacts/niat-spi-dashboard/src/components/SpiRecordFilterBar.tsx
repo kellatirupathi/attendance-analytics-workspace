@@ -330,7 +330,7 @@ export function CheckMenu({
 }: {
   label: string;
   /** `hint`: muted text after the label (e.g. a batch's semester and student count). */
-  options: { id: string; label: string; hint?: string }[];
+  options: { id: string; label: string; hint?: string; badge?: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
   /** Overrides the button's default width. */
@@ -416,6 +416,9 @@ export function CheckMenu({
                 }
               />
               <span className="min-w-0 flex-1">{option.label}</span>
+              {option.badge && (
+                <span className="shrink-0 rounded-full bg-amber-50 px-1.5 text-[10.5px] font-semibold leading-5 text-amber-800 ring-1 ring-inset ring-amber-200">{option.badge}</span>
+              )}
               {option.hint && <span className="shrink-0 text-xs text-gray-500 tabular-nums">{option.hint}</span>}
             </label>
           ))}

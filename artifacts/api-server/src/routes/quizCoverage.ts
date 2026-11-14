@@ -156,12 +156,16 @@ router.get("/student", async (req, res): Promise<void> => {
       uid: first.uid,
       name: first.name,
       college: first.college,
+      batch: total?.batch ?? null,
       section: first.section,
+      ended: total?.ended ?? false,
+      // Each quiz once, as in the Students table (a quiz linked to two courses shows under both in the list below).
+      available: total?.available ?? null,
       scheduled: total?.scheduled ?? 0,
       completed: total?.completed ?? 0,
       completionPct: total?.completionPct ?? null,
       avgScore: total?.avgScore ?? null,
-      subjects: subjects.map((s) => ({ subject: s.subject, category: s.category, scheduled: s.scheduled, completed: s.completed, completionPct: s.completionPct, avgScore: s.avgScore, awaited: Boolean(s.awaited) })),
+      subjects: subjects.map((s) => ({ subject: s.subject, category: s.category, available: s.available, scheduled: s.scheduled, completed: s.completed, completionPct: s.completionPct, avgScore: s.avgScore, awaited: Boolean(s.awaited) })),
     });
   } catch (err) {
     fail(req, res, err, "quiz student panel");
@@ -184,15 +188,15 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
   if (view === "campus") {
     return {
       view: "CampusSummary",
-      headers: ["College", "Sections", "Students", held, "Completion rate %", "Overall score % (missed = 0)"],
-      rows: sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college).map((r) => [r.college, r.sections, r.students, r.scheduled, r.completionPct, r.avgScore]),
+      headers: ["College", "Sections", "Students", ...(skill ? [] : ["Available (prod sequence)"]), held, "Completion rate %", "Overall score % (missed = 0)", "Semester"],
+      rows: sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college).map((r) => [r.college, r.sections, r.students, ...(skill ? [] : [r.available]), r.scheduled, r.completionPct, r.avgScore, r.ended ? "Ended" : r.endedStudents ? `Running (${r.endedStudents} ended)` : "Running"]),
     };
   }
   if (view === "student") {
     return {
       view: "StudentSummary",
-      headers: ["Student", "UID", "College", "Section", held, done, "Completion rate %", "Overall score % (missed = 0)"],
-      rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.section, r.scheduled, r.completed, r.completionPct, r.avgScore]),
+      headers: ["Student", "UID", "College", "Batch", "Section", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Completion rate %", "Overall score % (missed = 0)", "Semester"],
+      rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.batch, r.section, ...(skill ? [] : [r.available]), r.scheduled, r.completed, r.completionPct, r.avgScore, r.ended ? "Ended" : "Running"]),
     };
   }
   if (view === "student-subject") {
@@ -203,8 +207,8 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
     );
     return {
       view: uid ? "StudentReport" : "StudentBySubject",
-      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", held, done, "Completion rate %", "Overall score % (missed = 0)", "Status"],
-      rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, r.scheduled, r.completed, r.completionPct, r.avgScore, r.awaited ? "Awaited" : "Held"]),
+      headers: ["Student", "UID", "College", "Section", "Subject category", "Subject", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Completion rate %", "Overall score % (missed = 0)", "Status"],
+      rows: rows.map((r) => [r.name, r.uid, r.college, r.section, r.category, r.subject, ...(skill ? [] : [r.available]), r.scheduled, r.completed, r.completionPct, r.avgScore, r.awaited ? "Awaited" : "Held"]),
     };
   }
   return null;

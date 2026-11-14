@@ -6,6 +6,7 @@ import { fmtInt } from "@/lib/assessmentMetrics";
 import { isSkill, NO_FILTERS, quizApi, type QuizType } from "@/lib/quizCoverage";
 import { Pill } from "./quizParts";
 import { CopyUid } from "./CopyUid";
+import { EndedTag } from "@/components/ScopeFilters";
 
 const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
 
@@ -29,7 +30,8 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
               {d ? (
                 <>
                   <CopyUid uid={d.uid} />
-                  <span>· {d.section} · {d.college}</span>
+                  <span>· {[d.batch, d.section, d.college].filter(Boolean).join(" · ")}</span>
+                  {d.ended && <EndedTag />}
                 </>
               ) : (
                 " "
@@ -48,8 +50,9 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
           )}
           {d && (
             <>
-              <dl className="grid grid-cols-3 gap-2">
+              <dl className={skill ? "grid grid-cols-3 gap-2" : "grid grid-cols-2 gap-2"}>
                 {[
+                  ...(skill || d.available == null ? [] : [["Available (prod sequence)", fmtInt(d.available)]]),
                   [skill ? "Attempted" : "Completed", `${fmtInt(d.completed)} / ${fmtInt(d.scheduled)}`],
                   ["Completion rate", pctText(d.completionPct)],
                   ["Overall score", pctText(d.avgScore)],
@@ -80,7 +83,10 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
                           </td>
                         ) : (
                           <>
-                            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-600">{fmtInt(s.completed)} / {fmtInt(s.scheduled)}</td>
+                            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-600">
+                              {fmtInt(s.completed)} / {fmtInt(s.scheduled)}
+                              {!skill && s.available != null && <span className="block text-[11px] text-slate-500">{fmtInt(s.available)} available</span>}
+                            </td>
                             <td className="px-3 py-2.5 text-right"><Pill metric="completion" value={s.completionPct} /></td>
                             <td className="px-3 py-2.5 text-right"><Pill metric="avg" value={s.avgScore} /></td>
                           </>

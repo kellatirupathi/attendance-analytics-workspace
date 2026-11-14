@@ -51,6 +51,8 @@ export interface QuizRosterOption {
 export interface QuizGroupRow {
   name: string;
   students: number;
+  /** Students whose semester ended (their last report is in history). */
+  endedStudents: number;
   opened: number;
   started: number;
   completed: number;
@@ -63,6 +65,8 @@ export interface QuizStudentRow {
   college: string | null;
   semester: string | null;
   section: string | null;
+  /** The student's semester ended. */
+  ended: boolean;
   status: QuizStatus;
   score: number | null;
   totalQuestions: number | null;
@@ -208,12 +212,12 @@ async function getRosterCounts(
   scope: SessionScope,
   f: QuizRosterFilters,
   groupBy: "college" | "section",
-): Promise<{ total: number; groups: { name: string; students: number }[] }> {
-  const rows = await rosterRows((roster) => sql`SELECT ${sql.raw(groupBy)} AS name, COUNT(*) AS students FROM ${roster}
+): Promise<{ total: number; groups: { name: string; students: number; ended: number }[] }> {
+  const rows = await rosterRows((roster) => sql`SELECT ${sql.raw(groupBy)} AS name, COUNT(*) AS students, COUNT(*) FILTER (WHERE ended) AS ended FROM ${roster}
     WHERE ${sql.join(placementParts(scope, f), sql` AND `)} GROUP BY 1`);
   const groups = rows
     .filter((r) => r["name"] != null)
-    .map((r) => ({ name: r["name"] as string, students: num(r["students"]) }));
+    .map((r) => ({ name: r["name"] as string, students: num(r["students"]), ended: num(r["ended"]) }));
   return { total: rows.reduce((n, r) => n + num(r["students"]), 0), groups };
 }
 
@@ -250,9 +254,9 @@ async function studentRowsQuery(scope: SessionScope, f: QuizAnalyticsFilters): P
   if (wanted.length === 0) return [];
   const search = studentSearch(f.student);
   const run = (roster: SQL) => sql`SELECT r.student_id, r.college AS roster_college, r.semester AS roster_semester,
-      r.section AS roster_section, r.name AS roster_name,
+      r.section AS roster_section, r.name AS roster_name, r.ended AS roster_ended,
       t.opened_at, t.started_at, t.finished_at, t.score, t.total_questions, t.total_seconds
-    FROM (SELECT student_id, college, semester, section, name FROM ${roster}
+    FROM (SELECT student_id, college, semester, section, name, ended FROM ${roster}
           WHERE ${sql.join(placementParts(scope, f), sql` AND `)}) r
     LEFT JOIN (SELECT * FROM spi_quiz_attempts t WHERE ${whereFor(scope, f, "t")}) t ON t.student_id = r.student_id
     WHERE ${statusTest(wanted)}${search ? sql` AND (r.name ILIKE ${search.name} ESCAPE '\\' OR r.student_id LIKE ${search.id} ESCAPE '\\')` : sql``}
@@ -306,7 +310,7 @@ export async function getQuizAnalytics(
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
   // One set of filters is read once every 30 s: paging, page size and the CSV reuse it instead of running the
   // 8 queries again (0.6–1.7 s each time). Quiz progress is live, so the window stays short.
-  const cacheKey = `spi-quiz-analytics:v1:${JSON.stringify({ scope, f })}`;
+  const cacheKey = `spi-quiz-analytics:v2:${JSON.stringify({ scope, f })}`;
   const load = () => Promise.all([
     getRosterCounts(scope, { colleges: f.colleges, batches: f.batches, term: f.term, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
@@ -334,6 +338,7 @@ export async function getQuizAnalytics(
   const totals = {
     name: "All",
     students: roster.total,
+    endedStudents: roster.groups.reduce((n, g) => n + g.ended, 0),
     opened: num(t["opened"]),
     started: num(t["started"]),
     completed: num(t["completed"]),
@@ -347,11 +352,11 @@ export async function getQuizAnalytics(
   // Every college (or section) with students, plus any that only appear in the quiz data.
   const byName = new Map<string, QuizGroupRow>();
   for (const g of roster.groups) {
-    byName.set(g.name, { name: g.name, students: g.students, opened: 0, started: 0, completed: 0, avgScore: null });
+    byName.set(g.name, { name: g.name, students: g.students, endedStudents: g.ended, opened: 0, started: 0, completed: 0, avgScore: null });
   }
   for (const r of groupRows) {
     const name = (r["name"] as string | null) ?? "Unknown";
-    const row = byName.get(name) ?? { name, students: 0, opened: 0, started: 0, completed: 0, avgScore: null };
+    const row = byName.get(name) ?? { name, students: 0, endedStudents: 0, opened: 0, started: 0, completed: 0, avgScore: null };
     row.opened = num(r["opened"]);
     row.started = num(r["started"]);
     row.completed = num(r["completed"]);
@@ -390,6 +395,7 @@ export async function getQuizAnalytics(
       college: (r["roster_college"] as string | null) ?? null,
       semester: (r["roster_semester"] as string | null) ?? null,
       section: (r["roster_section"] as string | null) ?? null,
+      ended: r["roster_ended"] === true || r["roster_ended"] === "t" || r["roster_ended"] === "true",
       status: r["finished_at"] ? "completed" : r["started_at"] ? "started" : r["opened_at"] ? "opened" : "not_started",
       score: numOrNull(r["score"]),
       totalQuestions: numOrNull(r["total_questions"]),

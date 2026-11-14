@@ -5,6 +5,7 @@ import { fmtInt } from "@/lib/assessmentMetrics";
 import type { CampusRow, Page, StudentRow } from "@/lib/quizCoverage";
 import { Pill } from "./quizParts";
 import { CopyUid } from "./CopyUid";
+import { EndedTag } from "@/components/ScopeFilters";
 
 export interface Sort {
   key: string;
@@ -73,9 +74,19 @@ export function Body({ loading, empty, colSpan, rowsCount, children }: { loading
 
 export function CampusTable({ page, loading, sort, onSort, skill = false }: { page: Page<CampusRow> | undefined; loading: boolean; sort: Sort; onSort: (key: string) => void; skill?: boolean }) {
   const columns: Column<CampusRow>[] = [
-    { key: "college", label: "College", render: (r) => r.college },
+    {
+      key: "college",
+      label: "College",
+      render: (r) => (
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          {r.college}
+          {r.ended ? <EndedTag /> : r.endedStudents > 0 ? <EndedTag label={`${fmtInt(r.endedStudents)} ended`} title={`${fmtInt(r.endedStudents)} of ${fmtInt(r.students)} students are on a semester that ended`} /> : null}
+        </span>
+      ),
+    },
     { key: "sections", label: "Sections", align: "right", render: (r) => fmtInt(r.sections) },
     { key: "students", label: "Students", align: "right", render: (r) => fmtInt(r.students) },
+    ...(skill ? [] : [{ key: "available", label: "Available", align: "right" as const, render: (r: CampusRow) => (r.available == null ? "–" : fmtInt(r.available)) }]),
     { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right", render: (r) => fmtInt(r.scheduled) },
     { key: "completion", label: "Completion %", align: "right", render: (r) => <Pill metric="completion" value={r.completionPct} /> },
     { key: "avg", label: "Overall score", align: "right", render: (r) => <Pill metric="avg" value={r.avgScore} /> },
@@ -103,7 +114,9 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
   const columns = [
     { key: "student", label: "Student" },
     { key: "uid", label: "UID" },
+    { key: "batch", label: "Batch", sortable: false },
     { key: "section", label: "Section" },
+    ...(skill ? [] : [{ key: "available", label: "Available", align: "right" as const }]),
     { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right" as const },
     { key: "completed", label: skill ? "Attempted" : "Completed", align: "right" as const },
     { key: "completion", label: "Completion %", align: "right" as const },
@@ -112,7 +125,7 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
   const rows = page?.rows ?? [];
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[46rem] text-left">
+      <table className="w-full min-w-[54rem] text-left">
         <Head columns={columns} sort={sort} onSort={onSort} extra />
         <Body loading={loading} empty="No students match these filters" colSpan={columns.length + 1} rowsCount={rows.length}>
           {rows.map((r) => (
@@ -123,7 +136,14 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
                 </button>
               </td>
               <td className={cell}><CopyUid uid={r.uid} /></td>
+              <td className={cell}>
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                  {r.batch}
+                  {r.ended && <EndedTag />}
+                </span>
+              </td>
               <td className={cell}>{r.section}</td>
+              {!skill && <td className={num}>{r.available == null ? "–" : fmtInt(r.available)}</td>}
               <td className={num}>{fmtInt(r.scheduled)}</td>
               <td className={num}>{fmtInt(r.completed)}</td>
               <td className={num}><Pill metric="completion" value={r.completionPct} /></td>

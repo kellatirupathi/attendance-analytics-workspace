@@ -7,7 +7,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Download, Search, SearchX, X } from "lucide-react";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
-import { ExportMenu, FilterField, fieldTrigger, MoreFiltersSheet, ScopeFilterBar, type FilterChip, type ScopeBatch, type Term } from "@/components/ScopeFilters";
+import { EndedTag, ExportMenu, FilterField, fieldTrigger, MoreFiltersSheet, ScopeFilterBar, type FilterChip, type ScopeBatch, type Term } from "@/components/ScopeFilters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -31,6 +31,8 @@ type Status = "not_started" | "opened" | "started" | "completed";
 interface GroupRow {
   name: string;
   students: number;
+  /** Students whose semester ended. */
+  endedStudents: number;
   opened: number;
   started: number;
   completed: number;
@@ -43,6 +45,7 @@ interface StudentRow {
   college: string | null;
   semester: string | null;
   section: string | null;
+  ended: boolean;
   status: Status;
   score: number | null;
   totalQuestions: number | null;
@@ -260,8 +263,8 @@ export default function SpiQuizAnalytics() {
     const label = data?.groupBy === "section" ? "Section" : "College";
     exportCsv(
       `spi-quiz-${label.toLowerCase()}-wise-${new Date().toISOString().slice(0, 10)}.csv`,
-      [label, "Students", "Opened quiz", "Started", "Completed", "Completed %", "Avg score"],
-      groups.map((g) => [g.name, g.students, g.opened, g.started, g.completed, g.students ? Math.round(pct(g.completed, g.students) * 10) / 10 : "", g.avgScore == null ? "" : Math.round(g.avgScore * 10) / 10]),
+      [label, "Students", "Ended-semester students", "Opened quiz", "Started", "Completed", "Completed %", "Avg score"],
+      groups.map((g) => [g.name, g.students, g.endedStudents, g.opened, g.started, g.completed, g.students ? Math.round(pct(g.completed, g.students) * 10) / 10 : "", g.avgScore == null ? "" : Math.round(g.avgScore * 10) / 10]),
     );
   };
   const funnel = t
@@ -386,6 +389,7 @@ export default function SpiQuizAnalytics() {
         chips={chips}
         anyFilter={anyFilter}
         onClearAll={clearAll}
+        updating={updating}
         extra={
           <FilterField label="Student (table and export)">
             <span className="relative block">
@@ -634,20 +638,28 @@ export default function SpiQuizAnalytics() {
                             </td>
                           )}
                           <td className={cn(cell, "max-w-[200px]")}>
+                            <span className="flex min-w-0 items-center gap-1.5">
                             {clickable ? (
                               <button
                                 type="button"
                                 onClick={() => (setColleges([g.name]), setSections([]))}
-                                className={cn("block max-w-full truncate text-left font-medium text-brand-700 hover:underline", FOCUS_RING)}
+                                className={cn("block min-w-0 max-w-full truncate text-left font-medium text-brand-700 hover:underline", FOCUS_RING)}
                                 title={g.name}
                               >
                                 {g.name}
                               </button>
                             ) : (
-                              <span className="block truncate font-medium text-slate-800" title={g.name}>
+                              <span className="block min-w-0 truncate font-medium text-slate-800" title={g.name}>
                                 {g.name}
                               </span>
                             )}
+                            {g.endedStudents > 0 &&
+                              (g.endedStudents >= g.students ? (
+                                <EndedTag />
+                              ) : (
+                                <EndedTag label={`${fmtInt(g.endedStudents)} ended`} title={`${fmtInt(g.endedStudents)} of ${fmtInt(g.students)} students are on a semester that ended`} />
+                              ))}
+                            </span>
                           </td>
                           <td className={num}>{fmtInt(g.students)}</td>
                           <td className={num}>{fmtInt(g.opened)}</td>
@@ -714,7 +726,12 @@ export default function SpiQuizAnalytics() {
                           <span className="block font-mono text-[11px] text-slate-500">{r.studentId}</span>
                         </td>
                         <td className={cell}>{r.college ?? "–"}</td>
-                        <td className={cell}>{r.semester ?? "–"}</td>
+                        <td className={cell}>
+                          <span className="inline-flex flex-wrap items-center gap-1.5">
+                            {r.semester ?? "–"}
+                            {r.ended && <EndedTag />}
+                          </span>
+                        </td>
                         <td className={cell}>{r.section ?? "–"}</td>
                         <td className={cell}>
                           <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1", STATUS[r.status].className)}>{STATUS[r.status].label}</span>
