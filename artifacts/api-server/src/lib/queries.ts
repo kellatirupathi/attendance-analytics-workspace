@@ -31,6 +31,7 @@ import {
 import { cacheGet, cacheSet } from "./cache.js";
 import { aggregateSpiRecord, type SpiDetailRow } from "./spiRecordAggregate.js";
 import {
+  quizKind,
   toStudentQuizCourseRow,
   type RawQuizCourseRow,
   type StudentQuizCourseRow,
@@ -71,7 +72,7 @@ import {
   buildAssessmentUnitsSnapshotSql,
   type SummaryGroupBy,
 } from "./assessmentSummarySql.js";
-import { classroomQuizScoreSql, isModuleQuizSql, moduleQuizScoreSql, quizAttemptedSql, quizHeldSql, quizScore, scopedQuizRowsSql } from "./quizScoreSql.js";
+import { classroomQuizScoreSql, isClassroomQuizSql, isModuleQuizSql, moduleQuizScoreSql, quizAttemptedSql, quizHeldSql, quizScore, scopedQuizRowsSql } from "./quizScoreSql.js";
 
 /**
  * Every attendance query reads eligible students only (see eligibleStudents.ts),
@@ -2612,8 +2613,9 @@ function quizSubjectTitleSql(quizAlias = ""): string {
 function quizPivotSelect(quizAlias = ""): string {
   const a = quizAlias;
   const mod = isModuleQuizSql(a);
-  return `SUM(IF(${mod}, 0, ${quizHeldSql(a)})) AS cq_total,
-        SUM(IF(${mod}, 0, ${quizAttemptedSql(a)})) AS cq_completed,
+  const cls = isClassroomQuizSql(a);
+  return `SUM(IF(${cls}, ${quizHeldSql(a)}, 0)) AS cq_total,
+        SUM(IF(${cls}, ${quizAttemptedSql(a)}, 0)) AS cq_completed,
         ${classroomQuizScoreSql(a)} AS cq_avg,
         SUM(IF(${mod}, ${quizHeldSql(a)}, 0)) AS mq_total,
         SUM(IF(${mod}, ${quizAttemptedSql(a)}, 0)) AS mq_completed,
@@ -5382,7 +5384,9 @@ export async function getStudentQuizzes(
       status: attempted > 0 ? "Attempted" : "Pending",
       date: null,
     };
-    (String(r.derived_unit_type ?? "").toUpperCase().includes("MODULE") ? module : classroom).push({ item, best });
+    // Classroom and Module Quizzes only; other unit types (COURSE_QUIZ) are in no SPI part.
+    const kind = quizKind(r.derived_unit_type);
+    if (kind) (kind === "module" ? module : classroom).push({ item, best });
   }
 
   const calcSummary = (list: { item: QuizItem; best: number | null }[]): QuizSummary => {

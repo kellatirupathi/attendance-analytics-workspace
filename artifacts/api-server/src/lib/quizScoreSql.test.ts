@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   cappedAttempted,
   classroomQuizScoreSql,
+  isClassroomQuizSql,
   isModuleQuizSql,
   moduleQuizScoreSql,
   quizAttemptedSql,
@@ -71,10 +72,12 @@ test("SQL: attempted capped at held, null best as 0, divide by held, null when n
   assert.match(classroomQuizScoreSql("q"), /^SAFE_DIVIDE\(SUM\(IF\(.+\)\), NULLIF\(SUM\(IF\(.+\)\), 0\)\)$/);
 });
 
-test("SQL: Module = unit type containing MODULE; everything else (null too) is Classroom, as in the report", () => {
-  assert.equal(isModuleQuizSql("q"), "IFNULL(UPPER(CAST(q.derived_unit_type AS STRING)), '') LIKE '%MODULE%'");
-  assert.match(moduleQuizScoreSql("q"), /SUM\(IF\(IFNULL\(UPPER/);
-  assert.match(classroomQuizScoreSql("q"), /SUM\(IF\(NOT \(IFNULL\(UPPER/);
+test("SQL: Classroom = CLASSROOM_QUIZ only, Module = MODULE_QUIZ only; COURSE_QUIZ (and null) count in neither", () => {
+  assert.equal(isModuleQuizSql("q"), "IFNULL(UPPER(TRIM(CAST(q.derived_unit_type AS STRING))), '') = 'MODULE_QUIZ'");
+  assert.equal(isClassroomQuizSql("q"), "IFNULL(UPPER(TRIM(CAST(q.derived_unit_type AS STRING))), '') = 'CLASSROOM_QUIZ'");
+  assert.ok(moduleQuizScoreSql("q").includes("= 'MODULE_QUIZ'"));
+  assert.ok(classroomQuizScoreSql("q").includes("= 'CLASSROOM_QUIZ'"));
+  assert.ok(!classroomQuizScoreSql("q").includes("NOT ("), "Classroom is no longer 'anything that is not Module'");
 });
 
 test("scoped rows: current students use only current rows; ended students only their ended semester", () => {

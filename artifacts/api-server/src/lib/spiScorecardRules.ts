@@ -26,7 +26,8 @@ export type QuizKind = "classroom" | "module";
 export interface StudentQuizCourseRow {
   semesterCourseTitle: string | null;
   courseTitle: string | null;
-  kind: QuizKind;
+  /** null: another unit type (e.g. COURSE_QUIZ), which counts in no SPI part. */
+  kind: QuizKind | null;
   /** Quizzes held so far (total_scheduled_quizes); future quizzes are not counted. */
   conducted: number;
   /** Quizzes attempted, capped at the number held (same rule as the Assessments page). */
@@ -45,9 +46,13 @@ export interface RawQuizCourseRow {
   avg_attempted: string | null;
 }
 
-/** derived_unit_type is CLASSROOM_QUIZ or MODULE_QUIZ; anything that is not a module quiz is a classroom quiz. */
-export function quizKind(unitType: string | null | undefined): QuizKind {
-  return (unitType ?? "").toUpperCase().includes("MODULE") ? "module" : "classroom";
+/**
+ * CLASSROOM_QUIZ → classroom, MODULE_QUIZ → module, anything else (COURSE_QUIZ: one course-level quiz or exam per
+ * course) → null: it is in none of the four SPI parts (agreed 2026-11-15; it used to be counted as a Classroom Quiz).
+ */
+export function quizKind(unitType: string | null | undefined): QuizKind | null {
+  const type = (unitType ?? "").trim().toUpperCase();
+  return type === "CLASSROOM_QUIZ" ? "classroom" : type === "MODULE_QUIZ" ? "module" : null;
 }
 
 export function toStudentQuizCourseRow(r: RawQuizCourseRow): StudentQuizCourseRow {

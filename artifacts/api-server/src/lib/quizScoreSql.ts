@@ -71,15 +71,20 @@ export const quizAttemptedSql = (alias = "") =>
 export const quizPointsSql = (alias = "") =>
   `IFNULL(SAFE_CAST(${col(alias, "avg_best_attempt_percentage_score")} AS FLOAT64), 0) * ${quizAttemptedSql(alias)}`;
 
-/** Module Quiz rows; every other row is a Classroom Quiz (same split as the student report). */
-export const isModuleQuizSql = (alias = "") => `IFNULL(UPPER(CAST(${col(alias, "derived_unit_type")} AS STRING)), '') LIKE '%MODULE%'`;
+const unitTypeSql = (alias: string) => `IFNULL(UPPER(TRIM(CAST(${col(alias, "derived_unit_type")} AS STRING))), '')`;
+
+/** Module Quiz rows. */
+export const isModuleQuizSql = (alias = "") => `${unitTypeSql(alias)} = 'MODULE_QUIZ'`;
+
+/** Classroom Quiz rows only. COURSE_QUIZ (one course-level quiz or exam per course) counts in neither, as in the report. */
+export const isClassroomQuizSql = (alias = "") => `${unitTypeSql(alias)} = 'CLASSROOM_QUIZ'`;
 
 /** Aggregate score (0–100) of the rows matching `condition`; null when none of them has a quiz held. */
 export const quizScoreSql = (alias: string, condition: string) =>
   `SAFE_DIVIDE(SUM(IF(${condition}, ${quizPointsSql(alias)}, 0)), NULLIF(SUM(IF(${condition}, ${quizHeldSql(alias)}, 0)), 0))`;
 
 /** Classroom Quiz score of the grouped rows. */
-export const classroomQuizScoreSql = (alias = "") => quizScoreSql(alias, `NOT (${isModuleQuizSql(alias)})`);
+export const classroomQuizScoreSql = (alias = "") => quizScoreSql(alias, isClassroomQuizSql(alias));
 
 /** Module Quiz score of the grouped rows. */
 export const moduleQuizScoreSql = (alias = "") => quizScoreSql(alias, isModuleQuizSql(alias));

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildScorecard,
+  groupQuizzes,
   quizKind,
   toStudentQuizCourseRow,
   type RawQuizCourseRow,
@@ -74,6 +75,10 @@ const course = (name: string) => {
 test("unit type text decides the quiz type", () => {
   assert.equal(quizKind("CLASSROOM_QUIZ"), "classroom");
   assert.equal(quizKind("MODULE_QUIZ"), "module");
+  // COURSE_QUIZ (one course-level quiz or exam per course) is in no SPI part: not a Classroom Quiz any more.
+  assert.equal(quizKind("COURSE_QUIZ"), null);
+  assert.equal(quizKind(null), null);
+  assert.equal(quizKind(" classroom_quiz "), "classroom");
   // BigQuery returns BOOL as the string "false", which is truthy: never classify from a boolean column.
   assert.equal(toStudentQuizCourseRow(raw("x", "CLASSROOM_QUIZ", 1, 1, 50, "x")).kind, "classroom");
 });
@@ -263,4 +268,15 @@ test("next steps count classroom and module quizzes separately", () => {
       { kind: "pending_module", count: 12 },
     ],
   );
+});
+
+test("COURSE_QUIZ rows do not change the Classroom Quiz score of a course", () => {
+  const keys = new Set(["computer networks"]);
+  const classroom = raw("Computer Networks", "CLASSROOM_QUIZ", 60, 1, 70, "Computer Networks");
+  const courseQuiz = raw("Computer Networks", "COURSE_QUIZ", 1, 0, null, "Computer Networks");
+  const without = groupQuizzes([toStudentQuizCourseRow(classroom)], "classroom", keys).get("computer networks");
+  const withCq = groupQuizzes([classroom, courseQuiz].map(toStudentQuizCourseRow), "classroom", keys).get("computer networks");
+  assert.deepEqual(withCq, without);
+  assert.deepEqual(withCq, { avgPct: 1.2, attempted: 1, total: 60 }); // 70 x 1 / 60; counting the Course Quiz gave 1.1 of 61
+  assert.equal(toStudentQuizCourseRow(courseQuiz).kind, null);
 });
