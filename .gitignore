@@ -75,3 +75,11 @@ __pycache__/
 
 # Local theme before/after screenshots (made with sample data)
 /theme-preview/
+
+# Local work files (UI mockups, data exports, env template); tracked files in these folders stay tracked
+/exports/
+/docs/spi-query/
+/docs/spi-quiz-dashboard/
+/docs/spi-semester/
+/docs/student-directory/
+/.env.example
