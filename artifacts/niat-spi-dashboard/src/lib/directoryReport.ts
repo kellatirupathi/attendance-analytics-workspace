@@ -81,7 +81,7 @@ export interface DirectoryPage {
 }
 
 /** The filters as the server reads them; lists repeat their key (college=A&college=B). */
-function query(f: Partial<DirectoryFilters>, extra: Record<string, string | number | undefined> = {}): string {
+export function directoryQuery(f: Partial<DirectoryFilters>, extra: Record<string, string | number | undefined> = {}): string {
   const p = new URLSearchParams();
   for (const v of f.colleges ?? []) p.append("college", v);
   if (f.college && !(f.colleges ?? []).length) p.append("college", f.college);
@@ -110,7 +110,7 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const directoryApi = {
   options: () => getJson<DirectoryOptions>("/options"),
-  page: (f: DirectoryFilters, o: { sort: string; dir: string; page: number; pageSize: number }) => getJson<DirectoryPage>(`/?${query(f, o)}`),
+  page: (f: DirectoryFilters, o: { sort: string; dir: string; page: number; pageSize: number }) => getJson<DirectoryPage>(`/?${directoryQuery(f, o)}`),
   /** A link the browser can follow: the server writes every row for these filters. */
-  exportUrl: (f: DirectoryFilters, o: { sort: string; dir: string }) => `${API}/export?${query(f, o)}`,
+  exportUrl: (f: DirectoryFilters, o: { sort: string; dir: string }) => `${API}/export?${directoryQuery(f, o)}`,
 };

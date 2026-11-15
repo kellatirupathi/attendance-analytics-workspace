@@ -1,26 +1,28 @@
 /**
- * Overview numbers from the saved student reports, with the report's own rules (see directoryReportModel.ts):
- *  - Tiers (Eligible / Recovery / At risk / Ineligible): the report's attendance tier, from the student's weakest course.
- *  - Average attendance: the report's overall attendance; Average SPI: the report's SPI out of 10.
- *  - Skill debt: students with at least one level-F course on their report.
- *  - Assessment averages: the same quiz and Skill Assessment averages as the Student Directory.
- *  - Subject figures: the course's own attendance %, its course score and its level points on the report.
+ * Overview numbers from the saved student reports, with the report's own rules (see directoryReportModel.ts), so every
+ * figure agrees with the Student Directory and the reports:
+ *  - Attendance: Σ present ÷ Σ held (cut to one decimal); tiers (Eligible / Recovery / At risk / Ineligible) are the
+ *    report's tier, from the student's weakest course.
+ *  - Quiz and Skill Assessment averages (Method A): the simple average of the course scores, each student × course with
+ *    one held counting once, as the Student Directory and Assessments.
+ *  - No SPI figures: the SPI waits for the Final Skill Assessment ("Coming soon" on every page).
  * Pure functions; the route filters by the user's scope and sends the result.
  */
-import { matches, overallAttendance, plain, scoreAverage, subjectSet, type DirectoryFilter, type DirectoryStudent, type ReportTier } from "./directoryReportModel.js";
+import { matches, overallAttendance, plain, scoreAverage, subjectSet, type DirectoryCourse, type DirectoryFilter, type DirectoryPart, type DirectoryStudent, type ReportTier } from "./directoryReportModel.js";
 
-export interface OverviewRank {
+/** Quiz and Skill Assessment averages of a group (null when nothing was held). */
+export interface AssessmentAverages {
+  classroom: number | null;
+  module: number | null;
+  skill: number | null;
+}
+
+export interface OverviewRank extends AssessmentAverages {
   name: string;
   /** The college a section belongs to (sections only). */
   college?: string;
   students: number;
   attendance: number | null;
-  /** Colleges and sections: average SPI of the students. Subjects: average level points of the course (0–10). */
-  spi: number | null;
-  /** Subjects only: average course score (out of 100). */
-  score: number | null;
-  /** Students with a level-F course (subjects: in that course). */
-  debt: number;
 }
 
 export interface OverviewAttentionRow {
@@ -35,29 +37,48 @@ export interface Overview {
   summary: {
     students: number;
     avgAttendance: number | null;
-    avgSpi: number | null;
     eligible: number;
     recovery: number;
     atRisk: number;
     ineligible: number;
     /** Students with no sessions yet: in no tier. */
     noSessions: number;
-    skillDebt: number;
   };
-  assessment: { classroom: number | null; module: number | null; skill: number | null };
-  spiBins: { label: string; count: number }[];
+  assessment: AssessmentAverages;
   colleges: OverviewRank[];
   sections: OverviewRank[];
   subjects: OverviewRank[];
   attention: { atRisk: { total: number; rows: OverviewAttentionRow[] }; ineligible: { total: number; rows: OverviewAttentionRow[] } };
 }
 
-const r1 = (n: number) => Math.round(n * 10) / 10;
-const r2 = (n: number) => Math.round(n * 100) / 100;
-const mean = (values: number[], round: (n: number) => number): number | null => (values.length ? round(values.reduce((s, v) => s + v, 0) / values.length) : null);
-const nums = (values: (number | null | undefined)[]) => values.filter((v): v is number => v != null);
-
 const TIER_OF: Record<ReportTier, "eligible" | "recovery" | "atRisk" | "ineligible"> = { eligible: "eligible", recovery_eligible: "recovery", at_risk: "atRisk", ineligible: "ineligible" };
+
+/** Running sums for one group: attendance and the three course-score averages. */
+class Acc {
+  students = 0;
+  present = 0;
+  held = 0;
+  cq = [0, 0];
+  mq = [0, 0];
+  sa = [0, 0];
+  addPart(sum: number[], p: DirectoryPart | null) {
+    if (p && p.total > 0) {
+      sum[0] += p.avgPct;
+      sum[1]! += 1;
+    }
+  }
+  addCourse(c: DirectoryCourse) {
+    this.addPart(this.cq, c.classroom);
+    this.addPart(this.mq, c.module);
+    this.addPart(this.sa, c.skill);
+  }
+  averages(): AssessmentAverages {
+    return { classroom: scoreAverage(this.cq[0]!, this.cq[1]!), module: scoreAverage(this.mq[0]!, this.mq[1]!), skill: scoreAverage(this.sa[0]!, this.sa[1]!) };
+  }
+  attendance(): number | null {
+    return overallAttendance([{ attPresent: this.present, attHeld: this.held }]);
+  }
+}
 
 export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, attentionRows = 8): Overview {
   const subjects = subjectSet(f);
@@ -66,49 +87,38 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
 
   const tiers = { eligible: 0, recovery: 0, atRisk: 0, ineligible: 0 };
   let noSessions = 0;
+  const all = new Acc();
+  const colleges = new Map<string, Acc>();
+  const sections = new Map<string, Acc & { college?: string; label?: string }>();
+  const bySubject = new Map<string, Acc & { label?: string }>();
+  const get = <T extends Acc>(map: Map<string, T>, key: string, make: () => T) => {
+    let a = map.get(key);
+    if (!a) map.set(key, (a = make()));
+    return a;
+  };
+
   for (const s of mine) {
     if (s.tier) tiers[TIER_OF[s.tier]]++;
     else noSessions++;
-  }
-
-  /* Quiz and Skill Assessment averages: the simple average of the course scores (each student × course with one held counts once), as the Student Directory and Assessments */
-  const courseMean = (pick: (c: DirectoryStudent["courses"][number]) => { avgPct: number; total: number } | null) =>
-    average(mine.flatMap((s) => courseOf(s).map(pick).filter((p): p is { avgPct: number; total: number } => p != null && p.total > 0).map((p) => p.avgPct)));
-  const average = (values: number[]) => scoreAverage(values.reduce((a, v) => a + v, 0), values.length);
-  const skillScores = mine.flatMap((s) => courseOf(s).map((c) => c.skill).filter((p): p is { avgPct: number; total: number } => p != null && p.total > 0).map((p) => p.avgPct));
-
-  const bands: [number, number][] = [[0, 2], [2, 4], [4, 6], [6, 8], [8, 10.01]];
-  const spiBins = bands.map(([a, b]) => ({ label: `${a}–${Math.round(b)}`, count: mine.filter((s) => s.spi != null && s.spi >= a && s.spi < b).length }));
-
-  const group = (key: (s: DirectoryStudent) => string, extra?: (s: DirectoryStudent) => string): OverviewRank[] => {
-    const by = new Map<string, DirectoryStudent[]>();
-    for (const s of mine) {
-      const k = key(s);
-      by.set(k, [...(by.get(k) ?? []), s]);
+    const college = get(colleges, s.college, () => new Acc());
+    // A section name repeats across colleges: keep them apart.
+    const section = get(sections, `${s.college}\t${s.section}`, () => Object.assign(new Acc(), { college: s.college, label: s.section }));
+    for (const g of [all, college, section]) {
+      g.students++;
+      g.present += s.attPresent ?? 0;
+      g.held += s.attHeld ?? 0;
     }
-    return [...by.entries()].map(([name, list]) => ({
-      name,
-      ...(extra ? { college: extra(list[0]!) } : {}),
-      students: list.length,
-      attendance: overallAttendance(list),
-      spi: mean(nums(list.map((s) => s.spi)), r2),
-      score: null,
-      debt: list.filter((s) => courseOf(s).some((c) => c.levelF)).length,
-    }));
-  };
-
-  const bySubject = new Map<string, { name: string; present: number; held: number; score: number[]; pts: number[]; debt: number; students: number }>();
-  for (const s of mine) for (const c of courseOf(s)) {
-    const key = plain(c.name);
-    const g = bySubject.get(key) ?? { name: c.name, present: 0, held: 0, score: [], pts: [], debt: 0, students: 0 };
-    g.students++;
-    g.present += c.present ?? 0;
-    g.held += c.held ?? 0;
-    if (c.score != null) g.score.push(c.score);
-    if (c.points != null) g.pts.push(c.points);
-    if (c.levelF) g.debt++;
-    bySubject.set(key, g);
+    for (const c of courseOf(s)) {
+      for (const g of [all, college, section]) g.addCourse(c);
+      const subject = get(bySubject, plain(c.name), () => Object.assign(new Acc(), { label: c.name }));
+      subject.students++;
+      subject.present += c.present ?? 0;
+      subject.held += c.held ?? 0;
+      subject.addCourse(c);
+    }
   }
+
+  const rank = (name: string, a: Acc, college?: string): OverviewRank => ({ name, ...(college ? { college } : {}), students: a.students, attendance: a.attendance(), ...a.averages() });
 
   const attention = (tier: ReportTier) => {
     const list = mine.filter((s) => s.tier === tier).sort((a, b) => (a.attendancePct ?? 101) - (b.attendancePct ?? 101) || (a.name ?? "").localeCompare(b.name ?? ""));
@@ -120,16 +130,13 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
       students: mine.length,
       // Σ present ÷ Σ held, as Student Attendance Stats and the Student Directory.
       avgAttendance: overallAttendance(mine),
-      avgSpi: mean(nums(mine.map((s) => s.spi)), r2),
       ...tiers,
       noSessions,
-      skillDebt: mine.filter((s) => courseOf(s).some((c) => c.levelF)).length,
     },
-    assessment: { classroom: courseMean((c) => c.classroom), module: courseMean((c) => c.module), skill: average(skillScores) },
-    spiBins,
-    colleges: group((s) => s.college),
-    sections: group((s) => s.section, (s) => s.college),
-    subjects: [...bySubject.values()].map((g) => ({ name: g.name, students: g.students, attendance: overallAttendance([{ attPresent: g.present, attHeld: g.held }]), spi: mean(g.pts, r2), score: mean(g.score, r1), debt: g.debt })),
+    assessment: all.averages(),
+    colleges: [...colleges].map(([name, a]) => rank(name, a)),
+    sections: [...sections.values()].map((a) => rank(a.label!, a, a.college)),
+    subjects: [...bySubject.values()].map((a) => rank(a.label!, a)),
     attention: { atRisk: attention("at_risk"), ineligible: attention("ineligible") },
   };
 }

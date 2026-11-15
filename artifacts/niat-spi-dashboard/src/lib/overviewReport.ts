@@ -1,17 +1,23 @@
 /**
  * Overview: types and API calls. The numbers come from /api/dashboard/directory/overview, which rolls up the saved
- * student reports, so every figure follows the report's own rules; the browser only displays them.
+ * student reports, so every figure follows the report's own rules; the browser only displays them. The trend comes
+ * from /api/dashboard/directory/overview/trend (day-level rows held on the server). Both take the Student Directory's
+ * filters, so a filter means the same on both pages.
  */
-import type { DirectoryFilters } from "@/lib/directoryReport";
+import { directoryQuery, type DirectoryFilters } from "@/lib/directoryReport";
 
-export interface OverviewRank {
+/** Quiz and Skill Assessment averages (simple average of course scores); null when nothing was held. */
+export interface AssessmentAverages {
+  classroom: number | null;
+  module: number | null;
+  skill: number | null;
+}
+
+export interface OverviewRank extends AssessmentAverages {
   name: string;
   college?: string;
   students: number;
   attendance: number | null;
-  spi: number | null;
-  score: number | null;
-  debt: number;
 }
 
 export interface OverviewAttentionRow {
@@ -26,16 +32,13 @@ export interface OverviewData {
   summary: {
     students: number;
     avgAttendance: number | null;
-    avgSpi: number | null;
     eligible: number;
     recovery: number;
     atRisk: number;
     ineligible: number;
     noSessions: number;
-    skillDebt: number;
   };
-  assessment: { classroom: number | null; module: number | null; skill: number | null };
-  spiBins: { label: string; count: number }[];
+  assessment: AssessmentAverages;
   colleges: OverviewRank[];
   sections: OverviewRank[];
   subjects: OverviewRank[];
@@ -48,14 +51,9 @@ export interface TrendPoint {
   scheduled: number;
 }
 
-export type OverviewFilters = Pick<DirectoryFilters, "college" | "semester" | "section" | "subject">;
-export const NO_OVERVIEW_FILTERS: OverviewFilters = { college: "", semester: "", section: "", subject: "" };
-
-function query(f: OverviewFilters): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v) p.set(k, v);
-  return p.toString();
-}
+/** The Student Directory's filters this page uses (College, Batch, Semester; Section and Subject under More filters). */
+export type OverviewFilters = Pick<DirectoryFilters, "colleges" | "batches" | "term" | "sections" | "subject">;
+export const NO_OVERVIEW_FILTERS: OverviewFilters = { colleges: [], batches: [], term: "", sections: [], subject: "" };
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "include" });
@@ -64,30 +62,22 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const overviewApi = {
-  data: (f: OverviewFilters) => getJson<OverviewData>(`/api/dashboard/directory/overview?${query(f)}`),
-  /** Weekly present ÷ scheduled, the same endpoint the attendance pages use; the date window applies to this chart only. */
-  trend: (f: OverviewFilters, window: { dateFrom?: string; dateTo?: string }, scopeCampus: string) => {
-    const p = new URLSearchParams();
-    const college = f.college || scopeCampus;
-    if (college) p.set("campuses", college);
-    if (f.semester) p.set("semesters", f.semester);
-    if (college && f.section) p.set("sections", `${college}\t${f.section}`);
-    if (f.subject) p.set("subjects", f.subject);
-    if (window.dateFrom && window.dateTo) {
-      p.set("dateFrom", window.dateFrom);
-      p.set("dateTo", window.dateTo);
-    }
-    return getJson<{ points: TrendPoint[] }>(`/api/dashboard/attendance-stats/trend?${p.toString()}`);
-  },
+  data: (f: OverviewFilters) => getJson<OverviewData>(`/api/dashboard/directory/overview?${directoryQuery(f)}`),
+  /** Weekly present ÷ held for the same filters; the date window applies to this chart only. */
+  trend: (f: OverviewFilters, window: { dateFrom?: string; dateTo?: string }) =>
+    getJson<{ points: TrendPoint[] }>(`/api/dashboard/directory/overview/trend?${directoryQuery(f, { dateFrom: window.dateFrom, dateTo: window.dateTo })}`),
 };
 
-/** The Student Directory, opened on a tier (and a college) from a card. */
-export function directoryHref(extra: { tier?: string; college?: string; semester?: string; q?: string } = {}): string {
+/** The Student Directory, opened with this page's filters (and a tier or a search) from a card. */
+export function directoryHref(f: Partial<OverviewFilters> & { tier?: string; q?: string } = {}): string {
   const p = new URLSearchParams();
-  if (extra.tier) p.set("tier", extra.tier);
-  if (extra.college) p.set("campuses", extra.college);
-  if (extra.semester) p.set("semesters", extra.semester);
-  if (extra.q) p.set("q", extra.q);
+  if (f.tier) p.set("tier", f.tier);
+  if (f.colleges?.length) p.set("campuses", f.colleges.join("||"));
+  if (f.batches?.length) p.set("batches", f.batches.join("||"));
+  if (f.term) p.set("term", f.term);
+  if (f.sections?.length) p.set("sections", f.sections.join("||"));
+  if (f.subject) p.set("subject", f.subject);
+  if (f.q) p.set("q", f.q);
   const qs = p.toString();
   return qs ? `/dashboard/students?${qs}` : "/dashboard/students";
 }

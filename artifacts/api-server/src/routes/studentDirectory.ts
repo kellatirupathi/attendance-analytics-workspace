@@ -6,6 +6,9 @@ import { spiSharePath } from "../lib/spiToken.js";
 import { directorySnapshot } from "../lib/directoryReport.js";
 import { directoryOptions, directoryRows, sortRows, summarize, type DirectoryFilter, type ReportTier } from "../lib/directoryReportModel.js";
 import { overviewOf } from "../lib/overviewReportModel.js";
+import { overviewTrendSnapshot } from "../lib/overviewTrend.js";
+import { trendOf } from "../lib/overviewTrendModel.js";
+import { cacheGet, cacheSet } from "../lib/cache.js";
 
 /**
  * Student Directory: one row per student from the saved student reports (lib/directoryReport.ts), so the
@@ -74,9 +77,41 @@ router.get("/overview", async (req, res): Promise<void> => {
   const filter = readFilter(req, res);
   if (!filter) return;
   try {
-    res.json(overviewOf(await directorySnapshot.get(), filter));
+    const students = await directorySnapshot.get();
+    // Kept per copy of the saved reports and per filter (the user's scope is part of the filter).
+    const key = `overview:v2:${directorySnapshot.version()}:${JSON.stringify(filter)}`;
+    let body = cacheGet<object>(key);
+    if (!body) {
+      body = overviewOf(students, filter);
+      cacheSet(key, body, 10 * 60 * 1000);
+    }
+    res.json(body);
   } catch (err) {
     fail(req, res, err);
+  }
+});
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Overview: weekly attendance for the same filters, from day-level rows held in memory (lib/overviewTrend.ts). */
+router.get("/overview/trend", async (req, res): Promise<void> => {
+  const filter = readFilter(req, res);
+  if (!filter) return;
+  const from = String(req.query["dateFrom"] ?? "");
+  const to = String(req.query["dateTo"] ?? "");
+  const window = DAY.test(from) && DAY.test(to) && from <= to ? { dateFrom: from, dateTo: to } : {};
+  try {
+    const rows = await overviewTrendSnapshot.get();
+    const key = `overview-trend:v1:${overviewTrendSnapshot.version()}:${JSON.stringify(filter)}:${window.dateFrom ?? ""}:${window.dateTo ?? ""}`;
+    let body = cacheGet<object>(key);
+    if (!body) {
+      body = { points: trendOf(rows, { ...filter, ...window }) };
+      cacheSet(key, body, 10 * 60 * 1000);
+    }
+    res.json(body);
+  } catch (err) {
+    req.log.error({ err }, "Error fetching the overview trend");
+    res.status(500).json({ error: "Failed to load the attendance trend" });
   }
 });
 

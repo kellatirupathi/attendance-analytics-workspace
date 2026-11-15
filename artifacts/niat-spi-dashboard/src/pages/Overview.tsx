@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, Download, Lock } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
@@ -11,30 +11,22 @@ import { useAuth } from "@/contexts/AuthContext";
 import { exportCsv } from "@/lib/csv";
 import { fmtInt } from "@/lib/assessmentMetrics";
 import { AttendanceCaption } from "@/components/AttendanceInfo";
+import { CheckMenu } from "@/components/SpiRecordFilterBar";
+import { ExportMenu, FilterField, fieldTrigger, focusRing, MoreFiltersSheet, ScopeFilterBar, type FilterChip } from "@/components/ScopeFilters";
 import { ATTENDANCE_TIERS, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
 import { directoryApi } from "@/lib/directoryReport";
 import { directoryHref, NO_OVERVIEW_FILTERS, overviewApi, type OverviewFilters, type OverviewRank } from "@/lib/overviewReport";
-import { Donut, HBars, Trend, useTip, VBars, type DonutItem, type TipProps } from "@/components/overview/charts";
+import { Donut, HBars, Trend, useTip, type DonutItem, type TipProps } from "@/components/overview/charts";
 
 /**
- * Overview, one layout per role. Every figure is the student report's own (tiers, attendance, SPI, quiz averages, skill debt),
- * rolled up on the server from the saved reports, so the cards agree with the Student Directory and the reports.
- * The server limits everything to the user's own colleges and subjects.
+ * Overview: every figure is the student report's own (tiers, attendance, quiz and Skill Assessment averages), rolled
+ * up on the server from the saved reports, so the cards agree with the Student Directory, Student Attendance Stats
+ * and Assessments. The server limits everything to the user's own colleges and subjects. One layout for every role:
+ * attendance first, then assessments. No SPI figures until the Final Skill Assessment ("Coming soon", as elsewhere).
  */
-type CardId = "att" | "trend" | "fsa" | "assess" | "spidist" | "rank" | "subject" | "debt" | "attention";
-
-const LAYOUT: Record<string, [CardId, number][]> = {
-  admin: [["att", 4], ["trend", 5], ["fsa", 3], ["assess", 4], ["spidist", 4], ["rank", 4], ["subject", 4], ["attention", 8]],
-  superadmin: [["trend", 5], ["att", 4], ["fsa", 3], ["rank", 6], ["subject", 6], ["assess", 4], ["spidist", 4], ["attention", 4]],
-  boa: [["assess", 5], ["spidist", 4], ["fsa", 3], ["att", 4], ["rank", 8], ["trend", 6], ["subject", 6], ["attention", 12]],
-  cos: [["assess", 5], ["spidist", 4], ["fsa", 3], ["att", 4], ["rank", 8], ["trend", 6], ["subject", 6], ["attention", 12]],
-  hod: [["att", 4], ["trend", 5], ["fsa", 3], ["rank", 6], ["subject", 6], ["assess", 4], ["spidist", 4], ["attention", 4]],
-  capability_manager: [["assess", 4], ["rank", 4], ["fsa", 4], ["att", 4], ["trend", 4], ["debt", 4], ["attention", 12]],
-};
-const SPAN: Record<number, string> = { 3: "xl:col-span-3", 4: "xl:col-span-4", 5: "xl:col-span-5", 6: "xl:col-span-6", 8: "xl:col-span-8", 12: "xl:col-span-12" };
-const selectClass = "h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 disabled:bg-slate-50 disabled:text-slate-500";
 const STALE = 5 * 60_000;
-const pct = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
+const pct = (v: number | null | undefined) => (v == null ? "–" : `${v.toFixed(1)}%`);
+const selectClass = "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600";
 
 const TIER_ITEMS: { key: "eligible" | "recovery_eligible" | "at_risk" | "ineligible"; field: "eligible" | "recovery" | "atRisk" | "ineligible"; label: string; hint: string; color: string; bg: string }[] = [
   { key: "eligible", field: "eligible", label: "Eligible", hint: `≥ ${TIER_ELIGIBLE}%`, color: ATTENDANCE_TIERS[0]!.color, bg: ATTENDANCE_TIERS[0]!.bg },
@@ -44,23 +36,33 @@ const TIER_ITEMS: { key: "eligible" | "recovery_eligible" | "at_risk" | "ineligi
   { key: "ineligible", field: "ineligible", label: "Ineligible", hint: `< ${TIER_AT_RISK}%`, color: ATTENDANCE_TIERS[3]!.color, bg: ATTENDANCE_TIERS[3]!.bg },
 ];
 
-function Card({ title, right, children, className }: { title: string; right?: ReactNode; children: ReactNode; className?: string }) {
+const QUIZ_METRICS = [
+  ["classroom", "Classroom"],
+  ["module", "Module"],
+  ["skill", "Skill"],
+] as const;
+type QuizMetric = (typeof QUIZ_METRICS)[number][0];
+const QUIZ_NAME: Record<QuizMetric, string> = { classroom: "Classroom Quiz", module: "Module Quiz", skill: "Skill Assessment" };
+
+function Card({ title, right, children, footer, className }: { title: string; right?: ReactNode; children: ReactNode; footer?: ReactNode; className?: string }) {
   return (
-    <section className={cn("flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm", className)} aria-label={title}>
-      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-bold text-slate-900">{title}</h2>
-        {right && <div className="flex items-center gap-2">{right}</div>}
+    <section className={cn("flex h-full min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm", className)} aria-label={title}>
+      <div className="mb-4 flex min-h-8 flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+        {right && <div className="flex flex-wrap items-center gap-2">{right}</div>}
       </div>
-      {children}
+      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      {/* The footer sits on the card's bottom edge, so cards side by side end on one line. */}
+      {footer && <div className="mt-auto flex items-center justify-between gap-2 pt-4 text-xs text-slate-500">{footer}</div>}
     </section>
   );
 }
 
-function Seg({ value, options, onChange, label }: { value: string; options: [string, string][]; onChange: (v: string) => void; label: string }) {
+function Seg<T extends string>({ value, options, onChange, label }: { value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; label: string }) {
   return (
     <div role="group" aria-label={label} className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
       {options.map(([v, l]) => (
-        <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)} className={cn("rounded-md px-2.5 py-1 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600", value === v ? "bg-white text-violet-700 shadow-sm" : "text-slate-500 hover:text-slate-800")}>
+        <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)} className={cn("min-h-7 rounded-md px-2.5 text-xs font-semibold", focusRing, value === v ? "bg-white text-violet-700 shadow-sm" : "text-slate-500 hover:text-slate-800")}>
           {l}
         </button>
       ))}
@@ -68,70 +70,127 @@ function Seg({ value, options, onChange, label }: { value: string; options: [str
   );
 }
 
-const Chip = ({ children }: { children: ReactNode }) => <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-500">{children}</span>;
-
 function ViewAll({ href, label = "View all" }: { href: string; label?: string }) {
   const [, setLocation] = useLocation();
   return (
-    <button type="button" onClick={() => setLocation(href)} className="inline-flex items-center gap-1 whitespace-nowrap rounded px-1 text-xs font-semibold text-violet-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">
+    <button type="button" onClick={() => setLocation(href)} className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded px-1 text-xs font-semibold text-violet-700 hover:underline", focusRing)}>
       {label} <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
     </button>
   );
 }
 
-/** Nice axis maximum divisible by four, so every tick is a whole number. */
-const niceMax = (m: number) => {
-  const u = m < 100 ? 5 : m < 500 ? 25 : 50;
-  return Math.max(4 * u, Math.ceil(m / (4 * u)) * 4 * u);
-};
+/** A number card; the value sits on the card's bottom line so values stay level when a label wraps. */
+function Kpi({ label, value, color, loading, href }: { label: string; value: string; color?: string; loading: boolean; href?: string }) {
+  const [, setLocation] = useLocation();
+  const body = (
+    <>
+      {color && <span className="absolute bottom-3 left-0 top-3 w-[3px] rounded-r" style={{ background: color }} aria-hidden="true" />}
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      {loading ? <span className="mt-auto h-7 w-16 animate-pulse rounded bg-slate-100" /> : <span className="mt-auto text-xl font-bold tabular-nums tracking-tight text-slate-900" style={color ? { color } : undefined}>{value}</span>}
+    </>
+  );
+  const box = "relative flex h-full min-h-[4.5rem] flex-col gap-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm";
+  if (!href) return <div className={box}>{body}</div>;
+  return (
+    <button type="button" onClick={() => setLocation(href)} className={cn(box, "group transition-colors hover:border-violet-300", focusRing)}>
+      {body}
+      <ArrowUpRight className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100 motion-reduce:transition-none" aria-hidden="true" />
+    </button>
+  );
+}
+
+/** A card whose number needs the Final Skill Assessment (FSA): Coming soon until FSA results are in. */
+function SoonKpi({ label }: { label: string }) {
+  return (
+    <div className="flex h-full min-h-[4.5rem] flex-col gap-1 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 shadow-sm">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <span className="mt-auto inline-flex w-fit items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">Coming soon</span>
+    </div>
+  );
+}
+
+function SectionTitle({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+      <h2 className="text-base font-bold text-slate-900">{title}</h2>
+      {children}
+    </div>
+  );
+}
 
 export default function Overview() {
   const { user } = useAuth();
-  const role = user?.role && LAYOUT[user.role] ? user.role : "admin";
   const [, setLocation] = useLocation();
   const tip = useTip();
   const [filters, setFilters] = useState<OverviewFilters>(NO_OVERVIEW_FILTERS);
-  const [metric, setMetric] = useState<"attendance" | "spi">("attendance");
-  const [subjectMetric, setSubjectMetric] = useState<"attendance" | "score">("attendance");
-  const [order, setOrder] = useState<"top" | "bottom">("top");
-  const [tab, setTab] = useState<"atRisk" | "ineligible">("atRisk");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [draft, setDraft] = useState<{ sections: string[]; subject: string }>({ sections: [], subject: "" });
   const [period, setPeriod] = useState<"semester" | "last30" | "last7">("semester");
+  const [attOrder, setAttOrder] = useState<"top" | "bottom">("top");
+  const [subjectOrder, setSubjectOrder] = useState<"top" | "bottom">("top");
+  const [tab, setTab] = useState<"atRisk" | "ineligible">("atRisk");
+  const [quizRank, setQuizRank] = useState<QuizMetric>("classroom");
+  const [quizRankOrder, setQuizRankOrder] = useState<"top" | "bottom">("top");
+  const [quizSubject, setQuizSubject] = useState<QuizMetric>("classroom");
+  const [quizSubjectOrder, setQuizSubjectOrder] = useState<"top" | "bottom">("top");
 
   const options = useQuery({ queryKey: ["directory-options"], queryFn: directoryApi.options, staleTime: STALE });
   const data = useQuery({ queryKey: ["overview", filters], queryFn: () => overviewApi.data(filters), staleTime: STALE, placeholderData: keepPreviousData });
-  const scopeCampus = options.data?.colleges.length === 1 ? options.data.colleges[0]! : "";
   const dates = useMemo(() => {
     if (period === "semester") return {};
     const today = new Date();
     return { dateFrom: format(subDays(today, period === "last30" ? 30 : 7), "yyyy-MM-dd"), dateTo: format(today, "yyyy-MM-dd") };
   }, [period]);
-  const trend = useQuery({ queryKey: ["overview-trend", filters, dates, scopeCampus], queryFn: () => overviewApi.trend(filters, dates, scopeCampus), staleTime: STALE, placeholderData: keepPreviousData });
+  const trend = useQuery({ queryKey: ["overview-trend", filters, dates], queryFn: () => overviewApi.trend(filters, dates), staleTime: STALE, placeholderData: keepPreviousData });
+  /** Old numbers stay on screen while the new filters load. */
+  const updating = (data.isFetching && data.isPlaceholderData) || (trend.isFetching && trend.isPlaceholderData);
 
+  const opt = options.data;
   const o = data.data;
   const s = o?.summary;
   const loading = data.isLoading;
-  const colleges = options.data?.colleges ?? [];
-  const sectionNames = useMemo(() => [...new Set((options.data?.sections ?? []).filter((x) => !filters.college || x.college === filters.college).map((x) => x.section))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [options.data, filters.college]);
-  const college = filters.college || scopeCampus;
   const go = (href: string) => setLocation(href);
-  const dirHref = (tier?: string) => directoryHref({ tier, college: college || undefined, semester: filters.semester || undefined });
+  /** A single-college user: the college is fixed. */
+  const lockedCampus = opt?.colleges.length === 1 ? opt.colleges[0] : undefined;
+
+  /* ---- filters (the Student Directory's, so a filter means the same on both pages) ---- */
+  const sectionsFor = (colleges: string[], batches: string[]) =>
+    (opt?.sections ?? []).filter((x) => (colleges.length || batches.length || lockedCampus) && (!colleges.length || colleges.includes(x.college)) && (!batches.length || batches.includes(`${x.college}\t${x.batch}`)));
+  const sectionChoices = useMemo(() => {
+    const list = sectionsFor(filters.colleges, filters.batches);
+    const manyBatches = new Set(list.map((x) => `${x.college}\t${x.batch}`)).size > 1;
+    const seen = new Map<string, string>();
+    for (const x of list) seen.set(`${x.batch}\t${x.section}`, manyBatches ? `${x.batch} — ${x.section}` : x.section);
+    return [...seen.entries()].map(([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opt, filters.colleges, filters.batches, lockedCampus]);
+  /** Changing a parent filter drops choices it no longer has, so no hidden filter stays on. */
   const change = (patch: Partial<OverviewFilters>) =>
     setFilters((f) => {
       const next = { ...f, ...patch };
-      if (patch.college !== undefined && next.section && !(options.data?.sections ?? []).some((x) => (!next.college || x.college === next.college) && x.section === next.section)) next.section = "";
+      if (patch.colleges) next.batches = next.colleges.length ? next.batches.filter((b) => next.colleges.includes(b.split("\t")[0]!)) : next.batches;
+      if (patch.colleges || patch.batches) {
+        const ok = new Set(sectionsFor(next.colleges, next.batches).map((x) => `${x.batch}\t${x.section}`));
+        next.sections = next.sections.filter((x) => ok.has(x));
+      }
       return next;
     });
-
-  /* ---- KPI cards ---- */
-  const kpis: { label: string; value: string; color?: string; href: string }[] = [
-    { label: "Total students", value: s ? fmtInt(s.students) : "", href: dirHref() },
-    { label: "Overall attendance", value: s ? pct(s.avgAttendance) : "", href: "/dashboard/attendance-stats" },
-    { label: "Average SPI", value: s ? (s.avgSpi == null ? "–" : s.avgSpi.toFixed(2)) : "", href: dirHref() },
-    ...TIER_ITEMS.map((t) => ({ label: t.label, value: s ? fmtInt(s[t.field]) : "", color: t.color, href: dirHref(t.key) })),
+  const sectionLabel = (id: string) => sectionChoices.find((x) => x.id === id)?.label ?? id.split("\t")[1] ?? id;
+  const chips: FilterChip[] = [
+    ...filters.sections.map((id) => ({ key: `section-${id}`, label: `Section: ${sectionLabel(id)}`, clear: () => change({ sections: filters.sections.filter((x) => x !== id) }) })),
+    ...(filters.subject ? [{ key: "subject", label: `Subject: ${filters.subject}`, clear: () => change({ subject: "" }) }] : []),
   ];
-  if (role === "capability_manager") kpis.push({ label: "Skill debt", value: s ? fmtInt(s.skillDebt) : "", color: "#6D4AE0", href: dirHref() });
+  const moreCount = (filters.sections.length ? 1 : 0) + (filters.subject ? 1 : 0);
+  const anyFilter = filters.colleges.length > 0 || filters.batches.length > 0 || filters.term !== "" || chips.length > 0;
+  const dirHref = (tier?: string) => directoryHref({ ...filters, tier });
 
-  /* ---- cards ---- */
+  /* ---- rankings ---- */
+  /** Colleges when several are in view; otherwise that college's sections (an HOD always sees sections). */
+  const oneCollege = Boolean(lockedCampus) || filters.colleges.length === 1;
+  const showColleges = user?.role !== "hod" && !oneCollege && (opt?.colleges.length ?? 0) > 1;
+  const groups = showColleges ? o?.colleges ?? [] : o?.sections ?? [];
+  const groupName = (r: OverviewRank) => (showColleges ? r.name : `Section ${r.name}`);
+  const groupTitle = showColleges ? "College" : "Section";
   const tipBox = (title: string, line: string) => (
     <>
       <b>{title}</b>
@@ -139,219 +198,233 @@ export default function Overview() {
       <span className="text-slate-300">{line}</span>
     </>
   );
-  const top5 = (rows: OverviewRank[], value: (r: OverviewRank) => number | null, bottom = false) =>
-    rows.filter((r) => value(r) != null).sort((a, b) => (bottom ? value(a)! - value(b)! : value(b)! - value(a)!)).slice(0, 5);
-  const rankRows = (list: OverviewRank[], v: (r: OverviewRank) => number | null, display: (n: number) => string, unit: string, bottom = false) =>
-    top5(list, v, bottom).map((r) => ({ name: r.name, value: v(r), display: display(v(r)!), tip: tipBox(r.college ? `${r.name} · ${r.college}` : r.name, `${display(v(r)!)}${unit} · ${fmtInt(r.students)} students`) }));
-
-  const cards: Record<CardId, () => ReactNode> = {
-    att: () => (
-      <Card title="Attendance distribution">
-        {loading || !s ? <Skeleton className="h-40 w-full" /> : <Donut total={TIER_ITEMS.reduce((n, t) => n + s[t.field], 0)} items={TIER_ITEMS.map((t): DonutItem => ({ key: t.key, label: t.label, hint: t.hint, count: s[t.field], color: t.color }))} onSelect={(key) => go(dirHref(key))} />}
-        {s && s.noSessions > 0 && <p className="mt-2 text-xs text-slate-500">{fmtInt(s.noSessions)} students have no sessions yet.</p>}
-        <AttendanceCaption />
-      </Card>
-    ),
-    trend: () => {
-      const points = (trend.data?.points ?? []).filter((p) => p.scheduled > 0).map((p) => {
-        const v = Math.floor((p.present * 1000) / p.scheduled) / 10;
-        const label = format(new Date(`${p.week.slice(0, 10)}T00:00:00`), "d MMM");
-        return { label, value: v, tip: tipBox(`Week of ${label}`, `${v.toFixed(1)}% · ${fmtInt(p.present)} of ${fmtInt(p.scheduled)} sessions`) };
-      });
-      return (
-        <Card title="Attendance trend" right={<><Chip>weekly</Chip><select aria-label="Trend period" className={cn(selectClass, "h-8 py-0 text-xs")} value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}><option value="semester">Semester to date</option><option value="last30">Last 30 days</option><option value="last7">Last 7 days</option></select></>}>
-          {trend.isLoading ? <Skeleton className="h-44 w-full" /> : points.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">No sessions in this period</p> : <Trend points={points} tip={tip.props as TipProps} label="Weekly attendance" format={(v) => `${v.toFixed(1)}%`} />}
-          <AttendanceCaption />
-        </Card>
-      );
-    },
-    fsa: () => (
-      <Card title="Final Skill Assessment (50%)" className="justify-center bg-gradient-to-b from-white to-violet-50/40">
-        <div className="flex flex-col items-start gap-3">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-violet-50 text-violet-700"><Lock className="h-[18px] w-[18px]" aria-hidden="true" /></span>
-          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">Coming soon</span>
-        </div>
-      </Card>
-    ),
-    assess: () => {
-      const a = o?.assessment;
-      const items = [["Classroom Quiz", a?.classroom ?? null], ["Module Quiz", a?.module ?? null], ["Skill Assessment", a?.skill ?? null]] as [string, number | null][];
-      return (
-        <Card title="Assessment performance" right={<Chip>avg score %</Chip>}>
-          {loading ? <Skeleton className="h-44 w-full" /> : <VBars label="Assessment performance" max={100} tip={tip.props} onSelect={() => go("/dashboard/assessments")} items={items.map(([label, value]) => ({ label, value, tip: tipBox(label, value == null ? "Nothing held yet" : `${value.toFixed(1)}% average`) }))} />}
-        </Card>
-      );
-    },
-    spidist: () => {
-      const bins = o?.spiBins ?? [];
-      return (
-        <Card title="SPI distribution" right={<Chip>students</Chip>}>
-          {loading ? <Skeleton className="h-44 w-full" /> : <VBars label="SPI distribution" max={niceMax(Math.max(0, ...bins.map((b) => b.count)))} tip={tip.props} onSelect={() => go(dirHref())} items={bins.map((b) => ({ label: b.label, value: b.count, tip: tipBox(`SPI ${b.label}`, `${fmtInt(b.count)} students (${s?.students ? Math.round((b.count / s.students) * 100) : 0}%)`) }))} />}
-        </Card>
-      );
-    },
-    rank: () => {
-      if (role === "capability_manager") {
-        const rows = rankRows(o?.subjects ?? [], (r) => r.spi, (n) => n.toFixed(2), " / 10");
-        return (
-          <Card title="Course-wise SPI" right={<Chip>out of 10</Chip>}>
-            {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={10} tip={tip.props} onSelect={(i) => setFilters((f) => ({ ...f, subject: rows[i]!.name }))} />}
-            <div className="mt-2 flex justify-end"><ViewAll href="/dashboard/attendance-stats?group=university_subject" /></div>
-          </Card>
-        );
-      }
-      const showColleges = role !== "hod" && !filters.college && !scopeCampus && colleges.length > 1;
-      const list = showColleges ? o?.colleges ?? [] : o?.sections ?? [];
-      const bottom = role === "superadmin" && order === "bottom";
-      const useAtt = metric === "attendance";
-      const rows = rankRows(list, (r) => (useAtt ? r.attendance : r.spi), (n) => (useAtt ? n.toFixed(1) : n.toFixed(2)), useAtt ? "%" : "", bottom).map((r) => ({ ...r, name: showColleges ? r.name : `Section ${r.name}` }));
-      const title = showColleges ? (role === "boa" ? "College comparison" : "College performance") : "Section performance";
-      return (
-        <Card title={title} right={<>{role === "superadmin" && <Seg label="Order" value={order} onChange={(v) => setOrder(v as "top" | "bottom")} options={[["top", "Top 5"], ["bottom", "Bottom 5"]]} />}<Seg label="Metric" value={metric} onChange={(v) => setMetric(v as "attendance" | "spi")} options={[["attendance", "Attendance"], ["spi", "SPI"]]} /></>}>
-          {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={useAtt ? 100 : 10} tip={tip.props} onSelect={(i) => showColleges && change({ college: list.find((r) => r.name === rows[i]!.name)?.name ?? "" })} />}
-          {useAtt && <AttendanceCaption />}
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{bottom ? "Lowest" : "Highest"} first</span><ViewAll href={showColleges ? "/dashboard/attendance-stats" : "/dashboard/attendance-stats?group=university_section"} /></div>
-        </Card>
-      );
-    },
-    subject: () => {
-      const useAtt = subjectMetric === "attendance";
-      const rows = rankRows(o?.subjects ?? [], (r) => (useAtt ? r.attendance : r.score), (n) => n.toFixed(1), "%");
-      return (
-        <Card title="Subject performance" right={<Seg label="Metric" value={subjectMetric} onChange={(v) => setSubjectMetric(v as "attendance" | "score")} options={[["attendance", "Attendance"], ["score", "Avg score"]]} />}>
-          {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={rows} max={100} tip={tip.props} onSelect={(i) => setFilters((f) => ({ ...f, subject: rows[i]!.name }))} />}
-          {useAtt && <AttendanceCaption />}
-          <div className="mt-2 flex justify-end"><ViewAll href="/dashboard/attendance-stats?group=university_subject" /></div>
-        </Card>
-      );
-    },
-    debt: () => {
-      const list = (o?.subjects ?? []).slice().sort((a, b) => b.debt - a.debt).slice(0, 5);
-      const max = Math.max(1, ...list.map((r) => r.debt));
-      return (
-        <Card title="Skill debt by course" right={<Chip>students</Chip>}>
-          {loading ? <Skeleton className="h-40 w-full" /> : <HBars rows={list.map((r) => ({ name: r.name, value: r.debt, display: fmtInt(r.debt), tip: tipBox(r.name, `${fmtInt(r.debt)} of ${fmtInt(r.students)} students at level F`) }))} max={max} tip={tip.props} />}
-          <div className="mt-2 flex justify-end"><ViewAll href={dirHref()} /></div>
-        </Card>
-      );
-    },
-    attention: () => {
-      const a = o?.attention[tab];
-      const t = TIER_ITEMS.find((x) => x.field === tab)!;
-      return (
-        <Card
-          title="Students requiring attention"
-          right={
-            <div role="tablist" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-              {([["atRisk", "At risk", o?.attention.atRisk.total], ["ineligible", "Ineligible", o?.attention.ineligible.total]] as const).map(([k, label, n]) => (
-                <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cn("inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600", tab === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
-                  {label} <span className="rounded-full px-1.5 text-[11px]" style={{ background: TIER_ITEMS.find((x) => x.field === k)!.bg, color: TIER_ITEMS.find((x) => x.field === k)!.color }}>{n == null ? "" : fmtInt(n)}</span>
-                </button>
-              ))}
-            </div>
-          }
-        >
-          {loading ? <Skeleton className="h-40 w-full" /> : a && a.rows.length > 0 ? (
-            <ul>
-              {a.rows.slice(0, role === "boa" || role === "capability_manager" ? 5 : 5).map((r) => (
-                <li key={r.studentId}>
-                  <button type="button" onClick={() => go(directoryHref({ tier: t.key, q: r.studentId }))} className="grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-lg border-b border-slate-100 px-2 py-2 text-left hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600">
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-900">{r.name || "—"}</span>
-                      <span className="text-xs text-slate-500">{r.college} · {r.section}</span>
-                    </span>
-                    <span className="rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums" style={{ color: t.color, background: t.bg }}>{r.attendancePct == null ? "–" : `${r.attendancePct}%`}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-8 text-center text-sm text-slate-500">No students in this group</p>
-          )}
-          <AttendanceCaption />
-          <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>Lowest attendance first</span>{a && <ViewAll href={dirHref(t.key)} label={`View all ${fmtInt(a.total)}`} />}</div>
-        </Card>
-      );
-    },
+  const ranked = (list: OverviewRank[], value: (r: OverviewRank) => number | null, order: "top" | "bottom", name: (r: OverviewRank) => string, unit: string) =>
+    list
+      .filter((r) => value(r) != null)
+      .sort((a, b) => (order === "bottom" ? value(a)! - value(b)! : value(b)! - value(a)!) || a.name.localeCompare(b.name))
+      .slice(0, 5)
+      .map((r) => ({ name: name(r), value: value(r), display: value(r)!.toFixed(1), tip: tipBox(r.college ? `${name(r)} · ${r.college}` : name(r), `${value(r)!.toFixed(1)}%${unit} · ${fmtInt(r.students)} students`) }));
+  const orderSeg = (value: "top" | "bottom", onChange: (v: "top" | "bottom") => void) => <Seg label="Order" value={value} onChange={onChange} options={[["top", "Top 5"], ["bottom", "Bottom 5"]] as const} />;
+  const firstText = (order: "top" | "bottom") => (order === "bottom" ? "Lowest first" : "Highest first");
+  const selectGroup = (i: number, rows: { name: string }[]) => {
+    if (!showColleges) return;
+    const name = rows[i]?.name;
+    if (name) change({ colleges: [name] });
   };
+
+  /* ---- attendance cards ---- */
+  const trendPoints = (trend.data?.points ?? []).map((p) => {
+    const v = Math.floor((p.present * 1000) / p.scheduled) / 10;
+    const label = format(new Date(`${p.week.slice(0, 10)}T00:00:00`), "d MMM");
+    return { label, value: v, tip: tipBox(`Week of ${label}`, `${v.toFixed(1)}% · ${fmtInt(p.present)} of ${fmtInt(p.scheduled)} sessions`) };
+  });
+  const attRows = ranked(groups, (r) => r.attendance, attOrder, groupName, " attendance");
+  const subjectAttRows = ranked(o?.subjects ?? [], (r) => r.attendance, subjectOrder, (r) => r.name, " attendance");
+  const att = o?.attention[tab];
+  const tabTier = TIER_ITEMS.find((x) => x.field === tab)!;
+
+  /* ---- assessment cards ---- */
+  const quizRankRows = ranked(groups, (r) => r[quizRank], quizRankOrder, groupName, ` ${QUIZ_NAME[quizRank]} avg`);
+  const quizSubjectRows = ranked(o?.subjects ?? [], (r) => r[quizSubject], quizSubjectOrder, (r) => r.name, ` ${QUIZ_NAME[quizSubject]} avg`);
 
   const exportOverview = () => {
     if (!o) return;
     const rows: (string | number)[][] = [
       ["Total students", o.summary.students],
       ["Overall attendance % (present ÷ held)", o.summary.avgAttendance ?? ""],
-      ["Average SPI", o.summary.avgSpi ?? ""],
       ["Eligible", o.summary.eligible],
       ["Recovery", o.summary.recovery],
       ["At risk", o.summary.atRisk],
       ["Ineligible", o.summary.ineligible],
-      ["Skill debt (students)", o.summary.skillDebt],
+      ["No sessions yet", o.summary.noSessions],
       ["Classroom Quiz avg %", o.assessment.classroom ?? ""],
       ["Module Quiz avg %", o.assessment.module ?? ""],
       ["Skill Assessment avg %", o.assessment.skill ?? ""],
-      ...o.colleges.map((c) => [`College: ${c.name}`, `${c.attendance ?? ""}% attendance, SPI ${c.spi ?? ""}, ${c.students} students`]),
+      ...o.colleges.map((c) => [`College: ${c.name}`, `${c.students} students; attendance ${c.attendance ?? "–"}%; Classroom Quiz ${c.classroom ?? "–"}%; Module Quiz ${c.module ?? "–"}%; Skill Assessment ${c.skill ?? "–"}%`]),
     ];
     exportCsv("overview.csv", ["Measure", "Value"], rows);
   };
 
-  const scopeLabel = [filters.college || (scopeCampus ? scopeCampus : colleges.length > 1 ? "All colleges" : ""), filters.section && `Section ${filters.section}`, filters.subject].filter(Boolean).join(" · ");
-
   return (
     <div className="flex min-w-0 flex-col">
-      <PageHeader
-        title="Overview"
-        right={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {scopeLabel && <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">{scopeLabel}</span>}
-            {colleges.length > 1 && (
-              <select aria-label="College" className={selectClass} value={filters.college} onChange={(e) => change({ college: e.target.value })}>
-                <option value="">All colleges</option>
-                {colleges.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            )}
-            <select aria-label="Section" className={selectClass} value={filters.section} onChange={(e) => change({ section: e.target.value })}>
-              <option value="">All sections</option>
-              {sectionNames.map((x) => (
-                <option key={x} value={x}>{x}</option>
-              ))}
-            </select>
-            <select aria-label="Subject" className={cn(selectClass, "max-w-[12rem]")} value={filters.subject} onChange={(e) => change({ subject: e.target.value })}>
-              <option value="">{user?.subjects?.length ? "My subjects" : "All subjects"}</option>
-              {(options.data?.subjects ?? []).map((x) => (
-                <option key={x} value={x}>{x}</option>
-              ))}
-            </select>
-            <button type="button" onClick={exportOverview} disabled={!o} className="inline-flex h-9 items-center gap-2 rounded-lg bg-violet-600 px-3.5 text-sm font-semibold text-white hover:bg-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 focus-visible:ring-offset-2 disabled:opacity-50">
-              <Download className="h-4 w-4" aria-hidden="true" /> Export
-            </button>
-          </div>
-        }
+      <PageHeader title="Overview" right={<ExportMenu disabled={!o} choices={[{ title: "This view", detail: "The cards and college figures for these filters", run: async () => exportOverview() }]} />} />
+
+      <ScopeFilterBar
+        campusOptions={opt?.colleges ?? []}
+        campuses={filters.colleges}
+        onCampuses={(colleges) => change({ colleges })}
+        lockedCampus={lockedCampus}
+        batchOptions={opt?.batches ?? []}
+        batches={filters.batches}
+        onBatches={(batches) => change({ batches })}
+        term={filters.term}
+        onTerm={(term) => change({ term })}
+        moreCount={moreCount}
+        onMore={() => {
+          setDraft({ sections: filters.sections, subject: filters.subject });
+          setMoreOpen(true);
+        }}
+        chips={chips}
+        anyFilter={anyFilter}
+        onClearAll={() => setFilters(NO_OVERVIEW_FILTERS)}
+        updating={updating}
       />
+
+      <MoreFiltersSheet
+        open={moreOpen}
+        onOpenChange={setMoreOpen}
+        description="Narrow every card and chart on this page by section or subject."
+        onReset={() => setDraft({ sections: [], subject: "" })}
+        onApply={() => {
+          change({ sections: draft.sections, subject: draft.subject });
+          setMoreOpen(false);
+        }}
+      >
+        <FilterField label="Section">
+          <CheckMenu
+            chevron
+            className={fieldTrigger}
+            label={draft.sections.length ? `${draft.sections.length} selected` : sectionChoices.length ? "All sections" : "Pick a college or batch first"}
+            options={sectionChoices}
+            selected={draft.sections}
+            onChange={(next) => setDraft((d) => ({ ...d, sections: next }))}
+          />
+        </FilterField>
+        <FilterField label="Subject">
+          <select className={selectClass} value={draft.subject} onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))}>
+            <option value="">{user?.subjects?.length ? "My subjects" : "All subjects"}</option>
+            {(opt?.subjects ?? []).map((x) => (
+              <option key={x} value={x}>{x}</option>
+            ))}
+          </select>
+        </FilterField>
+      </MoreFiltersSheet>
 
       {data.isError && !o ? (
         <ErrorState message="Failed to load the overview." onRetry={() => void data.refetch()} />
       ) : (
-        <>
-          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 xl:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))]">
-            {kpis.map((k) => (
-              <button key={k.label} type="button" onClick={() => go(k.href)} className="group relative flex flex-col gap-0.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-left shadow-sm transition hover:-translate-y-px hover:border-violet-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-600 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
-                {k.color && <span className="absolute bottom-3 left-0 top-3 w-[3px] rounded-r" style={{ background: k.color }} aria-hidden="true" />}
-                <span className="text-xs font-medium text-slate-500">{k.label}</span>
-                {loading ? <Skeleton className="h-7 w-16" /> : <span className="text-xl font-bold tabular-nums tracking-tight text-slate-900" style={k.color ? { color: k.color } : undefined}>{k.value}</span>}
-                <ArrowUpRight className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-slate-300 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-          <div className="mt-3.5 grid grid-cols-1 gap-3.5 md:grid-cols-6 xl:grid-cols-12">
-            {LAYOUT[role]!.map(([id, span]) => (
-              <div key={id} className={cn("flex min-w-0 md:col-span-3", SPAN[span], span >= 8 && "md:col-span-6")}>
-                <div className="flex min-w-0 flex-1 flex-col [&>section]:flex-1">{cards[id]()}</div>
+        <div aria-busy={updating} className={cn("flex flex-col gap-8 transition-opacity duration-200 motion-reduce:transition-none", updating && "opacity-60")}>
+          {/* ---------------- Attendance ---------------- */}
+          <section aria-labelledby="ov-attendance">
+            <SectionTitle title="Attendance">
+              <AttendanceCaption />
+            </SectionTitle>
+            <span id="ov-attendance" className="sr-only">Attendance</span>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+              <Kpi label="Total students" value={fmtInt(s?.students ?? 0)} loading={loading} href={dirHref()} />
+              <Kpi label="Overall attendance" value={pct(s?.avgAttendance)} loading={loading} href="/dashboard/attendance-stats" />
+              {TIER_ITEMS.map((t) => (
+                <Kpi key={t.key} label={t.label} value={fmtInt(s?.[t.field] ?? 0)} color={t.color} loading={loading} href={dirHref(t.key)} />
+              ))}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-12">
+              <div className="min-w-0 xl:col-span-6">
+                <Card
+                  title="Attendance trend"
+                  right={
+                    <select aria-label="Trend period" className={cn(selectClass, "h-8 w-auto py-0 text-xs")} value={period} onChange={(e) => setPeriod(e.target.value as typeof period)}>
+                      <option value="semester">Semester to date · weekly</option>
+                      <option value="last30">Last 30 days · weekly</option>
+                      <option value="last7">Last 7 days</option>
+                    </select>
+                  }
+                >
+                  {trend.isLoading ? <Skeleton className="h-56 w-full" /> : trendPoints.length === 0 ? <p className="my-auto py-10 text-center text-sm text-slate-500">No sessions in this period</p> : <Trend points={trendPoints} tip={tip.props as TipProps} label="Weekly attendance" format={(v) => `${v.toFixed(1)}%`} />}
+                </Card>
               </div>
-            ))}
-          </div>
-        </>
+              <div className="min-w-0 xl:col-span-6">
+                <Card
+                  title="Attendance distribution"
+                  footer={s && s.noSessions > 0 ? <span>{fmtInt(s.noSessions)} {s.noSessions === 1 ? "student has" : "students have"} no sessions yet</span> : undefined}
+                >
+                  {loading || !s ? <Skeleton className="h-56 w-full" /> : <Donut total={TIER_ITEMS.reduce((n, t) => n + s[t.field], 0)} items={TIER_ITEMS.map((t): DonutItem => ({ key: t.key, label: t.label, hint: t.hint, count: s[t.field], color: t.color }))} onSelect={(key) => go(dirHref(key))} />}
+                </Card>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card title={`${groupTitle} attendance`} right={orderSeg(attOrder, setAttOrder)} footer={<><span>{firstText(attOrder)}</span><ViewAll href={showColleges ? "/dashboard/attendance-stats" : "/dashboard/attendance-stats?group=university_section"} /></>}>
+                {loading ? <Skeleton className="h-44 w-full" /> : <HBars rows={attRows} max={100} tip={tip.props} onSelect={(i) => selectGroup(i, attRows)} />}
+              </Card>
+              <Card title="Subject attendance" right={orderSeg(subjectOrder, setSubjectOrder)} footer={<><span>{firstText(subjectOrder)}</span><ViewAll href="/dashboard/attendance-stats?group=university_subject" /></>}>
+                {loading ? <Skeleton className="h-44 w-full" /> : <HBars rows={subjectAttRows} max={100} tip={tip.props} onSelect={(i) => change({ subject: subjectAttRows[i]?.name ?? "" })} />}
+              </Card>
+            </div>
+
+            <div className="mt-4">
+              <Card
+                title="Students requiring attention"
+                right={
+                  <div role="tablist" aria-label="Tier" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                    {([["atRisk", "At risk", o?.attention.atRisk.total], ["ineligible", "Ineligible", o?.attention.ineligible.total]] as const).map(([k, label, n]) => {
+                      const t = TIER_ITEMS.find((x) => x.field === k)!;
+                      return (
+                        <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cn("inline-flex min-h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold", focusRing, tab === k ? "bg-white text-slate-900 shadow-sm" : "text-slate-500")}>
+                          {label} <span className="rounded-full px-1.5 text-[11px] tabular-nums" style={{ background: t.bg, color: t.color }}>{n == null ? "" : fmtInt(n)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                }
+                footer={<><span>Lowest attendance first</span>{att && <ViewAll href={dirHref(tabTier.key)} label={`View all ${fmtInt(att.total)}`} />}</>}
+              >
+                {loading ? (
+                  <Skeleton className="h-44 w-full" />
+                ) : att && att.rows.length > 0 ? (
+                  // Two columns on wide screens, so six students fit without a tall card.
+                  <ul className="-mx-2 grid grid-cols-1 gap-x-6 md:grid-cols-2">
+                    {att.rows.slice(0, 6).map((r) => (
+                      <li key={r.studentId} className="border-b border-slate-100">
+                        <button type="button" onClick={() => go(directoryHref({ tier: tabTier.key, q: r.studentId }))} className={cn("grid w-full grid-cols-[1fr_auto] items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-50", focusRing)}>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold text-slate-900">{r.name || "—"}</span>
+                            <span className="block truncate text-xs text-slate-500">{r.college} · {r.section}</span>
+                          </span>
+                          <span className="rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums" style={{ color: tabTier.color, background: tabTier.bg }}>{r.attendancePct == null ? "–" : `${r.attendancePct}%`}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="my-auto py-8 text-center text-sm text-slate-500">No students in this group</p>
+                )}
+              </Card>
+            </div>
+          </section>
+
+          {/* ---------------- Assessments ---------------- */}
+          <section aria-labelledby="ov-assessments">
+            <SectionTitle title="Assessments">
+              <span className="text-xs text-slate-500">Average of course scores · a quiz not attempted counts as 0</span>
+            </SectionTitle>
+            <span id="ov-assessments" className="sr-only">Assessments</span>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+              <Kpi label="Classroom Quiz avg" value={pct(o?.assessment.classroom)} loading={loading} href="/dashboard/assessments?type=cq" />
+              <Kpi label="Module Quiz avg" value={pct(o?.assessment.module)} loading={loading} href="/dashboard/assessments?type=mq" />
+              <Kpi label="Skill Assessment avg" value={pct(o?.assessment.skill)} loading={loading} href="/dashboard/assessments?type=skill" />
+              <SoonKpi label="FSA avg" />
+              <SoonKpi label="SPI" />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <Card
+                title={`${groupTitle} assessment averages`}
+                right={<><Seg<QuizMetric> label="Assessment" value={quizRank} onChange={setQuizRank} options={QUIZ_METRICS} />{orderSeg(quizRankOrder, setQuizRankOrder)}</>}
+                footer={<><span>{QUIZ_NAME[quizRank]} · {firstText(quizRankOrder).toLowerCase()}</span><ViewAll href="/dashboard/assessments" /></>}
+              >
+                {loading ? <Skeleton className="h-44 w-full" /> : <HBars rows={quizRankRows} max={100} tip={tip.props} onSelect={(i) => selectGroup(i, quizRankRows)} />}
+              </Card>
+              <Card
+                title="Subject assessment averages"
+                right={<><Seg<QuizMetric> label="Assessment" value={quizSubject} onChange={setQuizSubject} options={QUIZ_METRICS} />{orderSeg(quizSubjectOrder, setQuizSubjectOrder)}</>}
+                footer={<><span>{QUIZ_NAME[quizSubject]} · {firstText(quizSubjectOrder).toLowerCase()}</span><ViewAll href="/dashboard/assessments" /></>}
+              >
+                {loading ? <Skeleton className="h-44 w-full" /> : <HBars rows={quizSubjectRows} max={100} tip={tip.props} onSelect={(i) => change({ subject: quizSubjectRows[i]?.name ?? "" })} />}
+              </Card>
+            </div>
+          </section>
+        </div>
       )}
       {tip.layer}
     </div>

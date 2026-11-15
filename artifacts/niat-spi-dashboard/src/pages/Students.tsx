@@ -155,10 +155,15 @@ const attendanceText = (f: DirectoryFilters) =>
 export default function Students() {
   const { user } = useAuth();
   const link = useQueryParams();
-  // Links from Overview may carry colleges, a semester, a search or a tier.
+  // Links from Overview carry its filters (colleges, batches, semester, sections, subject), a search or a tier.
+  const list = (key: string) => (link.get(key) ?? "").split("||").map((c) => c.trim()).filter(Boolean);
   const [filters, setFilters] = useState<DirectoryFilters>(() => ({
     ...NO_DIRECTORY_FILTERS,
-    colleges: (link.get("campuses") ?? "").split("||").map((c) => c.trim()).filter(Boolean),
+    colleges: list("campuses"),
+    batches: list("batches").filter((b) => b.includes("\t")),
+    term: link.get("term") === "running" || link.get("term") === "ended" ? (link.get("term") as "running" | "ended") : "",
+    sections: list("sections"),
+    subject: link.get("subject") ?? "",
     semester: link.get("semesters")?.split("||")[0] ?? "",
     q: link.get("q") ?? "",
     tier: ["eligible", "recovery_eligible", "at_risk", "ineligible"].includes(link.get("tier") ?? "") ? link.get("tier")! : "",
