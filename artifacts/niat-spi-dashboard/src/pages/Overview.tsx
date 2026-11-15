@@ -410,14 +410,14 @@ export default function Overview() {
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <Card
                 title={`${groupTitle} assessment averages`}
-                right={<><Seg<QuizMetric> label="Assessment" value={quizRank} onChange={setQuizRank} options={QUIZ_METRICS} />{orderSeg(quizRankOrder, setQuizRankOrder)}</>}
+                right={<><Seg label="Assessment" value={quizRank} onChange={(v) => setQuizRank(v as QuizMetric)} options={QUIZ_METRICS} />{orderSeg(quizRankOrder, setQuizRankOrder)}</>}
                 footer={<><span>{QUIZ_NAME[quizRank]} · {firstText(quizRankOrder).toLowerCase()}</span><ViewAll href="/dashboard/assessments" /></>}
               >
                 {loading ? <Skeleton className="h-44 w-full" /> : <HBars rows={quizRankRows} max={100} tip={tip.props} onSelect={(i) => selectGroup(i, quizRankRows)} />}
               </Card>
               <Card
                 title="Subject assessment averages"
-                right={<><Seg<QuizMetric> label="Assessment" value={quizSubject} onChange={setQuizSubject} options={QUIZ_METRICS} />{orderSeg(quizSubjectOrder, setQuizSubjectOrder)}</>}
+                right={<><Seg label="Assessment" value={quizSubject} onChange={(v) => setQuizSubject(v as QuizMetric)} options={QUIZ_METRICS} />{orderSeg(quizSubjectOrder, setQuizSubjectOrder)}</>}
                 footer={<><span>{QUIZ_NAME[quizSubject]} · {firstText(quizSubjectOrder).toLowerCase()}</span><ViewAll href="/dashboard/assessments" /></>}
               >
                 {loading ? <Skeleton className="h-44 w-full" /> : <HBars rows={quizSubjectRows} max={100} tip={tip.props} onSelect={(i) => change({ subject: quizSubjectRows[i]?.name ?? "" })} />}
