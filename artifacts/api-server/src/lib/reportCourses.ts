@@ -2,6 +2,7 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger.js";
 import { buildAllScorecards } from "./spiScorecard.js";
 import { plainCourseName } from "./reportRemovedCourses.js";
+import { savedReportEndedSql } from "./reportEnded.js";
 import type { ReportCourses } from "./quizCoverageModel.js";
 
 /**
@@ -52,7 +53,7 @@ export async function loadSavedReports(): Promise<SavedReport[] | null> {
     const withHistory = `(
       SELECT student_id, college, section, batch, semester, false AS ended, report FROM spi_report_cache
       UNION ALL
-      (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.section, h.batch, h.semester, true AS ended, h.report
+      (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.section, h.batch, h.semester, ${savedReportEndedSql("h.report")} AS ended, h.report
        FROM spi_report_history h
        WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
        ORDER BY h.student_id, h.built_at DESC))`;
