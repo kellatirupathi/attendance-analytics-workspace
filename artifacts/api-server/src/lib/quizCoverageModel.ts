@@ -330,6 +330,8 @@ export interface StudentRow {
   name: string | null;
   college: string;
   batch: string;
+  /** The student's semester, e.g. "Semester 3" (current, or the last ended one); null when not known. */
+  semester: string | null;
   section: string;
   /** Quizzes planned for the student's section and report courses (prod sequence); null on Skill Assessment. */
   available: number | null;
@@ -342,12 +344,12 @@ export interface StudentRow {
 
 /** Students of the filtered rows; `search` matches the name or the start of the UID. */
 export function studentRows(model: QuizCoverageModel, f: QuizFilter, search = ""): StudentRow[] {
-  interface Acc { name: string | null; college: string; batch: string; section: string; ended: boolean; sch: number; comp: number; w: number; points: number; subjects: Set<string> }
+  interface Acc { name: string | null; college: string; batch: string; semester: string | null; section: string; ended: boolean; sch: number; comp: number; w: number; points: number; subjects: Set<string> }
   const by = new Map<string, Acc>();
   const sectionPlan = planBySection(filterPlan(model, f));
   for (const r of filterRows(model, f)) {
     let a = by.get(r.studentId);
-    if (!a) by.set(r.studentId, (a = { name: r.studentName, college: r.campus, batch: batchName(r.batch), section: r.section, ended: !!r.ended, sch: 0, comp: 0, w: 0, points: 0, subjects: new Set() }));
+    if (!a) by.set(r.studentId, (a = { name: r.studentName, college: r.campus, batch: batchName(r.batch), semester: r.semester?.trim() || null, section: r.section, ended: !!r.ended, sch: 0, comp: 0, w: 0, points: 0, subjects: new Set() }));
     a.subjects.add(plainName(r.subject));
     a.sch += r.scheduled;
     a.comp += r.completed;
@@ -362,7 +364,7 @@ export function studentRows(model: QuizCoverageModel, f: QuizFilter, search = ""
     const onReport = model.reportCourses?.get(uid.toLowerCase().replace(/-/g, ""));
     const courses = onReport ? new Set(onReport.map(plainName)) : a.subjects;
     const available = model.mode === "skill" ? null : availableFor(sectionPlan.get(`${a.college}\t${a.batch}\t${a.section}`), courses);
-    out.push({ uid, name: a.name, college: a.college, batch: a.batch, section: a.section, available, scheduled: a.sch, ended: a.ended, completed: a.comp, completionPct: pct(a.comp, a.sch), avgScore: overall(a.points, a.w) });
+    out.push({ uid, name: a.name, college: a.college, batch: a.batch, semester: a.semester, section: a.section, available, scheduled: a.sch, ended: a.ended, completed: a.comp, completionPct: pct(a.comp, a.sch), avgScore: overall(a.points, a.w) });
   }
   return out;
 }
@@ -517,6 +519,8 @@ export const STUDENT_SORT: Record<string, (r: StudentRow) => SortValue> = {
   // Students without a name sort last, in either direction.
   student: (r) => r.name?.trim() || null,
   uid: (r) => r.uid,
+  // "Semester 10" after "Semester 9": by the number; no semester sorts last.
+  semester: (r) => { const n = Number(/\d+/.exec(r.semester ?? "")?.[0]); return Number.isFinite(n) ? n : null; },
   section: (r) => r.section,
   available: (r) => r.available,
   scheduled: (r) => r.scheduled,

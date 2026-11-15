@@ -195,8 +195,8 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
   if (view === "student") {
     return {
       view: "StudentSummary",
-      headers: ["Student", "UID", "College", "Batch", "Section", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Attempt rate %", "Overall score % (missed = 0)", "Semester"],
-      rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.batch, r.section, ...(skill ? [] : [r.available]), r.scheduled, r.completed, r.completionPct, r.avgScore, r.ended ? "Ended" : "Running"]),
+      headers: ["Student", "UID", "College", "Batch", "Semester", "Section", ...(skill ? [] : ["Available (prod sequence)"]), held, done, "Attempt rate %", "Overall score % (missed = 0)", "Semester status"],
+      rows: sortBy(studentRows(model, filter), STUDENT_SORT["student"]!, 1, (r) => r.uid).map((r) => [r.name, r.uid, r.college, r.batch, r.semester ?? "", r.section, ...(skill ? [] : [r.available]), r.scheduled, r.completed, r.completionPct, r.avgScore, r.ended ? "Ended" : "Running"]),
     };
   }
   if (view === "student-subject") {

@@ -85,6 +85,7 @@ export interface StudentRow {
   name: string | null;
   college: string;
   batch: string;
+  semester: string | null;
   section: string;
   available: number | null;
   scheduled: number;

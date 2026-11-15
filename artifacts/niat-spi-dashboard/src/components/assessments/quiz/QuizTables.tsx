@@ -7,6 +7,9 @@ import { Pill } from "./quizParts";
 import { CopyUid } from "./CopyUid";
 import { EndedTag } from "@/components/ScopeFilters";
 
+/** "Semester 3" → "Sem 3", as on the Student Directory. */
+const shortSemester = (s: string | null | undefined) => (s ? s.replace(/^Semester\s+/i, "Sem ") : "—");
+
 export interface Sort {
   key: string;
   dir: "asc" | "desc";
@@ -115,6 +118,7 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
     { key: "student", label: "Student" },
     { key: "uid", label: "UID" },
     { key: "batch", label: "Batch", sortable: false },
+    { key: "semester", label: "Semester" },
     { key: "section", label: "Section" },
     ...(skill ? [] : [{ key: "available", label: "Available", align: "right" as const }]),
     { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right" as const },
@@ -125,7 +129,7 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
   const rows = page?.rows ?? [];
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[54rem] text-left">
+      <table className="w-full min-w-[60rem] text-left">
         <Head columns={columns} sort={sort} onSort={onSort} extra />
         <Body loading={loading} empty="No students match these filters" colSpan={columns.length + 1} rowsCount={rows.length}>
           {rows.map((r) => (
@@ -136,9 +140,11 @@ export function StudentTable({ page, loading, sort, onSort, onOpen, skill = fals
                 </button>
               </td>
               <td className={cell}><CopyUid uid={r.uid} /></td>
+              <td className={cell}>{r.batch}</td>
               <td className={cell}>
+                {/* As on the Student Directory: "Sem 3", with the Ended tag beside an ended semester. */}
                 <span className="inline-flex flex-wrap items-center gap-1.5">
-                  {r.batch}
+                  {shortSemester(r.semester)}
                   {r.ended && <EndedTag />}
                 </span>
               </td>

@@ -10,6 +10,7 @@ import {
   restrictToReportCourses,
   scopePlanToStudentColleges,
   sortBy,
+  STUDENT_SORT,
   studentRows,
   studentSubjectRows,
   type PlanRow,
@@ -323,4 +324,14 @@ test("method A rounding: the same course scores give the same average in any ord
   const two: QuizCoverageModel = { rows: methodA("x", "C", [...scores].reverse()), plan: [] };
   assert.equal(studentRows(one, {})[0]!.avgScore, 33);
   assert.equal(studentRows(two, {})[0]!.avgScore, 33);
+});
+
+test("student rows carry the semester; sorting by semester follows the number, unknown last", () => {
+  const withSem = (uid: string, semester: string | null): QuizRow => ({ ...row("C", "S-01", uid, uid, "Maths", "MATH", 4, 2, 50), semester });
+  const m: QuizCoverageModel = { rows: [withSem("a", "Semester 10"), withSem("b", "Semester 9"), withSem("c", null), withSem("d", "Semester 1")], plan: [] };
+  const rows = studentRows(m, {});
+  assert.equal(rows.find((r) => r.uid === "a")!.semester, "Semester 10");
+  assert.equal(rows.find((r) => r.uid === "c")!.semester, null);
+  assert.deepEqual(sortBy(rows, STUDENT_SORT["semester"]!, 1, (r) => r.uid).map((r) => r.uid), ["d", "b", "a", "c"]);
+  assert.deepEqual(sortBy(rows, STUDENT_SORT["semester"]!, -1, (r) => r.uid).map((r) => r.uid), ["a", "b", "d", "c"]);
 });

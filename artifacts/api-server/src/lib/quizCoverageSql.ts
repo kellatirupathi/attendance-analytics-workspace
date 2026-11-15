@@ -48,7 +48,10 @@ export function buildQuizCoverageRowsSql(
       ANY_VALUE(TRIM(a.semester_title)) AS semester,
       -- The batch of the student's latest session (a transferred student's old rows keep the old college's batch).
       ARRAY_AGG(COALESCE(NULLIF(TRIM(a.batch_name), ''), 'Unknown') ORDER BY DATE(a.date) DESC LIMIT 1)[OFFSET(0)] AS batch,
-      LOGICAL_AND(a.is_current_semester = 0) AS ended
+      LOGICAL_AND(a.is_current_semester = 0) AS ended,
+      -- The section's latest session: up to today first, else the newest (for picking the student's place).
+      MAX(IF(DATE(a.date) <= CURRENT_DATE('Asia/Kolkata'), DATE(a.date), NULL)) AS last_past,
+      MAX(DATE(a.date)) AS last_any
     FROM ${t.attendance} a
     WHERE ${attWhere}
       AND a.institute_name IS NOT NULL AND TRIM(a.institute_name) != ''
@@ -68,8 +71,12 @@ export function buildQuizCoverageRowsSql(
      AND ((NOT s.ended AND c.is_cur) OR (s.ended AND NOT c.is_cur AND c.sem = s.semester))
   ),
   student_names AS (
-    SELECT campus, student_key, ANY_VALUE(student_name) AS student_name, ANY_VALUE(semester) AS semester,
-           ANY_VALUE(batch) AS batch, LOGICAL_AND(ended) AS ended
+    -- A student listed in two sections (a transfer) shows the semester and batch of their latest section, as the
+    -- Student Directory: a running semester first, then sessions up to today, then the newest date.
+    SELECT campus, student_key, ANY_VALUE(student_name) AS student_name,
+           ARRAY_AGG(semester ORDER BY ended, last_past IS NULL, last_past DESC, last_any DESC, section_key DESC LIMIT 1)[OFFSET(0)] AS semester,
+           ARRAY_AGG(batch ORDER BY ended, last_past IS NULL, last_past DESC, last_any DESC, section_key DESC LIMIT 1)[OFFSET(0)] AS batch,
+           LOGICAL_AND(ended) AS ended
     FROM stu GROUP BY campus, student_key
   ),
   cat AS (
