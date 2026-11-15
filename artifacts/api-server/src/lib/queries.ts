@@ -715,6 +715,20 @@ export function latestBySessionDate(column: string): string {
         LIMIT 1)[SAFE_OFFSET(0)]`;
 }
 
+/**
+ * A value from the row of the student's latest session, ordered exactly as the section is picked
+ * (latestBySessionDate on batch_section_name: up to today first, then the newest date, then the larger section
+ * name), so the semester and its start and end dates describe the same section as the report's section.
+ * MAX(semester_title) picked "Semester 3" over "Semester 1" as text: a student moved from a Batch-1 section
+ * (Semester 3) to a Batch-2 section (Semester 1) showed the new section with the old semester; MIN / MAX of
+ * the dates mixed both sections' semesters.
+ */
+export function latestSessionRowSql(valueSql: string): string {
+  return `ARRAY_AGG(${valueSql} IGNORE NULLS
+        ORDER BY (DATE(a.date) <= CURRENT_DATE('Asia/Kolkata')) DESC, DATE(a.date) DESC, NULLIF(TRIM(CAST(a.batch_section_name AS STRING)), '') DESC
+        LIMIT 1)[SAFE_OFFSET(0)]`;
+}
+
 export async function getReportIdentities(who: ReportStudents, scope: SemesterScope = "current"): Promise<ReportIdentity[]> {
   if (who !== "all" && !validateStudentId.test(who.studentId)) return [];
   const params: Record<string, unknown> = {};
@@ -737,9 +751,9 @@ export async function getReportIdentities(who: ReportStudents, scope: SemesterSc
       ${latestBySessionDate("a.institute_name")} AS institute_name,
       ${latestBySessionDate("a.batch_section_name")} AS batch_section_name,
       ${latestBySessionDate("TRIM(a.batch_name)")} AS batch,
-      MAX(TRIM(CAST(a.semester_title AS STRING))) AS semester,
-      CAST(MIN(DATE(a.semester_start_date)) AS STRING) AS semester_start,
-      CAST(MAX(DATE(a.semester_end_date)) AS STRING) AS semester_end
+      ${latestSessionRowSql("TRIM(CAST(a.semester_title AS STRING))")} AS semester,
+      ${latestSessionRowSql("CAST(DATE(a.semester_start_date) AS STRING)")} AS semester_start,
+      ${latestSessionRowSql("CAST(DATE(a.semester_end_date) AS STRING)")} AS semester_end
     FROM ${attendanceSource()} a
     WHERE ${reportStudentMatch("a.student_user_id", who, params)}
       AND ${semesterRowsSql(scope, "a")}
