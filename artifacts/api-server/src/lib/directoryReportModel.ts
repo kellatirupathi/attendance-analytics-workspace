@@ -102,8 +102,8 @@ export interface DirectoryRow {
   attendancePct: number | null;
   attPresent: number;
   attHeld: number;
-  /** The sums behind the quiz averages, so the cards add students up the way each row adds courses. */
-  parts: { cqPoints: number; cqHeld: number; mqPoints: number; mqHeld: number; saSum: number; saCount: number };
+  /** Sums of course scores and course counts behind the averages, so the cards add students up the way each row adds courses. */
+  parts: { cqSum: number; cqCount: number; mqSum: number; mqCount: number; saSum: number; saCount: number };
   eligible: boolean;
   skillDebt: boolean;
   ended?: boolean;
@@ -114,7 +114,7 @@ export interface DirectorySummary {
   avgAttendance: number | null;
   eligible: number;
   notEligible: number;
-  /** Quiz averages of the group, as the Assessments "Overall score": quizzes held weighted (a missed quiz = 0). */
+  /** Quiz averages of the group: the simple average of the course scores (each student × course with a quiz held counts once), as the Assessments "Overall score". */
   classroomAvg: number | null;
   moduleAvg: number | null;
   /** Skill Assessment: the mean of the course best scores, as on Overview. */
@@ -128,6 +128,12 @@ export const batchOf = (s: { batch?: string | null }) => (s.batch ?? "").trim() 
 const r1 = (n: number) => Math.round(n * 10) / 10;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const mean = (values: number[], round: (n: number) => number): number | null => (values.length ? round(values.reduce((s, v) => s + v, 0) / values.length) : null);
+/**
+ * Average of one-decimal scores, to one decimal, half up. The sum is taken in whole tenths first, so the result does not
+ * depend on the order the scores are added in (floating-point sums of e.g. 34 + 42.4 + 40.8 + 14.6 can land just under
+ * 131.8 one way and on it another). Student Directory, Overview and Assessments all use this rule.
+ */
+export const scoreAverage = (sum: number, count: number): number | null => (count > 0 ? Math.round(Math.round(sum * 10) / count) / 10 : null);
 
 /**
  * Attendance of a group: Σ present ÷ Σ held, cut (not rounded) to one decimal like each report's own %; null when no
@@ -189,19 +195,12 @@ export function matches(s: DirectoryStudent, f: DirectoryFilter, subjects: Set<s
 
 function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow {
   const courses = subjects ? s.courses.filter((c) => subjects.has(plain(c.name))) : s.courses;
-  const sums = (pick: (c: DirectoryCourse) => DirectoryPart | null) => {
-    let points = 0;
-    let held = 0;
-    for (const c of courses) {
-      const p = pick(c);
-      if (!p || p.total <= 0) continue;
-      points += p.avgPct * p.total;
-      held += p.total;
-    }
-    return { points, held };
-  };
-  const cq = sums((c) => c.classroom);
-  const mq = sums((c) => c.module);
+  // The report card's course scores, averaged simply: every course with a quiz held counts once (no quiz held = left out).
+  const scores = (pick: (c: DirectoryCourse) => DirectoryPart | null) =>
+    courses.map(pick).filter((p): p is DirectoryPart => p != null && p.total > 0).map((p) => p.avgPct);
+  const cq = scores((c) => c.classroom);
+  const mq = scores((c) => c.module);
+  const sum = (values: number[]) => values.reduce((a, v) => a + v, 0);
   const skills = courses.map((c) => c.skill).filter((p): p is DirectoryPart => p != null && p.total > 0).map((p) => p.avgPct);
   return {
     studentId: s.studentId,
@@ -210,10 +209,10 @@ function rowOf(s: DirectoryStudent, subjects: Set<string> | null): DirectoryRow 
     batch: batchOf(s),
     semester: s.semester,
     section: s.section,
-    classroom: cq.held > 0 ? r1(cq.points / cq.held) : null,
-    module: mq.held > 0 ? r1(mq.points / mq.held) : null,
-    skill: mean(skills, r1),
-    parts: { cqPoints: cq.points, cqHeld: cq.held, mqPoints: mq.points, mqHeld: mq.held, saSum: skills.reduce((a, v) => a + v, 0), saCount: skills.length },
+    classroom: scoreAverage(sum(cq), cq.length),
+    module: scoreAverage(sum(mq), mq.length),
+    skill: scoreAverage(sum(skills), skills.length),
+    parts: { cqSum: sum(cq), cqCount: cq.length, mqSum: sum(mq), mqCount: mq.length, saSum: sum(skills), saCount: skills.length },
     spi: s.spi,
     attendancePct: s.attendancePct,
     attPresent: s.attPresent ?? 0,
@@ -231,12 +230,12 @@ export function directoryRows(students: DirectoryStudent[], f: DirectoryFilter):
 }
 
 function groupQuizAverages(rows: DirectoryRow[]): Pick<DirectorySummary, "classroomAvg" | "moduleAvg" | "skillAvg"> {
-  const t = { cqPoints: 0, cqHeld: 0, mqPoints: 0, mqHeld: 0, saSum: 0, saCount: 0 };
+  const t = { cqSum: 0, cqCount: 0, mqSum: 0, mqCount: 0, saSum: 0, saCount: 0 };
   for (const r of rows) for (const k of Object.keys(t) as (keyof typeof t)[]) t[k] += r.parts[k];
   return {
-    classroomAvg: t.cqHeld > 0 ? r1(t.cqPoints / t.cqHeld) : null,
-    moduleAvg: t.mqHeld > 0 ? r1(t.mqPoints / t.mqHeld) : null,
-    skillAvg: t.saCount > 0 ? r1(t.saSum / t.saCount) : null,
+    classroomAvg: scoreAverage(t.cqSum, t.cqCount),
+    moduleAvg: scoreAverage(t.mqSum, t.mqCount),
+    skillAvg: scoreAverage(t.saSum, t.saCount),
   };
 }
 

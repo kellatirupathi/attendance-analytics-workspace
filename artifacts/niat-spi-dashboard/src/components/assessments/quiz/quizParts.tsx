@@ -90,7 +90,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
       />
       <Card
         label="Overall score"
-        tip={skill ? "Best score of attempted assessments, divided by assessments held. Assessments not attempted count as 0" : "Best score × quizzes attempted, divided by quizzes scheduled. Quizzes not attempted count as 0."}
+        tip={skill ? "Best score of attempted assessments, divided by assessments held. Assessments not attempted count as 0" : "Average of course scores, as on the report card. Course score = best score × quizzes attempted ÷ quizzes scheduled (not attempted = 0)."}
         value={pctText(k?.avgScore ?? null)}
         loading={loading || !k}
       >

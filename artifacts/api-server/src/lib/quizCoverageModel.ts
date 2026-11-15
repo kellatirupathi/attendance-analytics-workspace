@@ -4,8 +4,10 @@
  *
  *   Attempt rate     Σ attempted ÷ Σ scheduled. `completed` on a row holds quizzes ATTEMPTED (IN_PROGRESS or COMPLETED),
  *                    capped at scheduled: the shared quiz rule in quizScoreSql.ts (the cut-off based completed count is not used)
- *   Avg score        over ALL scheduled quizzes: Σ (best-attempt score × quizzes attempted) ÷ Σ scheduled, so a quiz
- *                    the student did not attempt counts as 0 (the Hex "absent as zero" figure)
+ *   Avg score        the simple average of course scores (method A, as the report card and Student Directory): each
+ *                    student × course with a quiz held is one score = best × attempted ÷ scheduled (one decimal), so a quiz
+ *                    the student did not attempt counts as 0 in that course; a student is the mean of their courses, a
+ *                    college or the whole page the mean of every student × course score (courseScorePoint)
  *   Participation    students with at least one attempted quiz ÷ students
  *   Available        quizzes planned in the prod sequence, counted once per section
  *   Scheduled so far the same, for quizzes whose first session is on or before today (IST)
@@ -151,12 +153,18 @@ export const filterRows = (model: QuizCoverageModel, f: QuizFilter): QuizRow[] =
 export const filterPlan = (model: QuizCoverageModel, f: QuizFilter): PlanRow[] => model.plan.filter(matcher(f));
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
+
+/** One course score per row: points = the course % (rounded like the report card), weight 1; no quiz held = weight 0. */
+export const courseScorePoint = (scheduled: number, rawPoints: number): { points: number; weight: number } =>
+  scheduled > 0 ? { points: r1(rawPoints / scheduled), weight: 1 } : { points: 0, weight: 0 };
 /** Percent with one decimal, or null when the base is 0. */
 const pct = (part: number, whole: number): number | null => (whole > 0 ? r1((100 * part) / whole) : null);
 /** Score points earned in a row: the best-attempt average × quizzes attempted (never more than scheduled). */
 const scorePoints = (r: { scheduled: number; completed: number; avgScore: number | null }) => (r.avgScore ?? 0) * Math.min(r.completed, r.scheduled);
 /** Average score over all scheduled quizzes (missed quizzes count as 0); null when nothing is scheduled. */
-const overall = (points: number, scheduled: number): number | null => (scheduled > 0 ? r1(points / scheduled) : null);
+// Points are one-decimal course scores (weight 1 each): summed in whole tenths, then averaged half up, as the Student
+// Directory (scoreAverage), so the result does not depend on the order rows are added in.
+const overall = (points: number, scheduled: number): number | null => (scheduled > 0 ? Math.round(Math.round(points * 10) / scheduled) / 10 : null);
 const rowPoints = (r: QuizRow) => r.points ?? scorePoints(r);
 const rowWeight = (r: QuizRow) => r.weight ?? r.scheduled;
 

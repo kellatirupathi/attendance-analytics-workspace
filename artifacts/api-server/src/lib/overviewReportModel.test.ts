@@ -26,8 +26,8 @@ test("tiers are the report's tiers; students with no sessions are in none", () =
 
 test("assessment averages and SPI bands", () => {
   const o = overviewOf(students, {});
-  assert.equal(o.assessment.classroom, 50); // (80 × 10 + 40 × 30 + 50 × 2) ÷ 42 quizzes held
-  assert.equal(o.assessment.module, 70); // (60 × 4 + 90 × 2) ÷ 6
+  assert.equal(o.assessment.classroom, 56.7); // (80 + 40 + 50) ÷ 3 course scores (weighted by quizzes held it was 50)
+  assert.equal(o.assessment.module, 75); // (60 + 90) ÷ 2 (weighted it was 70)
   assert.equal(o.assessment.skill, 50); // mean of 70 and 30
   assert.deepEqual(o.spiBins.map((b) => b.count), [1, 1, 0, 1, 0]);
 });

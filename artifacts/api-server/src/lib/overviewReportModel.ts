@@ -7,7 +7,7 @@
  *  - Subject figures: the course's own attendance %, its course score and its level points on the report.
  * Pure functions; the route filters by the user's scope and sends the result.
  */
-import { matches, overallAttendance, plain, subjectSet, type DirectoryFilter, type DirectoryStudent, type ReportTier } from "./directoryReportModel.js";
+import { matches, overallAttendance, plain, scoreAverage, subjectSet, type DirectoryFilter, type DirectoryStudent, type ReportTier } from "./directoryReportModel.js";
 
 export interface OverviewRank {
   name: string;
@@ -71,19 +71,10 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
     else noSessions++;
   }
 
-  /* quiz and Skill Assessment averages: quizzes held weighted for classroom and module, mean of course scores for skill */
-  const weighted = (pick: (c: DirectoryStudent["courses"][number]) => { avgPct: number; total: number } | null) => {
-    let points = 0;
-    let held = 0;
-    for (const s of mine) for (const c of courseOf(s)) {
-      const p = pick(c);
-      if (p && p.total > 0) {
-        points += p.avgPct * p.total;
-        held += p.total;
-      }
-    }
-    return held > 0 ? r1(points / held) : null;
-  };
+  /* Quiz and Skill Assessment averages: the simple average of the course scores (each student × course with one held counts once), as the Student Directory and Assessments */
+  const courseMean = (pick: (c: DirectoryStudent["courses"][number]) => { avgPct: number; total: number } | null) =>
+    average(mine.flatMap((s) => courseOf(s).map(pick).filter((p): p is { avgPct: number; total: number } => p != null && p.total > 0).map((p) => p.avgPct)));
+  const average = (values: number[]) => scoreAverage(values.reduce((a, v) => a + v, 0), values.length);
   const skillScores = mine.flatMap((s) => courseOf(s).map((c) => c.skill).filter((p): p is { avgPct: number; total: number } => p != null && p.total > 0).map((p) => p.avgPct));
 
   const bands: [number, number][] = [[0, 2], [2, 4], [4, 6], [6, 8], [8, 10.01]];
@@ -134,7 +125,7 @@ export function overviewOf(students: DirectoryStudent[], f: DirectoryFilter, att
       noSessions,
       skillDebt: mine.filter((s) => courseOf(s).some((c) => c.levelF)).length,
     },
-    assessment: { classroom: weighted((c) => c.classroom), module: weighted((c) => c.module), skill: mean(skillScores, r1) },
+    assessment: { classroom: courseMean((c) => c.classroom), module: courseMean((c) => c.module), skill: average(skillScores) },
     spiBins,
     colleges: group((s) => s.college),
     sections: group((s) => s.section, (s) => s.college),

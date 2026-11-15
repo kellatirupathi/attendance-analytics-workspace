@@ -79,31 +79,53 @@ export function buildQuizCoverageRowsSql(
     FROM ${t.prodSequence}
     GROUP BY campus, subject_key
   ),
-  z AS (
+  zq AS (
+    -- One quiz-table row: the course under both of its names (the semester plan's and the Learning Portal's).
     SELECT
       TRIM(q.institute_name) AS campus,
       TRIM(q.section_name) AS section,
       ${KEY("q.user_id")} AS student_key,
-      ANY_VALUE(CAST(q.user_id AS STRING)) AS student_id,
-      TRIM(q.semester_course_title) AS subject,
-      SUM(IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)) AS scheduled,
+      CAST(q.user_id AS STRING) AS student_id,
+      NULLIF(TRIM(q.semester_course_title), '') AS sct,
+      NULLIF(TRIM(q.course_title), '') AS ct,
+      IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0) AS scheduled,
       -- Shared quiz rule (quizScoreSql.ts): attempted capped at held, points = best × attempted.
-      SUM(LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))) AS attempted,
-      SUM(IFNULL(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64), 0)
-        * LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0))) AS points,
-      AVG(SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64)) AS avg_score
+      LEAST(IFNULL(SAFE_CAST(q.total_attempted_quizzes AS INT64), 0), IFNULL(SAFE_CAST(q.total_scheduled_quizes AS INT64), 0)) AS attempted,
+      SAFE_CAST(q.avg_best_attempt_percentage_score AS FLOAT64) AS best
     FROM ${t.quiz} q
     WHERE ${quizWhere}
       AND UPPER(CAST(q.derived_unit_type AS STRING)) = '${type}'
       AND q.institute_name IS NOT NULL AND TRIM(q.institute_name) != ''
-      AND q.semester_course_title IS NOT NULL AND TRIM(q.semester_course_title) != ''
+      AND COALESCE(NULLIF(TRIM(q.semester_course_title), ''), NULLIF(TRIM(q.course_title), '')) IS NOT NULL
+  ),
+  matched AS (
+    -- As the student report: a row belongs to the student's course named by semester_course_title, else by course_title
+    -- (e.g. "English - Basic" rows of the course "Communicative English Foundation").
+    SELECT zq.*,
+      CASE WHEN es.subject_key IS NOT NULL THEN zq.sct WHEN ec.subject_key IS NOT NULL THEN zq.ct ELSE COALESCE(zq.sct, zq.ct) END AS subject,
+      es.subject_key IS NOT NULL OR ec.subject_key IS NOT NULL AS enrolled
+    FROM zq
+    LEFT JOIN enrol es ON es.campus = zq.campus AND es.student_key = zq.student_key AND es.subject_key = LOWER(zq.sct)
+    LEFT JOIN enrol ec ON ec.campus = zq.campus AND ec.student_key = zq.student_key AND ec.subject_key = LOWER(zq.ct)
+  ),
+  z AS (
+    SELECT
+      campus,
+      section,
+      student_key,
+      ANY_VALUE(student_id) AS student_id,
+      subject,
+      SUM(scheduled) AS scheduled,
+      SUM(attempted) AS attempted,
+      SUM(IFNULL(best, 0) * attempted) AS points,
+      AVG(best) AS avg_score
+    FROM matched
+    ${restrictToSemester ? "WHERE enrolled" : ""}
     GROUP BY campus, section, student_key, subject
   )
   SELECT z.campus, z.section, z.student_id, z.subject, c.category, n.student_name, n.semester, n.batch, n.ended,
          z.scheduled, z.attempted, z.points, z.avg_score
   FROM z
-  ${restrictToSemester ? "JOIN" : "LEFT JOIN"} enrol e
-    ON e.campus = z.campus AND e.student_key = z.student_key AND e.subject_key = LOWER(z.subject)
   LEFT JOIN student_names n ON n.campus = z.campus AND n.student_key = z.student_key
   LEFT JOIN cat c ON c.campus = z.campus AND c.subject_key = LOWER(z.subject)`;
 }

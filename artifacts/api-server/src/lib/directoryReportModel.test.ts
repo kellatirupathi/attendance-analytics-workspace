@@ -31,10 +31,10 @@ const students: DirectoryStudent[] = [
   student({ studentId: "cccccccc-0000-0000-0000-000000000003", college: "Beta", name: "Chitra", semester: "Semester 1", attendancePct: null, attPresent: 0, attHeld: 0, attendanceState: "not_available", spi: null, courses: [{ name: "Python", classroom: part(50, 2), module: part(90, 2), skill: part(30, 1) }] }),
 ];
 
-test("averages are quizzes held weighted, skill is the mean of course scores; no quiz held is null", () => {
+test("averages are the simple mean of course scores (quizzes and skill); no quiz held is null", () => {
   const rows = directoryRows(students, {});
   const asha = rows.find((r) => r.name === "Asha")!;
-  assert.equal(asha.classroom, 50); // (80 × 10 + 40 × 30) ÷ 40
+  assert.equal(asha.classroom, 60); // (80 + 40) ÷ 2 courses, not quizzes-held weighted (50)
   assert.equal(asha.module, 60);
   assert.equal(asha.skill, 70);
   const bala = rows.find((r) => r.name === "Bala")!;
@@ -163,14 +163,14 @@ test("group attendance is Σ present ÷ Σ held, cut to one decimal; no sessions
   assert.equal(summarize(directoryRows(third, {})).avgAttendance, 66.6);
 });
 
-test("quiz cards: quizzes held weighted across students, Skill Assessment = mean of course scores", () => {
+test("quiz cards: the simple mean of every student × course score, like Skill Assessment", () => {
   const group = [
     student({ studentId: "q1", college: "C", courses: [{ name: "Maths", classroom: part(80, 10), module: part(60, 4), skill: part(70, 1) }] }),
     student({ studentId: "q2", college: "C", courses: [{ name: "Maths", classroom: part(40, 30), module: null, skill: part(30, 1) }, { name: "Python", classroom: null, module: part(90, 2), skill: null }] }),
   ];
   const s = summarize(directoryRows(group, {}));
-  assert.equal(s.classroomAvg, 50); // (80×10 + 40×30) ÷ 40, not the mean of 80 and 40
-  assert.equal(s.moduleAvg, 70); // (60×4 + 90×2) ÷ 6
+  assert.equal(s.classroomAvg, 60); // (80 + 40) ÷ 2 course scores; quizzes-held weighted would be 50
+  assert.equal(s.moduleAvg, 75); // (60 + 90) ÷ 2; weighted would be 70
   assert.equal(s.skillAvg, 50); // mean of 70 and 30
   // With a subject chosen, only that subject's quizzes count (as in the rows).
   const maths = summarize(directoryRows(group, { subject: "Maths" }));
@@ -192,4 +192,12 @@ test("attendance sort: blanks last in both directions", () => {
   ];
   assert.deepEqual(sortRows(directoryRows(g, {}), "attendance", 1).map((r) => r.attendancePct), [70, 90, null]);
   assert.deepEqual(sortRows(directoryRows(g, {}), "attendance", -1).map((r) => r.attendancePct), [90, 70, null]);
+});
+
+test("scoreAverage: whole tenths first, half up, order does not matter", async () => {
+  const { scoreAverage } = await import("./directoryReportModel.js");
+  assert.equal(scoreAverage(34 + 42.4 + 40.8 + 14.6, 4), 33);
+  assert.equal(scoreAverage(14.6 + 40.8 + 42.4 + 34, 4), 33);
+  assert.equal(scoreAverage(2.8 + 52.6 + 33.8 + 35 + 21.5 + 42.7, 6), 31.4); // Aanya G's report card
+  assert.equal(scoreAverage(0, 0), null);
 });

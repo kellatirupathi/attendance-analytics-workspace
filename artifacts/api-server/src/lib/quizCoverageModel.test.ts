@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   CAMPUS_SORT,
   campusRows,
+  courseScorePoint,
   filterRows,
   quizFilterOptions,
   quizKpis,
@@ -275,4 +276,51 @@ test("Skill Assessment has no plan: Available is null, not 0", () => {
   const m: QuizCoverageModel = { rows: [row("C", "S-1", "s1", "A", "Maths", "MATH", 2, 1, 50)], plan: [], mode: "skill" };
   assert.equal(campusRows(m, {})[0]!.available, null);
   assert.equal(studentRows(m, {})[0]!.available, null);
+});
+
+// Method A: the simple average of course scores (as the report card and the Student Directory).
+// Aanya G's Classroom Quiz courses on her report card: held and score per course.
+const aanya: [string, number, number][] = [
+  ["Communicative English Foundation", 48, 2.8],
+  ["Computer Programming", 56, 52.6],
+  ["Introduction to Generative AI", 40, 33.8],
+  ["Mathematics for Computer Science", 16, 35],
+  ["Quantitative Aptitude", 46, 21.5],
+  ["Web Application Development", 51, 42.7],
+];
+const methodA = (uid: string, campus: string, courses: [string, number, number][]): QuizRow[] =>
+  courses.map(([subject, held, score]) => ({ ...row(campus, "S-001", uid, uid, subject, "TECH", held, 0, null), ...courseScorePoint(held, score * held) }));
+
+test("method A: a student's score is the simple average of their course scores (Aanya G: 31.4%, not 31.7% weighted)", () => {
+  const m: QuizCoverageModel = { rows: methodA("aanya", "S-VYASA", aanya), plan: [] };
+  assert.equal(studentRows(m, {})[0]!.avgScore, 31.4); // (2.8 + 52.6 + 33.8 + 35 + 21.5 + 42.7) ÷ 6
+  assert.equal(campusRows(m, {})[0]!.avgScore, 31.4);
+  assert.equal(quizKpis(m, {}).avgScore, 31.4);
+  // Each course keeps its own score.
+  assert.deepEqual(studentSubjectRows(m, {}).map((r) => r.avgScore), [2.8, 52.6, 33.8, 35, 21.5, 42.7]);
+});
+
+test("method A: a course with no quiz held is left out (not a 0), as 'Awaited' on the report card", () => {
+  const m: QuizCoverageModel = { rows: methodA("s", "C", [["Maths", 10, 40], ["Python", 0, 0], ["DSA", 5, 80]]), plan: [] };
+  assert.equal(studentRows(m, {})[0]!.avgScore, 60); // (40 + 80) ÷ 2
+  assert.deepEqual(courseScorePoint(0, 0), { points: 0, weight: 0 });
+  const none: QuizCoverageModel = { rows: methodA("n", "C", [["Maths", 0, 0]]), plan: [] };
+  assert.equal(studentRows(none, {})[0]!.avgScore, null);
+});
+
+test("method A: a college or the page is the mean of every student x course score; the course score is rounded like the report", () => {
+  const m: QuizCoverageModel = {
+    rows: [...methodA("a", "C", [["Maths", 10, 80], ["DSA", 30, 40]]), ...methodA("b", "C", [["Maths", 4, 50]])],
+    plan: [],
+  };
+  assert.equal(campusRows(m, {})[0]!.avgScore, 56.7); // (80 + 40 + 50) ÷ 3
+  assert.deepEqual(courseScorePoint(3, 100), { points: 33.3, weight: 1 }); // 33.33 → 33.3, as the report card
+});
+
+test("method A rounding: the same course scores give the same average in any order (32.95 → 33)", () => {
+  const scores: [string, number, number][] = [["A", 5, 34], ["B", 6, 42.4], ["C", 4, 40.8], ["D", 8, 14.6]];
+  const one: QuizCoverageModel = { rows: methodA("x", "C", scores), plan: [] };
+  const two: QuizCoverageModel = { rows: methodA("x", "C", [...scores].reverse()), plan: [] };
+  assert.equal(studentRows(one, {})[0]!.avgScore, 33);
+  assert.equal(studentRows(two, {})[0]!.avgScore, 33);
 });

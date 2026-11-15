@@ -3,7 +3,7 @@ import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.j
 import { attendanceSource, LATEST_SEMESTER_SQL, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
-import { restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
+import { courseScorePoint, restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
 import { loadReportCourses, loadSavedReports } from "./reportCourses.js";
 import { plainCourseName } from "./reportRemovedCourses.js";
 
@@ -61,8 +61,9 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
     // "completed" holds quizzes attempted (capped at held): the shared quiz rule, see quizScoreSql.ts.
     completed: num(r["attempted"]),
     avgScore: r["avg_score"] == null ? null : Number(r["avg_score"]),
-    points: Number(r["points"] ?? 0) || 0,
-    weight: num(r["scheduled"]),
+    // Method A: the course score (best x attempted / held, one decimal, as the report card) counts once per
+    // student x course; averages over students and colleges are simple averages of these course scores.
+    ...courseScorePoint(num(r["scheduled"]), Number(r["points"] ?? 0) || 0),
   }));
   const planRows = plan.map((r) => ({
     campus: String(r["campus"]),
