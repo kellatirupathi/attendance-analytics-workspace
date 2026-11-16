@@ -23,7 +23,8 @@ import { studentKey } from "../lib/testStudents.js";
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
 import { quizFinished } from "../lib/quizTracking.js";
 import { buildStudentReport } from "../lib/spiScorecard.js";
-import { getCachedReport, getHistoryReport, saveReport } from "../lib/spiReportSync.js";
+import { getCachedReport, getHistoryReport, getHistoryReportFor, getReportSemesters, saveReport } from "../lib/spiReportSync.js";
+import { readSemesterParam, reportSemesterMenu, reportSemesterTitle } from "../lib/reportSemesters.js";
 import { savedReportEnded } from "../lib/reportEnded.js";
 import {
   getStudentOverview,
@@ -415,6 +416,16 @@ router.get(
           return;
         }
       }
+      // The Semester menu (students and staff): another saved semester when the link asks for one
+      // (?semester=Semester 3); an unknown title keeps the default report. Only SPI-tracked semesters are offered.
+      // The menu is worked out from the default report, so it is the same whichever semester is open.
+      const menu = reportSemesterMenu(await getReportSemesters(student), data, (data as { semesterStatus?: unknown }).semesterStatus === "ended");
+      const asked = readSemesterParam(req.query["semester"]);
+      if (asked && asked !== reportSemesterTitle(data) && menu.some((s) => s.semester === asked)) {
+        const pick = await getHistoryReportFor(student, asked);
+        if (pick) data = { ...pick.report, semester: pick.semester, ...(savedReportEnded(pick.report as { semesterEnd?: unknown }) ? { semesterStatus: "ended" as const } : {}) };
+      }
+      data = { ...data, semesters: menu };
       res.json(data);
     } catch (err) {
       req.log.error({ err }, "Error building student scorecard");

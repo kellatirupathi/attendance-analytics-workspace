@@ -40,6 +40,25 @@ export function savedReportTracked(report: { semesterEnd?: unknown } | null | un
   return firstSaved.slice(0, 10) <= end;
 }
 
+/**
+ * True when no other semester of the same student overlaps this saved report's dates and was first saved later: such
+ * a report is a stale copy under the wrong title (2 Yenapoya students were reported on "Semester 3", 27 Jul – 4 Dec,
+ * before their report was corrected to "Semester 1" with the same dates). Back-to-back semesters (CDU Semester 3
+ * to 7 Nov, Semester 4 from 16 Nov) do not overlap, so both count. Dates are compared as YYYY-MM-DD text; a report
+ * without dates is never treated as stale.
+ */
+export function savedReportLatestCopySql(alias: string): string {
+  const start = (a: string) => `LEFT(${a}.report->>'semesterStart', 10)`;
+  const end = (a: string) => `LEFT(${a}.report->>'semesterEnd', 10)`;
+  return `NOT EXISTS (
+    SELECT 1 FROM spi_report_history o
+    WHERE o.student_id = ${alias}.student_id
+      AND TRIM(o.semester) <> TRIM(${alias}.semester)
+      AND o.first_built_at > ${alias}.first_built_at
+      AND ${start("o")} <= ${end(alias)}
+      AND ${end("o")} >= ${start(alias)})`;
+}
+
 /** The same rule in Postgres, for a spi_report_history alias (e.g. "h"). */
 export function savedReportTrackedSql(alias: string): string {
   return `(CASE WHEN COALESCE(${alias}.report->>'semesterEnd', '') ~ '^\\d{4}-\\d{2}-\\d{2}'

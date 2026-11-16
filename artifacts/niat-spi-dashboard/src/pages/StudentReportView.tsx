@@ -93,6 +93,8 @@ export interface StudentScorecard {
   semesterTitle?: string | null;
   semesterStart?: string | null;
   semesterEnd?: string | null;
+  /** Every semester the student has a saved report for, newest first (the Semester menu; one entry = no menu). */
+  semesters?: { semester: string; start: string | null; end: string | null; ended: boolean }[];
 }
 
 /** "2026-08-03" -> "3 Aug 2026"; null for anything that is not a date. */
@@ -107,17 +109,38 @@ function shortDate(iso: string | null | undefined): string | null {
  * The semester the report is for: name, a status tag (words, not colour alone) and the dates. Text colours
  * are dark enough for 4.5:1 on their tag backgrounds. Nothing is shown until the report carries a semester.
  */
-function SemesterBadge({ data }: { data: StudentScorecard }) {
+function SemesterBadge({ data, onSemester, updating }: { data: StudentScorecard; onSemester?: (semester: string) => void; updating?: boolean }) {
   const title = (data.semester ?? data.semesterTitle ?? "").trim();
   if (!title) return null;
   const ended = data.semesterStatus === "ended";
   const start = shortDate(data.semesterStart);
   const end = shortDate(data.semesterEnd);
   const dates = start && end ? `${start} – ${end}` : start ?? end;
+  // A menu only when the student has more than one semester (e.g. Semester 3 ended, Semester 4 now).
+  const choices = onSemester && (data.semesters?.length ?? 0) > 1 ? data.semesters! : null;
   return (
-    <div className="flex flex-col items-end gap-0.5 rounded-[10px] border border-[#CBD7EA] bg-white px-3 py-1.5 text-right">
+    <div className="flex flex-col items-end gap-0.5 rounded-[10px] border border-[#CBD7EA] bg-white px-3 py-1.5 text-right" aria-busy={updating}>
       <p className="flex items-center gap-2 text-[12.5px] font-bold text-[#0B1F4D]">
-        {title}
+        {choices ? (
+          <label className="relative inline-flex items-center">
+            <span className="sr-only">Semester</span>
+            <select
+              value={title}
+              disabled={updating}
+              onChange={(e) => onSemester!(e.target.value)}
+              className="min-h-11 cursor-pointer appearance-none rounded-lg border border-[#CBD7EA] bg-white py-1 pl-3 pr-8 text-[13px] font-bold text-[#0B1F4D] hover:border-[#2563EB] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2563EB] disabled:cursor-wait disabled:opacity-70 sm:min-h-9"
+            >
+              {choices.map((c) => (
+                <option key={c.semester} value={c.semester}>
+                  {c.semester}{c.ended ? " (ended)" : ""}
+                </option>
+              ))}
+            </select>
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="pointer-events-none absolute right-2.5 h-4 w-4 text-[#6B7280]" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
+          </label>
+        ) : (
+          title
+        )}
         <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${ended ? "bg-[#EEF1F5] text-[#475569]" : "bg-[#E6F7EC] text-[#15803D]"}`}>
           {ended ? "Ended" : "In progress"}
         </span>
@@ -791,7 +814,11 @@ function SpiGuide({ data, onClose }: { data: StudentScorecard; onClose: () => vo
 /*  Page                                                              */
 /* ------------------------------------------------------------------ */
 /** `studentId` is set on the student's own report link; it shows "Raise a query". */
-export default function StudentReportView({ data, studentId }: { data: StudentScorecard; studentId?: string }) {
+/**
+ * `onSemester`: switches the report to another saved semester (the Semester menu in the header); `updating` while
+ * that semester's report loads (the current one stays on screen).
+ */
+export default function StudentReportView({ data, studentId, onSemester, updating }: { data: StudentScorecard; studentId?: string; onSemester?: (semester: string) => void; updating?: boolean }) {
   const [attentionOpen, setAttentionOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [queryOpen, setQueryOpen] = useState(false);
@@ -800,7 +827,7 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
   const canQuery = FEATURES.raiseQuery && Boolean(studentId) && data.courses.length > 0 && !ended;
   return (
     <div className="min-h-screen bg-[#F4F7FD] text-[13px] text-[#334155]" style={{ fontFamily: '"Inter", system-ui, sans-serif' }}>
-      <main className={`mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] sm:px-8 ${canQuery ? "pb-24" : ""}`}>
+      <main aria-busy={updating} className={`mx-auto grid max-w-[1480px] grid-cols-[minmax(0,1fr)] gap-4 px-4 py-[22px] transition-opacity motion-reduce:transition-none sm:px-8 ${canQuery ? "pb-24" : ""} ${updating ? "opacity-60" : ""}`}>
         <header className="flex flex-wrap items-center gap-3.5">
           <span className="text-[#2563EB]"><Icon d={ICONS.chart} className="!h-8 !w-8" /></span>
           <div>
@@ -811,7 +838,7 @@ export default function StudentReportView({ data, studentId }: { data: StudentSc
           </div>
           <div className="ml-auto flex flex-col items-end gap-1.5">
             <p className="text-[17px] font-bold text-[#0B1F4D]">{data.studentName}</p>
-            <SemesterBadge data={data} />
+            <SemesterBadge data={data} onSemester={onSemester} updating={updating} />
           </div>
         </header>
 

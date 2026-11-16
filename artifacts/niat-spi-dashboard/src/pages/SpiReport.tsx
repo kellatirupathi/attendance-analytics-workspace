@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { useParams } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useLocation, useParams } from "wouter";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -16,8 +16,11 @@ class ScorecardError extends Error {
   }
 }
 
-async function fetchScorecard(studentId: string, token: string | undefined): Promise<StudentScorecard> {
-  const qs = token ? `?t=${encodeURIComponent(token)}` : "";
+async function fetchScorecard(studentId: string, token: string | undefined, semester: string): Promise<StudentScorecard> {
+  const p = new URLSearchParams();
+  if (token) p.set("t", token);
+  if (semester) p.set("semester", semester);
+  const qs = p.toString() ? `?${p}` : "";
   const res = await fetch(`/api/attendance/students/${encodeURIComponent(studentId)}/scorecard${qs}`, {
     credentials: "include",
   });
@@ -30,13 +33,19 @@ async function fetchScorecard(studentId: string, token: string | undefined): Pro
 
 export default function SpiReport() {
   const { studentId = "" } = useParams<{ studentId: string }>();
-  const token = useQueryParams().get("t") ?? undefined;
+  const params = useQueryParams();
+  const token = params.get("t") ?? undefined;
+  /** The semester picked in the report's Semester menu; none = the student's current report. */
+  const semester = (params.get("semester") ?? "").trim().slice(0, 60);
+  const [location, setLocation] = useLocation();
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, isPlaceholderData, error, refetch } = useQuery({
     // The token is part of the key so tokened and staff-session responses stay separate.
-    queryKey: ["spi-scorecard", studentId, token ?? null],
-    queryFn: () => fetchScorecard(studentId, token),
+    queryKey: ["spi-scorecard", studentId, token ?? null, semester],
+    queryFn: () => fetchScorecard(studentId, token, semester),
     enabled: !!studentId,
+    // Switching semester keeps the report on screen until the other one arrives.
+    placeholderData: keepPreviousData,
     // A bad link or a missing student will not fix itself on retry.
     retry: (count, err) => !(err instanceof ScorecardError && [400, 401, 403, 404].includes(err.status)) && count < 2,
   });
@@ -99,5 +108,12 @@ export default function SpiReport() {
     );
   }
 
-  return <StudentReportView data={data} studentId={studentId} />;
+  // The newest semester is the default report, so it needs no parameter; others stay in the link (shareable).
+  const pickSemester = (next: string) => {
+    const p = new URLSearchParams(params);
+    if (next && next !== data.semesters?.[0]?.semester) p.set("semester", next);
+    else p.delete("semester");
+    setLocation(p.toString() ? `${location}?${p}` : location, { replace: true });
+  };
+  return <StudentReportView data={data} studentId={studentId} onSemester={pickSemester} updating={isPlaceholderData} />;
 }

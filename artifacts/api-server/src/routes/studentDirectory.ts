@@ -126,7 +126,7 @@ router.get("/", async (req, res): Promise<void> => {
     const rows = directoryRows(await directorySnapshot.get(), filter);
     const sorted = sortRows(rows, String(req.query["sort"] ?? "college"), req.query["dir"] === "desc" ? -1 : 1);
     const page = pageOf(sorted, readPageRequest(req.query as Record<string, unknown>));
-    res.json({ ...page, rows: page.rows.map(({ parts: _parts, ...r }) => ({ ...r, reportPath: spiSharePath(r.studentId) })), summary: summarize(rows) });
+    res.json({ ...page, rows: page.rows.map(({ parts: _parts, ...r }) => ({ ...r, reportPath: filter.term ? `${spiSharePath(r.studentId)}?${new URLSearchParams({ semester: filter.term })}` : spiSharePath(r.studentId) })), summary: summarize(rows) });
   } catch (err) {
     fail(req, res, err);
   }

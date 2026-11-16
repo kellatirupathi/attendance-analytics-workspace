@@ -5,7 +5,8 @@ import { getAttendanceExclusions } from "./attendanceExclusions.js";
 import { buildAllScorecards, reportConfigVersion, type BuiltReport } from "./spiScorecard.js";
 import { getReportEligibleKeys } from "./reportEligibility.js";
 import { refreshSkillAssessmentCourseMap } from "./skillAssessmentMapSync.js";
-import { savedReportTrackedSql } from "./reportEnded.js";
+import { savedReportEndedSql, savedReportLatestCopySql, savedReportTrackedSql } from "./reportEnded.js";
+import { sortReportSemesters, type ReportSemester } from "./reportSemesters.js";
 
 /**
  * SPI report sync: BigQuery → Postgres (spi_report_cache), so a report opens in milliseconds
@@ -201,6 +202,56 @@ export async function getHistoryReport(studentKey: string): Promise<{ report: ob
   }
 }
 
+/**
+ * The semesters a student has a saved report for, newest first: the ones SPI tracked while they ran
+ * (reportEnded.ts savedReportTracked), one per semester title (the last saved, if the student changed college).
+ */
+export async function getReportSemesters(studentKey: string): Promise<ReportSemester[]> {
+  const key = `spiReportSemesters:${studentKey}`;
+  const hit = cacheGet<ReportSemester[]>(key);
+  if (hit) return hit;
+  try {
+    await ensureTables();
+    const { rows } = await pool.query<{ semester: string; s: string | null; e: string | null; ended: boolean }>(
+      `SELECT DISTINCT ON (TRIM(h.semester)) TRIM(h.semester) AS semester,
+              LEFT(h.report->>'semesterStart', 10) AS s, LEFT(h.report->>'semesterEnd', 10) AS e,
+              ${savedReportEndedSql("h.report")} AS ended
+       FROM spi_report_history h
+       WHERE h.student_id = $1 AND NULLIF(TRIM(h.semester), '') IS NOT NULL AND ${savedReportTrackedSql("h")} AND ${savedReportLatestCopySql("h")}
+       ORDER BY TRIM(h.semester), h.built_at DESC`,
+      [studentKey],
+    );
+    const list = sortReportSemesters(rows.map((r) => ({ semester: r.semester, start: r.s, end: r.e, ended: !!r.ended })));
+    cacheSet(key, list, MEMORY_TTL_MS);
+    return list;
+  } catch (err) {
+    logger.error({ err }, "Reading the student's semesters failed");
+    return [];
+  }
+}
+
+/** The student's saved report of one semester (SPI-tracked only); null when there is none. */
+export async function getHistoryReportFor(studentKey: string, semester: string): Promise<{ report: object; semester: string } | null> {
+  const key = `spiReportHistory:${studentKey}:${semester}`;
+  const hit = cacheGet<{ report: object; semester: string }>(key);
+  if (hit) return hit;
+  try {
+    await ensureTables();
+    const { rows } = await pool.query<{ report: object; semester: string }>(
+      `SELECT report, TRIM(semester) AS semester FROM spi_report_history h
+       WHERE student_id = $1 AND TRIM(semester) = $2 AND ${savedReportTrackedSql("h")} AND ${savedReportLatestCopySql("h")}
+       ORDER BY built_at DESC LIMIT 1`,
+      [studentKey, semester],
+    );
+    const found = rows[0] ?? null;
+    if (found) cacheSet(key, found, MEMORY_TTL_MS);
+    return found;
+  } catch (err) {
+    logger.error({ err }, "Reading spi_report_history failed");
+    return null;
+  }
+}
+
 /** College, semester, section and batch of a synced student (for the quiz tracking); null when not synced. */
 export async function getCachedPlacement(
   studentKey: string,
@@ -308,6 +359,7 @@ export async function runReportSync(trigger: SyncTrigger): Promise<{ status: str
       await client.query("COMMIT");
       cacheDeletePrefix("spiReport:");
       cacheDeletePrefix("spiReportHistory:");
+      cacheDeletePrefix("spiReportSemesters:");
       await finish("success", reports.length, null);
       logger.info({ trigger, students: reports.length, endedStudents: endedReports.length, ms: Date.now() - startedAt }, "SPI report sync done");
       return { status: "success", students: reports.length };
