@@ -175,10 +175,19 @@ function placementParts(
 
 function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL {
   const col = (name: string) => sql.raw(alias ? `${alias}.${name}` : name);
-  // Test logins have no report, so they are kept only when asked for; everyone else must be a roster student,
-  // so the counts never include someone outside "All students" (1 such attempt in Prod, 2026-11-14).
-  const parts = placementParts(scope, f, alias, "attempts", !f.includeTest);
-  if (!f.includeTest) parts.push(sql`NOT ${col("is_test")}`);
+  // College, semester, section and batch are the student's place in the roster now, not the place saved on the
+  // attempt: a student who changed section after the quiz (1,076 attempts in Prod, 2026-11-16) is counted in the
+  // same section as the Students column, so Completed can never pass 100%.
+  // Test logins have no report, so they are kept only when asked for (filtered on the attempt's own place); everyone
+  // else must be a roster student, so the counts never include someone outside "All students".
+  const inRoster = sql`${col("student_id")} IN (SELECT student_id FROM ${ROSTER_WITH_HISTORY} WHERE ${sql.join(placementParts(scope, f), sql` AND `)})`;
+  const parts: SQL[] = [];
+  if (f.includeTest) {
+    const testPlace = sql.join(placementParts(scope, { ...f, batches: undefined, term: undefined }, alias), sql` AND `);
+    parts.push(sql`(${inRoster} OR (${col("is_test")} AND ${testPlace}))`);
+  } else {
+    parts.push(inRoster, sql`NOT ${col("is_test")}`);
+  }
   if (f.from) parts.push(sql`(${col("opened_at")} AT TIME ZONE 'Asia/Kolkata')::date >= ${f.from}::date`);
   if (f.to) parts.push(sql`(${col("opened_at")} AT TIME ZONE 'Asia/Kolkata')::date <= ${f.to}::date`);
   if (f.score != null) parts.push(sql`${col("finished_at")} IS NOT NULL AND ${col("score")} = ${f.score}`);
@@ -311,12 +320,15 @@ export async function getQuizAnalytics(
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
   // One set of filters is read once every 30 s: paging, page size and the CSV reuse it instead of running the
   // 8 queries again (0.6–1.7 s each time). Quiz progress is live, so the window stays short.
-  const cacheKey = `spi-quiz-analytics:v2:${JSON.stringify({ scope, f })}`;
+  const cacheKey = `spi-quiz-analytics:v3:${JSON.stringify({ scope, f })}`;
   const load = () => Promise.all([
     getRosterCounts(scope, { colleges: f.colleges, batches: f.batches, term: f.term, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
-    rows(sql`SELECT ${sql.raw(groupBy)} AS name, ${COUNTS} FROM spi_quiz_attempts WHERE ${where} GROUP BY 1`),
+    // Grouped by the roster's college / section (the Students column), the attempt's own only for test logins.
+    rows(sql`SELECT COALESCE(roster.${sql.raw(groupBy)}, t.${sql.raw(groupBy)}) AS name, ${COUNTS}
+      FROM spi_quiz_attempts t LEFT JOIN ${ROSTER_WITH_HISTORY} ON roster.student_id = t.student_id
+      WHERE ${whereFor(scope, f, "t")} GROUP BY 1`),
     rows(sql`SELECT score, COUNT(*) AS students FROM spi_quiz_attempts
       WHERE ${where} AND finished_at IS NOT NULL AND score IS NOT NULL GROUP BY score ORDER BY score`),
     rows(sql`SELECT a.question_id, COUNT(*) AS answered, AVG(CASE WHEN a.correct THEN 100.0 ELSE 0 END) AS correct_pct,

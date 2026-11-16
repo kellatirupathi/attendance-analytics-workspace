@@ -473,7 +473,7 @@ export default function SpiQuizAnalytics() {
       ) : (
         <>
           {/* Headline numbers; the stage counts live in the funnel below. */}
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3">
             <StatTile
               label="Completed"
               value={t ? fmtInt(t.completed) : null}
@@ -481,7 +481,6 @@ export default function SpiQuizAnalytics() {
               updating={updating}
             />
             <StatTile label="Average score" value={t ? `${fmtScore(t.avgScore)} / ${t.questionCount}` : null} hint="completed students" updating={updating} />
-            <StatTile label="Average time" value={t ? fmtTime(t.avgSeconds) : null} hint="start to finish" updating={updating} />
             <StatTile label="Dropped midway" value={t ? fmtInt(t.started - t.completed) : null} hint="started, not finished" updating={updating} />
           </div>
 
