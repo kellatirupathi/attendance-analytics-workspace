@@ -9,6 +9,7 @@ import {
   type StudentSkillAssessment,
   type SubjectAttendance,
 } from "./queries.js";
+import { loadUntrackedReports } from "./untrackedReports.js";
 import { getRemovedCourses, removedCoursesIn } from "./reportRemovedCourses.js";
 import { getSkillAssessmentMap, reportCourseIn } from "./skillAssessmentMap.js";
 import {
@@ -69,6 +70,8 @@ export interface BuiltReport {
 
 /** One student's report, live from BigQuery; null when the student has no current-semester rows. */
 export async function buildStudentReport(studentId: string): Promise<BuiltReport | null> {
+  // Ended semesters SPI never tracked are not reported (untrackedReports.ts).
+  await loadUntrackedReports();
   const [identities, subjects, quizRows, skillAssessments, config] = await Promise.all([
     getReportIdentities({ studentId }),
     getStudentSubjects(studentId),
@@ -100,6 +103,8 @@ export async function getStudentScorecard(studentId: string): Promise<StudentSco
  * The quiz and Skill Assessment queries have no semester filter, so one read serves both groups.
  */
 export async function buildAllScorecards(): Promise<BuiltReport[]> {
+  // Ended semesters SPI never tracked are not reported (untrackedReports.ts).
+  await loadUntrackedReports();
   const [identities, subjects, endedIdentities, endedSubjects, quizRows, skillAssessments, config] = await Promise.all([
     getReportIdentities("all"),
     getSubjectsByStudent(),

@@ -2,7 +2,7 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger.js";
 import { buildAllScorecards } from "./spiScorecard.js";
 import { plainCourseName } from "./reportRemovedCourses.js";
-import { savedReportEndedSql } from "./reportEnded.js";
+import { savedReportEndedSql, savedReportTrackedSql } from "./reportEnded.js";
 import type { ReportCourses } from "./quizCoverageModel.js";
 import { PAST_REPORTS_SQL } from "./pastSemesters.js";
 
@@ -73,7 +73,7 @@ export async function loadSavedReports(term?: string): Promise<SavedReport[] | n
       UNION ALL
       (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.section, h.batch, h.semester, ${savedReportEndedSql("h.report")} AS ended, h.report
        FROM spi_report_history h
-       WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+       WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id) AND ${savedReportTrackedSql("h")}
        ORDER BY h.student_id, h.built_at DESC))`;
     let rows: Row[];
     if (term) {

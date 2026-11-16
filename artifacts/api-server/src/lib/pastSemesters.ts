@@ -1,7 +1,7 @@
 import { pool } from "@workspace/db";
 import { isExcludedInstitute } from "./excludedInstitutes.js";
 import { createSnapshot } from "./snapshot.js";
-import { savedReportEndedSql } from "./reportEnded.js";
+import { savedReportEndedSql, savedReportTrackedSql } from "./reportEnded.js";
 import type { PastPlace } from "./pastSemesterModel.js";
 
 /**
@@ -13,7 +13,7 @@ export const PAST_REPORTS_SQL = `(
   SELECT DISTINCT ON (h.student_id, TRIM(h.semester))
     h.student_id, h.college, h.batch, TRIM(h.semester) AS semester, h.section, h.attendance_pct, h.spi, h.report, h.built_at
   FROM spi_report_history h
-  WHERE NULLIF(TRIM(h.semester), '') IS NOT NULL AND ${savedReportEndedSql("h.report")}
+  WHERE NULLIF(TRIM(h.semester), '') IS NOT NULL AND ${savedReportEndedSql("h.report")} AND ${savedReportTrackedSql("h")}
   ORDER BY h.student_id, TRIM(h.semester), h.built_at DESC
 )`;
 

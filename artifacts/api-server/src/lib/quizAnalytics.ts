@@ -5,7 +5,7 @@ import { getQuizQuestions } from "./spiQuiz.js";
 import type { SessionScope } from "./rbac.js";
 import { pageOf, type Page, type PageRequest } from "./pagination.js";
 import { cacheGet, cacheSet } from "./cache.js";
-import { savedReportEndedSql } from "./reportEnded.js";
+import { savedReportEndedSql, savedReportTrackedSql } from "./reportEnded.js";
 import { PAST_REPORTS_SQL } from "./pastSemesters.js";
 
 /**
@@ -115,7 +115,7 @@ const ROSTER_WITH_HISTORY = sql.raw(`(
   UNION ALL
   (SELECT DISTINCT ON (h.student_id) h.student_id, h.college, h.semester, h.section, h.batch, ${savedReportEndedSql("h.report")} AS ended, h.report->>'studentName' AS name
    FROM spi_report_history h
-   WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+   WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id) AND ${savedReportTrackedSql("h")}
    ORDER BY h.student_id, h.built_at DESC)
 ) roster`);
 const ROSTER_CACHE_ONLY = sql.raw("(SELECT student_id, college, semester, section, batch, false AS ended, report->>'studentName' AS name FROM spi_report_cache) roster");

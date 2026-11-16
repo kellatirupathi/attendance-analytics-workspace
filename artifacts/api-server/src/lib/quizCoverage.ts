@@ -1,9 +1,10 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION, PROD_SEQUENCE_TABLE } from "./bigquery.js";
 import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
-import { attendanceSource, LATEST_SEMESTER_SQL, pastQuizSource, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
+import { attendanceSource, latestSemesterSql, pastQuizSource, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
 import { pastPlacesSnapshot } from "./pastSemesters.js";
 import { pastSemesterSql } from "./pastSemesterSql.js";
 import { cacheGet, cacheSet } from "./cache.js";
+import { loadUntrackedReports } from "./untrackedReports.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
 import { courseScorePoint, restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
@@ -31,9 +32,11 @@ const num = (v: unknown) => Number(v) || 0;
 const text = (v: unknown) => (v == null ? null : String(v));
 
 async function loadQuiz(type: QuizType, term?: string): Promise<QuizCoverageModel> {
+  // Ended semesters SPI never tracked are left out of each student's latest semester (untrackedReports.ts).
+  await loadUntrackedReports();
   let t = tables();
   // The report's students and semester: current, or a batch between semesters on its last ended one (as Attendance Stats).
-  let attWhere = `${excludeInstituteSql()} AND ${REPORT_ROSTER_SQL} AND ${LATEST_SEMESTER_SQL}`;
+  let attWhere = `${excludeInstituteSql()} AND ${REPORT_ROSTER_SQL} AND ${latestSemesterSql()}`;
   let params: Record<string, unknown> = {};
   if (term) {
     // An ended semester (the Semester filter): that semester's rows of the students whose saved report of it ended.

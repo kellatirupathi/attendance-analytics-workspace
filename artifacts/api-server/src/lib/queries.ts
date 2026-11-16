@@ -59,6 +59,8 @@ import { getSkillAssessmentMap, reportCourseIn } from "./skillAssessmentMap.js";
 import { createSnapshot } from "./snapshot.js";
 import { pastPlacesSnapshot } from "./pastSemesters.js";
 import { pastSemesterSql } from "./pastSemesterSql.js";
+import { loadUntrackedReports, untrackedEndedKeys, untrackedKeysSqlList } from "./untrackedReports.js";
+import { savedReportTrackedSql } from "./reportEnded.js";
 import {
   scopedSlots,
   summarizeAssessmentModel,
@@ -157,7 +159,9 @@ function endedSemestersSelect(who: ReportStudents, params: Record<string, unknow
         AND student_key NOT IN (
           SELECT DISTINCT ${studentKeySql("student_user_id")} FROM ${RAW_ATTENDANCE_TABLE}
           WHERE is_current_semester = 1 AND student_user_id IS NOT NULL
-        )
+        )${untrackedEndedKeys().length ? `
+        -- Ended semesters SPI never tracked (saved only after they ended; untrackedReports.ts): left out.
+        AND CONCAT(student_key, CHR(9), sem) NOT IN (${untrackedKeysSqlList()})` : ""}
     `;
 }
 
@@ -243,7 +247,7 @@ const QUIZ_TABLE =
   "`kossip-helpers.niat_post_onboarding_engagement_ai_analytics_workspace.z_niat_students_classroom_and_module_quiz_details`";
 /** The quiz rows that count: each student's dashboard semester only, one row per course (quizScoreSql.ts). */
 export function quizSource(): string {
-  return scopedQuizRowsSql(QUIZ_TABLE, attendanceSource(), LATEST_SEMESTER_SQL);
+  return scopedQuizRowsSql(QUIZ_TABLE, attendanceSource(), latestSemesterSql());
 }
 
 /**
@@ -5709,7 +5713,7 @@ async function getReportLowest(): Promise<Record<string, ReportLowest>> {
                (h.report->'attendance'->>'lowestPct')::float8,
                h.report->'attendance'->>'lowestCourse'
           FROM spi_report_history h
-         WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+         WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id) AND ${sql.raw(savedReportTrackedSql("h"))}
       ) r
       ORDER BY student_id, built_at DESC`)).rows as Row[];
   } catch {
@@ -5733,12 +5737,14 @@ const attendanceStatsDetailInFlight = new Map<string, Promise<AttendanceStatsDet
  * for a student with no current rows at all, their last ended semester (ended_sem). So a batch whose semester
  * ended stays on the page, marked Ended, and so does a student who did not move up with their batch.
  */
-export const LATEST_SEMESTER_SQL = `(
+export function latestSemesterSql(): string {
+  return `(
     is_current_semester = 1
     OR (is_current_semester = 0 AND CONCAT(${studentKeySql("student_user_id")}, CHR(9), TRIM(CAST(semester_title AS STRING))) IN (
       SELECT CONCAT(student_key, CHR(9), sem) FROM (${endedSemestersSelect("all", {})})
     ))
   )`;
+}
 
 /**
  * The report's roster (reportEligibility.ts): students with a real campus in the core backend master. Students
@@ -5762,7 +5768,7 @@ function attendanceStatsWhere(
   if (!hasDates && opts.past) {
     clauses.push(opts.past.where);
     Object.assign(params, opts.past.params);
-  } else if (!hasDates) clauses.push(LATEST_SEMESTER_SQL);
+  } else if (!hasDates) clauses.push(latestSemesterSql());
   if (hasDates) {
     params["dateFrom"] = opts.dateFrom;
     params["dateTo"] = opts.dateTo;
@@ -5801,6 +5807,8 @@ async function loadAttendanceStatsDetail(
   /** The latest-semester view (no date range): a student with current rows drops ended ones. */
   latestView: boolean,
 ): Promise<AttendanceStatsDetail> {
+  // Ended semesters SPI never tracked are left out of each student's latest semester (untrackedReports.ts).
+  await loadUntrackedReports();
   const unitSelect = withUnit ? `,\n          ${SESSION_TITLE_SQL} AS unit` : "";
   const unitGroup = withUnit ? ", unit" : "";
   const [studentRows, classRows, removed] = await Promise.all([

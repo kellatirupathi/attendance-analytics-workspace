@@ -5,6 +5,7 @@ import { getAttendanceExclusions } from "./attendanceExclusions.js";
 import { buildAllScorecards, reportConfigVersion, type BuiltReport } from "./spiScorecard.js";
 import { getReportEligibleKeys } from "./reportEligibility.js";
 import { refreshSkillAssessmentCourseMap } from "./skillAssessmentMapSync.js";
+import { savedReportTrackedSql } from "./reportEnded.js";
 
 /**
  * SPI report sync: BigQuery → Postgres (spi_report_cache), so a report opens in milliseconds
@@ -188,7 +189,7 @@ export async function getHistoryReport(studentKey: string): Promise<{ report: ob
   try {
     await ensureTables();
     const { rows } = await pool.query<{ report: object; semester: string }>(
-      "SELECT report, semester FROM spi_report_history WHERE student_id = $1 ORDER BY built_at DESC LIMIT 1",
+      `SELECT report, semester FROM spi_report_history h WHERE student_id = $1 AND ${savedReportTrackedSql("h")} ORDER BY built_at DESC LIMIT 1`,
       [studentKey],
     );
     const found = rows[0] ?? null;

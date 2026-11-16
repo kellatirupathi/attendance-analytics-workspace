@@ -26,3 +26,23 @@ export function savedReportEndedSql(reportColumn: string): string {
     THEN LEFT(${reportColumn}->>'semesterEnd', 10)::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
     ELSE true END)`;
 }
+
+/**
+ * A saved report counts only when SPI tracked its semester while it ran: it was first saved on or before the
+ * semester's end date (agreed 2026-11-16). A report first saved after its semester had already ended covers a
+ * semester from before SPI (e.g. 4 NIAT Chevella students with no rows after their Year-1 "Semester 1" ended on
+ * 31 Jul 2026, first saved 10 Nov 2026): it stays in spi_report_history but is shown nowhere.
+ * `firstSaved`: the India date the report was first saved (YYYY-MM-DD). No end date: counted (old meaning).
+ */
+export function savedReportTracked(report: { semesterEnd?: unknown } | null | undefined, firstSaved: string): boolean {
+  const end = typeof report?.semesterEnd === "string" ? report.semesterEnd.slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return true;
+  return firstSaved.slice(0, 10) <= end;
+}
+
+/** The same rule in Postgres, for a spi_report_history alias (e.g. "h"). */
+export function savedReportTrackedSql(alias: string): string {
+  return `(CASE WHEN COALESCE(${alias}.report->>'semesterEnd', '') ~ '^\\d{4}-\\d{2}-\\d{2}'
+    THEN (${alias}.first_built_at AT TIME ZONE 'Asia/Kolkata')::date <= LEFT(${alias}.report->>'semesterEnd', 10)::date
+    ELSE true END)`;
+}

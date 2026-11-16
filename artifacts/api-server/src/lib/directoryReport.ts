@@ -1,7 +1,7 @@
 import { pool } from "@workspace/db";
 import { isExcludedInstitute } from "./excludedInstitutes.js";
 import { createSnapshot } from "./snapshot.js";
-import { savedReportEndedSql } from "./reportEnded.js";
+import { savedReportEndedSql, savedReportTrackedSql } from "./reportEnded.js";
 import { PAST_REPORTS_SQL } from "./pastSemesters.js";
 import { hyphenate, shortSection, type AttendanceState, type DirectoryCourse, type DirectoryPart, type DirectoryStudent } from "./directoryReportModel.js";
 
@@ -52,7 +52,7 @@ const REPORTS_WITH_HISTORY = `(
   UNION ALL
   SELECT h.student_id, h.college, h.batch, h.semester, h.section, h.attendance_pct, h.spi, h.report, h.built_at, ${savedReportEndedSql("h.report")} AS ended
   FROM spi_report_history h
-  WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
+  WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id) AND ${savedReportTrackedSql("h")}
 ) r`;
 const REPORTS_CACHE_ONLY = "(SELECT student_id, college, batch, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache) r";
 /** Ended semesters' saved reports, one per student × semester, for the Semester filter's ended choices (`past` rows). */

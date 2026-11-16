@@ -8,12 +8,13 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION } from "./bigquery.js";
 import { ATTENDED_SQL, SCHEDULED_SQL } from "./attendance-contract.js";
 import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
-import { attendanceSource, LATEST_SEMESTER_SQL, REPORT_ROSTER_SQL } from "./queries.js";
+import { attendanceSource, latestSemesterSql, REPORT_ROSTER_SQL } from "./queries.js";
 import { getRemovedCourses, plainCourseName, removedCoursesIn } from "./reportRemovedCourses.js";
 import { createSnapshot } from "./snapshot.js";
 import { shortSection } from "./directoryReportModel.js";
 import { pastPlacesSnapshot } from "./pastSemesters.js";
 import { pastSemesterSql } from "./pastSemesterSql.js";
+import { loadUntrackedReports } from "./untrackedReports.js";
 import type { TrendRow } from "./overviewTrendModel.js";
 
 type Raw = { d: string; college: string; batch: string; section: string | null; semester: string; subject: string | null; ended: boolean | string; present: string; scheduled: string };
@@ -37,10 +38,12 @@ const trendSql = (where: string) => `SELECT
   HAVING scheduled > 0`;
 
 async function load(): Promise<TrendRow[]> {
+  // Ended semesters SPI never tracked are left out of each student's latest semester (untrackedReports.ts).
+  await loadUntrackedReports();
   const places = await pastPlacesSnapshot.get();
   const past = pastSemesterSql(places);
   const [rows, pastRows, removed] = await Promise.all([
-    bqQuery<Raw>(trendSql(LATEST_SEMESTER_SQL), {}, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS),
+    bqQuery<Raw>(trendSql(latestSemesterSql()), {}, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS),
     past ? bqQuery<Raw>(trendSql(past.where), past.params, BQ_LOCATION, BQ_HEAVY_QUERY_TIMEOUT_MS) : Promise.resolve([] as Raw[]),
     getRemovedCourses(),
   ]);
