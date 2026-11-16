@@ -23,7 +23,8 @@ import { studentKey } from "../lib/testStudents.js";
 import { QUIZ_COOKIE_NAME, quizDoneFor } from "../lib/spiQuiz.js";
 import { quizFinished } from "../lib/quizTracking.js";
 import { buildStudentReport } from "../lib/spiScorecard.js";
-import { getCachedReport, getHistoryReport, getHistoryReportFor, getReportSemesters, saveReport } from "../lib/spiReportSync.js";
+import { getCachedPlacement, getCachedReport, getHistoryReport, getHistoryReportFor, getReportSemesters, saveReport } from "../lib/spiReportSync.js";
+import { collegeHasSkillAssessments, getSkillAssessmentMap } from "../lib/skillAssessmentMap.js";
 import { readSemesterParam, reportSemesterMenu, reportSemesterTitle } from "../lib/reportSemesters.js";
 import { savedReportEnded } from "../lib/reportEnded.js";
 import {
@@ -425,7 +426,11 @@ router.get(
         const pick = await getHistoryReportFor(student, asked);
         if (pick) data = { ...pick.report, semester: pick.semester, ...(savedReportEnded(pick.report as { semesterEnd?: unknown }) ? { semesterStatus: "ended" as const } : {}) };
       }
-      data = { ...data, semesters: menu };
+      // Whether the student's college takes Skill Assessments (any mapped course): on a semester with no scores yet the
+      // page then shows Skill Assessments as Awaited instead of Unavailable.
+      const college = (await getCachedPlacement(student))?.college ?? "";
+      const skillAssessmentsAtCollege = college ? collegeHasSkillAssessments((await getSkillAssessmentMap()).value, college) : false;
+      data = { ...data, semesters: menu, skillAssessmentsAtCollege };
       res.json(data);
     } catch (err) {
       req.log.error({ err }, "Error building student scorecard");

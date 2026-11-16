@@ -95,6 +95,17 @@ export interface StudentScorecard {
   semesterEnd?: string | null;
   /** Every semester the student has a saved report for, newest first (the Semester menu; one entry = no menu). */
   semesters?: { semester: string; start: string | null; end: string | null; ended: boolean }[];
+  /** The student's college takes Skill Assessments (any mapped course), so a semester without any yet shows them as Awaited. */
+  skillAssessmentsAtCollege?: boolean;
+}
+
+/**
+ * A semester that has just started: courses are listed but no Classroom Quiz, Module Quiz or Skill Assessment has
+ * been held in any of them yet (attendance may already be there). Such a report shows "No scores yet" instead of the
+ * green "None", Skill Assessments as Awaited (when the college takes them) and a missing course weight as "—".
+ */
+export function isNewSemester(data: Pick<StudentScorecard, "courses">): boolean {
+  return data.courses.length > 0 && data.courses.every((c) => !c.classroom && !c.module && !c.skillAssessment);
 }
 
 /** "2026-08-03" -> "3 Aug 2026"; null for anything that is not a date. */
@@ -342,13 +353,15 @@ function NeedsAttentionCard({ data, onOpen }: { data: StudentScorecard; onOpen: 
     { label: "On track", n: onTrack, color: "#22C55E" },
     { label: "No scores yet", n: noQuizzes, color: "#CBD5E1" },
   ];
+  // A semester that has just started has no scores: say so in grey, not a green "None".
+  const fresh = isNewSemester(data);
   return (
-    <Card className={attention ? "!border-[#F8DFB0] bg-gradient-to-b from-[#FFFBF2] to-[#FFF4DE]" : "!border-[#BBF7D0] !bg-[#F0FDF4]"}>
-      <CardTitle icon={ICONS.gauge} color={attention ? "#D97706" : "#16A34A"}>Needs Attention</CardTitle>
-      <p className={`mt-3 text-[34px] font-extrabold leading-none tabular-nums ${attention ? "text-[#D97706]" : "text-[#16A34A]"}`}>
-        {attention ? `${attention} of ${data.courses.length} ${data.courses.length === 1 ? "course" : "courses"}` : "None"}
+    <Card className={fresh ? "" : attention ? "!border-[#F8DFB0] bg-gradient-to-b from-[#FFFBF2] to-[#FFF4DE]" : "!border-[#BBF7D0] !bg-[#F0FDF4]"}>
+      <CardTitle icon={ICONS.gauge} color={fresh ? "#6B7280" : attention ? "#D97706" : "#16A34A"}>Needs Attention</CardTitle>
+      <p className={`mt-3 text-[34px] font-extrabold leading-none tabular-nums ${fresh ? "text-[#64748B]" : attention ? "text-[#D97706]" : "text-[#16A34A]"}`}>
+        {fresh ? "No scores yet" : attention ? `${attention} of ${data.courses.length} ${data.courses.length === 1 ? "course" : "courses"}` : "None"}
       </p>
-      <p className="mt-1.5 text-xs text-[#6B7280]">{attention ? "average below 50% so far" : "All averages are 50% or more"}</p>
+      {!fresh && <p className="mt-1.5 text-xs text-[#6B7280]">{attention ? "average below 50% so far" : "All averages are 50% or more"}</p>}
       {data.courses.length > 0 && (
         <>
           <div className="mt-4 flex h-3 gap-[3px] overflow-hidden rounded-full">
@@ -479,7 +492,7 @@ function EligibilityStrip({ data }: { data: StudentScorecard }) {
     ["Attendance · 80% per course", e.attendance, data.attendance.coursesBelow > 0 ? `${data.attendance.coursesBelow} courses below` : e.attendance === "met" ? "Met" : "—"],
     ["Classroom Quizzes · 100% completion", e.classroom.state, e.classroom.total > 0 ? `${share(e.classroom)} completed` : "—"],
     ["Module Quizzes · 100% completion", e.module.state, e.module.total > 0 ? `${share(e.module)} completed` : "—"],
-    ["Skill Assessments · 100% completion", e.skillAssessment.state, e.skillAssessment.total > 0 ? `${share(e.skillAssessment)} completed` : "Unavailable"],
+    ["Skill Assessments · 100% completion", e.skillAssessment.state, e.skillAssessment.total > 0 ? `${share(e.skillAssessment)} completed` : isNewSemester(data) && data.skillAssessmentsAtCollege ? "—" : "Unavailable"],
     ["Final Skill Assessment · mandatory", e.finalAssessment, e.finalAssessment === "not_available" ? "Upcoming" : e.finalAssessment === "met" ? "Met" : "Not met"],
   ];
   return (
@@ -520,6 +533,10 @@ function QuizCell({ part }: { part: QuizPart | null }) {
 }
 
 function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuide: () => void }) {
+  // A semester that has just started: Skill Assessments not held yet are Awaited (the college takes them), and a
+  // course weight not set yet is a plain "—".
+  const fresh = isNewSemester(data);
+  const saAwaited = fresh && data.skillAssessmentsAtCollege === true;
   const sub = "mt-0.5 block text-[10.5px] font-semibold text-[#2563EB]";
   const th = "bg-[#EAF1FF] px-2.5 py-[9px] text-center text-[11.5px] font-semibold leading-tight text-[#0B1F4D]";
   const sep = "border-l border-[#C9D7F5]";
@@ -569,11 +586,11 @@ function CourseTable({ data, onOpenGuide }: { data: StudentScorecard; onOpenGuid
                   </td>
                   <td className={`${td} ${sep}`}><QuizCell part={c.classroom} /></td>
                   <td className={td}><QuizCell part={c.module} /></td>
-                  <td className={td}>{c.skillAssessment ? <QuizCell part={c.skillAssessment} /> : <Chip tone="grey">Unavailable</Chip>}</td>
+                  <td className={td}>{c.skillAssessment ? <QuizCell part={c.skillAssessment} /> : saAwaited ? <Chip tone="purple">Awaited</Chip> : <Chip tone="grey">Unavailable</Chip>}</td>
                   <td className={td}><Chip tone="grey">Upcoming</Chip></td>
                   <td className={`${td} ${sep}`}>
                     {c.weight == null ? (
-                      <Chip tone="grey">Not set</Chip>
+                      fresh ? <span className="font-semibold text-[#94A3B8]" aria-label="Not set">—</span> : <Chip tone="grey">Not set</Chip>
                     ) : (
                       <span className="inline-grid h-6 min-w-[26px] place-items-center rounded-[7px] bg-[#EAF1FF] px-1.5 font-bold text-[#2563EB]">{c.weight}</span>
                     )}

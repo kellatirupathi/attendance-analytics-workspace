@@ -51,3 +51,11 @@ export function skillAssessmentMapFrom(
 export function reportCourseIn(map: SkillAssessmentMap, college: string, batch: string, semester: string, saCourse: string): string | null {
   return map.get(mapKey(college, batch, semester, saCourse)) ?? null;
 }
+
+/** True when the college has any mapped Skill Assessment course (any batch or semester): its students take Skill Assessments. */
+export function collegeHasSkillAssessments(map: SkillAssessmentMap, college: string): boolean {
+  const prefix = `${plain(college)}|`;
+  if (prefix === "|") return false;
+  for (const key of map.keys()) if (key.startsWith(prefix)) return true;
+  return false;
+}
