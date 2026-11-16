@@ -35,8 +35,8 @@ export interface QuizFilters {
   colleges: string[];
   /** "college	batch" keys. */
   batches: string[];
-  /** "": this semester (every batch); running / ended: batches whose semester is in progress / over. */
-  term: "" | "running" | "ended";
+  /** The Semester filter: "" = the current semester; a semester title = that ended semester. */
+  term: string;
   /** "batch	section" keys: a section name repeats across the batches of a college. */
   sections: string[];
   category: string;
@@ -65,6 +65,8 @@ export interface QuizOptions {
   subjects: { college: string; subject: string; category: string | null }[];
   /** Skill Assessment only: colleges in the user's scope that have no Skill Assessment data. */
   missingColleges?: string[];
+  /** Ended semesters per college, for the Semester menu. */
+  pastSemesters?: { semester: string; college: string; students: number }[];
 }
 
 export interface CampusRow {
@@ -138,16 +140,17 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const quizApi = {
-  options: (type: QuizType) => getJson<QuizOptions>(`/options?${query(type, {})}`),
+  /** Choices for the semester picked, and the ended semesters to offer. */
+  options: (type: QuizType, term = "") => getJson<QuizOptions>(`/options?${query(type, { term })}`),
   kpis: (type: QuizType, f: QuizFilters) => getJson<QuizKpis>(`/kpis?${query(type, f)}`),
   campus: (type: QuizType, f: QuizFilters, o: { sort: string; dir: string; page: number; pageSize: number }) =>
     getJson<Page<CampusRow>>(`/campus?${query(type, f, o)}`),
   students: (type: QuizType, f: QuizFilters, o: { sort: string; dir: string; page: number; pageSize: number; q: string }) =>
     getJson<Page<StudentRow>>(`/students?${query(type, f, o)}`),
-  student: (type: QuizType, uid: string) => getJson<StudentPanel>(`/student?${query(type, {}, { uid })}`),
+  student: (type: QuizType, uid: string, term = "") => getJson<StudentPanel>(`/student?${query(type, { term }, { uid })}`),
   /** A link the browser can follow: the server streams every row for these filters. */
   downloadUrl: (type: QuizType, f: QuizFilters, view: DownloadView, format: "xlsx" | "csv", uid?: string) =>
-    `${API}/download?${query(type, uid ? {} : f, { view, format, uid })}`,
+    `${API}/download?${query(type, uid ? { term: f.term } : f, { view, format, uid })}`,
 };
 
 /** "2026-10-28" → "28 Oct 2026". */

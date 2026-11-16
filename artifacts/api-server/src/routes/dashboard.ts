@@ -93,6 +93,8 @@ import {
 } from "../lib/studentDirectory.js";
 import type { Role } from "../lib/rbac.js";
 import { getQuizAnalytics, getQuizFilterOptions, QUIZ_STATUSES, type QuizStatus } from "../lib/quizAnalytics.js";
+import { pastPlacesSnapshot } from "../lib/pastSemesters.js";
+import { pastSemesterOptions, readTerm } from "../lib/pastSemesterModel.js";
 import { BIGQUERY_TO_CURRICULUM_SUBJECT } from "../seed/cdu-curriculum.js";
 import quizCoverageRouter from "./quizCoverage.js";
 import studentDirectoryRouter from "./studentDirectory.js";
@@ -627,7 +629,9 @@ router.get("/spi-quiz/options", async (req, res): Promise<void> => {
   }
   const scope = scopeForSession({ role: session.role as Role, campuses: session.campuses, subjects: session.subjects });
   try {
-    res.json({ options: await getQuizFilterOptions(scope) });
+    const term = readTerm(firstQuery(req.query as Record<string, string | string[] | undefined>, "term"));
+    const [options, places] = await Promise.all([getQuizFilterOptions(scope, term), pastPlacesSnapshot.get()]);
+    res.json({ options, pastSemesters: pastSemesterOptions(places, scope.campuses) });
   } catch (err) {
     req.log.error({ err }, "Error fetching SPI quiz options");
     res.status(500).json({ error: "Failed to load filters" });
@@ -665,7 +669,7 @@ router.get("/spi-quiz", async (req, res): Promise<void> => {
       {
         colleges,
         batches: multi("batch").filter((v) => v.includes("\t")),
-        term: firstQuery(q, "term") === "running" ? "running" : firstQuery(q, "term") === "ended" ? "ended" : undefined,
+        term: readTerm(firstQuery(q, "term")),
         semesters: multi("semester"),
         sections: colleges.length || multi("batch").length ? multi("section") : [],
         statuses: multi("status").filter((s): s is QuizStatus => (QUIZ_STATUSES as string[]).includes(s)),
@@ -1853,11 +1857,10 @@ const ATTENDANCE_VIEW_GRAINS = new Set<AttendanceViewGrain>([
  * student ("campus\tstudentId") and subject filters from the query.
  */
 function attendanceViewFilters(q: Record<string, string | string[] | undefined>): AttendanceFilters {
-  const status = firstQuery(q, "status");
   return {
     campuses: queryList(q, "campuses"),
     batches: queryList(q, "batches").filter((value) => value.includes("\t")),
-    status: status === "running" || status === "ended" ? status : undefined,
+    term: readTerm(firstQuery(q, "term")),
     semesters: queryList(q, "semesters"),
     sections: queryList(q, "sections").filter((value) => value.includes("\t")),
     students: queryList(q, "students").filter((value) => value.includes("\t")),
@@ -1935,11 +1938,11 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
   }
   const dates = closedDateScope(q as Record<string, string | undefined>);
   const pageRequest = readPageRequest(q);
-  const viewKey = `attendance-view:v1:${attendanceStatsVersion()}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}:${grain}:${JSON.stringify(filters)}`;
+  const viewKey = `attendance-view:v2:${attendanceStatsVersion()}:${JSON.stringify(scope)}:${dates.dateFrom ?? ""}:${dates.dateTo ?? ""}:${grain}:${JSON.stringify(filters)}`;
   try {
     let view = cacheGet<{ rows: AttendanceViewRow[]; summary: AttendanceHeader; options: AttendanceFilterOptions }>(viewKey);
     if (!view) {
-      const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+      const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo, term: filters.term });
       const summary = aggregateAttendanceStats(detail.students, detail.classes, "university", filters, detail.reportLowest).summary;
       let rows: AttendanceViewRow[] = [];
       if (grain !== "university_unit") {
@@ -1948,10 +1951,12 @@ router.get("/attendance-stats/rows", requireSession(), async (req, res): Promise
         const unitCampuses = filters.campuses.length
           ? filters.campuses
           : [...new Set(filters.batches!.map((key) => key.split("\t")[0]!))];
-        const units = await getAttendanceStatsUnits(scope, { campuses: unitCampuses, dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+        const units = await getAttendanceStatsUnits(scope, { campuses: unitCampuses, dateFrom: dates.dateFrom, dateTo: dates.dateTo, term: filters.term });
         rows = aggregateAttendanceStats(units.students, units.classes, grain, filters).rows;
       }
-      view = { rows, summary, options: attendanceFilterOptions(detail.students, filters) };
+      // The Semester menu's ended choices (per college; the page keeps those of the colleges picked).
+      const pastSemesters = pastSemesterOptions(await pastPlacesSnapshot.get(), scope.campuses);
+      view = { rows, summary, options: { ...attendanceFilterOptions(detail.students, filters), pastSemesters } };
       cacheSet(viewKey, view, 5 * 60 * 1000);
     }
     const rows = searchAndSortAttendanceRows(view.rows, firstQuery(q, "q").slice(0, 100), firstQuery(q, "sort"), firstQuery(q, "dir") === "desc" ? -1 : 1);
@@ -1984,7 +1989,7 @@ router.get("/attendance-stats/student-search", requireSession(), async (req, res
   const dates = closedDateScope(q as Record<string, string | undefined>);
   const filters = attendanceViewFilters(q);
   try {
-    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo });
+    const detail = await getAttendanceStatsDetail(scope, { dateFrom: dates.dateFrom, dateTo: dates.dateTo, term: filters.term });
     res.json({ students: searchAttendanceStudents(detail.students, filters, firstQuery(q, "q")) });
   } catch (err) {
     req.log.error({ err }, "Error searching attendance students");

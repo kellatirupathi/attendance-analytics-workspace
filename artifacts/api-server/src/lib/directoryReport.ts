@@ -2,6 +2,7 @@ import { pool } from "@workspace/db";
 import { isExcludedInstitute } from "./excludedInstitutes.js";
 import { createSnapshot } from "./snapshot.js";
 import { savedReportEndedSql } from "./reportEnded.js";
+import { PAST_REPORTS_SQL } from "./pastSemesters.js";
 import { hyphenate, shortSection, type AttendanceState, type DirectoryCourse, type DirectoryPart, type DirectoryStudent } from "./directoryReportModel.js";
 
 /**
@@ -54,10 +55,12 @@ const REPORTS_WITH_HISTORY = `(
   WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
 ) r`;
 const REPORTS_CACHE_ONLY = "(SELECT student_id, college, batch, semester, section, attendance_pct, spi, report, built_at, false AS ended FROM spi_report_cache) r";
+/** Ended semesters' saved reports, one per student × semester, for the Semester filter's ended choices (`past` rows). */
+const PAST_REPORTS = `(SELECT student_id, college, batch, semester, section, attendance_pct, spi, report, built_at, true AS ended FROM ${PAST_REPORTS_SQL} p) r`;
 
 async function load(): Promise<DirectoryStudent[]> {
-  const select = (source: string) =>
-    `SELECT DISTINCT ON (r.student_id)
+  const select = (source: string, distinct = "r.student_id") =>
+    `SELECT DISTINCT ON (${distinct})
         r.student_id, r.college, r.batch, r.semester, r.section, r.attendance_pct, r.spi, r.ended,
         r.report->>'studentName' AS name,
         r.report->'attendance'->>'state' AS att_state,
@@ -68,16 +71,21 @@ async function load(): Promise<DirectoryStudent[]> {
         COALESCE((SELECT jsonb_agg(jsonb_build_object('n', c->>'name', 'cq', c->'classroom', 'mq', c->'module', 'sa', c->'skillAssessment', 'att', c->'attendancePct', 'p', c->'present', 'h', c->'held', 'score', c->'courseScore', 'pts', c->'points', 'lvl', c->>'level'))
                   FROM jsonb_array_elements(COALESCE(r.report->'courses', '[]'::jsonb)) c), '[]'::jsonb) AS courses
      FROM ${source}
-     ORDER BY r.student_id, r.built_at DESC`;
+     ORDER BY ${distinct}, r.built_at DESC`;
   let rows: Row[];
+  let pastRows: Row[] = [];
   try {
-    rows = (await pool.query<Row>(select(REPORTS_WITH_HISTORY))).rows;
+    [rows, pastRows] = await Promise.all([
+      pool.query<Row>(select(REPORTS_WITH_HISTORY)).then((r) => r.rows),
+      pool.query<Row>(select(PAST_REPORTS, "r.student_id, r.semester")).then((r) => r.rows),
+    ]);
   } catch {
     // spi_report_history not created yet (fresh database): the live cache alone.
     rows = (await pool.query<Row>(select(REPORTS_CACHE_ONLY))).rows;
   }
   const out: DirectoryStudent[] = [];
-  for (const r of rows) {
+  const all = [...rows.map((r) => ({ r, past: false })), ...pastRows.map((r) => ({ r, past: true }))];
+  for (const { r, past } of all) {
     const college = (r.college ?? "").trim();
     if (!college || isExcludedInstitute(college)) continue;
     const state: AttendanceState = r.att_state === "met" ? "met" : r.att_state === "not_met" ? "not_met" : "not_available";
@@ -97,6 +105,7 @@ async function load(): Promise<DirectoryStudent[]> {
       spi: num(r.spi),
       skillDebt: (Number(r.debt) || 0) > 0,
       ...(r.ended ? { ended: true } : {}),
+      ...(past ? { past: true } : {}),
       courses,
     });
   }
@@ -108,7 +117,10 @@ async function load(): Promise<DirectoryStudent[]> {
  * directory copy cannot be told directly; it compares this id instead and reloads as soon as it changes.
  */
 async function lastSyncToken(): Promise<string | null> {
-  const { rows } = await pool.query<{ t: string | null }>("SELECT MAX(id)::text AS t FROM spi_report_sync_runs WHERE status = 'success'");
+  // The India date is part of it: a semester whose end date passes today moves to the ended choices.
+  const { rows } = await pool.query<{ t: string | null }>(
+    "SELECT CONCAT(MAX(id)::text, ':', (now() AT TIME ZONE 'Asia/Kolkata')::date::text) AS t FROM spi_report_sync_runs WHERE status = 'success'",
+  );
   return rows[0]?.t ?? null;
 }
 

@@ -6,6 +6,7 @@ import type { SessionScope } from "./rbac.js";
 import { pageOf, type Page, type PageRequest } from "./pagination.js";
 import { cacheGet, cacheSet } from "./cache.js";
 import { savedReportEndedSql } from "./reportEnded.js";
+import { PAST_REPORTS_SQL } from "./pastSemesters.js";
 
 /**
  * SPI quiz analytics for staff: counts, scores and times from spi_quiz_attempts / spi_quiz_answers,
@@ -19,8 +20,8 @@ export interface QuizRosterFilters {
   colleges?: string[];
   /** "college\tbatch", as on Student Attendance Stats. */
   batches?: string[];
-  /** Running: students on a current-semester report; ended: their semester ended (last report in history). */
-  term?: "running" | "ended";
+  /** The Semester filter: missing = the current semester; a title (e.g. "Semester 3") = that ended semester's saved reports. */
+  term?: string;
   semesters?: string[];
   sections?: string[];
 }
@@ -118,25 +119,36 @@ const ROSTER_WITH_HISTORY = sql.raw(`(
    ORDER BY h.student_id, h.built_at DESC)
 ) roster`);
 const ROSTER_CACHE_ONLY = sql.raw("(SELECT student_id, college, semester, section, batch, false AS ended, report->>'studentName' AS name FROM spi_report_cache) roster");
+const ROSTER_EMPTY = sql.raw("(SELECT NULL::text AS student_id, NULL::text AS college, NULL::text AS semester, NULL::text AS section, NULL::text AS batch, true AS ended, NULL::text AS name WHERE false) roster");
+
+/**
+ * The roster for the Semester filter: the current semester (above), or the students with an ended saved report of
+ * the semester picked (pastSemesters.ts), each shown with that report's college, batch and section.
+ */
+function rosterFor(term: string | undefined): SQL {
+  if (!term) return ROSTER_WITH_HISTORY;
+  return sql`(SELECT student_id, college, semester, section, batch, true AS ended, report->>'studentName' AS name
+    FROM ${sql.raw(PAST_REPORTS_SQL)} p WHERE p.semester = ${term}) roster`;
+}
+/** Without spi_report_history (a fresh database): the live cache, and no ended semesters. */
+const rosterFallback = (term: string | undefined): SQL => (term ? ROSTER_EMPTY : ROSTER_CACHE_ONLY);
 
 /** The roster's batch as one key, the same text the page sends ("college\tbatch"). */
 const BATCH_KEY = sql.raw(`CONCAT(college, E'\\t', COALESCE(NULLIF(TRIM(batch), ''), 'Unknown'))`);
 
-/** Batch and running / ended tests on roster columns. */
+/** Batch test on roster columns. */
 function batchParts(f: QuizRosterFilters): SQL[] {
   const parts: SQL[] = [];
   if (f.batches?.length) parts.push(sql`${BATCH_KEY} IN (${list(f.batches)})`);
-  if (f.term === "running") parts.push(sql`NOT ended`);
-  if (f.term === "ended") parts.push(sql`ended`);
   return parts;
 }
 
 /** Runs a roster query with history; on a database without spi_report_history yet, with the live cache alone. */
-async function rosterRows(query: (roster: SQL) => SQL): Promise<Row[]> {
+async function rosterRows(query: (roster: SQL) => SQL, term?: string): Promise<Row[]> {
   try {
-    return (await db.execute(query(ROSTER_WITH_HISTORY))).rows as Row[];
+    return (await db.execute(query(rosterFor(term)))).rows as Row[];
   } catch {
-    return (await db.execute(query(ROSTER_CACHE_ONLY))).rows as Row[];
+    return (await db.execute(query(rosterFallback(term)))).rows as Row[];
   }
 }
 
@@ -168,7 +180,7 @@ function placementParts(
   if (on === "roster") {
     if (batch.length) parts.push(sql.join(batch, sql` AND `));
   } else if (batch.length || rosterOnly) {
-    parts.push(sql`${col("student_id")} IN (SELECT student_id FROM ${ROSTER_WITH_HISTORY} WHERE ${batch.length ? sql.join(batch, sql` AND `) : sql`TRUE`})`);
+    parts.push(sql`${col("student_id")} IN (SELECT student_id FROM ${rosterFor(f.term)} WHERE ${batch.length ? sql.join(batch, sql` AND `) : sql`TRUE`})`);
   }
   return parts;
 }
@@ -180,7 +192,7 @@ function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL
   // same section as the Students column, so Completed can never pass 100%.
   // Test logins have no report, so they are kept only when asked for (filtered on the attempt's own place); everyone
   // else must be a roster student, so the counts never include someone outside "All students".
-  const inRoster = sql`${col("student_id")} IN (SELECT student_id FROM ${ROSTER_WITH_HISTORY} WHERE ${sql.join(placementParts(scope, f), sql` AND `)})`;
+  const inRoster = sql`${col("student_id")} IN (SELECT student_id FROM ${rosterFor(f.term)} WHERE ${sql.join(placementParts(scope, f), sql` AND `)})`;
   const parts: SQL[] = [];
   if (f.includeTest) {
     const testPlace = sql.join(placementParts(scope, { ...f, batches: undefined, term: undefined }, alias), sql` AND `);
@@ -194,9 +206,9 @@ function whereFor(scope: SessionScope, f: QuizAnalyticsFilters, alias = ""): SQL
   return sql.join(parts, sql` AND `);
 }
 
-/** College × batch × semester × section choices for the filters, from the roster (ended semesters included). */
-export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRosterOption[]> {
-  const key = `spi-quiz-options:v1:${JSON.stringify(scope)}`;
+/** College × batch × semester × section choices for the filters, from the roster of the semester picked. */
+export async function getQuizFilterOptions(scope: SessionScope, term?: string): Promise<QuizRosterOption[]> {
+  const key = `spi-quiz-options:v2:${JSON.stringify(scope)}:${term ?? ""}`;
   const cached = cacheGet<QuizRosterOption[]>(key);
   if (cached) return cached;
   const rows = await rosterRows((roster) => sql`SELECT college, COALESCE(NULLIF(TRIM(batch), ''), 'Unknown') AS batch, semester, section,
@@ -204,7 +216,7 @@ export async function getQuizFilterOptions(scope: SessionScope): Promise<QuizRos
     WHERE ${sql.join(placementParts(scope, {}), sql` AND `)}
       AND college IS NOT NULL AND semester IS NOT NULL AND section IS NOT NULL
     GROUP BY 1, 2, 3, 4
-    ORDER BY college, batch, semester, section`);
+    ORDER BY college, batch, semester, section`, term);
   const out = rows.map((r) => ({
     college: String(r["college"]),
     batch: String(r["batch"]),
@@ -224,7 +236,7 @@ async function getRosterCounts(
   groupBy: "college" | "section",
 ): Promise<{ total: number; groups: { name: string; students: number; ended: number }[] }> {
   const rows = await rosterRows((roster) => sql`SELECT ${sql.raw(groupBy)} AS name, COUNT(*) AS students, COUNT(*) FILTER (WHERE ended) AS ended FROM ${roster}
-    WHERE ${sql.join(placementParts(scope, f), sql` AND `)} GROUP BY 1`);
+    WHERE ${sql.join(placementParts(scope, f), sql` AND `)} GROUP BY 1`, f.term);
   const groups = rows
     .filter((r) => r["name"] != null)
     .map((r) => ({ name: r["name"] as string, students: num(r["students"]), ended: num(r["ended"]) }));
@@ -272,9 +284,9 @@ async function studentRowsQuery(scope: SessionScope, f: QuizAnalyticsFilters): P
     WHERE ${statusTest(wanted)}${search ? sql` AND (r.name ILIKE ${search.name} ESCAPE '\\' OR r.student_id LIKE ${search.id} ESCAPE '\\')` : sql``}
     ORDER BY COALESCE(t.finished_at, t.started_at, t.opened_at) DESC NULLS LAST, r.college, r.student_id`;
   try {
-    return (await db.execute(run(ROSTER_WITH_HISTORY))).rows as Row[];
+    return (await db.execute(run(rosterFor(f.term)))).rows as Row[];
   } catch {
-    return (await db.execute(run(ROSTER_CACHE_ONLY))).rows as Row[];
+    return (await db.execute(run(rosterFallback(f.term)))).rows as Row[];
   }
 }
 
@@ -293,9 +305,9 @@ async function statusCounts(scope: SessionScope, f: QuizAnalyticsFilters): Promi
       ON t.student_id = r.student_id`;
   let row: Row | undefined;
   try {
-    row = (await db.execute(run(ROSTER_WITH_HISTORY))).rows[0] as Row | undefined;
+    row = (await db.execute(run(rosterFor(f.term)))).rows[0] as Row | undefined;
   } catch {
-    row = (await db.execute(run(ROSTER_CACHE_ONLY))).rows[0] as Row | undefined;
+    row = (await db.execute(run(rosterFallback(f.term)))).rows[0] as Row | undefined;
   }
   return {
     not_started: num(row?.["not_started"]),
@@ -320,14 +332,14 @@ export async function getQuizAnalytics(
   const rows = async (query: SQL) => (await db.execute(query)).rows as Row[];
   // One set of filters is read once every 30 s: paging, page size and the CSV reuse it instead of running the
   // 8 queries again (0.6–1.7 s each time). Quiz progress is live, so the window stays short.
-  const cacheKey = `spi-quiz-analytics:v3:${JSON.stringify({ scope, f })}`;
+  const cacheKey = `spi-quiz-analytics:v4:${JSON.stringify({ scope, f })}`;
   const load = () => Promise.all([
     getRosterCounts(scope, { colleges: f.colleges, batches: f.batches, term: f.term, semesters: f.semesters, sections: f.sections }, groupBy),
     rows(sql`SELECT ${COUNTS}, AVG(total_seconds) FILTER (WHERE finished_at IS NOT NULL) AS avg_seconds,
       MAX(total_questions) AS question_count FROM spi_quiz_attempts WHERE ${where}`),
     // Grouped by the roster's college / section (the Students column), the attempt's own only for test logins.
     rows(sql`SELECT COALESCE(roster.${sql.raw(groupBy)}, t.${sql.raw(groupBy)}) AS name, ${COUNTS}
-      FROM spi_quiz_attempts t LEFT JOIN ${ROSTER_WITH_HISTORY} ON roster.student_id = t.student_id
+      FROM spi_quiz_attempts t LEFT JOIN ${rosterFor(f.term)} ON roster.student_id = t.student_id
       WHERE ${whereFor(scope, f, "t")} GROUP BY 1`),
     rows(sql`SELECT score, COUNT(*) AS students FROM spi_quiz_attempts
       WHERE ${where} AND finished_at IS NOT NULL AND score IS NOT NULL GROUP BY score ORDER BY score`),

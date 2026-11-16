@@ -12,8 +12,8 @@ export interface DirectoryFilters {
   colleges: string[];
   /** "college	batch" keys. */
   batches: string[];
-  /** "": this semester (every batch); running / ended. */
-  term: "" | "running" | "ended";
+  /** The Semester filter: "" = the current semester; a semester title = that ended semester's saved reports. */
+  term: string;
   /** A semester title, from an Overview link only (no field on the page; shown as a chip). */
   semester: string;
   section: string;
@@ -36,6 +36,8 @@ export interface DirectoryOptions {
   semesters: string[];
   sections: { college: string; batch: string; semester: string | null; section: string }[];
   subjects: string[];
+  /** Ended semesters per college, for the Semester menu. */
+  pastSemesters?: { semester: string; college: string; students: number }[];
 }
 
 export interface DirectoryRow {
@@ -109,7 +111,8 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const directoryApi = {
-  options: () => getJson<DirectoryOptions>("/options"),
+  /** Choices for the semester picked (batches, sections, subjects), and the ended semesters to offer. */
+  options: (term = "") => getJson<DirectoryOptions>(term ? `/options?${new URLSearchParams({ term })}` : "/options"),
   page: (f: DirectoryFilters, o: { sort: string; dir: string; page: number; pageSize: number }) => getJson<DirectoryPage>(`/?${directoryQuery(f, o)}`),
   /** A link the browser can follow: the server writes every row for these filters. */
   exportUrl: (f: DirectoryFilters, o: { sort: string; dir: string }) => `${API}/export?${directoryQuery(f, o)}`,

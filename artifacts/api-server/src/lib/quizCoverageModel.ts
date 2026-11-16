@@ -71,8 +71,11 @@ export interface QuizFilter {
   colleges?: string[];
   /** "college\tbatch" keys. */
   batches?: string[];
-  /** Running: semester in progress; ended: batches between semesters. */
-  term?: "running" | "ended";
+  /**
+   * The Semester filter: missing = the current semester; a title = that ended semester. It picks which data is loaded
+   * (quizCoverage.ts coverageModel), so the rows here are already that semester's; it does not filter them again.
+   */
+  term?: string;
   semester?: string;
   section?: string;
   /** "batch\tsection" keys (a section name repeats across batches of a college), or plain section names. */
@@ -102,8 +105,6 @@ function matcher(f: QuizFilter) {
     (!college || r.campus === college) &&
     (colleges.size === 0 || colleges.has(r.campus)) &&
     (batches.size === 0 || batches.has(`${r.campus}\t${batchName(r.batch)}`)) &&
-    (f.term !== "running" || !r.ended) &&
-    (f.term !== "ended" || !!r.ended) &&
     (sections.size === 0 || sections.has(`${batchName(r.batch)}\t${r.section}`) || sections.has(r.section)) &&
     (!semester || (r.semester ?? "") === semester) &&
     (!section || r.section === section) &&

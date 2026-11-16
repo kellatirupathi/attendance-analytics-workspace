@@ -4,7 +4,9 @@ import { requireSession } from "../lib/auth.js";
 import { scopeForSession, type Role } from "../lib/rbac.js";
 import { pageOf, readPageRequest } from "../lib/pagination.js";
 import { QUIZ_TYPES } from "../lib/quizCoverageSql.js";
-import { quizCoverageSnapshot, type CoverageType } from "../lib/quizCoverage.js";
+import { coverageModel, type CoverageType } from "../lib/quizCoverage.js";
+import { pastPlacesSnapshot } from "../lib/pastSemesters.js";
+import { pastSemesterOptions, readTerm } from "../lib/pastSemesterModel.js";
 import {
   CAMPUS_SORT,
   STUDENT_SORT,
@@ -56,7 +58,7 @@ function readRequest(req: Request, res: Response): QuizRequest | null {
     scopeSubjects: scope.subjects,
     colleges: many("college"),
     batches: many("batch").filter((v) => v.includes("	")),
-    term: term === "running" || term === "ended" ? term : undefined,
+    term: readTerm(term),
     semester: q["semester"],
     sections: many("section"),
     category: q["category"],
@@ -78,16 +80,18 @@ router.get("/options", async (req, res): Promise<void> => {
   const r = readRequest(req, res);
   if (!r) return;
   try {
-    const model = await quizCoverageSnapshot(r.type).get();
+    const model = await coverageModel(r.type, r.filter.term);
     const options = quizFilterOptions(model, r.filter);
     // Skill Assessment data does not cover every college: say which colleges (within the user scope) have none.
     let missingColleges: string[] = [];
     if (r.type === "SKILL_ASSESSMENT") {
-      const quizColleges = quizFilterOptions(await quizCoverageSnapshot("CLASSROOM_QUIZ").get(), r.filter).colleges;
+      const quizColleges = quizFilterOptions(await coverageModel("CLASSROOM_QUIZ", r.filter.term), r.filter).colleges;
       const have = new Set(options.colleges);
       missingColleges = quizColleges.filter((c) => !have.has(c));
     }
-    res.json({ ...options, missingColleges });
+    // The Semester menu's ended choices (per college; the page keeps those of the colleges picked).
+    const pastSemesters = pastSemesterOptions(await pastPlacesSnapshot.get(), r.filter.scopeCampuses);
+    res.json({ ...options, missingColleges, pastSemesters });
   } catch (err) {
     fail(req, res, err, "quiz filter options");
   }
@@ -97,7 +101,7 @@ router.get("/kpis", async (req, res): Promise<void> => {
   const r = readRequest(req, res);
   if (!r) return;
   try {
-    const model = await quizCoverageSnapshot(r.type).get();
+    const model = await coverageModel(r.type, r.filter.term);
     res.json({ ...quizKpis(model, r.filter), asOf: todayIst() });
   } catch (err) {
     fail(req, res, err, "quiz KPIs");
@@ -108,7 +112,7 @@ router.get("/campus", async (req, res): Promise<void> => {
   const r = readRequest(req, res);
   if (!r) return;
   try {
-    const model = await quizCoverageSnapshot(r.type).get();
+    const model = await coverageModel(r.type, r.filter.term);
     const key = String(req.query["sort"] ?? "college");
     const get = CAMPUS_SORT[key] ?? CAMPUS_SORT["college"]!;
     const rows = sortBy(campusRows(model, r.filter), get, req.query["dir"] === "desc" ? -1 : 1, (row) => row.college);
@@ -122,7 +126,7 @@ router.get("/students", async (req, res): Promise<void> => {
   const r = readRequest(req, res);
   if (!r) return;
   try {
-    const model = await quizCoverageSnapshot(r.type).get();
+    const model = await coverageModel(r.type, r.filter.term);
     const key = String(req.query["sort"] ?? "student");
     const get = STUDENT_SORT[key] ?? STUDENT_SORT["student"]!;
     const search = String(req.query["q"] ?? "").slice(0, 100);
@@ -143,7 +147,7 @@ router.get("/student", async (req, res): Promise<void> => {
     return;
   }
   try {
-    const model = await quizCoverageSnapshot(r.type).get();
+    const model = await coverageModel(r.type, r.filter.term);
     const scopeOnly: QuizFilter = { scopeCampuses: r.filter.scopeCampuses, scopeSubjects: r.filter.scopeSubjects };
     const subjects = studentSubjectRows(model, scopeOnly, uid).sort((a, b) => a.subject.localeCompare(b.subject, undefined, { sensitivity: "base" }));
     const first = subjects[0];
@@ -226,7 +230,7 @@ router.get("/download", async (req, res): Promise<void> => {
   const format = req.query["format"] === "csv" ? "csv" : "xlsx";
   const uid = String(req.query["uid"] ?? "").trim();
   try {
-    const model = await quizCoverageSnapshot(r.type).get();
+    const model = await coverageModel(r.type, r.filter.term);
     const sheet = sheetFor(String(req.query["view"] ?? ""), model, r.filter, uid);
     if (!sheet) {
       res.status(400).json({ error: "Invalid view" });

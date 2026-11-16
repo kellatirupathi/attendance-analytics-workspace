@@ -62,16 +62,19 @@ test("a section name in two colleges stays two sections", () => {
   assert.equal(s001.find((s) => s.college === "Alpha")!.students, 1);
 });
 
-test("the Student Directory filters work the same here: colleges, batches, running / ended, sections", () => {
+test("the Student Directory filters work the same here: colleges, batches, Semester (current / one ended), sections", () => {
   const g: DirectoryStudent[] = [
     stu({ studentId: "a", college: "Alpha", batch: "B1", section: "S-001" }),
     stu({ studentId: "b", college: "Alpha", batch: "B2", section: "S-001", ended: true }),
     stu({ studentId: "c", college: "Beta", batch: "B1", section: "S-002" }),
+    // Student a's earlier semester that ended: only under that semester, never in the current view.
+    stu({ studentId: "a", college: "Alpha", batch: "B1", section: "S-001", semester: "Semester 2", ended: true, past: true }),
   ];
   assert.equal(overviewOf(g, { colleges: ["Alpha", "Beta"] }).summary.students, 3);
   assert.equal(overviewOf(g, { batches: ["Alpha\tB2"] }).summary.students, 1);
-  assert.equal(overviewOf(g, { term: "ended" }).summary.students, 1);
-  assert.equal(overviewOf(g, { term: "running" }).summary.students, 2);
+  assert.equal(overviewOf(g, {}).summary.students, 3);
+  assert.equal(overviewOf(g, { term: "Semester 2" }).summary.students, 1);
+  assert.equal(overviewOf(g, { term: "Semester 9" }).summary.students, 0);
   assert.equal(overviewOf(g, { sections: ["B1\tS-001"] }).summary.students, 1);
 });
 

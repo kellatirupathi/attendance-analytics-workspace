@@ -155,8 +155,11 @@ export interface AttendanceFilters {
   campuses: string[];
   /** "college\tbatch" */
   batches?: string[];
-  /** Running: semesters in progress; ended: batches between semesters. */
-  status?: "running" | "ended";
+  /**
+   * The Semester filter: missing = the current semester; a title = that ended semester. It picks which rows are
+   * loaded (getAttendanceStatsDetail), so the rows here are already that semester's; kept for cache keys.
+   */
+  term?: string;
   semesters: string[];
   sections: string[];
   students: string[];
@@ -215,11 +218,9 @@ const stampOf = (row: { university: string; batch?: string; semester: string; se
 
 function passesBatch(
   row: { university: string; batch?: string; ended?: boolean },
-  filters: Pick<AttendanceFilters, "batches" | "status">,
+  filters: Pick<AttendanceFilters, "batches">,
 ): boolean {
   if (filters.batches?.length && !filters.batches.includes(`${row.university}\t${batchOf(row)}`)) return false;
-  if (filters.status === "running" && row.ended) return false;
-  if (filters.status === "ended" && !row.ended) return false;
   return true;
 }
 
@@ -427,12 +428,14 @@ export interface AttendanceFilterOptions {
   subjects: string[];
   /** Batches between semesters on this view (all colleges / batches picked), and their students. */
   ended: { batches: number; students: number };
+  /** The Semester menu's ended semesters, per college (added by the route). */
+  pastSemesters?: { semester: string; college: string; students: number }[];
 }
 
 /** Filter choices for the page: each list narrows by the filters to its left (college › batch › the rest). */
 export function attendanceFilterOptions(
   students: AttendanceDetailRow[],
-  filters: Pick<AttendanceFilters, "campuses" | "semesters" | "batches" | "status">,
+  filters: Pick<AttendanceFilters, "campuses" | "semesters" | "batches">,
 ): AttendanceFilterOptions {
   const campusSet = new Set(filters.campuses);
   const semesterSet = new Set(filters.semesters);
@@ -466,7 +469,7 @@ export function attendanceFilterOptions(
   const picked = filters.batches?.length ? batchList.filter((b) => filters.batches!.includes(`${b.campus}\t${b.batch}`)) : batchList;
   const endedBatches = picked.filter((b) => b.ended);
   // Students on an ended semester: whole batches between semesters, plus a few who did not move up with a
-  // running batch. The same students the Ended filter shows.
+  // running batch (shown with an Ended tag in the current semester view).
   const pickedKeys = new Set(picked.map((b) => `${b.campus}\t${b.batch}`));
   const endedStudents = new Set<string>();
   for (const { campus, batch, rows } of batches.values()) {
@@ -494,7 +497,7 @@ export interface AttendanceStudentHit {
 /** Up to `limit` students whose name or id contains `text`, within the campus / semester / section filters. */
 export function searchAttendanceStudents(
   students: AttendanceDetailRow[],
-  filters: Pick<AttendanceFilters, "campuses" | "semesters" | "sections" | "batches" | "status">,
+  filters: Pick<AttendanceFilters, "campuses" | "semesters" | "sections" | "batches">,
   text: string,
   limit = 20,
 ): AttendanceStudentHit[] {

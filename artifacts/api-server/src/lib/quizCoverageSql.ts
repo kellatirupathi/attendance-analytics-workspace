@@ -143,7 +143,15 @@ export function buildQuizCoverageRowsSql(
  * The prod sequence also holds colleges that are not NIAT campuses (the Intensive Offline ones, Training
  * Institute); quizCoverage.ts keeps only the colleges that have student rows (scopePlanToStudentColleges).
  */
-export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, planWhere: string, endedSectionsSql?: string): string {
+export function buildQuizCoveragePlanSql(
+  t: QuizCoverageTables,
+  type: QuizType,
+  planWhere: string,
+  endedSectionsSql?: string,
+  /** An ended semester picked in the Semester filter: only the ended sections' plan, no current-semester plan. */
+  endedOnly = false,
+): string {
+  const current = endedOnly ? "FALSE" : "p.is_current_semester = 1";
   const moduleOnly = type === "MODULE_QUIZ" ? "AND rt.unit_type IN ('ASSESSMENT', 'EXAM')" : "";
   return `WITH quiz AS (
     SELECT DISTINCT rt.session_id, rt.resource_id
@@ -164,7 +172,7 @@ export function buildQuizCoveragePlanSql(t: QuizCoverageTables, type: QuizType, 
   FROM ${t.prodSequence} p
   JOIN quiz q ON q.session_id = p.session_id
   WHERE ${endedSectionsSql
-    ? `(p.is_current_semester = 1 OR CONCAT(${KEY("p.section_id")}, CHR(9), TRIM(CAST(p.semester_title AS STRING))) IN (${endedSectionsSql}))`
-    : "p.is_current_semester = 1"} AND ${planWhere}
+    ? `(${current} OR CONCAT(${KEY("p.section_id")}, CHR(9), TRIM(CAST(p.semester_title AS STRING))) IN (${endedSectionsSql}))`
+    : current} AND ${planWhere}
   GROUP BY campus, section, batch, section_id, subject, category, resource_id`;
 }

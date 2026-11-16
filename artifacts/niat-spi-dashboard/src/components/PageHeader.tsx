@@ -3,8 +3,8 @@ import { AttendanceInfo } from "@/components/AttendanceInfo";
 import { ATTENDANCE_LABEL } from "@/lib/attendanceLabel";
 import { CalendarRange } from "lucide-react";
 
-/** SPI started this semester, so every data page shows this semester only (an ended batch: its last one). */
-export const SEMESTER_SCOPE_NOTE = "Showing the current semester only: SPI tracking began this semester, so earlier semesters are not included.";
+/** Every data page shows each student's current semester; semesters that ended since SPI began are under the Semester filter. */
+export const SEMESTER_SCOPE_NOTE = "Showing each student's current semester. Semesters that have ended are under the Semester filter.";
 
 /** Shown on every page with attendance numbers; the server counts the same rows everywhere. */
 export const ATTENDANCE_SCOPE_NOTE = ATTENDANCE_LABEL;

@@ -163,16 +163,16 @@ test("the same section name in two batches stays two section rows", () => {
 
 // --- Filters ---------------------------------------------------------------------------
 
-test("running only + ended only = all students", () => {
+test("current semester view: running and ended-batch students are both counted (the term only picks the rows loaded)", () => {
   const rows = latest([
     row({ studentId: "a", university: "C", batch: "B1" }),
     row({ studentId: "b", university: "C", batch: "B1" }),
     row({ studentId: "c", university: "CDU", batch: "CDU-1", ended: true, semester: "Semester 3" }),
   ]);
-  const count = (status?: "running" | "ended") => aggregateAttendanceStats(rows, NO_CLASSES, "university", { ...NO_FILTERS, status }).summary.students;
-  assert.equal(count("running"), 2);
-  assert.equal(count("ended"), 1);
-  assert.equal(count("running") + count("ended"), count());
+  const count = (term?: string) => aggregateAttendanceStats(rows, NO_CLASSES, "university", { ...NO_FILTERS, term }).summary.students;
+  assert.equal(count(), 3);
+  // The rows passed in are the semester's already; the term does not filter them again.
+  assert.equal(count("Semester 3"), 3);
 });
 
 test("batch filter keeps only that college's batch", () => {
@@ -301,9 +301,7 @@ test("a student who did not move up with a running batch: counted under the batc
   assert.equal(batch[0]!.semester, "Semester 2");
   assert.equal(batch[0]!.ended, false);
   const opts = attendanceFilterOptions(rows, { campuses: [], semesters: [] });
-  const endedOnly = aggregateAttendanceStats(rows, NO_CLASSES, "university", { ...NO_FILTERS, status: "ended" }).summary.students;
   assert.deepEqual(opts.ended, { batches: 0, students: 1 });
-  assert.equal(endedOnly, opts.ended.students);
 });
 
 test("removed report courses: dropped per college and for every college, names match ignoring case and spaces", () => {

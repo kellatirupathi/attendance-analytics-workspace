@@ -134,7 +134,7 @@ export default function Overview() {
   const [quizSubject, setQuizSubject] = useState<QuizMetric>("classroom");
   const [quizSubjectOrder, setQuizSubjectOrder] = useState<"top" | "bottom">("top");
 
-  const options = useQuery({ queryKey: ["directory-options"], queryFn: directoryApi.options, staleTime: STALE });
+  const options = useQuery({ queryKey: ["directory-options", filters.term], queryFn: () => directoryApi.options(filters.term), staleTime: STALE, placeholderData: keepPreviousData });
   const data = useQuery({ queryKey: ["overview", filters], queryFn: () => overviewApi.data(filters), staleTime: STALE, placeholderData: keepPreviousData });
   const dates = useMemo(() => {
     if (period === "semester") return {};
@@ -151,7 +151,8 @@ export default function Overview() {
   const loading = data.isLoading;
   const go = (href: string) => setLocation(href);
   /** A single-college user: the college is fixed. */
-  const lockedCampus = opt?.colleges.length === 1 ? opt.colleges[0] : undefined;
+  // From the user's own colleges, not the options: an ended semester can have one college for everyone.
+  const lockedCampus = user?.campuses?.length === 1 ? user.campuses[0] : undefined;
 
   /* ---- filters (the Student Directory's, so a filter means the same on both pages) ---- */
   const sectionsFor = (colleges: string[], batches: string[]) =>
@@ -258,7 +259,9 @@ export default function Overview() {
         batches={filters.batches}
         onBatches={(batches) => change({ batches })}
         term={filters.term}
-        onTerm={(term) => change({ term })}
+        // Another semester has other batches and sections: those picked are dropped, colleges stay.
+        onTerm={(term) => change({ term, batches: [], sections: [] })}
+        pastSemesters={opt?.pastSemesters}
         moreCount={moreCount}
         onMore={() => {
           setDraft({ sections: filters.sections, subject: filters.subject });

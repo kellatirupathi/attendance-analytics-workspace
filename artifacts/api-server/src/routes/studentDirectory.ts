@@ -9,6 +9,8 @@ import { overviewOf } from "../lib/overviewReportModel.js";
 import { overviewTrendSnapshot } from "../lib/overviewTrend.js";
 import { trendOf } from "../lib/overviewTrendModel.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
+import { pastPlacesSnapshot } from "../lib/pastSemesters.js";
+import { pastSemesterOptions, readTerm } from "../lib/pastSemesterModel.js";
 
 /**
  * Student Directory: one row per student from the saved student reports (lib/directoryReport.ts), so the
@@ -40,7 +42,7 @@ function readFilter(req: Request, res: Response): DirectoryFilter | null {
     scopeSubjects: scope.subjects,
     colleges,
     batches: many("batch").filter((v) => v.includes("\t")),
-    term: term === "running" || term === "ended" ? term : undefined,
+    term: readTerm(term),
     semester: q["semester"],
     section: q["section"],
     sections: many("sections"),
@@ -66,7 +68,9 @@ router.get("/options", async (req, res): Promise<void> => {
   const filter = readFilter(req, res);
   if (!filter) return;
   try {
-    res.json(directoryOptions(await directorySnapshot.get(), filter));
+    const [students, places] = await Promise.all([directorySnapshot.get(), pastPlacesSnapshot.get()]);
+    // The Semester menu's ended choices (per college; the page keeps those of the colleges picked).
+    res.json({ ...directoryOptions(students, filter), pastSemesters: pastSemesterOptions(places, filter.scopeCampuses) });
   } catch (err) {
     fail(req, res, err);
   }
@@ -79,7 +83,7 @@ router.get("/overview", async (req, res): Promise<void> => {
   try {
     const students = await directorySnapshot.get();
     // Kept per copy of the saved reports and per filter (the user's scope is part of the filter).
-    const key = `overview:v2:${directorySnapshot.version()}:${JSON.stringify(filter)}`;
+    const key = `overview:v3:${directorySnapshot.version()}:${JSON.stringify(filter)}`;
     let body = cacheGet<object>(key);
     if (!body) {
       body = overviewOf(students, filter);
@@ -102,7 +106,7 @@ router.get("/overview/trend", async (req, res): Promise<void> => {
   const window = DAY.test(from) && DAY.test(to) && from <= to ? { dateFrom: from, dateTo: to } : {};
   try {
     const rows = await overviewTrendSnapshot.get();
-    const key = `overview-trend:v1:${overviewTrendSnapshot.version()}:${JSON.stringify(filter)}:${window.dateFrom ?? ""}:${window.dateTo ?? ""}`;
+    const key = `overview-trend:v2:${overviewTrendSnapshot.version()}:${JSON.stringify(filter)}:${window.dateFrom ?? ""}:${window.dateTo ?? ""}`;
     let body = cacheGet<object>(key);
     if (!body) {
       body = { points: trendOf(rows, { ...filter, ...window }) };

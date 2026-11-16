@@ -7,7 +7,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Download, Search, SearchX, X } from "lucide-react";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
-import { EndedTag, ExportMenu, FilterField, fieldTrigger, MoreFiltersSheet, ScopeFilterBar, type FilterChip, type ScopeBatch, type Term } from "@/components/ScopeFilters";
+import { EndedTag, ExportMenu, FilterField, fieldTrigger, MoreFiltersSheet, ScopeFilterBar, type FilterChip, type PastSemester, type ScopeBatch, type Term } from "@/components/ScopeFilters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -176,9 +176,10 @@ export default function SpiQuizAnalytics() {
   const page = pageState.key === viewKey ? pageState.page : 1;
 
   const options = useQuery({
-    queryKey: ["spi-quiz-options"],
-    queryFn: () => getJson<{ options: Option[] }>("/api/dashboard/spi-quiz/options"),
+    queryKey: ["spi-quiz-options", term],
+    queryFn: () => getJson<{ options: Option[]; pastSemesters?: PastSemester[] }>(`/api/dashboard/spi-quiz/options${term ? `?${new URLSearchParams({ term })}` : ""}`),
     staleTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
     enabled: allowed,
   });
   const analytics = useQuery({
@@ -383,7 +384,13 @@ export default function SpiQuizAnalytics() {
           setSections((cur) => cur.filter((x) => sectionChoicesFor(colleges, next).includes(x)));
         }}
         term={term}
-        onTerm={setTerm}
+        onTerm={(next) => {
+          // Another semester has other batches and sections: those picked are dropped, colleges stay.
+          setTerm(next);
+          setBatches([]);
+          setSections([]);
+        }}
+        pastSemesters={options.data?.pastSemesters}
         moreCount={moreCount}
         onMore={openMore}
         chips={chips}

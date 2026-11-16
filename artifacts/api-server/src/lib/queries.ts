@@ -57,6 +57,8 @@ import {
 import { eligibleAttendanceSource, STUDENT_MASTER_TABLE } from "./eligibleStudents.js";
 import { getSkillAssessmentMap, reportCourseIn } from "./skillAssessmentMap.js";
 import { createSnapshot } from "./snapshot.js";
+import { pastPlacesSnapshot } from "./pastSemesters.js";
+import { pastSemesterSql } from "./pastSemesterSql.js";
 import {
   scopedSlots,
   summarizeAssessmentModel,
@@ -242,6 +244,21 @@ const QUIZ_TABLE =
 /** The quiz rows that count: each student's dashboard semester only, one row per course (quizScoreSql.ts). */
 export function quizSource(): string {
   return scopedQuizRowsSql(QUIZ_TABLE, attendanceSource(), LATEST_SEMESTER_SQL);
+}
+
+/**
+ * The quiz rows of one ended semester (the Semester filter): `pastWhere` is pastSemesterSql over alias "q" with the
+ * user_id column, i.e. that semester's rows (is_current_semester = 0, same title) of the students whose saved report
+ * of it ended, at that college; then one row per course, as quizSource().
+ */
+export function pastQuizSource(pastWhere: string): string {
+  return `(
+    SELECT q.* FROM ${QUIZ_TABLE} q
+    WHERE ${pastWhere}
+    QUALIFY ROW_NUMBER() OVER (
+      PARTITION BY LOWER(REPLACE(CAST(q.user_id AS STRING), '-', '')), TRIM(q.institute_name), TRIM(q.section_name), CAST(q.course_id AS STRING), UPPER(CAST(q.derived_unit_type AS STRING))
+      ORDER BY TRIM(CAST(q.semester_course_title AS STRING))) = 1
+  )`;
 }
 interface AttendanceRollupRow {
   student_count: string;
@@ -5735,12 +5752,17 @@ function attendanceStatsWhere(
     dateFrom?: string;
     dateTo?: string;
     campuses?: string[];
+    /** One ended semester's rows (pastSemesterSql) in place of each batch's latest semester. */
+    past?: { where: string; params: Record<string, unknown> };
   },
 ): { where: string; params: Record<string, unknown> } {
   const params: Record<string, unknown> = {};
   const hasDates = Boolean(opts.dateFrom && opts.dateTo);
   const clauses = [excludeInstituteSql(), REPORT_ROSTER_SQL];
-  if (!hasDates) clauses.push(LATEST_SEMESTER_SQL);
+  if (!hasDates && opts.past) {
+    clauses.push(opts.past.where);
+    Object.assign(params, opts.past.params);
+  } else if (!hasDates) clauses.push(LATEST_SEMESTER_SQL);
   if (hasDates) {
     params["dateFrom"] = opts.dateFrom;
     params["dateTo"] = opts.dateTo;
@@ -5914,8 +5936,12 @@ function scopeAttendanceDetail(detail: AttendanceStatsDetail, scope: SessionScop
  */
 export async function getAttendanceStatsDetail(
   scope: SessionScope,
-  opts: { dateFrom?: string; dateTo?: string } = {},
+  opts: { dateFrom?: string; dateTo?: string; term?: string } = {},
 ): Promise<AttendanceStatsDetail> {
+  // An ended semester picked in the Semester filter (no date range): its rows, shared by all users for 30 minutes.
+  if (opts.term && !opts.dateFrom && !opts.dateTo) {
+    return scopeAttendanceDetail(await pastAttendanceDetail(opts.term), scope);
+  }
   // The default view (no date range) reads the shared snapshot; date ranges still query BigQuery.
   if (!opts.dateFrom && !opts.dateTo) {
     const [snapshot, reportLowest] = await Promise.all([
@@ -5943,12 +5969,41 @@ export async function getAttendanceStatsDetail(
   }
 }
 
+/**
+ * Attendance rows of one ended semester (the Semester filter): that semester's sessions of the students whose saved
+ * report of it ended, at the report's college. Empty when nobody has such a report.
+ */
+async function pastAttendanceDetail(term: string, withUnit = false, campuses?: string[]): Promise<AttendanceStatsDetail> {
+  const places = await pastPlacesSnapshot.get();
+  const past = pastSemesterSql(places, { semester: term });
+  if (!past) return { students: [], classes: [] };
+  const { where, params } = attendanceStatsWhere({}, { past, campuses });
+  const key = `attendance-stats-past:v1:${pastPlacesSnapshot.version()}:${term}:${withUnit ? 1 : 0}:${(campuses ?? []).join("||")}`;
+  const cached = cacheGet<AttendanceStatsDetail>(key);
+  if (cached) return cached;
+  const existing = attendanceStatsDetailInFlight.get(key);
+  if (existing) return existing;
+  const pending = loadAttendanceStatsDetail(where, params, withUnit, false).then((payload) => {
+    cacheSet(key, payload, 30 * 60 * 1000);
+    return payload;
+  });
+  attendanceStatsDetailInFlight.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    attendanceStatsDetailInFlight.delete(key);
+  }
+}
+
 /** Unit rows for the campuses the user picked. Not used by the default page load. */
 export async function getAttendanceStatsUnits(
   scope: SessionScope,
-  opts: { dateFrom?: string; dateTo?: string; campuses: string[] },
+  opts: { dateFrom?: string; dateTo?: string; campuses: string[]; term?: string },
 ): Promise<AttendanceStatsDetail> {
   const campuses = [...new Set(opts.campuses.map((name) => name.trim()).filter(Boolean))];
+  if (opts.term && !opts.dateFrom && !opts.dateTo) {
+    return scopeAttendanceDetail(await pastAttendanceDetail(opts.term, true, campuses), scope);
+  }
   const { where, params } = attendanceStatsWhere(scope, { ...opts, campuses });
   const detailKey = `attendance-stats-units:v3:${JSON.stringify({
     scope,

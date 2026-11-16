@@ -1,10 +1,10 @@
 /**
  * Overview attendance trend, worked out in memory from day-level rows (lib/overviewTrend.ts loads them once), so a
  * filter or period change never waits for BigQuery. The filters mean the same as on the Student Directory
- * (college, batch, running / ended, semester, section, subject, the user's own colleges and subjects).
+ * (college, batch, current or one ended semester, section, subject, the user's own colleges and subjects).
  * Pure functions; no imports with side effects, so they can be tested on their own.
  */
-import { plain, subjectSet, type DirectoryFilter } from "./directoryReportModel.js";
+import { inTerm, plain, subjectSet, type DirectoryFilter } from "./directoryReportModel.js";
 
 /** Sessions of one day for one college, batch, section, semester and subject. */
 export interface TrendRow {
@@ -18,6 +18,8 @@ export interface TrendRow {
   subject: string;
   /** The row's semester has ended (a batch between semesters). */
   ended: boolean;
+  /** A row of an ended semester picked in the Semester filter (not part of the current semester view). */
+  past?: boolean;
   present: number;
   scheduled: number;
 }
@@ -49,8 +51,7 @@ export function trendRowMatches(r: TrendRow, f: TrendFilter, subjects: Set<strin
   if (f.college && r.college !== f.college.trim()) return false;
   if (f.colleges?.length && !f.colleges.some((c) => c.trim() === r.college)) return false;
   if (f.batches?.length && !f.batches.includes(`${r.college}\t${r.batch}`)) return false;
-  if (f.term === "running" && r.ended) return false;
-  if (f.term === "ended" && !r.ended) return false;
+  if (!inTerm(r, f.term)) return false;
   if (f.semester && r.semester !== f.semester.trim()) return false;
   if (f.section && r.section !== f.section.trim()) return false;
   if (f.sections?.length && !f.sections.includes(`${r.batch}\t${r.section}`) && !f.sections.includes(r.section)) return false;

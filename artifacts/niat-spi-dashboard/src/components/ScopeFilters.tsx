@@ -21,8 +21,18 @@ export interface ScopeBatch {
   students: number;
 }
 
-/** "": this semester (every batch); running / ended: only batches whose semester is in progress / over. */
-export type Term = "" | "running" | "ended";
+/**
+ * The Semester filter: "" = the current semester (each student's latest semester; ended batches carry an Ended tag),
+ * or the title of a semester that has ended (e.g. "Semester 3"): that semester's saved reports.
+ */
+export type Term = string;
+
+/** An ended semester at one college, from the server (the menu adds up the colleges picked). */
+export interface PastSemester {
+  semester: string;
+  college: string;
+  students: number;
+}
 
 export interface FilterChip {
   key: string;
@@ -35,11 +45,32 @@ export const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-
 export const fieldTrigger = "h-10 w-full min-w-0 justify-between gap-2 rounded-lg border-slate-300 px-3 font-normal text-slate-900";
 export const fieldBox = "flex h-10 w-full min-w-0 items-center rounded-lg border border-slate-300 px-3 text-sm text-slate-900";
 
-export const TERM_LABEL: Record<Term, string> = { "": "This semester", running: "Running", ended: "Ended" };
-
 /** "Semester 3" → "Sem 3"; other titles (e.g. "Year 2 - Term 2") as they are. */
 export function shortSemester(title: string): string {
   return title.replace(/^Semester\s+/i, "Sem ");
+}
+
+/** "Current semester", or "Sem 3 (ended)". */
+export function termLabel(term: Term): string {
+  return term ? `${shortSemester(term)} (ended)` : "Current semester";
+}
+
+/** Reads the Semester filter from a link; the old running / ended values mean the current semester. */
+export function readTermParam(value: string | null | undefined): Term {
+  const v = (value ?? "").trim();
+  return v === "running" || v === "ended" ? "" : v.slice(0, 60);
+}
+
+/** The ended semesters to offer for the colleges picked (all colleges when none), newest first, with their students. */
+export function pastSemesterChoices(past: PastSemester[], campuses: string[]): { semester: string; students: number }[] {
+  const by = new Map<string, number>();
+  for (const p of past) {
+    if (campuses.length && !campuses.includes(p.college)) continue;
+    by.set(p.semester, (by.get(p.semester) ?? 0) + p.students);
+  }
+  return [...by.entries()]
+    .map(([semester, students]) => ({ semester, students }))
+    .sort((a, b) => b.semester.localeCompare(a.semester, undefined, { numeric: true, sensitivity: "base" }));
 }
 
 export function FilterField({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
@@ -114,6 +145,7 @@ export function ScopeFilterBar({
   onBatches,
   term,
   onTerm,
+  pastSemesters = [],
   semesterNote,
   moreCount,
   onMore,
@@ -134,6 +166,8 @@ export function ScopeFilterBar({
   onBatches: (next: string[]) => void;
   term: Term;
   onTerm: (next: Term) => void;
+  /** Ended semesters per college (the Semester menu offers those of the colleges picked). */
+  pastSemesters?: PastSemester[];
   semesterNote?: { label: string; text: string; action: string; onAction: () => void };
   /** Filters set behind More filters; no button when onMore is missing. */
   moreCount: number;
@@ -148,7 +182,9 @@ export function ScopeFilterBar({
 }) {
   const multiCampus = campuses.length !== 1;
   const shownBatches = campuses.length ? batchOptions.filter((b) => campuses.includes(b.campus)) : batchOptions;
-  const endedBatches = shownBatches.filter((b) => b.ended).length;
+  const pastChoices = pastSemesterChoices(pastSemesters, campuses);
+  // The semester picked stays in the menu even when the colleges picked have none of it (it then shows no students).
+  if (term && !pastChoices.some((c) => c.semester === term)) pastChoices.unshift({ semester: term, students: 0 });
   return (
     <section aria-label="Filters" aria-busy={updating} className="relative mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -188,7 +224,7 @@ export function ScopeFilterBar({
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className={fieldTrigger}>
-                  <span className="min-w-0 truncate">{semesterNote ? semesterNote.label : TERM_LABEL[term]}</span>
+                  <span className="min-w-0 truncate">{semesterNote ? semesterNote.label : termLabel(term)}</span>
                   <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                 </Button>
               </PopoverTrigger>
@@ -200,9 +236,16 @@ export function ScopeFilterBar({
                   </div>
                 ) : (
                   <>
-                    <MenuOption on={term === ""} label="This semester" hint="all batches" onSelect={() => onTerm("")} />
-                    <MenuOption on={term === "running"} label="Running" hint="semester in progress" onSelect={() => onTerm("running")} />
-                    <MenuOption on={term === "ended"} label="Ended" hint={endedBatches ? `${endedBatches} ${endedBatches === 1 ? "batch" : "batches"}` : undefined} onSelect={() => onTerm("ended")} />
+                    <MenuOption on={term === ""} label="Current semester" onSelect={() => onTerm("")} />
+                    {pastChoices.map((c) => (
+                      <MenuOption
+                        key={c.semester}
+                        on={term === c.semester}
+                        label={termLabel(c.semester)}
+                        hint={c.students ? `${c.students.toLocaleString("en-IN")} students` : undefined}
+                        onSelect={() => onTerm(c.semester)}
+                      />
+                    ))}
                   </>
                 )}
               </PopoverContent>

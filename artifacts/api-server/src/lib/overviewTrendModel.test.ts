@@ -18,6 +18,19 @@ test("days add up into weeks, oldest first; weeks with nothing held are left out
   assert.deepEqual(pts, [{ week: "2026-11-02", present: 1, scheduled: 2 }, { week: "2026-11-09", present: 10, scheduled: 14 }]);
 });
 
+test("Semester filter: current rows only by default; an ended semester shows its past rows only", () => {
+  const rows = [
+    row({ semester: "Semester 4", present: 9, scheduled: 10 }),
+    row({ semester: "Semester 3", ended: true, past: true, present: 5, scheduled: 10 }),
+    row({ semester: "Semester 1", ended: true, past: true, present: 1, scheduled: 10 }),
+  ];
+  const sum = (f: Parameters<typeof trendOf>[1]) => trendOf(rows, f).reduce((n, p) => n + p.present, 0);
+  assert.equal(sum({}), 9);
+  assert.equal(sum({ term: "Semester 3" }), 5);
+  assert.equal(sum({ term: "Semester 1" }), 1);
+  assert.equal(sum({ term: "Semester 9" }), 0);
+});
+
 test("filters mean what they mean on the Student Directory", () => {
   const rows = [
     row({ college: "Alpha", batch: "B1", section: "S-001", subject: "Maths" }),
@@ -29,8 +42,8 @@ test("filters mean what they mean on the Student Directory", () => {
   assert.equal(total({ colleges: ["Alpha"] }), 20);
   assert.equal(total({ scopeCampuses: ["Beta"] }), 10);
   assert.equal(total({ batches: ["Alpha\tB2"] }), 10);
-  assert.equal(total({ term: "running" }), 20);
-  assert.equal(total({ term: "ended" }), 10);
+  // Current semester: running and ended batches both count (Alpha B2 is a batch between semesters).
+  assert.equal(total({ term: undefined }), 30);
   assert.equal(total({ semester: "Semester 3" }), 10);
   assert.equal(total({ sections: ["B1\tS-001"] }), 10); // a section of one batch, not the same name in batch B2
   assert.equal(total({ subject: "  maths " }), 20); // case and spaces ignored, as the report

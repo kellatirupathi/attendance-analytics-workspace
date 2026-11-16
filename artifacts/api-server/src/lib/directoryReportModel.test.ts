@@ -108,10 +108,30 @@ test("batch filter keeps that college's batch only", () => {
   assert.deepEqual(ids({ batches: ["CDU\tCDU Batch -1", "ADYPU\tADYPU Batch-2"] }), ["a1", "a2", "c1"]);
 });
 
-test("running + ended = all students", () => {
-  const all = ids({}).length;
-  assert.equal(ids({ term: "running" }).length + ids({ term: "ended" }).length, all);
-  assert.deepEqual(ids({ term: "ended" }), ["a1", "a2"]);
+test("Semester filter: current semester = rows without past (ended batches included); an ended semester = its past rows only", () => {
+  const withPast: DirectoryStudent[] = [
+    ...roster,
+    // b1 is in Semester 1 now and had a Semester 3 report that ended; a1 (an ended batch) also has its Semester 3 report.
+    student({ studentId: "b1", college: "CDU", batch: "CDU Batch -2", semester: "Semester 3", section: "S-009", ended: true, past: true }),
+    student({ studentId: "a1", college: "CDU", batch: "CDU Batch -1", semester: "Semester 3", section: "S-001", ended: true, past: true }),
+    student({ studentId: "z9", college: "Zeta", semester: "Semester 1", section: "S-01", ended: true, past: true }),
+  ];
+  const idsOf = (f: Parameters<typeof directoryRows>[1]) => directoryRows(withPast, f).map((r) => r.studentId).sort();
+  // Current: every student once (the ended batch's students too), no past rows.
+  assert.deepEqual(idsOf({}), ["a1", "a2", "b1", "c1", "x1"]);
+  // Semester 3 (ended): the past rows of that semester, each student once, with that report's section.
+  assert.deepEqual(idsOf({ term: "Semester 3" }), ["a1", "b1"]);
+  assert.equal(directoryRows(withPast, { term: "Semester 3" }).find((r) => r.studentId === "b1")!.section, "S-009");
+  assert.deepEqual(idsOf({ term: "Semester 1" }), ["z9"]);
+  // A semester nobody has ended: nothing (never the current rows).
+  assert.deepEqual(idsOf({ term: "Semester 7" }), []);
+  // Other filters still apply inside an ended semester; the user's colleges too.
+  assert.deepEqual(idsOf({ term: "Semester 3", batches: ["CDU\tCDU Batch -2"] }), ["b1"]);
+  assert.deepEqual(idsOf({ term: "Semester 1", scopeCampuses: ["CDU"] }), []);
+  // Filter choices follow the semester picked.
+  assert.deepEqual(directoryOptions(withPast, { term: "Semester 1" }).colleges, ["Zeta"]);
+  assert.deepEqual(directoryOptions(withPast, {}).colleges, ["ADYPU", "CDU"]);
+  assert.equal(summarize(directoryRows(withPast, { term: "Semester 3" })).students, 2);
 });
 
 test("the same section name in two batches stays apart with a batch-scoped section", () => {

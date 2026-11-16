@@ -196,12 +196,12 @@ test("batch filter keeps that college's batch, in rows and plan", () => {
   assert.equal(k.available, 1);
 });
 
-test("running + ended = all students, in rows and plan", () => {
-  const count = (term?: "running" | "ended") => filterRows(batchModel, { term }).length;
-  assert.equal(count("running") + count("ended"), count());
-  assert.equal(count("ended"), 2);
-  const avail = (term?: "running" | "ended") => quizKpis(batchModel, { term }, "2026-11-14").available;
-  assert.equal(avail("running") + avail("ended"), avail());
+test("the Semester filter does not filter loaded rows again (the data loaded is already that semester's)", () => {
+  const count = (term?: string) => filterRows(batchModel, { term }).length;
+  assert.equal(count(), 4);
+  assert.equal(count("Semester 3"), count());
+  const avail = (term?: string) => quizKpis(batchModel, { term }, "2026-11-14").available;
+  assert.equal(avail("Semester 3"), avail());
 });
 
 test("the same section name in two batches: a batch-scoped section keeps them apart", () => {
@@ -244,7 +244,7 @@ test("college ended: only when every student's semester ended; count of ended st
   const cdu = campusRows(batchModel, {}, "2026-11-14").find((r) => r.college === "CDU")!;
   assert.equal(cdu.ended, false);
   assert.equal(cdu.endedStudents, 2);
-  const only = campusRows(batchModel, { term: "ended" }, "2026-11-14").find((r) => r.college === "CDU")!;
+  const only = campusRows(batchModel, { batches: ["CDU\tCDU Batch -1"] }, "2026-11-14").find((r) => r.college === "CDU")!;
   assert.equal(only.ended, true);
 });
 

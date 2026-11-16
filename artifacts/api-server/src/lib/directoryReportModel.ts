@@ -60,6 +60,11 @@ export interface DirectoryStudent {
   skillDebt: boolean;
   /** True when the semester has ended: the row is the last saved report from spi_report_history. */
   ended?: boolean;
+  /**
+   * True on a row of an ended semester's saved report, shown only when that semester is picked in the Semester
+   * filter. A student can have one current row and past rows (e.g. Semester 4 now, Semester 3 ended).
+   */
+  past?: boolean;
   courses: DirectoryCourse[];
 }
 
@@ -72,8 +77,11 @@ export interface DirectoryFilter {
   colleges?: string[];
   /** "college\tbatch" keys. */
   batches?: string[];
-  /** Running: a current-semester report; ended: the last report of a semester that ended. */
-  term?: "running" | "ended";
+  /**
+   * The Semester filter: missing = the current semester (each student's latest report, the rows without `past`);
+   * a semester title (e.g. "Semester 3") = the saved reports of that ended semester (the `past` rows).
+   */
+  term?: string;
   semester?: string;
   section?: string;
   /** "batch\tsection" keys (a section name repeats across batches), or plain section names. */
@@ -170,14 +178,18 @@ export function subjectSet(f: DirectoryFilter): Set<string> | null {
   return scope.length ? new Set(scope) : null;
 }
 
+/** The Semester filter: current semester rows, or the past rows of the one ended semester picked. */
+export function inTerm(s: { past?: boolean; semester?: string | null }, term: string | undefined): boolean {
+  return term ? !!s.past && (s.semester ?? "").trim() === term : !s.past;
+}
+
 export function matches(s: DirectoryStudent, f: DirectoryFilter, subjects: Set<string> | null): boolean {
   const campuses = f.scopeCampuses ?? [];
   if (campuses.length && !campuses.some((c) => c.trim() === s.college)) return false;
   if (f.college && s.college !== f.college.trim()) return false;
   if (f.colleges?.length && !f.colleges.some((c) => c.trim() === s.college)) return false;
   if (f.batches?.length && !f.batches.includes(`${s.college}\t${batchOf(s)}`)) return false;
-  if (f.term === "running" && s.ended) return false;
-  if (f.term === "ended" && !s.ended) return false;
+  if (!inTerm(s, f.term)) return false;
   if (f.semester && (s.semester ?? "") !== f.semester.trim()) return false;
   if (f.section && s.section !== f.section.trim()) return false;
   if (f.sections?.length && !f.sections.includes(`${batchOf(s)}\t${s.section}`) && !f.sections.includes(s.section)) return false;
@@ -269,10 +281,10 @@ export interface DirectoryOptions {
   subjects: string[];
 }
 
-/** Filter choices within the user's scope. */
-export function directoryOptions(students: DirectoryStudent[], f: Pick<DirectoryFilter, "scopeCampuses" | "scopeSubjects">): DirectoryOptions {
+/** Filter choices within the user's scope, for the semester picked (the current one, or one ended semester). */
+export function directoryOptions(students: DirectoryStudent[], f: Pick<DirectoryFilter, "scopeCampuses" | "scopeSubjects" | "term">): DirectoryOptions {
   const subjects = subjectSet({ scopeSubjects: f.scopeSubjects });
-  const inScope = students.filter((s) => matches(s, { scopeCampuses: f.scopeCampuses }, null));
+  const inScope = students.filter((s) => matches(s, { scopeCampuses: f.scopeCampuses, term: f.term }, null));
   const colleges = new Set<string>();
   const semesters = new Set<string>();
   const sections = new Map<string, { college: string; batch: string; semester: string | null; section: string }>();

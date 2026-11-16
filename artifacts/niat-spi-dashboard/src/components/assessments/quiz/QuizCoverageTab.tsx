@@ -50,7 +50,7 @@ export function QuizCoverageTab({ quizType, tabs, filters, onFiltersChange }: { 
     return () => window.clearTimeout(id);
   }, [search]);
 
-  const options = useQuery({ queryKey: ["quiz-options", quizType], queryFn: () => quizApi.options(quizType), staleTime: STALE });
+  const options = useQuery({ queryKey: ["quiz-options", quizType, applied.term], queryFn: () => quizApi.options(quizType, applied.term), staleTime: STALE, placeholderData: keepPreviousData });
   const kpis = useQuery({ queryKey: ["quiz-kpis", quizType, applied], queryFn: () => quizApi.kpis(quizType, applied), staleTime: STALE, placeholderData: keepPreviousData });
 
   // A page belongs to one set of filters, sort, size and search: any change starts again at page 1.
@@ -166,7 +166,9 @@ export function QuizCoverageTab({ quizType, tabs, filters, onFiltersChange }: { 
         batches={applied.batches}
         onBatches={(batches) => change({ batches })}
         term={applied.term}
-        onTerm={(term) => change({ term })}
+        // Another semester has other batches and sections: those picked are dropped, colleges stay.
+        onTerm={(term) => change({ term, batches: [], sections: [] })}
+        pastSemesters={o?.pastSemesters}
         moreCount={moreCount}
         onMore={openMore}
         chips={chips}
@@ -293,7 +295,7 @@ export function QuizCoverageTab({ quizType, tabs, filters, onFiltersChange }: { 
         </section>
       </div>
 
-      <QuizStudentPanel uid={openUid} quizType={quizType} onClose={() => setOpenUid(null)} />
+      <QuizStudentPanel uid={openUid} quizType={quizType} term={applied.term} onClose={() => setOpenUid(null)} />
     </div>
   );
 }

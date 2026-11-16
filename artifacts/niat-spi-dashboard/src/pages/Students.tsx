@@ -19,6 +19,7 @@ import {
   fieldTrigger,
   focusRing,
   MoreFiltersSheet,
+  readTermParam,
   ScopeFilterBar,
   Segmented,
   UpdatingBar,
@@ -161,7 +162,7 @@ export default function Students() {
     ...NO_DIRECTORY_FILTERS,
     colleges: list("campuses"),
     batches: list("batches").filter((b) => b.includes("\t")),
-    term: link.get("term") === "running" || link.get("term") === "ended" ? (link.get("term") as "running" | "ended") : "",
+    term: readTermParam(link.get("term")),
     sections: list("sections"),
     subject: link.get("subject") ?? "",
     semester: link.get("semesters")?.split("||")[0] ?? "",
@@ -181,7 +182,7 @@ export default function Students() {
   }, [filters.q]);
 
   const applied = useMemo(() => ({ ...filters, q: debouncedQ }), [filters, debouncedQ]);
-  const options = useQuery({ queryKey: ["directory-options"], queryFn: directoryApi.options, staleTime: STALE });
+  const options = useQuery({ queryKey: ["directory-options", filters.term], queryFn: () => directoryApi.options(filters.term), staleTime: STALE, placeholderData: keepPreviousData });
   const viewKey = JSON.stringify([applied, sort, pageSize]);
   const [pageState, setPageState] = useState({ key: viewKey, page: 1 });
   const page = pageState.key === viewKey ? pageState.page : 1;
@@ -196,7 +197,8 @@ export default function Students() {
 
   const o = options.data;
   /** A single-college user: the college is fixed. */
-  const lockedCampus = o?.colleges.length === 1 ? o.colleges[0] : undefined;
+  // From the user's own colleges, not the options: an ended semester can have one college for everyone.
+  const lockedCampus = user?.campuses?.length === 1 ? user.campuses[0] : undefined;
   const sectionsFor = (colleges: string[], batches: string[]) =>
     (o?.sections ?? []).filter(
       (s) => (colleges.length || batches.length || lockedCampus) && (!colleges.length || colleges.includes(s.college)) && (!batches.length || batches.includes(`${s.college}\t${s.batch}`)),
@@ -260,7 +262,7 @@ export default function Students() {
     const a = document.createElement("a");
     const stem = filters.colleges.length === 1 ? filters.colleges[0]! : filters.colleges.length ? `${filters.colleges.length}-colleges` : "all-colleges";
     a.href = url;
-    a.download = `student-directory_${stem.replace(/[^\w.-]+/g, "-")}${filters.term ? `_${filters.term}` : ""}.csv`;
+    a.download = `student-directory_${stem}${filters.term ? `_${filters.term}-ended` : ""}`.replace(/[^\w.-]+/g, "-") + ".csv";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -307,7 +309,9 @@ export default function Students() {
         batches={filters.batches}
         onBatches={(batches) => change({ batches })}
         term={filters.term}
-        onTerm={(term) => change({ term })}
+        // Another semester has other batches and sections: those picked are dropped, colleges stay.
+        onTerm={(term) => change({ term, batches: [], sections: [] })}
+        pastSemesters={o?.pastSemesters}
         moreCount={moreCount}
         onMore={openMore}
         chips={chips}

@@ -4,6 +4,30 @@ import { buildAllScorecards } from "./spiScorecard.js";
 import { plainCourseName } from "./reportRemovedCourses.js";
 import { savedReportEndedSql } from "./reportEnded.js";
 import type { ReportCourses } from "./quizCoverageModel.js";
+import { PAST_REPORTS_SQL } from "./pastSemesters.js";
+
+type SavedRow = {
+  student_id: string;
+  college: string | null;
+  section: string | null;
+  batch: string | null;
+  semester: string | null;
+  ended: boolean;
+  name: string | null;
+  course: string;
+  skill: { avgPct: number; attempted: number; total: number } | null;
+};
+
+/** One report per student from the per-course rows. */
+function reportsOf(rows: SavedRow[]): SavedReport[] {
+  const byStudent = new Map<string, SavedReport>();
+  for (const r of rows) {
+    let report = byStudent.get(r.student_id);
+    if (!report) byStudent.set(r.student_id, (report = { studentKey: r.student_id, campus: r.college, section: r.section, batch: r.batch, semester: r.semester, ended: !!r.ended, name: r.name, courses: [] }));
+    report.courses.push({ name: r.course, skill: r.skill ? { avgPct: Number(r.skill.avgPct) || 0, attempted: Number(r.skill.attempted) || 0, total: Number(r.skill.total) || 0 } : null });
+  }
+  return [...byStudent.values()];
+}
 
 /**
  * What the student reports show, read from the saved reports (spi_report_cache, rebuilt by the report sync).
@@ -32,19 +56,13 @@ export interface SavedReport {
   courses: SavedReportCourse[];
 }
 
-export async function loadSavedReports(): Promise<SavedReport[] | null> {
+/**
+ * The saved reports of the current semester, or with `term` (the Semester filter) the ended saved reports of that
+ * semester, one per student (pastSemesters.ts).
+ */
+export async function loadSavedReports(term?: string): Promise<SavedReport[] | null> {
   try {
-    type Row = {
-      student_id: string;
-      college: string | null;
-      section: string | null;
-      batch: string | null;
-      semester: string | null;
-      ended: boolean;
-      name: string | null;
-      course: string;
-      skill: { avgPct: number; attempted: number; total: number } | null;
-    };
+    type Row = SavedRow;
     const select = (source: string) =>
       `SELECT r.student_id, r.college, r.section, r.batch, r.semester, r.ended, r.report->>'studentName' AS name, c->>'name' AS course,
               CASE WHEN jsonb_typeof(c->'skillAssessment') = 'object' THEN c->'skillAssessment' END AS skill
@@ -58,21 +76,22 @@ export async function loadSavedReports(): Promise<SavedReport[] | null> {
        WHERE NOT EXISTS (SELECT 1 FROM spi_report_cache c WHERE c.student_id = h.student_id)
        ORDER BY h.student_id, h.built_at DESC))`;
     let rows: Row[];
+    if (term) {
+      // An ended semester: its saved reports only; none (or no history table yet) means no students.
+      try {
+        rows = (await pool.query<Row>(select(`(SELECT student_id, college, section, batch, semester, true AS ended, report FROM ${PAST_REPORTS_SQL} p WHERE p.semester = $1)`), [term])).rows;
+      } catch {
+        return [];
+      }
+      return reportsOf(rows);
+    }
     try {
       rows = (await pool.query<Row>(select(withHistory))).rows;
     } catch {
       // spi_report_history not created yet (fresh database): the live cache alone.
       rows = (await pool.query<Row>(select("(SELECT student_id, college, section, batch, semester, false AS ended, report FROM spi_report_cache)"))).rows;
     }
-    if (rows.length > 0) {
-      const byStudent = new Map<string, SavedReport>();
-      for (const r of rows) {
-        let report = byStudent.get(r.student_id);
-        if (!report) byStudent.set(r.student_id, (report = { studentKey: r.student_id, campus: r.college, section: r.section, batch: r.batch, semester: r.semester, ended: !!r.ended, name: r.name, courses: [] }));
-        report.courses.push({ name: r.course, skill: r.skill ? { avgPct: Number(r.skill.avgPct) || 0, attempted: Number(r.skill.attempted) || 0, total: Number(r.skill.total) || 0 } : null });
-      }
-      return [...byStudent.values()];
-    }
+    if (rows.length > 0) return reportsOf(rows);
     logger.warn("spi_report_cache is empty; building the reports in memory for the Assessments tabs");
   } catch (err) {
     logger.warn({ err }, "Reading spi_report_cache failed; building the reports in memory for the Assessments tabs");
@@ -97,8 +116,8 @@ export async function loadSavedReports(): Promise<SavedReport[] | null> {
 }
 
 /** The courses each student's report shows, by plain lower-case name. */
-export async function loadReportCourses(): Promise<ReportCourses | null> {
-  const reports = await loadSavedReports();
+export async function loadReportCourses(term?: string): Promise<ReportCourses | null> {
+  const reports = await loadSavedReports(term);
   if (!reports) return null;
   const byStudent = new Map<string, Set<string>>();
   const campusCourses = new Set<string>();

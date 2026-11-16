@@ -10,7 +10,7 @@ import { CopyUid } from "@/components/assessments/quiz/CopyUid";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Building2, FileText, GraduationCap, Layers, LayoutGrid, Loader2, Search, User, type LucideIcon } from "lucide-react";
 import { CheckMenu } from "@/components/SpiRecordFilterBar";
-import { EndedTag, ExportMenu, FilterField, fieldTrigger, focusRing, MoreFiltersSheet, ScopeFilterBar, Segmented, type Term } from "@/components/ScopeFilters";
+import { EndedTag, ExportMenu, FilterField, fieldTrigger, focusRing, MoreFiltersSheet, readTermParam, ScopeFilterBar, Segmented, termLabel, type PastSemester } from "@/components/ScopeFilters";
 import { cn } from "@/lib/utils";
 import { ATTENDANCE_TIERS, getTier, NO_SESSIONS_LABEL, TIER_AT_RISK, TIER_ELIGIBLE, TIER_RECOVERY } from "@/lib/attendanceTiers";
 import { useQueryParams } from "@/hooks/useQueryParams";
@@ -174,6 +174,8 @@ interface RowsPayload {
     sections: { campus: string; section: string }[];
     subjects: string[];
     ended: { batches: number; students: number };
+    /** Ended semesters per college, for the Semester menu. */
+    pastSemesters?: PastSemester[];
   };
 }
 
@@ -261,7 +263,8 @@ export default function StudentAttendanceStats() {
   const subjects = readSubjects(query);
   /** Main level: "college\tbatch" keys, then the semester (latest per batch, running / ended only, or one earlier semester). */
   const batches = splitList(query.get("batches")).filter((value) => value.includes("\t"));
-  const status = query.get("status") === "running" || query.get("status") === "ended" ? query.get("status")! : "";
+  /** The Semester filter: "" = the current semester; a title = that ended semester (old running / ended links: current). */
+  const term = readTermParam(query.get("term"));
   const students = splitList(query.get("students")).map((value) => {
     const [studentId, studentCampus, studentName] = value.split("\t");
     return { studentId: studentId ?? "", campus: studentCampus ?? "", studentName: studentName ?? "" };
@@ -343,7 +346,7 @@ export default function StudentAttendanceStats() {
     list("campuses", overrides.campuses ?? campuses);
     const batchList = overrides.batches ?? batches;
     list("batches", batchList);
-    if (status) params.set("status", status);
+    if (term) params.set("term", term);
     list("semesters", semesters);
     list("sections", overrides.sections ?? sections.map((item) => `${item.campus}\t${item.section}`));
     list("students", overrides.students ?? students.map((item) => `${item.campus}\t${item.studentId}`));
@@ -385,7 +388,6 @@ export default function StudentAttendanceStats() {
   const batchChoices = data?.options.batches ?? [];
   const sectionChoices = data?.options.sections ?? [];
   const subjectOptions = useMemo(() => subjectOptionList(data?.options.subjects ?? []), [data]);
-  const endedNote = data?.options.ended ?? { batches: 0, students: 0 };
 
 
   const summary: AttendanceHeader = data?.summary ?? EMPTY_SUMMARY;
@@ -406,11 +408,7 @@ export default function StudentAttendanceStats() {
   );
   const tierShown = COLUMN_ORDER.some((id) => TIER_COLUMNS.has(id) && columns.includes(id));
 
-  const semesterLabel = status === "running"
-      ? "Running"
-      : status === "ended"
-        ? "Ended"
-        : "This semester";
+  const semesterLabel = termLabel(term);
   const scopeLabel = [
     campusScopeLabel(campuses, campusOptions),
     batches.length === 1 ? batches[0]!.split("\t")[1] : batches.length > 1 ? `${batches.length} batches` : "",
@@ -477,7 +475,7 @@ export default function StudentAttendanceStats() {
     const parts = ["attendance", campuses.length === 1 ? campuses[0]! : campuses.length ? `${campuses.length}-colleges` : "all-colleges"];
     if (batches.length === 1) parts.push(batches[0]!.split("\t")[1]!);
     else if (batches.length) parts.push(`${batches.length}-batches`);
-    if (status) parts.push(status);
+    if (term) parts.push(`${term}-ended`);
     return parts.join("_").replace(/[^\w.-]+/g, "-");
   };
   const runExport = async (kind: "table" | "students") => {
@@ -624,7 +622,9 @@ export default function StudentAttendanceStats() {
     });
   };
   const setBatches = (next: string[]) => writeQuery({ batches: next.join("||") || undefined, sections: undefined });
-  const setSemester = (choice: { status?: string }) => writeQuery({ status: choice.status });
+  /** Another semester has other batches, sections and students: those picked are dropped, colleges stay. */
+  const setSemester = (next: string) =>
+    writeQuery({ term: next || undefined, status: undefined, batches: undefined, sections: undefined, students: undefined });
 
   /** Filters behind More filters (and ones that only arrive from links), shown as removable chips under the bar. */
   const chips: { key: string; label: string; clear: () => void }[] = [
@@ -655,7 +655,7 @@ export default function StudentAttendanceStats() {
     })),
   ];
   const anyFilter =
-    (!lockedCampus && campuses.length > 0) || batches.length > 0 || Boolean(status) || sections.length > 0 || subjects.length > 0 ||
+    (!lockedCampus && campuses.length > 0) || batches.length > 0 || Boolean(term) || sections.length > 0 || subjects.length > 0 ||
     semesters.length > 0 || students.length > 0 || scopeKind !== "semester";
   /** Resets every filter in the box (a single-campus user keeps their campus). */
   const clearAll = () => {
@@ -663,6 +663,7 @@ export default function StudentAttendanceStats() {
     writeQuery({
       campuses: undefined,
       batches: undefined,
+      term: undefined,
       status: undefined,
       semesters: undefined,
       sections: undefined,
@@ -711,8 +712,9 @@ export default function StudentAttendanceStats() {
         batchOptions={batchChoices}
         batches={batches}
         onBatches={setBatches}
-        term={(status || "") as Term}
-        onTerm={(next) => setSemester({ status: next || undefined })}
+        term={term}
+        onTerm={setSemester}
+        pastSemesters={data?.options.pastSemesters}
         semesterNote={
           scopeKind !== "semester"
             ? {
@@ -865,14 +867,6 @@ export default function StudentAttendanceStats() {
             ) : (
               <>
             <span className="font-semibold text-slate-900">{totalRows.toLocaleString("en-IN")}</span> rows
-            {scopeKind === "semester" && status !== "ended" && endedNote.batches > 0 && (
-              <>
-                {" · "}
-                <button type="button" className={cn("rounded font-medium text-amber-700 hover:underline", focusRing)} onClick={() => setSemester({ status: "ended" })}>
-                  {endedNote.batches} {endedNote.batches === 1 ? "batch" : "batches"} ended
-                </button>
-              </>
-            )}
               </>
             )}
           </p>

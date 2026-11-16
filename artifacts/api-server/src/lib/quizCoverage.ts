@@ -1,6 +1,9 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION, PROD_SEQUENCE_TABLE } from "./bigquery.js";
 import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
-import { attendanceSource, LATEST_SEMESTER_SQL, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
+import { attendanceSource, LATEST_SEMESTER_SQL, pastQuizSource, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
+import { pastPlacesSnapshot } from "./pastSemesters.js";
+import { pastSemesterSql } from "./pastSemesterSql.js";
+import { cacheGet, cacheSet } from "./cache.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
 import { courseScorePoint, restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
@@ -27,22 +30,34 @@ const tables = (): QuizCoverageTables => ({
 const num = (v: unknown) => Number(v) || 0;
 const text = (v: unknown) => (v == null ? null : String(v));
 
-async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
-  const t = tables();
+async function loadQuiz(type: QuizType, term?: string): Promise<QuizCoverageModel> {
+  let t = tables();
   // The report's students and semester: current, or a batch between semesters on its last ended one (as Attendance Stats).
-  const attWhere = `${excludeInstituteSql()} AND ${REPORT_ROSTER_SQL} AND ${LATEST_SEMESTER_SQL}`;
+  let attWhere = `${excludeInstituteSql()} AND ${REPORT_ROSTER_SQL} AND ${LATEST_SEMESTER_SQL}`;
+  let params: Record<string, unknown> = {};
+  if (term) {
+    // An ended semester (the Semester filter): that semester's rows of the students whose saved report of it ended.
+    const places = await pastPlacesSnapshot.get();
+    const att = pastSemesterSql(places, { semester: term });
+    const quiz = pastSemesterSql(places, { semester: term, alias: "q", studentColumn: "user_id" });
+    if (!att || !quiz) return { rows: [], plan: [] };
+    attWhere = `${excludeInstituteSql()} AND ${REPORT_ROSTER_SQL} AND ${att.where}`;
+    params = att.params;
+    t = { ...t, quiz: pastQuizSource(quiz.where) };
+  }
   const endedSections = `SELECT DISTINCT CONCAT(LOWER(REPLACE(CAST(section_id AS STRING), '-', '')), CHR(9), TRIM(CAST(semester_title AS STRING)))
     FROM ${t.attendance} WHERE is_current_semester = 0 AND ${attWhere}`;
   const [rows, plan] = await Promise.all([
     bqQuery<Record<string, unknown>>(
       buildQuizCoverageRowsSql(t, type, attWhere, excludeInstituteSql("q.institute_name")),
-      {},
+      params,
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     bqQuery<Record<string, unknown>>(
-      buildQuizCoveragePlanSql(t, type, excludeInstituteSql("p.institute_name"), endedSections),
-      {},
+      // An ended semester: only its own sections' plan (no current-semester plan).
+      buildQuizCoveragePlanSql(t, type, excludeInstituteSql("p.institute_name"), endedSections, !!term),
+      params,
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
@@ -78,7 +93,7 @@ async function loadQuiz(type: QuizType): Promise<QuizCoverageModel> {
     firstDate: String(r["first_date"] ?? ""),
   }));
   // The courses the student report shows (the report decides them; this only reads the result).
-  const report = await loadReportCourses();
+  const report = await loadReportCourses(term);
   const model = report ? restrictToReportCourses({ rows: studentRows, plan: planRows }, report) : { rows: studentRows, plan: planRows };
   return { rows: model.rows, plan: scopePlanToStudentColleges(model.rows, model.plan), ...(report?.names ? { reportCourses: report.names } : {}) };
 }
@@ -95,9 +110,9 @@ const shortSection = (batchSection: string | null): string => {
  * and the course's best score are exactly what the student's report shows. Colleges whose assessment data is not linked
  * to report courses have no rows (the tab says so).
  */
-async function loadSkill(): Promise<QuizCoverageModel> {
+async function loadSkill(term?: string): Promise<QuizCoverageModel> {
   const [reports, categories, classroom] = await Promise.all([
-    loadSavedReports(),
+    loadSavedReports(term),
     bqQuery<{ campus: string; subject: string; category: string | null }>(
       `SELECT TRIM(institute_name) AS campus, TRIM(course_title) AS subject, ANY_VALUE(UPPER(TRIM(CAST(category AS STRING)))) AS category
        FROM ${PROD_SEQUENCE_TABLE} WHERE is_current_semester = 1 AND course_title IS NOT NULL GROUP BY campus, subject`,
@@ -105,7 +120,7 @@ async function loadSkill(): Promise<QuizCoverageModel> {
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
-    quizCoverageSnapshot("CLASSROOM_QUIZ").get(),
+    coverageModel("CLASSROOM_QUIZ", term),
   ]);
   if (!reports) throw new Error("The saved student reports could not be loaded for the Skill Assessment tab");
   const categoryOf = new Map(categories.map((c) => [`${c.campus}\t${plainCourseName(c.subject)}`, c.category]));
@@ -155,6 +170,29 @@ export function quizCoverageSnapshot(type: CoverageType): Snapshot<QuizCoverageM
     snapshots.set(type, s);
   }
   return s;
+}
+
+const pastInFlight = new Map<string, Promise<QuizCoverageModel>>();
+
+/**
+ * One tab's data for the Semester filter: the shared copy for the current semester, or an ended semester's
+ * data (loaded on first use and kept 30 minutes, shared by all users).
+ */
+export async function coverageModel(type: CoverageType, term?: string): Promise<QuizCoverageModel> {
+  if (!term) return quizCoverageSnapshot(type).get();
+  const key = `assessments-past:v1:${type}:${pastPlacesSnapshot.version()}:${term}`;
+  const cached = cacheGet<QuizCoverageModel>(key);
+  if (cached) return cached;
+  let pending = pastInFlight.get(key);
+  if (!pending) {
+    pending = (type === "SKILL_ASSESSMENT" ? loadSkill(term) : loadQuiz(type, term)).then((model) => {
+      cacheSet(key, model, 30 * 60 * 1000);
+      return model;
+    });
+    pastInFlight.set(key, pending);
+    pending.finally(() => pastInFlight.delete(key)).catch(() => undefined);
+  }
+  return pending;
 }
 
 // Warm every tab's copy with the other snapshots (startSnapshots runs every registered one).

@@ -11,10 +11,10 @@ import { EndedTag } from "@/components/ScopeFilters";
 const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
 
 /** Right-hand panel for one student: totals, then one row per subject. */
-export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | null; quizType: QuizType; onClose: () => void }) {
+export function QuizStudentPanel({ uid, quizType, term = "", onClose }: { uid: string | null; quizType: QuizType; term?: string; onClose: () => void }) {
   const q = useQuery({
-    queryKey: ["quiz-student", quizType, uid],
-    queryFn: () => quizApi.student(quizType, uid!),
+    queryKey: ["quiz-student", quizType, uid, term],
+    queryFn: () => quizApi.student(quizType, uid!, term),
     enabled: Boolean(uid),
     staleTime: 5 * 60_000,
   });
@@ -103,7 +103,7 @@ export function QuizStudentPanel({ uid, quizType, onClose }: { uid: string | nul
         <div className="border-t border-slate-200 p-4">
           {d && (
             <a
-              href={quizApi.downloadUrl(quizType, NO_FILTERS, "student-subject", "xlsx", d.uid)}
+              href={quizApi.downloadUrl(quizType, { ...NO_FILTERS, term }, "student-subject", "xlsx", d.uid)}
               className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 sm:w-auto sm:px-4"
             >
               <Download className="h-4 w-4" aria-hidden="true" /> Download student report
