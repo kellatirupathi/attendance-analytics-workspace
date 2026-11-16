@@ -183,6 +183,13 @@ export function ScopeFilterBar({
   const multiCampus = campuses.length !== 1;
   const shownBatches = campuses.length ? batchOptions.filter((b) => campuses.includes(b.campus)) : batchOptions;
   const pastChoices = pastSemesterChoices(pastSemesters, campuses);
+  const quoted = (names: string[]) => names.map((n) => `“${n}”`).join(" or ");
+  // A grey line under the batches: where the batches of the other semesters are.
+  const batchFooter = term
+    ? `These are the batches of ${termLabel(term)}. For today's batches, choose “Current semester” in Semester.`
+    : pastChoices.length
+      ? `Batches of a semester that has ended are not here. To see them, choose ${quoted(pastChoices.map((c) => termLabel(c.semester)))} in Semester.`
+      : undefined;
   // The semester picked stays in the menu even when the colleges picked have none of it (it then shows no students).
   if (term && !pastChoices.some((c) => c.semester === term)) pastChoices.unshift({ semester: term, students: 0 });
   return (
@@ -218,6 +225,7 @@ export function ScopeFilterBar({
               }))}
               selected={batches}
               onChange={onBatches}
+              footer={batchFooter}
             />
           </FilterField>
           <FilterField label="Semester">

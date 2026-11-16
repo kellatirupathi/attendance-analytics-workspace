@@ -327,6 +327,7 @@ export function CheckMenu({
   onChange,
   className,
   chevron,
+  footer,
 }: {
   label: string;
   /** `hint`: muted text after the label (e.g. a batch's semester and student count). */
@@ -337,6 +338,8 @@ export function CheckMenu({
   className?: string;
   /** Shows a down arrow, so the button reads as a dropdown. */
   chevron?: boolean;
+  /** A short grey note under the list (e.g. where the batches of an ended semester are). */
+  footer?: ReactNode;
 }) {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -424,6 +427,7 @@ export function CheckMenu({
           ))}
           {options.length > 0 && !shown.length && <p className="py-2 text-center text-sm text-gray-500">No matches</p>}
         </div>
+        {footer && <p className="mt-2 border-t border-gray-200 pt-2 text-xs leading-snug text-gray-500">{footer}</p>}
       </PopoverContent>
     </Popover>
   );
