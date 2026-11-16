@@ -1,10 +1,6 @@
 import React from "react";
 import { AttendanceInfo } from "@/components/AttendanceInfo";
 import { ATTENDANCE_LABEL } from "@/lib/attendanceLabel";
-import { CalendarRange } from "lucide-react";
-
-/** Every data page shows each student's current semester; semesters that ended since SPI began are under the Semester filter. */
-export const SEMESTER_SCOPE_NOTE = "Showing each student's current semester. Semesters that have ended are under the Semester filter.";
 
 /** Shown on every page with attendance numbers; the server counts the same rows everywhere. */
 export const ATTENDANCE_SCOPE_NOTE = ATTENDANCE_LABEL;
@@ -15,7 +11,6 @@ export function PageHeader({
   badge,
   right,
   attendanceNote,
-  semesterNote = true,
 }: {
   title: string;
   subtitle?: React.ReactNode;
@@ -23,8 +18,6 @@ export function PageHeader({
   right?: React.ReactNode;
   /** Adds the shared attendance label (lib/attendanceLabel.ts) with its tooltip. */
   attendanceNote?: boolean;
-  /** The "this semester only" note; on by default, off for admin pages without student data. */
-  semesterNote?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4 border-b border-brand-100 py-4">
@@ -44,20 +37,12 @@ export function PageHeader({
                 {subtitle}
               </p>
             )}
-            {(semesterNote || attendanceNote) && (
+            {attendanceNote && (
               <div className="mt-2 flex flex-wrap gap-2">
-                {semesterNote && (
-                  <p className="inline-flex max-w-full items-start gap-1.5 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium leading-snug text-amber-900">
-                    <CalendarRange className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0">{SEMESTER_SCOPE_NOTE}</span>
-                  </p>
-                )}
-                {attendanceNote && (
-                  <p className="inline-flex max-w-full items-start gap-1.5 rounded-2xl border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-medium leading-snug text-brand-900">
-                    <span className="min-w-0">{ATTENDANCE_SCOPE_NOTE}</span>
-                    <AttendanceInfo className="mt-px text-brand-600 hover:text-brand-900" />
-                  </p>
-                )}
+                <p className="inline-flex max-w-full items-start gap-1.5 rounded-2xl border border-brand-100 bg-brand-50 px-3 py-1 text-xs font-medium leading-snug text-brand-900">
+                  <span className="min-w-0">{ATTENDANCE_SCOPE_NOTE}</span>
+                  <AttendanceInfo className="mt-px text-brand-600 hover:text-brand-900" />
+                </p>
               </div>
             )}
           </div>

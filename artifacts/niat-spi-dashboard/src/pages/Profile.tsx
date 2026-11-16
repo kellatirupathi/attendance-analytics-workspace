@@ -92,7 +92,7 @@ export default function Profile() {
 
   return (
     <div className="flex flex-col">
-      <PageHeader semesterNote={false}
+      <PageHeader
         title="Profile"
         subtitle="Manage your account settings and password."
       />
