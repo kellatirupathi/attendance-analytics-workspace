@@ -11,6 +11,7 @@ import { trendOf } from "../lib/overviewTrendModel.js";
 import { cacheGet, cacheSet } from "../lib/cache.js";
 import { pastPlacesSnapshot } from "../lib/pastSemesters.js";
 import { pastSemesterOptions, readTerm } from "../lib/pastSemesterModel.js";
+import { searchSpi, sortSpi, SPI_GRAINS, SPI_TARGET, SPI_UP_TO, spiGroups, spiStudents, spiSummary, type SpiFilter, type SpiGrain, type SpiStudentRow, type SpiUpTo } from "../lib/spiInterimModel.js";
 
 /**
  * Student Directory: one row per student from the saved student reports (lib/directoryReport.ts), so the
@@ -149,6 +150,78 @@ router.get("/export", async (req, res): Promise<void> => {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="student-directory.csv"');
     res.send(`﻿${[header.join(","), ...lines].join("\r\n")}`);
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+/** SPI Record Dashboard: the filters above plus "SPI up to", the interim score bounds, the view, search and sort. */
+function readSpiRequest(req: Request, res: Response) {
+  const filter = readFilter(req, res);
+  if (!filter) return null;
+  const q = req.query as Record<string, string | undefined>;
+  const upTo = (SPI_UP_TO as string[]).includes(String(q["upTo"])) ? (q["upTo"] as SpiUpTo) : "cqmqsa";
+  const grain = (SPI_GRAINS as string[]).includes(String(q["group"])) ? (q["group"] as SpiGrain) : "college";
+  const spiFilter: SpiFilter = { ...filter, q: "", upTo, scoreMin: bound(q["scoreMin"], 0), scoreMax: bound(q["scoreMax"], 100) };
+  return { spiFilter, grain, search: String(q["q"] ?? "").slice(0, 100), sort: String(q["sort"] ?? ""), dir: (q["dir"] === "desc" ? -1 : 1) as 1 | -1 };
+}
+
+/** The view's rows (after search and sort), the cards for the filters, and the total rows. */
+async function spiView(r: NonNullable<ReturnType<typeof readSpiRequest>>) {
+  const students = await directorySnapshot.get();
+  const key = `spi-record:v1:${directorySnapshot.version()}:${JSON.stringify(r.spiFilter)}`;
+  let base = cacheGet<{ rows: SpiStudentRow[]; all: SpiStudentRow[] }>(key);
+  if (!base) {
+    const rows = spiStudents(students, r.spiFilter);
+    const bounded = (r.spiFilter.scoreMin ?? 0) > 0 || (r.spiFilter.scoreMax ?? 100) < 100;
+    base = { rows, all: bounded ? spiStudents(students, { ...r.spiFilter, scoreMin: 0, scoreMax: 100 }) : rows };
+    cacheSet(key, base, 10 * 60 * 1000);
+  }
+  const summary = spiSummary(base.rows, base.all);
+  if (r.grain === "student") {
+    const rows = sortSpi(searchSpi(base.rows, r.search), r.sort || "score", r.sort ? r.dir : -1, true);
+    return { summary, student: rows, groups: null };
+  }
+  const groups = sortSpi(searchSpi(spiGroups(base.rows, r.grain), r.search), r.sort || "college", r.sort ? r.dir : 1, false);
+  return { summary, student: null, groups };
+}
+
+router.get("/spi-record", async (req, res): Promise<void> => {
+  const r = readSpiRequest(req, res);
+  if (!r) return;
+  try {
+    const view = await spiView(r);
+    const list = view.student ?? view.groups ?? [];
+    const page = pageOf(list as object[], readPageRequest(req.query as Record<string, unknown>));
+    const rows = view.student
+      ? (page.rows as SpiStudentRow[]).map(({ parts: _parts, ...row }) => ({ ...row, reportPath: r.spiFilter.term ? `${spiSharePath(row.studentId)}?${new URLSearchParams({ semester: r.spiFilter.term })}` : spiSharePath(row.studentId) }))
+      : page.rows;
+    res.json({ ...page, rows, grain: r.grain, summary: view.summary });
+  } catch (err) {
+    fail(req, res, err);
+  }
+});
+
+/** Every row of the view as CSV. */
+router.get("/spi-record/export", async (req, res): Promise<void> => {
+  const r = readSpiRequest(req, res);
+  if (!r) return;
+  try {
+    const view = await spiView(r);
+    const label = { cq: "CQ", cqmq: "CQ + MQ", cqmqsa: "CQ + MQ + SA", all: "All (with FSA)" }[r.spiFilter.upTo ?? "cqmqsa"];
+    const pct = (v: number | null) => (v == null ? "" : v);
+    let header: string[];
+    let lines: (string | number | null)[][];
+    if (view.student) {
+      header = ["Student name", "UUID", "College", "Batch", "Semester", "Section", "CQ avg %", "MQ avg %", "SA avg %", `Interim score % (${label})`, "Interim SPI (out of 10)", "Interim SPI %", "Level", "Semester status"];
+      lines = view.student.map((s) => [s.name, s.studentId, s.college, s.batch, s.semester, s.section, pct(s.classroom), pct(s.module), pct(s.skill), pct(s.score), pct(s.spi), s.spi == null ? "" : Math.round(s.spi * 100) / 10, s.level, s.ended ? "Ended" : "Running"]);
+    } else {
+      header = ["College", ...(r.grain !== "college" ? ["Batch", "Semester"] : []), ...(r.grain === "section" ? ["Section"] : []), "Students", "CQ avg %", "MQ avg %", "SA avg %", `Interim score % (${label})`, "Interim SPI (out of 10)", "Interim SPI %", `Students ≥ ${SPI_TARGET}%`, `Students ≥ ${SPI_TARGET}% (share)`];
+      lines = view.groups!.map((g) => [g.college, ...(r.grain !== "college" ? [g.batch, g.semester] : []), ...(r.grain === "section" ? [g.section] : []), g.students, pct(g.classroom), pct(g.module), pct(g.skill), pct(g.score), pct(g.spi), g.spi == null ? "" : Math.round(g.spi * 100) / 10, g.atTarget, pct(g.atTargetPct)]);
+    }
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="spi-record-${r.grain}.csv"`);
+    res.send(`﻿${[header.map(csv).join(","), ...lines.map((l) => l.map(csv).join(","))].join("\r\n")}`);
   } catch (err) {
     fail(req, res, err);
   }
