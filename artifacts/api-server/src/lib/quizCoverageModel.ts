@@ -52,11 +52,30 @@ export interface PlanRow {
   firstDate: string;
 }
 
+/**
+ * Skill Assessment: one assessment (a round, e.g. SEM_3_SKILL_2_MAIN) held at a college for one section and report
+ * course, at the semester of the students' saved reports (so the scope is the page's: the current semester, or one
+ * ended semester). "Held so far" counts college × round once (agreed 2026-11-17).
+ */
+export interface SkillRound {
+  campus: string;
+  batch: string;
+  semester: string;
+  section: string;
+  subject: string;
+  category: string | null;
+  round: string;
+}
+
 export interface QuizCoverageModel {
   rows: QuizRow[];
   plan: PlanRow[];
   /** "skill": Skill Assessment rows from the saved reports (no plan); the cards count assessments held. */
   mode?: "skill";
+  /** Skill Assessment: the rounds held (see SkillRound). */
+  skillRounds?: SkillRound[];
+  /** Skill Assessment: every college × batch × semester on the reports, for "Colleges covered … of N". */
+  skillColleges?: { campus: string; batch: string; semester: string }[];
   /** Student id without hyphens → the course names on that student's report (a course with no quiz held shows as Awaited). */
   reportCourses?: Map<string, string[]>;
 }
@@ -237,6 +256,46 @@ export interface QuizKpis {
   quizzesScheduled: number;
   /** Row counts of the three downloads for these filters. */
   counts: { campus: number; student: number; studentSubject: number };
+  /** Skill Assessment: colleges with at least one assessment held, and colleges in the filters (on the reports). */
+  collegesCovered?: number;
+  collegesTotal?: number;
+}
+
+/** Skill Assessment rounds within the filters (college, batch, semester, section, subject, category, the user's scope). */
+export function filterSkillRounds(model: QuizCoverageModel, f: QuizFilter): SkillRound[] {
+  const keep = matcher(f);
+  return (model.skillRounds ?? []).filter((r) => keep(r));
+}
+
+/** Skill Assessments held: college × round, each once (a round held in several sections or courses counts once). */
+export function skillRoundsHeld(rounds: SkillRound[]): number {
+  return new Set(rounds.map((r) => `${r.campus}\t${r.round}`)).size;
+}
+
+/** Held per semester for one college's rounds, e.g. { "Semester 1": 2, "Semester 3": 1 }. */
+export function skillHeldBySemester(rounds: SkillRound[]): Record<string, number> {
+  const by = new Map<string, Set<string>>();
+  for (const r of rounds) (by.get(r.semester) ?? by.set(r.semester, new Set()).get(r.semester)!).add(`${r.campus}\t${r.round}`);
+  return Object.fromEntries([...by].map(([sem, set]) => [sem, set.size]));
+}
+
+/** Colleges in the filters on the reports (college, batch, semester and the user's colleges only; a college has no subject). */
+function skillCollegesIn(model: QuizCoverageModel, f: QuizFilter): Set<string> {
+  const scope = new Set((f.scopeCampuses ?? []).map((c) => c.trim()));
+  const colleges = new Set((f.colleges ?? []).map((c) => c.trim()).filter(Boolean));
+  const batches = new Set((f.batches ?? []).map((b) => b.trim()).filter(Boolean));
+  const college = (f.college ?? "").trim();
+  const semester = (f.semester ?? "").trim();
+  const out = new Set<string>();
+  for (const c of model.skillColleges ?? []) {
+    if (scope.size && !scope.has(c.campus)) continue;
+    if (college && c.campus !== college) continue;
+    if (colleges.size && !colleges.has(c.campus)) continue;
+    if (batches.size && !batches.has(`${c.campus}\t${c.batch || "Unknown"}`)) continue;
+    if (semester && c.semester !== semester) continue;
+    out.add(c.campus);
+  }
+  return out;
 }
 
 export function quizKpis(model: QuizCoverageModel, f: QuizFilter, today = todayIst()): QuizKpis {
@@ -262,8 +321,18 @@ export function quizKpis(model: QuizCoverageModel, f: QuizFilter, today = todayI
     students.add(r.studentId);
     campuses.add(r.campus);
   }
+  let collegesCovered: number | undefined;
+  let collegesTotal: number | undefined;
   if (model.mode === "skill") {
-    available = skillHeld(rows); // assessments held (once per section and course)
+    if (model.skillRounds) {
+      // Assessments held, once per college × round; colleges with at least one, of the colleges in the filters.
+      const rounds = filterSkillRounds(model, f);
+      available = skillRoundsHeld(rounds);
+      collegesCovered = new Set(rounds.map((r) => r.campus)).size;
+      collegesTotal = skillCollegesIn(model, f).size;
+    } else {
+      available = skillHeld(rows); // no round data: assessments held once per section and course
+    }
     scheduled = sch; // student slots held
   }
   return {
@@ -275,6 +344,7 @@ export function quizKpis(model: QuizCoverageModel, f: QuizFilter, today = todayI
     quizzesCompleted: comp,
     quizzesScheduled: sch,
     counts: { campus: campuses.size, student: students.size, studentSubject: rows.length },
+    ...(collegesCovered != null ? { collegesCovered, collegesTotal } : {}),
   };
 }
 
@@ -290,6 +360,8 @@ export interface CampusRow {
   ended: boolean;
   completionPct: number | null;
   avgScore: number | null;
+  /** Skill Assessment: assessments held at the college per semester (college × round, each once). */
+  heldBySemester?: Record<string, number>;
 }
 
 export function campusRows(model: QuizCoverageModel, f: QuizFilter, today = todayIst()): CampusRow[] {
@@ -313,12 +385,19 @@ export function campusRows(model: QuizCoverageModel, f: QuizFilter, today = toda
     if (model.mode === "skill") a.rows.push(r);
     a.students.add(r.studentId);
   }
+  // Skill Assessment with round data: Held = assessments held at the college (college × round), split by semester.
+  const roundsByCampus = new Map<string, SkillRound[]>();
+  if (model.mode === "skill" && model.skillRounds) {
+    for (const r of filterSkillRounds(model, f)) (roundsByCampus.get(r.campus) ?? roundsByCampus.set(r.campus, []).get(r.campus)!).push(r);
+  }
+  const skillHeldAt = (college: string, rows: QuizRow[]) => (model.skillRounds ? skillRoundsHeld(roundsByCampus.get(college) ?? []) : skillHeld(rows));
   return [...by.entries()].map(([college, a]) => ({
     college,
     sections: a.sections.size,
     students: a.students.size,
     available: model.mode === "skill" ? null : planCounts(planByCampus.get(college) ?? [], today).available,
-    scheduled: model.mode === "skill" ? skillHeld(a.rows) : planCounts(planByCampus.get(college) ?? [], today).scheduled,
+    scheduled: model.mode === "skill" ? skillHeldAt(college, a.rows) : planCounts(planByCampus.get(college) ?? [], today).scheduled,
+    ...(model.mode === "skill" && model.skillRounds ? { heldBySemester: skillHeldBySemester(roundsByCampus.get(college) ?? []) } : {}),
     endedStudents: a.ended.size,
     ended: a.ended.size > 0 && a.ended.size === a.students.size,
     completionPct: pct(a.comp, a.sch),

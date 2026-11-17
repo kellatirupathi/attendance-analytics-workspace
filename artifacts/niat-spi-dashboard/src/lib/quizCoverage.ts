@@ -53,6 +53,9 @@ export interface QuizKpis {
   quizzesCompleted: number;
   quizzesScheduled: number;
   counts: { campus: number; student: number; studentSubject: number };
+  /** Skill Assessment: colleges with at least one assessment held, of the colleges in the filters. */
+  collegesCovered?: number;
+  collegesTotal?: number;
   asOf: string;
 }
 
@@ -80,6 +83,8 @@ export interface CampusRow {
   ended: boolean;
   completionPct: number | null;
   avgScore: number | null;
+  /** Skill Assessment: assessments held at the college per semester (each assessment once). */
+  heldBySemester?: Record<string, number>;
 }
 
 export interface StudentRow {

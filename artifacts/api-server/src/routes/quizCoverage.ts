@@ -190,10 +190,15 @@ function sheetFor(view: string, model: QuizCoverageModel, filter: QuizFilter, ui
   const held = skill ? "Held" : "Scheduled";
   const done = "Attempted";
   if (view === "campus") {
+    const campus = sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college);
+    // Skill Assessment: assessments held per semester at each college (each once), one column per semester.
+    const sems = skill
+      ? [...new Set(campus.flatMap((r) => Object.keys(r.heldBySemester ?? {})))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      : [];
     return {
       view: "CampusSummary",
-      headers: ["College", "Sections", "Students", ...(skill ? [] : ["Available (prod sequence)"]), held, "Attempt rate %", "Overall score % (missed = 0)", "Semester"],
-      rows: sortBy(campusRows(model, filter), CAMPUS_SORT["college"]!, 1, (r) => r.college).map((r) => [r.college, r.sections, r.students, ...(skill ? [] : [r.available]), r.scheduled, r.completionPct, r.avgScore, r.ended ? "Ended" : r.endedStudents ? `Running (${r.endedStudents} ended)` : "Running"]),
+      headers: ["College", "Sections", "Students", ...(skill ? [] : ["Available (prod sequence)"]), held, ...sems.map((s) => `Held · ${s}`), "Attempt rate %", "Overall score % (missed = 0)", "Semester"],
+      rows: campus.map((r) => [r.college, r.sections, r.students, ...(skill ? [] : [r.available]), r.scheduled, ...sems.map((s) => r.heldBySemester?.[s] ?? 0), r.completionPct, r.avgScore, r.ended ? "Ended" : r.endedStudents ? `Running (${r.endedStudents} ended)` : "Running"]),
     };
   }
   if (view === "student") {

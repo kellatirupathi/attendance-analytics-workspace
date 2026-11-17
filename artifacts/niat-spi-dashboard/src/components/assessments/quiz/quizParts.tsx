@@ -75,13 +75,21 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
   }
   const k = kpis;
   return (
-    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${skill ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
       <Card
         label={skill ? "Held so far" : "Available (prod sequence)"}
-        tip={skill ? "Skill Assessments held so far, counted once for each section and course. An assessment counts as held for a section once a student there has attempted it" : `${Quizzes} planned in the prod sequence for the current semester, counted per section`}
+        tip={skill ? "Skill Assessments held so far, counted once per college." : `${Quizzes} planned in the prod sequence for the current semester, counted per section`}
         value={fmtInt(k?.available ?? 0)}
         loading={loading || !k}
       />
+      {skill && (
+        <Card
+          label="Colleges covered"
+          tip="Colleges where at least one Skill Assessment is held."
+          value={k?.collegesTotal != null ? `${fmtInt(k.collegesCovered ?? 0)} of ${fmtInt(k.collegesTotal)}` : "–"}
+          loading={loading || !k}
+        />
+      )}
       <Card
         label={skill ? "Student slots" : "Scheduled so far"}
         tip={skill ? "Held assessments for each student of the section." : `${Quizzes} whose session is scheduled on or before today, counted per section`}

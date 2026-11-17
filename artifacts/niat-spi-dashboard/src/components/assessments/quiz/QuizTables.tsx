@@ -76,7 +76,17 @@ export function Body({ loading, empty, colSpan, rowsCount, children }: { loading
 }
 
 export function CampusTable({ page, loading, sort, onSort, skill = false }: { page: Page<CampusRow> | undefined; loading: boolean; sort: Sort; onSort: (key: string) => void; skill?: boolean }) {
-  const columns: Column<CampusRow>[] = [
+  const semesters = skill
+    ? [...new Set((page?.rows ?? []).flatMap((r) => Object.keys(r.heldBySemester ?? {})))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    : [];
+  const semesterColumns: (Column<CampusRow> & { sortable: false })[] = semesters.map((sem) => ({
+    key: `held-${sem}`,
+    label: `Held · ${shortSemester(sem)}`,
+    align: "right",
+    sortable: false,
+    render: (r) => (r.heldBySemester?.[sem] ? fmtInt(r.heldBySemester[sem]!) : "–"),
+  }));
+  const columns: (Column<CampusRow> & { sortable?: boolean })[] = [
     {
       key: "college",
       label: "College",
@@ -91,6 +101,8 @@ export function CampusTable({ page, loading, sort, onSort, skill = false }: { pa
     { key: "students", label: "Students", align: "right", render: (r) => fmtInt(r.students) },
     ...(skill ? [] : [{ key: "available", label: "Available", align: "right" as const, render: (r: CampusRow) => (r.available == null ? "–" : fmtInt(r.available)) }]),
     { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right", render: (r) => fmtInt(r.scheduled) },
+    // Skill Assessment: assessments held per semester (each once per college), one column per semester in view.
+    ...semesterColumns,
     { key: "completion", label: "Attempt %", align: "right", render: (r) => <Pill metric="completion" value={r.completionPct} /> },
     { key: "avg", label: "Overall score", align: "right", render: (r) => <Pill metric="avg" value={r.avgScore} /> },
   ];

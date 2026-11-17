@@ -1,13 +1,14 @@
 import { bqQuery, BQ_HEAVY_QUERY_TIMEOUT_MS, BQ_LOCATION, PROD_SEQUENCE_TABLE } from "./bigquery.js";
 import { excludeInstituteSql, isExcludedInstitute } from "./excludedInstitutes.js";
-import { attendanceSource, latestSemesterSql, pastQuizSource, quizSource, REPORT_ROSTER_SQL } from "./queries.js";
+import { attendanceSource, latestSemesterSql, pastQuizSource, quizSource, REPORT_ROSTER_SQL, SKILL_ASSESSMENT_TABLE } from "./queries.js";
+import { getSkillAssessmentMap, reportCourseIn } from "./skillAssessmentMap.js";
 import { pastPlacesSnapshot } from "./pastSemesters.js";
 import { pastSemesterSql } from "./pastSemesterSql.js";
 import { cacheGet, cacheSet } from "./cache.js";
 import { loadUntrackedReports } from "./untrackedReports.js";
 import { createSnapshot, type Snapshot } from "./snapshot.js";
 import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTables, type QuizType } from "./quizCoverageSql.js";
-import { courseScorePoint, restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow } from "./quizCoverageModel.js";
+import { courseScorePoint, restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow, type SkillRound } from "./quizCoverageModel.js";
 import { loadReportCourses, loadSavedReports } from "./reportCourses.js";
 import { plainCourseName } from "./reportRemovedCourses.js";
 
@@ -114,7 +115,7 @@ const shortSection = (batchSection: string | null): string => {
  * to report courses have no rows (the tab says so).
  */
 async function loadSkill(term?: string): Promise<QuizCoverageModel> {
-  const [reports, categories, classroom] = await Promise.all([
+  const [reports, categories, classroom, heldRounds, saMap] = await Promise.all([
     loadSavedReports(term),
     bqQuery<{ campus: string; subject: string; category: string | null }>(
       `SELECT TRIM(institute_name) AS campus, TRIM(course_title) AS subject, ANY_VALUE(UPPER(TRIM(CAST(category AS STRING)))) AS category
@@ -124,6 +125,8 @@ async function loadSkill(term?: string): Promise<QuizCoverageModel> {
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     coverageModel("CLASSROOM_QUIZ", term),
+    loadHeldRounds(),
+    getSkillAssessmentMap(),
   ]);
   if (!reports) throw new Error("The saved student reports could not be loaded for the Skill Assessment tab");
   const categoryOf = new Map(categories.map((c) => [`${c.campus}\t${plainCourseName(c.subject)}`, c.category]));
@@ -160,7 +163,78 @@ async function loadSkill(term?: string): Promise<QuizCoverageModel> {
     }
   }
   const reportCourses = new Map(reports.map((r) => [r.studentKey, r.courses.map((c) => c.name.trim())]));
-  return { rows, plan: [], mode: "skill", reportCourses };
+
+  // Rounds held (college × round for the cards, by semester for the college table): the students' own Skill Assessment
+  // rows at the semester of their saved report, linked to a course on that report, as the rows above.
+  const byStudent = new Map(reports.map((r) => [r.studentKey, r]));
+  const roundKeys = new Set<string>();
+  const skillRounds: SkillRound[] = [];
+  for (const h of heldRounds) {
+    const report = byStudent.get(h.k);
+    if (!report) continue;
+    const campus = (report.campus ?? "").trim();
+    if (!campus || isExcludedInstitute(campus) || campus !== h.c) continue;
+    const known = sectionOf.get(report.studentKey);
+    const semester = (known?.semester ?? report.semester ?? "").trim();
+    if (!semester || semester !== h.s) continue;
+    const course = reportCourseIn(saMap.value, h.c, h.b, h.s, h.sa_course);
+    const onReport = course ? report.courses.find((c) => plainCourseName(c.name) === plainCourseName(course)) : undefined;
+    if (!onReport) continue;
+    const round: SkillRound = {
+      campus,
+      batch: (known?.batch ?? report.batch ?? "").trim() || "Unknown",
+      semester,
+      section: known?.section || shortSection(report.section),
+      subject: onReport.name.trim(),
+      category: categoryOf.get(`${campus}\t${plainCourseName(onReport.name)}`) ?? null,
+      round: h.t,
+    };
+    const key = [round.campus, round.batch, round.semester, round.section, round.subject, round.round].join("\t");
+    if (!roundKeys.has(key)) {
+      roundKeys.add(key);
+      skillRounds.push(round);
+    }
+  }
+  const collegeKeys = new Set<string>();
+  const skillColleges: { campus: string; batch: string; semester: string }[] = [];
+  for (const report of reports) {
+    const campus = (report.campus ?? "").trim();
+    if (!campus || isExcludedInstitute(campus)) continue;
+    const known = sectionOf.get(report.studentKey);
+    const c = { campus, batch: (known?.batch ?? report.batch ?? "").trim() || "Unknown", semester: (known?.semester ?? report.semester ?? "").trim() };
+    const key = `${c.campus}\t${c.batch}\t${c.semester}`;
+    if (!collegeKeys.has(key)) {
+      collegeKeys.add(key);
+      skillColleges.push(c);
+    }
+  }
+  return { rows, plan: [], mode: "skill", reportCourses, skillRounds, skillColleges };
+}
+
+/**
+ * Skill Assessment rounds each student had held (MAIN only; Mock and the Final Skill Assessment left out): one row per
+ * student × college × batch × semester × course × round. Held = attempted and evaluated, or the window has closed,
+ * as the report counts an assessment held.
+ */
+async function loadHeldRounds(): Promise<{ k: string; c: string; b: string; s: string; sa_course: string; t: string }[]> {
+  const attempted = `UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED'`;
+  return bqQuery(
+    `SELECT LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS k, TRIM(institute_name) AS c,
+            TRIM(IFNULL(batch_name, '')) AS b, TRIM(derived_semester_title) AS s, TRIM(semester_course_name) AS sa_course,
+            TRIM(assessment_type_raw) AS t
+     FROM ${SKILL_ASSESSMENT_TABLE}
+     WHERE UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
+       AND UPPER(IFNULL(assessment_type_raw, '')) NOT LIKE '%FINAL%'
+       AND NULLIF(TRIM(assessment_type_raw), '') IS NOT NULL
+       AND semester_course_name IS NOT NULL AND student_user_id IS NOT NULL
+       AND NULLIF(TRIM(derived_semester_title), '') IS NOT NULL
+       AND ((${attempted} AND UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED')
+         OR (NOT (${attempted}) AND IFNULL(assessment_close_at <= CURRENT_DATETIME('Asia/Kolkata'), TRUE)))
+     GROUP BY k, c, b, s, sa_course, t`,
+    {},
+    BQ_LOCATION,
+    BQ_HEAVY_QUERY_TIMEOUT_MS,
+  );
 }
 
 const snapshots = new Map<CoverageType, Snapshot<QuizCoverageModel>>();
