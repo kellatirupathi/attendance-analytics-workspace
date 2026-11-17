@@ -269,17 +269,24 @@ export default function SpiRecordDashboard() {
   // The table follows the view of the rows on screen: after a View by click the old rows stay until the new ones arrive.
   const shown: Grain = data.data?.grain ?? grain;
 
-  const onSort = (key: string) => setSort((cur) => (cur?.key === key ? { key, dir: cur.dir === "asc" ? "desc" : "asc" } : { key, dir: ["college", "batch", "section", "semester", "name"].includes(key) ? "asc" : "desc" }));
-  const columns: { key: string; label: string; align?: "right"; sortable?: boolean }[] = [
+  // The server's own order when no column is picked: students by score (highest first), groups by college (A–Z).
+  // Showing it keeps every column header clickable from the start; each click flips ascending / descending.
+  const activeSort: Sort = sort ?? (shown === "student" ? { key: "score", dir: "desc" } : { key: "college", dir: "asc" });
+  const onSort = (key: string) =>
+    setSort(() => (activeSort.key === key ? { key, dir: activeSort.dir === "asc" ? "desc" : "asc" } : { key, dir: ["college", "batch", "section", "semester", "name"].includes(key) ? "asc" : "desc" }));
+  const scoreFull = interim ? "Interim course score (out of 100)" : "Course score (out of 100)";
+  const columns: { key: string; label: string; align?: "right"; sortable?: boolean; title?: string }[] = [
     ...(shown === "student"
       ? [{ key: "name", label: "Student" }, { key: "uuid", label: "UUID", sortable: false }, { key: "college", label: "College" }, { key: "section", label: "Section" }]
-      : [{ key: "college", label: "College" }, ...(shown !== "college" ? [{ key: "batch", label: "Batch" }, { key: "semester", label: "Semester" }] : []), ...(shown === "section" ? [{ key: "section", label: "Section" }] : []), { key: "students", label: "Students", align: "right" as const }]),
-    { key: "classroom", label: "CQ", align: "right" },
-    { key: "module", label: "MQ", align: "right" },
-    { key: "skill", label: "SA", align: "right" },
-    { key: "score", label: `${scoreLabel} (scaled to 100)`, align: "right" },
-    { key: "spi", label: spiLabel, align: "right" },
-    ...(shown === "student" ? [{ key: "level", label: "Level", align: "right" as const }, { key: "report", label: "Report", sortable: false }] : [{ key: "atTarget", label: `≥ ${TARGET}%`, align: "right" as const }]),
+      : [{ key: "college", label: "College" }, ...(shown !== "college" ? [{ key: "batch", label: "Batch" }, { key: "semester", label: "Semester" }] : []), ...(shown === "section" ? [{ key: "section", label: "Section" }] : []), { key: "students", label: "Students", align: "right" as const, title: "Students in these filters" }]),
+    { key: "classroom", label: "CQ avg", align: "right", title: "Classroom Quiz average: the average of the students' course scores" },
+    { key: "module", label: "MQ avg", align: "right", title: "Module Quiz average: the average of the students' course scores" },
+    { key: "skill", label: "SA avg", align: "right", title: "Skill Assessment average: the average of the students' best course scores" },
+    { key: "score", label: scoreLabel, align: "right", title: `${scoreFull}: (${UP_TO_TEXT[upTo]}) ÷ the weights of the parts held, scaled to 100` },
+    { key: "spi", label: spiLabel, align: "right", title: `${interim ? "Interim " : ""}Skill Performance Index (out of 10): the average of the course level points (A+ 10 … F 0); % = SPI × 10` },
+    ...(shown === "student"
+      ? [{ key: "level", label: "Level", align: "right" as const, title: "Level of the score: 90+ A+, 80+ A, 70+ B, 60+ C, 50+ D, below 50 F" }, { key: "report", label: "Report", sortable: false }]
+      : [{ key: "atTarget", label: `${TARGET}%+ students`, align: "right" as const, title: `Students scoring ${TARGET}% or more: count · share of the group` }]),
   ];
   const rows = data.data?.rows ?? [];
 
@@ -400,7 +407,7 @@ export default function SpiRecordDashboard() {
           )}
           sub={interim ? "without FSA" : "with FSA"}
         />
-        <Kpi label={`≥ ${TARGET}%`} tip={`Students with a ${scoreLabel.toLowerCase()} of ${TARGET}% or more.`} tone="text-emerald-700" loading={loading} value={fmtInt(s?.atTarget ?? 0)} sub={s?.atTargetPct == null ? "" : `${s.atTargetPct.toFixed(1)}% of ${fmtInt(s.allStudents)} students`} />
+        <Kpi label={`${TARGET}%+ students`} tip={`Students with a ${scoreLabel.toLowerCase()} of ${TARGET}% or more.`} tone="text-emerald-700" loading={loading} value={fmtInt(s?.atTarget ?? 0)} sub={s?.atTargetPct == null ? "" : `${s.atTargetPct.toFixed(1)}% of ${fmtInt(s.allStudents)} students`} />
       </div>
 
       <div role="group" aria-label="View by" className="mt-4 flex flex-wrap items-center gap-2">
@@ -447,7 +454,7 @@ export default function SpiRecordDashboard() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[48rem] text-left">
-            <Head columns={columns} sort={sort ?? undefined} onSort={onSort} dense />
+            <Head columns={columns} sort={activeSort} onSort={onSort} dense />
             <Body loading={loading} empty="Nothing matches these filters" colSpan={columns.length} rowsCount={rows.length}>
               {shown === "student"
                 ? (rows as StudentRow[]).map((r) => (
