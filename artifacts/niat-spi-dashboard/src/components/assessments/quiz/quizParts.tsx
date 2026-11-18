@@ -78,7 +78,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
     <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${skill ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
       <Card
         label={skill ? "Held so far" : "Available (prod sequence)"}
-        tip={skill ? "Skill Assessments held so far, counted once per college." : `${Quizzes} planned in the prod sequence for the current semester, counted per section`}
+        tip={skill ? "Skill Assessments held so far, counted once per college." : `${Quizzes} planned in the prod sequence for the current semester, counted once per college`}
         value={fmtInt(k?.available ?? 0)}
         loading={loading || !k}
       />
@@ -92,7 +92,7 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
       )}
       <Card
         label={skill ? "Student slots" : "Scheduled so far"}
-        tip={skill ? "Held assessments for each student of the section." : `${Quizzes} whose session is scheduled on or before today, counted per section`}
+        tip={skill ? "Held assessments for each student of the section." : `${Quizzes} whose session is scheduled on or before today, counted once per college`}
         value={fmtInt(k?.scheduledSoFar ?? 0)}
         loading={loading || !k}
       />

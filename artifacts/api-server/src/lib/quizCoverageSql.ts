@@ -10,8 +10,8 @@
  *         sequence. The student's semester is the report's (attWhere): the current one, or for a student
  *         with no current rows (a batch between semesters) their last ended semester, whose courses are
  *         that semester's in the prod sequence (matched by title, since it is no longer current).
- *   plan  the quizzes planned in the prod sequence, one row per section × quiz (so the Available and
- *         Scheduled so far cards count a quiz once for every section that has it).
+ *   plan  the quizzes planned in the prod sequence, one row per section × quiz (the Available and
+ *         Scheduled so far cards count a quiz once per college; the student's Available uses their section).
  */
 
 export interface QuizCoverageTables {

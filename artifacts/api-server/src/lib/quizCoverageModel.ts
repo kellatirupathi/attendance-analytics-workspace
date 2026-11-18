@@ -9,7 +9,7 @@
  *                    the student did not attempt counts as 0 in that course; a student is the mean of their courses, a
  *                    college or the whole page the mean of every student × course score (courseScorePoint)
  *   Participation    students with at least one attempted quiz ÷ students
- *   Available        quizzes planned in the prod sequence, counted once per section
+ *   Available        quizzes planned in the prod sequence, counted once per college
  *   Scheduled so far the same, for quizzes whose first session is on or before today (IST)
  *
  * Skill Assessment (mode "skill") comes from the saved student reports: one row per student × course with the
@@ -205,12 +205,15 @@ export function todayIst(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }
 
-/** Distinct (section, quiz) pairs, and those scheduled on or before `today`. */
-function planCounts(plan: PlanRow[], today: string): { available: number; scheduled: number } {
+/**
+ * Distinct (college, quiz) pairs, and those scheduled on or before `today`: a quiz planned in several sections of a
+ * college counts once for that college (its first date is the earliest of those sections).
+ */
+export function planCounts(plan: PlanRow[], today: string): { available: number; scheduled: number } {
   const all = new Set<string>();
   const sofar = new Set<string>();
   for (const p of plan) {
-    const key = `${p.sectionId}|${p.resourceId}`;
+    const key = `${p.campus}\t${p.resourceId}`;
     all.add(key);
     // A quiz with no session date is planned but not scheduled yet.
     if (p.firstDate && p.firstDate <= today) sofar.add(key);
@@ -352,7 +355,7 @@ export interface CampusRow {
   college: string;
   sections: number;
   students: number;
-  /** Quizzes planned in the prod sequence (once per section); null on Skill Assessment (no plan). */
+  /** Quizzes planned in the prod sequence (once per college); null on Skill Assessment (no plan). */
   available: number | null;
   scheduled: number;
   /** Students whose semester ended; every one of them: `ended`. */

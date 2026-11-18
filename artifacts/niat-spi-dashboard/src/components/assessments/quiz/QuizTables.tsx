@@ -19,6 +19,8 @@ interface Column<T> {
   key: string;
   label: string;
   align?: "right";
+  /** Meaning, shown on hover. */
+  title?: string;
   render: (row: T) => React.ReactNode;
 }
 
@@ -99,8 +101,8 @@ export function CampusTable({ page, loading, sort, onSort, skill = false }: { pa
     },
     { key: "sections", label: "Sections", align: "right", render: (r) => fmtInt(r.sections) },
     { key: "students", label: "Students", align: "right", render: (r) => fmtInt(r.students) },
-    ...(skill ? [] : [{ key: "available", label: "Available", align: "right" as const, render: (r: CampusRow) => (r.available == null ? "–" : fmtInt(r.available)) }]),
-    { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right", render: (r) => fmtInt(r.scheduled) },
+    ...(skill ? [] : [{ key: "available", label: "Available", align: "right" as const, title: "Quizzes planned in the prod sequence, counted once per college", render: (r: CampusRow) => (r.available == null ? "–" : fmtInt(r.available)) }]),
+    { key: "scheduled", label: skill ? "Held" : "Scheduled", align: "right", title: skill ? undefined : "Quizzes scheduled on or before today, counted once per college", render: (r) => fmtInt(r.scheduled) },
     // Skill Assessment: assessments held per semester (each once per college), one column per semester in view.
     ...semesterColumns,
     { key: "completion", label: "Attempt %", align: "right", render: (r) => <Pill metric="completion" value={r.completionPct} /> },

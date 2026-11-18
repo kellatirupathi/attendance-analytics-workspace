@@ -49,17 +49,31 @@ const model: QuizCoverageModel = {
   plan: [
     plan("Alpha", "sa", "q1", "2026-10-01"),
     plan("Alpha", "sa", "q2", "2026-12-01"),
-    plan("Alpha", "sb", "q1", "2026-10-02"), // the same quiz in another section counts again
+    plan("Alpha", "sb", "q1", "2026-10-02"), // the same quiz in another section of the college counts once
     plan("Beta", "sc", "q1", "2026-10-03"),
     plan("Beta", "sc", "q2", ""), // no session date yet: planned, not scheduled
   ],
 };
 const TODAY = "2026-10-28";
 
-test("cards: planned quizzes count once per section; rates are sums first, divided last", () => {
+test("cards: planned quizzes count once per college; rates are sums first, divided last", () => {
   const k = quizKpis(model, {}, TODAY);
-  assert.equal(k.available, 5);
-  assert.equal(k.scheduledSoFar, 3);
+  // Alpha q1 (two sections, once) + q2, Beta q1 + q2 (no date): 4 planned; Alpha q1 + Beta q1 scheduled so far.
+  assert.equal(k.available, 4);
+  assert.equal(k.scheduledSoFar, 2);
+});
+
+test("cards: the same quiz at two colleges counts once at each; earliest section date decides scheduled", () => {
+  assert.equal(quizKpis(model, { college: "Alpha" }, TODAY).available, 2);
+  assert.equal(quizKpis(model, { college: "Alpha" }, TODAY).scheduledSoFar, 1);
+  // A quiz already held in one section is scheduled, even if another section has it later.
+  const later: QuizCoverageModel = { rows: model.rows, plan: [plan("Alpha", "sa", "q7", "2026-12-01"), plan("Alpha", "sb", "q7", "2026-10-05")] };
+  assert.equal(quizKpis(later, {}, TODAY).scheduledSoFar, 1);
+  assert.equal(quizKpis(later, {}, TODAY).available, 1);
+  // Only future dates: planned, not scheduled.
+  const future: QuizCoverageModel = { rows: model.rows, plan: [plan("Alpha", "sa", "q8", "2026-12-01"), plan("Alpha", "sb", "q8", "2026-12-02")] };
+  assert.equal(quizKpis(future, {}, TODAY).scheduledSoFar, 0);
+  assert.equal(quizKpis(future, {}, TODAY).available, 1);
 });
 
 test("completion, overall score and average best score", () => {
@@ -86,7 +100,7 @@ test("campus rows: Scheduled comes from the plan; a campus with no quiz rows is 
   const rows = campusRows({ rows: model.rows, plan: [...model.plan, plan("Gamma", "sg", "q9", "2026-10-01")] }, {}, TODAY);
   assert.deepEqual(rows.map((r) => r.college).sort(), ["Alpha", "Beta"]);
   const alpha = rows.find((r) => r.college === "Alpha")!;
-  assert.equal(alpha.scheduled, 2);
+  assert.equal(alpha.scheduled, 1); // q1 in two sections counts once for the college
   assert.equal(alpha.sections, 2);
   assert.equal(alpha.students, 2);
   assert.equal(alpha.completionPct, 16.7);
@@ -232,7 +246,7 @@ test("rows with no batch read as Unknown and still match an Unknown batch", () =
 
 // --- Available (prod sequence) per college / student / subject, and ended flags --------------------
 
-test("college Available = its planned quizzes (once per section); colleges add up to the card", () => {
+test("college Available = its planned quizzes (once per college); colleges add up to the card", () => {
   const rows = campusRows(batchModel, {}, "2026-11-14");
   const cdu = rows.find((r) => r.college === "CDU")!;
   assert.equal(cdu.available, 2);
