@@ -22,6 +22,8 @@ import {
 } from "../lib/queries.js";
 import { omitExcludedInstitutes, isExcludedInstitute } from "../lib/excludedInstitutes.js";
 import { cacheDeletePrefix } from "../lib/cache.js";
+import { listSaCourseMap, saCourseMapToConfirm, setSaCourseMapping } from "../lib/saCourseMapAdmin.js";
+import { parseMappingInput } from "../lib/saCourseMapAdminModel.js";
 
 const router = Router();
 
@@ -74,6 +76,46 @@ router.post("/spi-report-sync", (req, res): void => {
   // Runs in the background (a few minutes); GET shows the result.
   void runReportSync("manual");
   res.status(202).json({ started: true });
+});
+
+// Skill Assessment course map: which SA course counts toward which report course (new ones arrive as "To confirm").
+router.get("/sa-course-map", async (req, res): Promise<void> => {
+  try {
+    res.json(await listSaCourseMap());
+  } catch (err) {
+    req.log.error({ err }, "Error reading the SA course map");
+    res.status(500).json({ error: "Failed to read the Skill Assessment course map" });
+  }
+});
+
+router.get("/sa-course-map/summary", async (req, res): Promise<void> => {
+  try {
+    res.json({ toConfirm: await saCourseMapToConfirm() });
+  } catch (err) {
+    req.log.error({ err }, "Error counting SA course map rows to confirm");
+    res.status(500).json({ error: "Failed to count rows to confirm" });
+  }
+});
+
+router.patch("/sa-course-map", async (req, res): Promise<void> => {
+  const input = parseMappingInput(req.body);
+  if (!input.ok) {
+    res.status(400).json({ error: input.error });
+    return;
+  }
+  const { college, batch, saCourse } = input.value;
+  try {
+    const result = await setSaCourseMapping(input.value);
+    if (!result.ok) {
+      res.status(result.code).json({ error: result.error });
+      return;
+    }
+    req.log.info({ college, batch, saCourse, reportCourse: result.row.reportCourse, by: req.session?.email }, "SA course map changed");
+    res.json(result.row);
+  } catch (err) {
+    req.log.error({ err }, "Error saving the SA course map");
+    res.status(500).json({ error: "Failed to save the mapping" });
+  }
 });
 
 // Users

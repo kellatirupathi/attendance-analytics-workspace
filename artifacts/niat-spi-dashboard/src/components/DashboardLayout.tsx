@@ -24,11 +24,13 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { roleLabel } from "@/lib/roleLabels";
 import { useUnreadNotificationCount } from "@/hooks/useUnreadNotificationCount";
 import { useQueryInboxSummary } from "@/hooks/useQueryInboxSummary";
+import { useSaCourseMapSummary } from "@/hooks/useSaCourseMap";
 import { FEATURES } from "@/lib/featureFlags";
 
 const REQUEST_ROLES = ["superadmin", "admin", "boa", "hod"];
@@ -54,6 +56,7 @@ const mainNav: NavItem[] = [
 const adminNav: NavItem[] = [
   { label: "User Access", href: "/admin/users", icon: Shield },
   { label: "Campus Setup", href: "/admin/campuses", icon: Building },
+  { label: "SA Course Mapping", href: "/admin/sa-course-map", icon: Link2 },
 ];
 
 function NavItemLink({
@@ -229,6 +232,8 @@ function SidebarInner({
   const unread = useUnreadNotificationCount(canRequests);
   // Admin and Super Admin only: the count of student queries waiting for a reply.
   const { data: queryInbox } = useQueryInboxSummary(canManage);
+  // Admin and Super Admin only: Skill Assessment courses on live reports waiting to be mapped.
+  const { data: saMap } = useSaCourseMapSummary(canManage);
   const visibleMainNav = mainNav.filter(
     (item) =>
       (item.href !== "/dashboard/campuses" ||
@@ -317,6 +322,7 @@ function SidebarInner({
                 item={item}
                 active={location === item.href}
                 onNavigate={onNavigate}
+                badge={item.href === "/admin/sa-course-map" ? saMap?.toConfirm : undefined}
                 collapsed={collapsed}
               />
             ))}

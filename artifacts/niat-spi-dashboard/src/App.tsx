@@ -24,6 +24,7 @@ const Profile = lazy(() => import("@/pages/Profile"));
 const BigQueryExplorer = lazy(() => import("@/pages/BigQueryExplorer"));
 const AdminUsers = lazy(() => import("@/pages/AdminUsers"));
 const AdminCampuses = lazy(() => import("@/pages/AdminCampuses"));
+const AdminSaCourseMap = lazy(() => import("@/pages/AdminSaCourseMap"));
 const AttendanceRequests = lazy(() => import("@/pages/AttendanceRequests"));
 const StudentAttendanceStats = lazy(() => import("@/pages/StudentAttendanceStats"));
 const SpiRecordDashboard = lazy(() => import("@/pages/SpiRecordDashboard"));
@@ -278,6 +279,11 @@ function Router() {
         <Route path="/admin/campuses">
           <Protected adminOnly>
             <AdminCampuses />
+          </Protected>
+        </Route>
+        <Route path="/admin/sa-course-map">
+          <Protected adminOnly>
+            <AdminSaCourseMap />
           </Protected>
         </Route>
 
