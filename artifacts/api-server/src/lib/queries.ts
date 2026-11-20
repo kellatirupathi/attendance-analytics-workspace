@@ -5278,14 +5278,17 @@ export interface StudentSkillAssessment {
   /** derived_semester_title of the assessment; with college, batch and course it finds the report course. */
   semester: string;
   saCourse: string;
+  /** Round tag (assessment_type_raw, e.g. SEM_1_SKILL_1_MAIN); the assessment id when the tag is blank. */
+  round: string;
   held: boolean;
   attempted: boolean;
   scorePct: number | null;
 }
 
 /**
- * A student's Skill Assessments (skillAssessmentType.ts: type "Skill Assessment", not MOCK). One row per assessment.
- * Held = attempted, or its window has closed; a missed one counts as 0. An attempt still
+ * A student's Skill Assessments (skillAssessmentType.ts: type "Skill Assessment", not MOCK). One row per assessment, with
+ * its round tag: the report takes the best attempt of each round (groupSkillAssessments in spiScorecardRules.ts).
+ * Held = attempted and evaluated, or its window has closed; a missed one counts as 0. An attempt still
  * waiting for evaluation is left out until it has a score.
  */
 export async function getStudentSkillAssessments(studentId: string): Promise<StudentSkillAssessment[]> {
@@ -5302,6 +5305,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
     batch: string | null;
     semester: string | null;
     sa_course: string | null;
+    sa_round: string | null;
     attempted: string | null;
     held: string | null;
     score_pct: string | null;
@@ -5312,6 +5316,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
       TRIM(batch_name) AS batch,
       TRIM(derived_semester_title) AS semester,
       TRIM(semester_course_name) AS sa_course,
+      COALESCE(NULLIF(TRIM(assessment_type_raw), ''), CAST(assessment_id AS STRING)) AS sa_round,
       CAST(UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED' AS STRING) AS attempted,
       CAST(
         (UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED' AND UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED')
@@ -5336,6 +5341,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
         batch: r.batch ?? "",
         semester: r.semester ?? "",
         saCourse: r.sa_course ?? "",
+        round: r.sa_round ?? "",
         held: r.held === "true",
         attempted: r.attempted === "true",
         scorePct: r.score_pct == null ? null : Number(r.score_pct),
@@ -6262,41 +6268,52 @@ const assessmentSnapshot = createSnapshot<AssessmentModel>("assessment-summary",
  * Skill Assessments (skillAssessmentType.ts) in the same slot shape as the quiz snapshot, so the summary model groups
  * and rolls them up the same way. One slot per student × Skill Assessment course (mapped to its report
  * course through skill_assessment_course_map; an unmapped one keeps the assessment team's course code).
- * Held = attempted and evaluated, or its window has closed; a held assessment that was not attempted counts
- * as 0. Students come from the Skill Assessment data itself, so a campus with no Skill Assessment data has no
- * rows. Units are the distinct assessments of a section × course; done = held for any student.
+ * Counted by round, like the student report (groupSkillAssessments): the attempts of one round (same tag) count once
+ * with their best score. A round is held once it has an evaluated attempt, or it closed with no attempt (that one
+ * counts as 0); one waiting for evaluation with no other score is left out. Students come from the Skill Assessment
+ * data itself, so a campus with no Skill Assessment data has no rows. Units are the rounds of a batch × course; done =
+ * held for any student.
  */
 const skillSnapshot = createSnapshot<AssessmentModel>("assessment-skill", async () => {
   const attempted = `UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED'`;
-  const held = `((${attempted} AND UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED')
-      OR (NOT (${attempted}) AND IFNULL(assessment_close_at <= CURRENT_DATETIME('Asia/Kolkata'), TRUE)))`;
+  const evaluated = `UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED'`;
+  const closed = `IFNULL(assessment_close_at <= CURRENT_DATETIME('Asia/Kolkata'), TRUE)`;
   const where = `${skillAssessmentSql()}
       AND semester_course_name IS NOT NULL AND institute_name IS NOT NULL AND TRIM(institute_name) != ''
       AND student_user_id IS NOT NULL AND assessment_id IS NOT NULL
       AND ${excludeInstituteSql("institute_name")}`;
   const dims = `TRIM(institute_name) AS campus, TRIM(batch_name) AS batch, TRIM(IFNULL(derived_semester_title, '')) AS derived,
       COALESCE(NULLIF(TRIM(section), ''), '—') AS section, TRIM(semester_course_name) AS sa_course`;
-  const [slotRows, unitRows, saMap] = await Promise.all([
-    bqQuery<Record<string, string | null>>(
-      `SELECT ${dims},
-        LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
-        ANY_VALUE(CAST(student_user_id AS STRING)) AS student_id,
-        COUNT(DISTINCT assessment_id) AS total_n,
-        COUNT(DISTINCT IF(${held}, assessment_id, NULL)) AS held_n,
-        COUNT(DISTINCT IF(${held} AND ${attempted}, assessment_id, NULL)) AS attempted_n,
-        SUM(IF(${held} AND ${attempted}, IFNULL(score_percentage, 0), 0)) AS score_sum
+  const dimNames = "campus, batch, derived, section, sa_course";
+  const round = "COALESCE(NULLIF(TRIM(assessment_type_raw), ''), CAST(assessment_id AS STRING))";
+  // One row per student × course × round.
+  const rounds = `SELECT ${dims}, LOWER(REPLACE(CAST(student_user_id AS STRING), '-', '')) AS student_key,
+        ANY_VALUE(CAST(student_user_id AS STRING)) AS student_id, ${round} AS sa_round,
+        LOGICAL_OR(${attempted} AND ${evaluated}) AS scored,
+        MAX(IF(${attempted} AND ${evaluated}, IFNULL(score_percentage, 0), NULL)) AS best,
+        LOGICAL_OR(NOT (${attempted}) AND ${closed}) AS missed,
+        LOGICAL_OR(${attempted} AND NOT (${evaluated})) AS pending
       FROM ${SKILL_ASSESSMENT_TABLE}
       WHERE ${where}
-      GROUP BY campus, batch, derived, section, sa_course, student_key`,
+      GROUP BY ${dimNames}, student_key, sa_round`;
+  const held = "(scored OR (missed AND NOT pending))";
+  const [slotRows, unitRows, saMap] = await Promise.all([
+    bqQuery<Record<string, string | null>>(
+      `SELECT ${dimNames}, student_key, ANY_VALUE(student_id) AS student_id,
+        COUNT(*) AS total_n,
+        COUNTIF(${held}) AS held_n,
+        COUNTIF(scored) AS attempted_n,
+        SUM(IF(scored, best, 0)) AS score_sum
+      FROM (${rounds})
+      GROUP BY ${dimNames}, student_key`,
       {},
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
     ),
     bqQuery<Record<string, string | null>>(
-      `SELECT ${dims}, CAST(assessment_id AS STRING) AS unit, CAST(LOGICAL_OR(${held}) AS STRING) AS done
-      FROM ${SKILL_ASSESSMENT_TABLE}
-      WHERE ${where}
-      GROUP BY campus, batch, derived, section, sa_course, unit`,
+      `SELECT ${dimNames}, sa_round AS unit, CAST(LOGICAL_OR(${held}) AS STRING) AS done
+      FROM (${rounds})
+      GROUP BY ${dimNames}, unit`,
       {},
       BQ_LOCATION,
       BQ_HEAVY_QUERY_TIMEOUT_MS,
@@ -6337,7 +6354,8 @@ const skillSnapshot = createSnapshot<AssessmentModel>("assessment-skill", async 
   for (const r of unitRows) {
     const key = unitWindowKey(sectionKeyOf(r), subjectOf(r), null, null);
     const list = units.get(key) ?? [];
-    list.push({ unit: String(r["unit"]), done: isTrue(r["done"]), type: "SKILL_ASSESSMENT" });
+    // A tag repeats across courses and batches: the unit is batch × semester × course × round.
+    list.push({ unit: [r["batch"], r["derived"], subjectOf(r), r["unit"]].join("	"), done: isTrue(r["done"]), type: "SKILL_ASSESSMENT" });
     units.set(key, list);
   }
   return { slots, units };

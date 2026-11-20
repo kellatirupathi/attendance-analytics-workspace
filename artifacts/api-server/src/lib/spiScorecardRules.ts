@@ -66,10 +66,15 @@ export function toStudentQuizCourseRow(r: RawQuizCourseRow): StudentQuizCourseRo
   };
 }
 
-/** One Skill Assessment of a student, already linked to its report course (MAIN variant only). */
+/** One Skill Assessment attempt row of a student, already linked to its report course (skillAssessmentType.ts). */
 export interface SkillAssessmentRow {
   course: string;
-  /** Counts toward the total: attempted, or not attempted and its window has closed. */
+  /**
+   * The round it belongs to (semester + assessment_type_raw tag, e.g. SEM_1_SKILL_1_MAIN). A round held again (a re-test
+   * or a second link) comes as another assessment with the same tag; rows of one round count once. Missing → its own round.
+   */
+  round?: string;
+  /** Counts toward the total: attempted and evaluated, or not attempted and its window has closed. */
   held: boolean;
   attempted: boolean;
   /** 0–100 when attempted and evaluated; null otherwise. */
@@ -250,25 +255,44 @@ export function groupQuizzes(
 }
 
 /**
- * Skill Assessments per report course: the course takes the BEST score among the Skill
- * Assessments held (agreed 2026-10-22). Attempted / total count every one held; when none was
- * attempted the score is 0.
+ * Skill Assessments per report course, like quizzes (agreed 2026-11-20, replaces "best of all rounds" from 2026-10-22):
+ * - a round (SA-1, SA-2, ...: one tag) takes its best evaluated score over all its attempts, and counts once;
+ * - course score = Σ round best ÷ rounds held, so a held round with no attempt counts as 0;
+ * - a round is held once it has an evaluated attempt, or it closed with no attempt. One waiting for evaluation (and
+ *   with no other score) and one still open are left out until then.
+ * Attempted / total are rounds.
  */
 export function groupSkillAssessments(rows: SkillAssessmentRow[], courseKeys: Set<string>): Map<string, QuizPart> {
-  const sums = new Map<string, { held: number; attempted: number; best: number }>();
-  for (const row of rows) {
+  type Round = { scored: boolean; best: number; missed: boolean; pending: boolean };
+  const byCourse = new Map<string, Map<string, Round>>();
+  rows.forEach((row, i) => {
     const key = courseKey(row.course);
-    if (!courseKeys.has(key) || !row.held) continue;
-    const sum = sums.get(key) ?? { held: 0, attempted: 0, best: 0 };
-    sum.held += 1;
-    if (row.attempted) sum.attempted += 1;
-    sum.best = Math.max(sum.best, row.scorePct ?? 0);
-    sums.set(key, sum);
-  }
+    if (!courseKeys.has(key)) return;
+    const roundKey = row.round?.trim().toUpperCase() || `#row-${i}`;
+    const rounds = byCourse.get(key) ?? new Map<string, Round>();
+    const round = rounds.get(roundKey) ?? { scored: false, best: 0, missed: false, pending: false };
+    if (row.held && row.attempted) {
+      round.scored = true;
+      round.best = Math.max(round.best, row.scorePct ?? 0);
+    } else if (row.held) round.missed = true;
+    else if (row.attempted) round.pending = true;
+    rounds.set(roundKey, round);
+    byCourse.set(key, rounds);
+  });
   const parts = new Map<string, QuizPart>();
-  for (const [key, sum] of sums) {
-    if (sum.held <= 0) continue;
-    parts.set(key, { avgPct: Math.round(sum.best * 10) / 10, attempted: sum.attempted, total: sum.held });
+  for (const [key, rounds] of byCourse) {
+    let held = 0;
+    let attempted = 0;
+    let points = 0;
+    for (const r of rounds.values()) {
+      if (r.scored) {
+        held += 1;
+        attempted += 1;
+        points += r.best;
+      } else if (r.missed && !r.pending) held += 1;
+    }
+    if (held <= 0) continue;
+    parts.set(key, { avgPct: Math.round((points / held) * 10) / 10, attempted, total: held });
   }
   return parts;
 }

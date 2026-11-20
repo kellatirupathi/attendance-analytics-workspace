@@ -111,8 +111,8 @@ const shortSection = (batchSection: string | null): string => {
 };
 
 /**
- * Skill Assessment rows, one per student × course, taken from the saved reports: the assessments held and attempted
- * and the course's best score are exactly what the student's report shows. Colleges whose assessment data is not linked
+ * Skill Assessment rows, one per student × course, taken from the saved reports: the rounds held and attempted
+ * and the course score (best attempt per round, averaged) are exactly what the student's report shows. Colleges whose assessment data is not linked
  * to report courses have no rows (the tab says so).
  */
 async function loadSkill(term?: string): Promise<QuizCoverageModel> {
@@ -157,7 +157,7 @@ async function loadSkill(term?: string): Promise<QuizCoverageModel> {
         scheduled: skill.total,
         completed: Math.min(skill.attempted, skill.total),
         avgScore: skill.avgPct,
-        // The report's Skill Assessment score of a course is its best score (0 when none was attempted): one point per row.
+        // The report's Skill Assessment score of a course (best attempt per round, averaged over rounds held): one point per row.
         points: skill.avgPct,
         weight: 1,
       });

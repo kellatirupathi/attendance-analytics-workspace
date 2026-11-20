@@ -33,7 +33,7 @@ async function getReportConfig(): Promise<ReportConfig> {
 }
 
 /** Bump when a report rule changes in code, so saved reports are rebuilt on the next sync check. */
-const REPORT_RULES_VERSION = "latest-section-semester-2026-11-15";
+const REPORT_RULES_VERSION = "sa-best-per-round-2026-11-20";
 
 /** Changes when the report rules, course credits, the SA map or removed courses change; reports built before are out of date. */
 export async function reportConfigVersion(): Promise<string> {
@@ -54,7 +54,7 @@ function assembleScorecard(
   // table links them to report courses. Unmapped ones stay off the report until the map has them.
   const skillRows: SkillAssessmentRow[] = skillAssessments.flatMap((sa) => {
     const course = reportCourseIn(saMap.value, sa.college, sa.batch, sa.semester, sa.saCourse);
-    return course ? [{ course, held: sa.held, attempted: sa.attempted, scorePct: sa.scorePct }] : [];
+    return course ? [{ course, round: `${sa.semester}|${sa.round}`, held: sa.held, attempted: sa.attempted, scorePct: sa.scorePct }] : [];
   });
   const scorecard = buildScorecard(identity, weighted, quizRows, removedCoursesIn(removed.value, identity.instituteName), skillRows);
   // The semester the report covers, for the title tag on the student report.

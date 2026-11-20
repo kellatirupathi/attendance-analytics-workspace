@@ -147,7 +147,7 @@ test("courses in the removed list are left off the report (Intro To NIAT everywh
   assert.deepEqual(elsewhere.courses.map((c) => c.name), ["Universal Human Values", "Back End Development"]);
 });
 
-test("Skill Assessments: best score per course, they add 25% to the course score and have their own eligibility", () => {
+test("Skill Assessments: best attempt per round, averaged over rounds; 25% of the course score; own eligibility", () => {
   const rows = [raw("Back End", "CLASSROOM_QUIZ", 10, 10, 80, "Back End Development")].map(toStudentQuizCourseRow);
   const sc = buildScorecard(
     { studentId: "x", studentName: "x" },
@@ -155,22 +155,64 @@ test("Skill Assessments: best score per course, they add 25% to the course score
     rows,
     new Set(),
     [
-      { course: "Back End Development", held: true, attempted: true, scorePct: 90 },
-      { course: "Back End Development", held: true, attempted: false, scorePct: null }, // missed → 0
-      { course: "Back End Development", held: false, attempted: false, scorePct: null }, // still open → not counted
-      { course: "Some Other Course", held: true, attempted: true, scorePct: 100 }, // not on the report → ignored
+      { course: "Back End Development", round: "S3|SEM_3_SKILL_1_MAIN", held: true, attempted: true, scorePct: 90 },
+      { course: "Back End Development", round: "S3|SEM_3_SKILL_2_MAIN", held: true, attempted: false, scorePct: null }, // missed → 0
+      { course: "Back End Development", round: "S3|SEM_3_SKILL_3_MAIN", held: false, attempted: false, scorePct: null }, // still open → not counted
+      { course: "Some Other Course", round: "S3|SEM_3_SKILL_1_MAIN", held: true, attempted: true, scorePct: 100 }, // not on the report → ignored
     ],
   );
   const be = sc.courses[0];
-  // Best of the held ones (90 and a missed one) is 90; the missed one still counts as held.
-  assert.deepEqual(be.skillAssessment, { avgPct: 90, attempted: 1, total: 2 });
-  // (80×10 + 90×25) ÷ 35 = 87.14
-  assert.equal(be.courseScore, 87.14);
+  // (90 + 0) ÷ 2 rounds held = 45
+  assert.deepEqual(be.skillAssessment, { avgPct: 45, attempted: 1, total: 2 });
+  // (80×10 + 0×25) ÷ 35: SA 45 is below 50 so it earns 0 → 22.86
+  assert.equal(be.courseScore, 22.86);
   assert.deepEqual(sc.eligibility.skillAssessment, { state: "not_met", attempted: 1, total: 2 });
 });
 
-test("Skill Assessments: Crescent example, best of SA-1..3 per course (two P&S codes are one course)", () => {
-  const sa = (course: string, scorePct: number) => ({ course, held: true, attempted: true, scorePct });
+test("Skill Assessments: the user's example, SA-1 0,0,90 · SA-2 0,0,80 · SA-3 0,20,0,90 → (90+80+90) ÷ 3 = 86.7", () => {
+  const course = "Web Application Development";
+  const att = (round: string, scorePct: number) => ({ course, round, held: true, attempted: true, scorePct });
+  const miss = (round: string) => ({ course, round, held: true, attempted: false, scorePct: null });
+  const sc = buildScorecard({ studentId: "x", studentName: "x" }, [{ subjectTitle: course, present: 1, total: 1, weight: 1 }], [], new Set(), [
+    miss("SA1"), miss("SA1"), att("SA1", 90),
+    miss("SA2"), att("SA2", 0), att("SA2", 80),
+    att("SA3", 0), att("SA3", 20), miss("SA3"), att("SA3", 90),
+  ]);
+  assert.deepEqual(sc.courses[0]!.skillAssessment, { avgPct: 86.7, attempted: 3, total: 3 });
+  assert.deepEqual(sc.eligibility.skillAssessment, { state: "met", attempted: 3, total: 3 });
+});
+
+test("Skill Assessments: round edge cases", () => {
+  const course = "English";
+  const card = (rows: { round?: string; held: boolean; attempted: boolean; scorePct: number | null }[]) =>
+    buildScorecard({ studentId: "x", studentName: "x" }, [{ subjectTitle: course, present: 1, total: 1, weight: 1 }], [], new Set(),
+      rows.map((r) => ({ course, ...r }))).courses[0]!.skillAssessment;
+  // Re-test link not attempted: the round keeps its score, the extra link is not a 0.
+  assert.deepEqual(card([{ round: "R1", held: true, attempted: true, scorePct: 60 }, { round: "R1", held: true, attempted: false, scorePct: null }]),
+    { avgPct: 60, attempted: 1, total: 1 });
+  // Round names match ignoring case and spaces at the ends.
+  assert.deepEqual(card([{ round: "sem_1_skill_1_main ", held: true, attempted: true, scorePct: 40 }, { round: "SEM_1_SKILL_1_MAIN", held: true, attempted: true, scorePct: 70 }]),
+    { avgPct: 70, attempted: 1, total: 1 });
+  // Waiting for evaluation, other link closed unattempted: wait, don't score it 0.
+  assert.equal(card([{ round: "R1", held: false, attempted: true, scorePct: null }, { round: "R1", held: true, attempted: false, scorePct: null }]), null);
+  // Waiting for evaluation but another attempt already scored: use the score.
+  assert.deepEqual(card([{ round: "R1", held: false, attempted: true, scorePct: null }, { round: "R1", held: true, attempted: true, scorePct: 55 }]),
+    { avgPct: 55, attempted: 1, total: 1 });
+  // Only open rounds: nothing held yet → no Skill Assessment part, never 0.
+  assert.equal(card([{ round: "R1", held: false, attempted: false, scorePct: null }]), null);
+  // Every round missed → 0 over the rounds held.
+  assert.deepEqual(card([{ round: "R1", held: true, attempted: false, scorePct: null }, { round: "R2", held: true, attempted: false, scorePct: null }]),
+    { avgPct: 0, attempted: 0, total: 2 });
+  // Rows without a round are each their own round.
+  assert.deepEqual(card([{ held: true, attempted: true, scorePct: 50 }, { held: true, attempted: true, scorePct: 70 }]), { avgPct: 60, attempted: 2, total: 2 });
+  // Evaluated with no score reads as 0.
+  assert.deepEqual(card([{ round: "R1", held: true, attempted: true, scorePct: null }]), { avgPct: 0, attempted: 1, total: 1 });
+  // One decimal: (80 + 83.3) ÷ 2 = 81.65 → 81.7
+  assert.deepEqual(card([{ round: "R1", held: true, attempted: true, scorePct: 80 }, { round: "R2", held: true, attempted: true, scorePct: 83.3 }])!.avgPct, 81.7);
+});
+
+test("Skill Assessments: Crescent example, two P&S codes are one course; rounds averaged", () => {
+  const sa = (course: string, round: string, scorePct: number) => ({ course, round, held: true, attempted: true, scorePct });
   const sc = buildScorecard(
     { studentId: "c155ec13", studentName: "x" },
     ["Probability and Statistics", "Full Stack Back-end Development", "Numerical Ability and Reasoning Skills for Engineers", "Applied Communicative English"]
@@ -178,13 +220,15 @@ test("Skill Assessments: Crescent example, best of SA-1..3 per course (two P&S c
     [],
     new Set(),
     [
-      sa("Probability and Statistics", 50), sa("Probability and Statistics", 44.67), sa("Probability and Statistics", 33.33),
-      sa("Full Stack Back-end Development", 50), sa("Full Stack Back-end Development", 44), sa("Full Stack Back-end Development", 40),
-      sa("Numerical Ability and Reasoning Skills for Engineers", 35), sa("Numerical Ability and Reasoning Skills for Engineers", 45), sa("Numerical Ability and Reasoning Skills for Engineers", 70),
-      sa("Applied Communicative English", 63.33), sa("Applied Communicative English", 66.67), sa("Applied Communicative English", 86.67),
+      // PROPABILITY (SA-1) and PROBABILITY (SA-2, SA-3) both map to Probability and Statistics.
+      sa("Probability and Statistics", "S3|SEM_3_SKILL_1_MAIN", 50), sa("Probability and Statistics", "S3|SEM_3_SKILL_2_MAIN", 44.67), sa("Probability and Statistics", "S3|SEM_3_SKILL_3_MAIN", 33.33),
+      sa("Full Stack Back-end Development", "S3|SEM_3_SKILL_1_MAIN", 50), sa("Full Stack Back-end Development", "S3|SEM_3_SKILL_2_MAIN", 44), sa("Full Stack Back-end Development", "S3|SEM_3_SKILL_3_MAIN", 40),
+      sa("Numerical Ability and Reasoning Skills for Engineers", "S3|SEM_3_SKILL_1_MAIN", 35), sa("Numerical Ability and Reasoning Skills for Engineers", "S3|SEM_3_SKILL_2_MAIN", 45), sa("Numerical Ability and Reasoning Skills for Engineers", "S3|SEM_3_SKILL_3_MAIN", 70),
+      sa("Applied Communicative English", "S3|SEM_3_SKILL_1_MAIN", 63.33), sa("Applied Communicative English", "S3|SEM_3_SKILL_2_MAIN", 66.67), sa("Applied Communicative English", "S3|SEM_3_SKILL_3_MAIN", 86.67),
     ],
   );
-  assert.deepEqual(sc.courses.map((c) => [c.skillAssessment?.avgPct, c.skillAssessment?.attempted]), [[50, 3], [50, 3], [70, 3], [86.7, 3]]);
+  // (50+44.67+33.33)/3 = 42.7 · (50+44+40)/3 = 44.7 · (35+45+70)/3 = 50 · (63.33+66.67+86.67)/3 = 72.2
+  assert.deepEqual(sc.courses.map((c) => [c.skillAssessment?.avgPct, c.skillAssessment?.attempted]), [[42.7, 3], [44.7, 3], [50, 3], [72.2, 3]]);
   assert.deepEqual(sc.eligibility.skillAssessment, { state: "met", attempted: 12, total: 12 });
 });
 
