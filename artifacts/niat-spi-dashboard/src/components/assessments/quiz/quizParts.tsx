@@ -59,7 +59,7 @@ function Card({ label, tip, value, children, loading }: { label: string; tip: Re
 
 const pctText = (v: number | null) => (v == null ? "–" : `${v.toFixed(1)}%`);
 
-/** The four cards: Available, Scheduled so far, Overall score (with the average best score), Student participation (attempted ÷ scheduled). */
+/** The four cards: Available, Scheduled so far, Overall score (with the average score of those who attempted), Student participation (attempted ÷ scheduled). */
 export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpis: QuizKpis | undefined; loading: boolean; quizType: QuizType; onRetry: () => void; failed: boolean }) {
   const skill = isSkill(quizType);
   const Quizzes = `${QUIZ_LABEL[quizType].name.split(" ")[0]} quizzes`;
@@ -92,28 +92,28 @@ export function QuizKpiCards({ kpis, loading, quizType, onRetry, failed }: { kpi
       )}
       <Card
         label={skill ? "Student slots" : "Scheduled so far"}
-        tip={skill ? "Held assessments for each student of the section." : `${Quizzes} whose session is scheduled on or before today, counted once per college`}
+        tip={skill ? "Rounds held (SA-1, SA-2, …) for each student and course. A round held twice counts once." : `${Quizzes} whose session is scheduled on or before today, counted once per college`}
         value={fmtInt(k?.scheduledSoFar ?? 0)}
         loading={loading || !k}
       />
       <Card
         label="Overall score"
-        tip={skill ? "Best score of attempted assessments, divided by assessments held. Assessments not attempted count as 0" : "Average of course scores, as on the report card. Course score = best score × quizzes attempted ÷ quizzes scheduled (not attempted = 0)."}
+        tip={skill ? "Average of course scores, as on the report card. Course score = best attempt of each round ÷ rounds held (a round not attempted = 0)." : "Average of course scores, as on the report card. Course score = best score × quizzes attempted ÷ quizzes scheduled (not attempted = 0)."}
         value={pctText(k?.avgScore ?? null)}
         loading={loading || !k}
       >
         <p className="text-xs text-slate-500">
-          {skill ? "Avg best score of attempted assessments" : "Avg best score of attempted quizzes"}: <span className="font-semibold tabular-nums text-slate-700">{pctText(k?.avgBestScore ?? null)}</span>
+          {skill ? "Avg score of students who attempted" : "Avg best score of attempted quizzes"}: <span className="font-semibold tabular-nums text-slate-700">{pctText(k?.avgBestScore ?? null)}</span>
         </p>
       </Card>
       <Card
         label="Student participation"
-        tip={skill ? "Assessments attempted by all students / assessments held for all students" : "Quizzes attempted by all students / quizzes scheduled for all students. Attempted = started or completed on the Learning Portal."}
+        tip={skill ? "Rounds attempted by all students / rounds held for all students" : "Quizzes attempted by all students / quizzes scheduled for all students. Attempted = started or completed on the Learning Portal."}
         value={pctText(k?.completionRate ?? null)}
         loading={loading || !k}
       >
         <p className="text-xs tabular-nums text-slate-500">
-          {fmtInt(k?.quizzesCompleted ?? 0)} of {fmtInt(k?.quizzesScheduled ?? 0)} {skill ? "assessments attempted" : "quizzes attempted"}
+          {fmtInt(k?.quizzesCompleted ?? 0)} of {fmtInt(k?.quizzesScheduled ?? 0)} {skill ? "rounds attempted" : "quizzes attempted"}
         </p>
         <Bar pct={k?.completionRate ?? null} />
       </Card>

@@ -5,7 +5,7 @@
 
 export type QuizType = "CLASSROOM_QUIZ" | "MODULE_QUIZ" | "SKILL_ASSESSMENT";
 
-/** Skill Assessment: the same tab, but the counts are assessments held and attempted, from the student reports. */
+/** Skill Assessment: the same tab, but the counts are rounds held and attempted (best attempt per round), from the student reports. */
 export const isSkill = (type: QuizType) => type === "SKILL_ASSESSMENT";
 
 export const QUIZ_LABEL: Record<QuizType, { name: string; short: string }> = {

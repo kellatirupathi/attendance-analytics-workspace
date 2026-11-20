@@ -70,7 +70,7 @@ export function QuizStudentPanel({ uid, quizType, term = "", onClose }: { uid: s
                       <th scope="col" className="px-3 py-2">Subject</th>
                       <th scope="col" className="px-3 py-2 text-right">Attempted</th>
                       <th scope="col" className="px-3 py-2 text-right">Attempt %</th>
-                      <th scope="col" className="px-3 py-2 text-right">{skill ? "Best score" : "Overall score"}</th>
+                      <th scope="col" className="px-3 py-2 text-right">{skill ? "Course score" : "Overall score"}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">

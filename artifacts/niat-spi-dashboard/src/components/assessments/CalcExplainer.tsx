@@ -67,9 +67,10 @@ export function CalcExplainer() {
               {COMPLETION_BANDS.good}%, Low &lt; {COMPLETION_BANDS.watch}%.
             </p>
             <p>
-              <span className="font-medium text-slate-900">Skill assessments:</span> main assessments only (practice ones are left out). One slot per
-              student per assessment that has been held: attempted and evaluated, or its window has closed. A held assessment that was not attempted
-              counts as 0; an attempt still waiting for evaluation is left out. Students come from the Skill Assessment data, and its courses follow
+              <span className="font-medium text-slate-900">Skill assessments:</span> Assessment Type "Skill Assessment" only (Mock and the Final
+              Skill Assessment are left out). Counted by round (SA-1, SA-2, …): if a round was held more than once, its best attempt counts, once.
+              One slot per student per round that has been held: an attempt was evaluated, or its window has closed. A held round that was not
+              attempted counts as 0; an attempt still waiting for evaluation is left out. Students come from the Skill Assessment data, and its courses follow
               the Skill Assessment course map, so an unmapped course shows under its assessment code.
             </p>
             <p>
