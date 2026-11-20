@@ -3,6 +3,7 @@ import { bqQuery, BQ_LOCATION } from "./bigquery.js";
 import { ATTENDANCE_TABLE as RAW_ATTENDANCE_TABLE } from "./attendance-contract.js";
 import { SKILL_ASSESSMENT_TABLE } from "./queries.js";
 import { logger } from "./logger.js";
+import { skillAssessmentSql } from "./skillAssessmentType.js";
 
 /**
  * Daily refresh of skill_assessment_course_map (run by the report sync, agreed 11 Nov 2026):
@@ -39,7 +40,7 @@ export async function getSkillAssessmentCourseStats(): Promise<SkillAssessmentCo
        TRIM(sa.batch_name) AS batch,
        TRIM(sa.derived_semester_title) AS semester,
        TRIM(sa.semester_course_name) AS sa_course,
-       COUNT(DISTINCT IF(UPPER(TRIM(IFNULL(sa.assessment_variant, ''))) = 'MAIN', sa.assessment_id, NULL)) AS main_sa_count,
+       COUNT(DISTINCT IF(${skillAssessmentSql("sa")}, sa.assessment_id, NULL)) AS main_sa_count,
        COUNT(DISTINCT sa.student_user_id) AS students,
        CAST(MIN(DATE(sa.assessment_open_at)) AS STRING) AS first_sa_date,
        CAST(MAX(DATE(sa.assessment_open_at)) AS STRING) AS last_sa_date,

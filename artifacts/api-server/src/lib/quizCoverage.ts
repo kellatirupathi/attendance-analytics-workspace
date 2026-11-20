@@ -11,6 +11,7 @@ import { buildQuizCoveragePlanSql, buildQuizCoverageRowsSql, type QuizCoverageTa
 import { courseScorePoint, restrictToReportCourses, scopePlanToStudentColleges, type QuizCoverageModel, type QuizRow, type SkillRound } from "./quizCoverageModel.js";
 import { loadReportCourses, loadSavedReports } from "./reportCourses.js";
 import { plainCourseName } from "./reportRemovedCourses.js";
+import { skillAssessmentSql } from "./skillAssessmentType.js";
 
 /**
  * Shared copy of the Assessments tab data, one per tab (Classroom Quiz, Module Quiz, Skill Assessment),
@@ -212,7 +213,7 @@ async function loadSkill(term?: string): Promise<QuizCoverageModel> {
 }
 
 /**
- * Skill Assessment rounds each student had held (MAIN only; Mock and the Final Skill Assessment left out): one row per
+ * Skill Assessment rounds each student had held (skillAssessmentType.ts: Mock and the Final Skill Assessment left out): one row per
  * student × college × batch × semester × course × round. Held = attempted and evaluated, or the window has closed,
  * as the report counts an assessment held.
  */
@@ -223,8 +224,7 @@ async function loadHeldRounds(): Promise<{ k: string; c: string; b: string; s: s
             TRIM(IFNULL(batch_name, '')) AS b, TRIM(derived_semester_title) AS s, TRIM(semester_course_name) AS sa_course,
             TRIM(assessment_type_raw) AS t
      FROM ${SKILL_ASSESSMENT_TABLE}
-     WHERE UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
-       AND UPPER(IFNULL(assessment_type_raw, '')) NOT LIKE '%FINAL%'
+     WHERE ${skillAssessmentSql()}
        AND NULLIF(TRIM(assessment_type_raw), '') IS NOT NULL
        AND semester_course_name IS NOT NULL AND student_user_id IS NOT NULL
        AND NULLIF(TRIM(derived_semester_title), '') IS NOT NULL

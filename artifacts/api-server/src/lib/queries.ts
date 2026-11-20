@@ -77,6 +77,7 @@ import {
   type SummaryGroupBy,
 } from "./assessmentSummarySql.js";
 import { classroomQuizScoreSql, isClassroomQuizSql, isModuleQuizSql, moduleQuizScoreSql, quizAttemptedSql, quizHeldSql, quizScore, scopedQuizRowsSql } from "./quizScoreSql.js";
+import { skillAssessmentSql } from "./skillAssessmentType.js";
 
 /**
  * Every attendance query reads eligible students only (see eligibleStudents.ts),
@@ -5283,7 +5284,7 @@ export interface StudentSkillAssessment {
 }
 
 /**
- * A student's Skill Assessments (MAIN variant; MOCK is practice). One row per assessment.
+ * A student's Skill Assessments (skillAssessmentType.ts: type "Skill Assessment", not MOCK). One row per assessment.
  * Held = attempted, or its window has closed; a missed one counts as 0. An attempt still
  * waiting for evaluation is left out until it has a score.
  */
@@ -5319,7 +5320,7 @@ export async function getSkillAssessmentRows(who: ReportStudents): Promise<Map<s
       IF(UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED', score_percentage, NULL) AS score_pct
     FROM ${SKILL_ASSESSMENT_TABLE}
     WHERE ${reportStudentMatch("student_user_id", who, params)}
-      AND UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
+      AND ${skillAssessmentSql()}
       AND semester_course_name IS NOT NULL`,
     params,
     BQ_LOCATION,
@@ -6258,7 +6259,7 @@ const assessmentSnapshot = createSnapshot<AssessmentModel>("assessment-summary",
 });
 
 /**
- * Skill Assessments (MAIN variant) in the same slot shape as the quiz snapshot, so the summary model groups
+ * Skill Assessments (skillAssessmentType.ts) in the same slot shape as the quiz snapshot, so the summary model groups
  * and rolls them up the same way. One slot per student × Skill Assessment course (mapped to its report
  * course through skill_assessment_course_map; an unmapped one keeps the assessment team's course code).
  * Held = attempted and evaluated, or its window has closed; a held assessment that was not attempted counts
@@ -6269,7 +6270,7 @@ const skillSnapshot = createSnapshot<AssessmentModel>("assessment-skill", async 
   const attempted = `UPPER(TRIM(IFNULL(attempt_status, ''))) = 'ATTEMPTED'`;
   const held = `((${attempted} AND UPPER(TRIM(IFNULL(evaluation_status, ''))) = 'EVALUATED')
       OR (NOT (${attempted}) AND IFNULL(assessment_close_at <= CURRENT_DATETIME('Asia/Kolkata'), TRUE)))`;
-  const where = `UPPER(TRIM(IFNULL(assessment_variant, ''))) = 'MAIN'
+  const where = `${skillAssessmentSql()}
       AND semester_course_name IS NOT NULL AND institute_name IS NOT NULL AND TRIM(institute_name) != ''
       AND student_user_id IS NOT NULL AND assessment_id IS NOT NULL
       AND ${excludeInstituteSql("institute_name")}`;
